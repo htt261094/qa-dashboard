@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>QA Team Dashboard — Bảo Kim</title>
+<script>(function(){try{var t=localStorage.getItem('qa-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+<style>* { box-sizing: border-box; }
+body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    background: #f4f5f7;
+    color: #172b4d;
+    font-size: 14px;
+    line-height: 1.5;
+}
+.container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+header {
+    background: white;
+    padding: 16px 24px;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    margin-bottom: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+header h1 { margin: 0; font-size: 20px; color: #0052cc; }
+header .meta { font-size: 13px; color: #6b778c; }
+header .meta strong { color: #172b4d; }
+header kbd {
+    background: #f4f5f7;
+    border: 1px solid #c1c7d0;
+    border-radius: 3px;
+    padding: 1px 6px;
+    font-family: monospace;
+    font-size: 12px;
+}
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.kpi-in { color: #0052cc; }
+.kpi-out { color: #36b37e; }
+.kpi-sep { color: #6b778c; font-weight: 400; }
+.kpi {
+    background: white;
+    padding: 16px;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    border-left: 4px solid #0052cc;
+}
+.kpi.warn { border-left-color: #de350b; }
+.kpi.success { border-left-color: #36b37e; }
+.kpi.info { border-left-color: #00b8d9; }
+.kpi .label { font-size: 11px; color: #6b778c; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+.kpi .value { font-size: 32px; font-weight: 600; color: #172b4d; margin-top: 4px; }
+.section {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    margin-bottom: 20px;
+    overflow: hidden;
+}
+.section h2 {
+    margin: 0;
+    padding: 14px 20px;
+    font-size: 15px;
+    color: #172b4d;
+    background: #fafbfc;
+    border-bottom: 1px solid #ebecf0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.section h2 .count {
+    background: #dfe1e6;
+    color: #42526e;
+    border-radius: 12px;
+    padding: 2px 10px;
+    font-size: 12px;
+    font-weight: 500;
+}
+table { width: 100%; border-collapse: collapse; }
+th, td {
+    padding: 10px 16px;
+    text-align: left;
+    border-bottom: 1px solid #ebecf0;
+    font-size: 13px;
+    vertical-align: middle;
+    white-space: nowrap;   /* uniform 1-line rows -> stable block height */
+}
+th {
+    background: #fafbfc;
+    font-weight: 600;
+    color: #5e6c84;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+tr:last-child td { border-bottom: none; }
+tr.is-new { background: linear-gradient(90deg, #fffae6 0%, #fff 80%); }
+tr.is-new td:first-child { position: relative; }
+tr.is-new td:first-child::before {
+    content: "NEW";
+    background: #ff8b00;
+    color: white;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 5px;
+    border-radius: 3px;
+    margin-right: 8px;
+    vertical-align: middle;
+    letter-spacing: 0.3px;
+}
+a.key { color: #0052cc; text-decoration: none; font-family: "SF Mono", Consolas, Monaco, monospace; font-weight: 600; font-size: 12px; }
+a.key:hover { text-decoration: underline; }
+.summary-cell { max-width: 0; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+.status-todo { background: #dfe1e6; color: #42526e; }
+.status-progress { background: #deebff; color: #0052cc; }
+.status-pending { background: #fff0b3; color: #974f0c; }
+.status-done { background: #e3fcef; color: #006644; }
+.status-cancel { background: #ebecf0; color: #6b778c; }
+.matrix { padding: 16px 20px; }
+.matrix td.num { text-align: center; font-weight: 500; }
+.matrix td.total { font-weight: 700; }
+.matrix .badge { font-size: 10px; padding: 2px 6px; border-radius: 3px; margin-left: 6px; font-weight: 600; }
+.badge-overload { background: #ffebe6; color: #bf2600; }
+.badge-ok { background: #e3fcef; color: #006644; }
+.badge-light { background: #deebff; color: #0052cc; }
+.days-overdue { color: #de350b; font-weight: 700; }
+.empty { padding: 32px; text-align: center; color: #6b778c; font-style: italic; }
+.type-badge {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    margin-right: 6px;
+    vertical-align: middle;
+}
+.type-Bug { background: #de350b; border-radius: 50%; }
+.type-Task { background: #4bade8; }
+.type-Sub-task { background: #36b37e; }
+.type-Story { background: #65ba43; }
+.type-Epic { background: #904ee2; }
+.first-run {
+    background: #deebff;
+    color: #0052cc;
+    padding: 12px 16px;
+    border-radius: 6px;
+    margin-bottom: 20px;
+    border-left: 4px solid #0052cc;
+    font-size: 13px;
+}
+.error {
+    background: #ffebe6;
+    color: #bf2600;
+    padding: 16px;
+    border-radius: 8px;
+    border-left: 4px solid #de350b;
+}
+
+/* ===== 2-column layout (Jira-style) ===== */
+.grid-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+.grid-2col .col { min-width: 0; }
+@media (max-width: 1000px) { .grid-2col { grid-template-columns: 1fr; } }
+
+/* ===== Pie / donut charts ===== */
+.chart-card { display: flex; flex-wrap: wrap; align-items: center; gap: 32px; padding: 36px; }
+.donut-wrap { position: relative; width: 320px; height: 320px; flex: 0 0 320px; }
+.donut { width: 100%; height: 100%; display: block; }
+.donut-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; }
+.donut-pct { font-size: 46px; font-weight: 600; color: #172b4d; line-height: 1.1; }
+.donut-lbl { font-size: 13px; color: #6b778c; max-width: 180px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chart-legend { flex: 1; min-width: 0; }
+.chart-legend .legend-title { color: #0052cc; font-size: 13px; line-height: 1.4; margin-bottom: 6px; }
+.chart-legend .legend-title strong { color: #172b4d; }
+.chart-legend table { width: 100%; }
+.chart-legend td { padding: 8px 4px; border-bottom: 1px solid #ebecf0; font-size: 13px; }
+.chart-legend tr:last-child td { border-bottom: none; }
+.legend-swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 8px; vertical-align: middle; }
+.legend-val { text-align: right; color: #42526e; font-weight: 600; white-space: nowrap; }
+
+/* ===== Workload matrix (expandable) ===== */
+.wl { padding-bottom: 4px; }
+.wl-row { display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr 1.4fr; align-items: center; gap: 4px; }
+.wl-row .num { text-align: center; }
+.wl-head { padding: 10px 16px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; color: #5e6c84; font-weight: 600; background: #fafbfc; border-bottom: 1px solid #ebecf0; }
+.wl-item { border-bottom: 1px solid #ebecf0; }
+.wl-item:last-child { border-bottom: none; }
+.wl-item > summary { padding: 10px 16px; cursor: pointer; list-style: none; }
+.wl-item > summary::-webkit-details-marker { display: none; }
+.wl-item > summary:hover { background: #f4f5f7; }
+.wl-name { font-weight: 600; position: relative; padding-left: 16px; }
+.wl-name::before { content: "\25B8"; position: absolute; left: 0; color: #6b778c; }
+.wl-item[open] .wl-name::before { content: "\25BE"; }
+.wl-total { text-align: center; font-weight: 700; }
+.wl-tasks { padding: 4px 16px 14px 28px; background: #fafbfc; }
+.wl-task { display: grid; grid-template-columns: auto auto 1fr auto auto; gap: 10px; align-items: center; padding: 7px 0; border-top: 1px solid #ebecf0; font-size: 13px; }
+.wl-task-sum { color: #172b4d; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wl-task-due { color: #6b778c; font-size: 12px; white-space: nowrap; }
+.wl-task-stale { color: #de350b; font-weight: 700; font-size: 11px; white-space: nowrap; text-align: right; }
+.wl-empty { padding: 8px 0; color: #6b778c; font-style: italic; font-size: 13px; }
+
+/* ===== Chart interactivity (pure CSS/SVG, no JS) ===== */
+.donut a { cursor: pointer; }
+.donut circle { transition: opacity 0.12s; }
+.donut:hover circle { opacity: 0.35; }
+.donut circle:hover { opacity: 1; }
+.legend-lbl { color: inherit; text-decoration: none; display: block; }
+.legend-lbl:hover { color: #0052cc; text-decoration: underline; }
+tr:hover .legend-lbl { color: #0052cc; }
+
+/* ===== Pagination ===== */
+.pager { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 10px 16px; border-top: 1px solid #ebecf0; background: #fafbfc; }
+.pager-btn { background: #fff; border: 1px solid #c1c7d0; border-radius: 4px; padding: 4px 10px; font-size: 12px; color: #42526e; cursor: pointer; }
+.pager-btn:hover:not(:disabled) { background: #f4f5f7; }
+.pager-btn:disabled { opacity: 0.4; cursor: default; }
+.pager-info { font-size: 12px; color: #6b778c; }
+.pager-filler td { background: #fff; }
+.pager-filler td::before { content: none !important; }
+
+/* ===== Activity stream ===== */
+.act-stream h2 .act-sub { font-weight: 400; color: #6b778c; font-size: 12px; margin-left: 8px; text-transform: none; letter-spacing: 0; }
+.act-list { padding: 2px 0 4px; }
+.act { display: grid; grid-template-columns: auto auto minmax(0,1fr) auto auto auto; gap: 12px; align-items: center; padding: 9px 18px; border-bottom: 1px solid #ebecf0; font-size: 13px; }
+.act:last-child { border-bottom: none; }
+.act-icon { font-size: 14px; line-height: 1; }
+.act-sum { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #172b4d; }
+.act-change { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.act-arrow { color: #6b778c; font-weight: 700; }
+.act-badge { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.3px; }
+.act-b-new { background: #e3fcef; color: #006644; }
+.act-who { color: #5e6c84; white-space: nowrap; font-size: 12px; font-weight: 600; }
+.act-time { color: #6b778c; white-space: nowrap; font-size: 12px; font-variant-numeric: tabular-nums; }
+.act-more { padding: 9px 18px; color: #6b778c; font-size: 12px; font-style: italic; }
+.act-group { padding: 10px 18px; border-bottom: 1px solid #ebecf0; }
+.act-group:last-child { border-bottom: none; }
+.act-g-head { display: flex; align-items: center; gap: 10px; margin-bottom: 2px; }
+.act-g-head .key { white-space: nowrap; }
+.act-g-head .act-sum { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #172b4d; font-size: 13px; }
+.act-row { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center; padding: 4px 0 4px 10px; font-size: 12px; }
+.act-change { display: flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #42526e; }
+.act-k { font-weight: 600; }
+.act-k-new { color: #006644; }
+.act-k-cmt { color: #0052cc; }
+.act-k-asg { color: #5e4db2; }
+.act-k-due { color: #974f0c; }
+.act-k-prio { color: #bf2600; }
+.act-by { color: #172b4d; font-weight: 600; white-space: nowrap; }
+.act-by::before { content: "👤 "; font-weight: 400; }
+.act-time { color: #97a0af; font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.act-head-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+.section h2 .count.act-unread { background: #ff8b00; color: #fff; }
+.act-clear { background: #0052cc; color: #fff; border: none; border-radius: 4px; padding: 4px 12px; font-size: 12px; font-weight: 600; cursor: pointer; text-transform: none; letter-spacing: 0; font-family: inherit; }
+.act-clear:hover { background: #0747a6; }
+.auto-btn { background: #f4f5f7; border: 1px solid #c1c7d0; border-radius: 4px; padding: 2px 8px; font-size: 12px; color: #42526e; cursor: pointer; font-family: inherit; }
+.auto-btn:hover { background: #ebecf0; }
+
+/* ===== Tabbed block (Overdue / Due tuần / Kẹt) ===== */
+.tab-bar { display: flex; gap: 2px; padding: 0 8px; background: #fafbfc; border-bottom: 1px solid #ebecf0; flex-wrap: wrap; }
+.tab { background: none; border: none; padding: 12px 12px; font-size: 13px; font-weight: 600; color: #6b778c; cursor: pointer; border-bottom: 2px solid transparent; font-family: inherit; }
+.tab:hover { color: #172b4d; }
+.tab.active { color: #0052cc; border-bottom-color: #0052cc; }
+.tab-count { background: #dfe1e6; color: #42526e; border-radius: 10px; padding: 1px 7px; font-size: 11px; margin-left: 2px; }
+.tab.active .tab-count { background: #deebff; color: #0052cc; }
+.tab-panel { min-height: 280px; }   /* reserve ~5 rows + pager so block height is stable across tabs */
+.tab-panel[hidden] { display: none; }
+html[data-theme="dark"] .tab-bar { background: var(--surface2); border-color: var(--border); }
+html[data-theme="dark"] .tab { color: var(--muted); }
+html[data-theme="dark"] .tab:hover { color: var(--text); }
+html[data-theme="dark"] .tab.active { color: var(--blue); border-bottom-color: var(--blue); }
+html[data-theme="dark"] .tab-count { background: var(--surface); color: var(--muted); }
+html[data-theme="dark"] .tab.active .tab-count { background: rgba(106,163,255,0.18); color: var(--blue); }
+
+/* ===== PIC modal ===== */
+.pic-fab {
+    position: fixed; right: 24px; bottom: 24px;
+    width: 54px; height: 54px; border-radius: 50%;
+    background: #0052cc; color: #fff; border: none;
+    font-size: 24px; cursor: pointer; z-index: 1000;
+    box-shadow: 0 4px 12px rgba(9,30,66,0.35);
+    display: flex; align-items: center; justify-content: center;
+}
+.pic-fab:hover { background: #0747a6; }
+.pic-overlay {
+    position: fixed; inset: 0; z-index: 1001;
+    background: rgba(9,30,66,0.54);
+    display: none; align-items: flex-start; justify-content: center;
+    padding: 40px 16px; overflow: auto;
+}
+.pic-overlay.open { display: flex; }
+.pic-modal { background: #fff; border-radius: 10px; width: 100%; max-width: 940px; box-shadow: 0 8px 28px rgba(0,0,0,0.3); }
+.pic-modal-head { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid #ebecf0; }
+.pic-modal-head h3 { margin: 0; font-size: 16px; color: #172b4d; }
+.pic-close { background: none; border: none; font-size: 24px; line-height: 1; cursor: pointer; color: #6b778c; }
+.pic-close:hover { color: #172b4d; }
+.pic-save-status { font-size: 12px; font-weight: 600; }
+.pic-body { padding: 12px 20px 20px; }
+.pic-table { width: 100%; border-collapse: collapse; }
+.pic-table th { background: #fafbfc; font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; color: #5e6c84; font-weight: 600; padding: 8px 12px; text-align: left; border-bottom: 2px solid #ebecf0; white-space: nowrap; }
+.pic-table td { padding: 6px 12px; border-bottom: 1px solid #ebecf0; vertical-align: top; white-space: normal; }
+.pic-group { font-weight: 700; color: #0052cc; background: #fafbfc; white-space: nowrap; border-right: 1px solid #ebecf0; }
+.pic-flow { min-height: 20px; padding: 6px 8px; border: 1px solid transparent; border-radius: 4px; font-size: 13px; line-height: 1.45; cursor: text; }
+.pic-flow:hover { border-color: #dfe1e6; }
+.pic-flow:focus { border-color: #0052cc; background: #fff; outline: none; }
+.pic-flow:empty::before { content: "—"; color: #b3bac5; }
+.pic-select { border: 1px solid #dfe1e6; border-radius: 4px; padding: 6px 8px; font-size: 13px; background: #fff; cursor: pointer; min-width: 110px; }
+.pic-select:focus { border-color: #0052cc; outline: none; }
+.pic-pic-cell { white-space: nowrap; width: 1%; }
+.pic-act { white-space: nowrap; width: 1%; text-align: right; padding-left: 0 !important; }
+/* group header: light, with a left accent bar — not a heavy block */
+.pic-grp td { background: #fbfcfe; border-bottom: 1px solid #ebecf0; padding-top: 9px; }
+.pic-grp td:first-child { border-left: 3px solid #4c9aff; }
+.pic-grp-name { font-weight: 700; color: #0052cc; min-height: 18px; padding: 4px 8px; border: 1px solid transparent; border-radius: 4px; cursor: text; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; display: inline-block; }
+.pic-grp-name:hover { border-color: #dfe1e6; }
+.pic-grp-name:focus { border-color: #0052cc; background: #fff; outline: none; }
+.pic-grp-name:empty::before { content: "(nhóm mới)"; color: #b3bac5; font-weight: 400; letter-spacing: 0; text-transform: none; }
+/* action buttons: hidden until you hover the row/group (or focus within) — keeps the table calm */
+.pic-act button { opacity: 0; transition: opacity .12s; background: none; border: none; cursor: pointer; border-radius: 4px; line-height: 1; }
+tr:hover .pic-act button, tr:focus-within .pic-act button { opacity: 1; }
+.pic-del-row, .pic-del-grp { color: #b3bac5; font-size: 15px; padding: 2px 7px; }
+.pic-del-row:hover, .pic-del-grp:hover { color: #de350b; background: #ffebe6; }
+.pic-add-row { color: #0065ff; font-size: 16px; font-weight: 700; padding: 1px 8px; }
+.pic-add-row:hover { background: #e6f0ff; }
+.pic-add-grp { opacity: 1; background: none; border: 1px dashed #c1c7d0; color: #6b778c; font-size: 12px; font-weight: 600; cursor: pointer; padding: 6px 14px; border-radius: 6px; }
+.pic-add-grp:hover { border-color: #4c9aff; color: #0052cc; background: #f4f8ff; }
+.pic-add-grp-wrap { margin-top: 10px; }
+.pic-hint { margin: 14px 2px 0; font-size: 12px; color: #6b778c; }
+
+/* ===== Dark mode (soft navy-gray, not pure black) ===== */
+.theme-fab {
+    position: fixed; right: 24px; bottom: 88px;
+    width: 54px; height: 54px; border-radius: 50%;
+    background: #fff; border: 1px solid #c1c7d0; color: #42526e;
+    font-size: 22px; cursor: pointer; z-index: 1000;
+    box-shadow: 0 4px 12px rgba(9,30,66,0.2);
+    display: flex; align-items: center; justify-content: center;
+}
+.theme-fab:hover { background: #f4f5f7; }
+
+html[data-theme="dark"] {
+    --bg: #1a1f2b; --surface: #232938; --surface2: #2a3142; --border: #333c50;
+    --text: #c7d0de; --muted: #8a94a6; --blue: #6aa3ff;
+}
+html[data-theme="dark"] body { background: var(--bg); color: var(--text); }
+html[data-theme="dark"] header,
+html[data-theme="dark"] .kpi,
+html[data-theme="dark"] .section,
+html[data-theme="dark"] .pic-modal { background: var(--surface); box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
+html[data-theme="dark"] header h1 { color: var(--blue); }
+html[data-theme="dark"] header .meta,
+html[data-theme="dark"] .kpi .label,
+html[data-theme="dark"] .empty,
+html[data-theme="dark"] .pager-info,
+html[data-theme="dark"] .donut-lbl,
+html[data-theme="dark"] th,
+html[data-theme="dark"] .wl-head,
+html[data-theme="dark"] .pic-hint,
+html[data-theme="dark"] .pic-close { color: var(--muted); }
+html[data-theme="dark"] header .meta strong,
+html[data-theme="dark"] .kpi .value,
+html[data-theme="dark"] .section h2,
+html[data-theme="dark"] .pic-modal-head h3,
+html[data-theme="dark"] .pic-flow,
+html[data-theme="dark"] .donut-pct { color: var(--text); }
+html[data-theme="dark"] header kbd { background: var(--surface2); border-color: var(--border); color: var(--text); }
+html[data-theme="dark"] .section h2,
+html[data-theme="dark"] th,
+html[data-theme="dark"] .wl-head,
+html[data-theme="dark"] .pager,
+html[data-theme="dark"] .pic-table th { background: var(--surface2); }
+html[data-theme="dark"] th, html[data-theme="dark"] td,
+html[data-theme="dark"] .section h2,
+html[data-theme="dark"] .wl-head, html[data-theme="dark"] .wl-item, html[data-theme="dark"] .wl-task,
+html[data-theme="dark"] .pager, html[data-theme="dark"] .chart-legend td,
+html[data-theme="dark"] .pic-table td, html[data-theme="dark"] .pic-modal-head { border-color: var(--border); }
+html[data-theme="dark"] .section h2 .count { background: var(--surface2); color: var(--muted); }
+html[data-theme="dark"] a.key,
+html[data-theme="dark"] .chart-legend .legend-title { color: var(--blue); }
+html[data-theme="dark"] .chart-legend .legend-title strong { color: var(--text); }
+html[data-theme="dark"] .wl-tasks,
+html[data-theme="dark"] .wl-item > summary:hover { background: var(--surface2); }
+html[data-theme="dark"] .wl-task-sum { color: var(--text); }
+html[data-theme="dark"] .wl-task-due,
+html[data-theme="dark"] .wl-empty,
+html[data-theme="dark"] .wl-name::before { color: var(--muted); }
+html[data-theme="dark"] .wl-task-stale { color: #ff8f73; }
+html[data-theme="dark"] .kpi-in { color: #6aa3ff; }
+html[data-theme="dark"] .kpi-out { color: #79e0a0; }
+html[data-theme="dark"] tr.is-new { background: linear-gradient(90deg, rgba(255,139,0,0.16) 0%, transparent 80%); }
+html[data-theme="dark"] .pager-btn { background: var(--surface); border-color: var(--border); color: var(--text); }
+html[data-theme="dark"] .pager-btn:hover:not(:disabled) { background: var(--surface2); }
+html[data-theme="dark"] .pager-filler td { background: var(--surface); }
+html[data-theme="dark"] .status-todo { background: #333c50; color: #c7d0de; }
+html[data-theme="dark"] .status-progress { background: rgba(106,163,255,0.18); color: #9ec3ff; }
+html[data-theme="dark"] .status-pending { background: rgba(245,205,71,0.16); color: #f5cd47; }
+html[data-theme="dark"] .status-done { background: rgba(101,199,127,0.18); color: #79e0a0; }
+html[data-theme="dark"] .status-cancel { background: #2a3142; color: #8a94a6; }
+html[data-theme="dark"] .badge-overload { background: rgba(255,86,48,0.18); color: #ff8f73; }
+html[data-theme="dark"] .badge-ok { background: rgba(101,199,127,0.18); color: #79e0a0; }
+html[data-theme="dark"] .badge-light { background: rgba(106,163,255,0.18); color: #9ec3ff; }
+html[data-theme="dark"] .days-overdue { color: #ff8f73; }
+html[data-theme="dark"] .first-run { background: rgba(106,163,255,0.12); color: #9ec3ff; border-color: var(--blue); }
+html[data-theme="dark"] .error { background: rgba(255,86,48,0.14); color: #ff8f73; }
+html[data-theme="dark"] .pic-overlay { background: rgba(0,0,0,0.6); }
+html[data-theme="dark"] .pic-group { background: var(--surface2); color: var(--blue); }
+html[data-theme="dark"] .pic-grp td { background: var(--surface2); }
+html[data-theme="dark"] .pic-grp td:first-child { border-left-color: var(--blue); }
+html[data-theme="dark"] .pic-grp-name { color: var(--blue); }
+html[data-theme="dark"] .pic-grp-name:hover { border-color: var(--border); }
+html[data-theme="dark"] .pic-grp-name:focus { background: var(--bg); border-color: var(--blue); }
+html[data-theme="dark"] .pic-grp-name:empty::before { color: var(--muted); }
+html[data-theme="dark"] .pic-add-row { color: var(--blue); }
+html[data-theme="dark"] .pic-add-row:hover { background: var(--surface2); }
+html[data-theme="dark"] .pic-add-grp { background: none; border-color: var(--border); color: var(--muted); }
+html[data-theme="dark"] .pic-add-grp:hover { border-color: var(--blue); color: var(--blue); background: var(--surface2); }
+html[data-theme="dark"] .pic-flow:hover { border-color: var(--border); }
+html[data-theme="dark"] .pic-flow:focus { background: var(--bg); border-color: var(--blue); }
+html[data-theme="dark"] .pic-select { background: var(--surface); border-color: var(--border); color: var(--text); }
+html[data-theme="dark"] .pic-flow:empty::before { color: var(--muted); }
+html[data-theme="dark"] .theme-fab { background: var(--surface2); border-color: var(--border); color: #f5cd47; }
+html[data-theme="dark"] .theme-fab:hover { background: var(--surface); }
+html[data-theme="dark"] .act { border-color: var(--border); }
+html[data-theme="dark"] .act-sum { color: var(--text); }
+html[data-theme="dark"] .act-who { color: #aeb8c8; }
+html[data-theme="dark"] .act-time,
+html[data-theme="dark"] .act-arrow,
+html[data-theme="dark"] .act-more,
+html[data-theme="dark"] .act-stream h2 .act-sub { color: var(--muted); }
+html[data-theme="dark"] .act-b-new { background: rgba(101,199,127,0.18); color: #79e0a0; }
+html[data-theme="dark"] .act-group { border-color: var(--border); }
+html[data-theme="dark"] .act-g-head .act-sum { color: var(--text); }
+html[data-theme="dark"] .act-change { color: var(--muted); }
+html[data-theme="dark"] .act-by { color: var(--text); }
+html[data-theme="dark"] .act-k-new { color: #79e0a0; }
+html[data-theme="dark"] .act-k-cmt { color: #9ec3ff; }
+html[data-theme="dark"] .act-k-asg { color: #c0b6f2; }
+html[data-theme="dark"] .act-k-due { color: #f5cd47; }
+html[data-theme="dark"] .act-k-prio { color: #ff8f73; }
+html[data-theme="dark"] .act-time { color: var(--muted); }
+html[data-theme="dark"] .auto-btn { background: var(--surface2); border-color: var(--border); color: var(--text); }
+html[data-theme="dark"] .auto-btn:hover { background: var(--surface); }
+</style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <h1>QA Team Dashboard</h1>
+        <div class="meta">Last refresh: <strong>2026-06-04 16:36:21</strong> · <kbd>F5</kbd> refresh · <button id="autoBtn" class="auto-btn" type="button"></button></div>
+    </header>
+    
+    <div class="kpis">
+        <div class="kpi"><div class="label">Total Active</div><div class="value">15</div></div>
+        <div class="kpi warn"><div class="label">Overdue</div><div class="value">15</div></div>
+        <div class="kpi "><div class="label">Kẹt ≥ 5 ngày</div><div class="value">0</div></div>
+        <div class="kpi info"><div class="label">Due This Week</div><div class="value">0</div></div>
+        <div class="kpi warn"><div class="label">Vào / Ra (tuần)</div><div class="value"><span class="kpi-in">12</span> <span class="kpi-sep">/</span> <span class="kpi-out">9</span></div></div>
+        <div class="kpi info"><div class="label">New 24h (Self)</div><div class="value">1</div></div>
+        <div class="kpi success"><div class="label">Done (3 ngày)</div><div class="value">1</div></div>
+    </div><div class="section act-stream" id="actStream"><h2>🔔 Hoạt động <span class="count">0</span></h2><div class="empty">Không có thông báo mới.</div></div><div class="grid-2col"><div class="col"><div class="section" data-paginate="5">
+        <h2>✅ Done (3 ngày) <span class="count">1</span></h2>
+        <table>
+            <thead><tr><th>Key</th><th>Summary</th><th>Assignee</th><th>Status</th><th>Cập nhật</th></tr></thead>
+            <tbody><tr>
+            <td><a href="https://e.com/browse/DA51H26-1" target="_blank" class="key">DA51H26-1</a></td>
+            <td class="summary-cell" title="[QA] Done">[QA] Done</td>
+            <td>Quang</td>
+            <td><span class="status status-done">DONE</span></td>
+            <td>2026-06-04 16:36</td>
+        </tr></tbody>
+        </table>
+    </div><div class="section" data-paginate="5">
+        <h2>🆕 New 24h (self-created by QA) <span class="count">1</span></h2>
+        <table>
+            <thead><tr><th>Key</th><th>Summary</th><th>Reporter</th><th>Assignee</th><th>Status</th><th>Created</th></tr></thead>
+            <tbody><tr>
+            <td><a href="https://e.com/browse/DA61H26-1" target="_blank" class="key">DA61H26-1</a></td>
+            <td class="summary-cell" title="[QA] New">[QA] New</td>
+            <td>Hiền</td>
+            <td>Thơ</td>
+            <td><span class="status status-todo">TO DO</span></td>
+            <td>2026-06-02 16:36</td>
+        </tr></tbody>
+        </table>
+    </div><div class="section tabbed">
+        <div class="tab-bar">
+            <button class="tab active" type="button" data-tab="overdue">⚠ Overdue <span class="tab-count">15</span></button>
+            <button class="tab" type="button" data-tab="dueweek">📅 Due tuần <span class="tab-count">0</span></button>
+            <button class="tab" type="button" data-tab="stuck">⏳ Kẹt ≥5d <span class="tab-count">0</span></button>
+        </div>
+        <div class="tab-panel" data-paginate="5" data-panel="overdue"><table><thead><tr><th>Key</th><th>Summary</th><th>Assignee</th><th>Status</th><th>Due</th><th>Trễ</th></tr></thead><tbody><tr><td><a href="https://e.com/browse/PSIT1H26-0" target="_blank" class="key">PSIT1H26-0</a></td><td class="summary-cell" title="[QA] Test luong 0">[QA] Test luong 0</td><td>Quang</td><td><span class="status status-progress">In Progress</span></td><td>2026-06-01</td><td class="days-overdue">3d</td></tr><tr><td><a href="https://e.com/browse/PSIT1H26-1" target="_blank" class="key">PSIT1H26-1</a></td><td class="summary-cell" title="[QA] Test luong 1">[QA] Test luong 1</td><td>Nhung</td><td><span class="status status-todo">TO DO</span></td><td>2026-06-01</td><td class="days-overdue">3d</td></tr><tr><td><a href="https://e.com/browse/PSIT1H26-2" target="_blank" class="key">PSIT1H26-2</a></td><td class="summary-cell" title="[QA] Test luong 2">[QA] Test luong 2</td><td>Thơ</td><td><span class="status status-pending">PENDING</span></td><td>2026-06-01</td><td class="days-overdue">3d</td></tr><tr><td><a href="https://e.com/browse/PSIT1H26-3" target="_blank" class="key">PSIT1H26-3</a></td><td class="summary-cell" title="[QA] Test luong 3">[QA] Test luong 3</td><td>Phương</td><td><span class="status status-progress">In Progress</span></td><td>2026-06-01</td><td class="days-overdue">3d</td></tr><tr><td><a href="https://e.com/browse/PSIT1H26-4" target="_blank" class="key">PSIT1H26-4</a></td><td class="summary-cell" title="[QA] Test luong 4">[QA] Test luong 4</td><td>Thành</td><td><span class="status status-todo">TO DO</span></td><td>2026-06-01</td><td class="days-overdue">3d</td></tr><tr><td><a href="https://e.com/browse/PSIT1H26-5" target="_blank" class="key">PSIT1H26-5</a></td><td class="summary-cell" title="[QA] Test luong 5">[QA] Test luong 5</td><td>Quang</td><td><span class="status status-progress">In Progress</span></td><td>2026-06-01</td><td class="days-overdue">3d</td></tr><tr><td><a href="https://e.com/browse/PSIT1H26-6" target="_blank" class="key">PSIT1H26-6</a></td><td class="summary-cell" title="[QA] Test luong 6">[QA] Test luong 6</td><td>Nhung</td><td><span class="status status-todo">TO DO</span></td><td>2026-06-01</td><td class="days-overdue">3d</td></tr><tr><td><a href="https://e.com/browse/PSIT1H26-7" target="_blank" class="key">PSIT1H26-7</a></td><td class="summary-cell" title="[QA] Test luong 7">[QA] Test luong 7</td><td>Thơ</td><td><span class="status status-pending">PENDING</span></td><td>2026-06-01</td><td class="days-overdue">3d</td></tr><tr><td><a href="https://e.com/browse/PSIT1H26-8" target="_blank" class="key">PSIT1H26-8</a></td><td class="summary-cell" title="[QA] Test luong 8">[QA] Test luong 8</td><td>Phương</td><td><span class="status status-progress">In Progress</span></td><td>2026-06-01</td><td class="days-overdue">3d</td></tr><tr><td><a href="https://e.com/browse/PSIT1H26-9" target="_blank" class="key">PSIT1H26-9</a></td><td class="summary-cell" title="[QA] Test luong 9">[QA] Test luong 9</td><td>Thành</td><td><span class="status status-todo">TO DO</span></td><td>2026-06-01</td><td class="days-overdue">3d</td></tr><tr><td><a href="https://e.com/browse/PSIT1H26-10" target="_blank" class="key">PSIT1H26-10</a></td><td class="summary-cell" title="[QA] Test luong 10">[QA] Test luong 10</td><td>Quang</td><td><span class="status status-progress">In Progress</span></td><td>2026-06-01</td><td class="days-overdue">3d</td></tr><tr><td><a href="https://e.com/browse/PSIT1H26-11" target="_blank" class="key">PSIT1H26-11</a></td><td class="summary-cell" title="[QA] Test luong 11">[QA] Test luong 11</td><td>Nhung</td><td><span class="status status-todo">TO DO</span></td><td>2026-06-01</td><td class="days-overdue">3d</td></tr><tr><td><a href="https://e.com/browse/PSIT1H26-12" target="_blank" class="key">PSIT1H26-12</a></td><td class="summary-cell" title="[QA] Test luong 12">[QA] Test luong 12</td><td>Thơ</td><td><span class="status status-pending">PENDING</span></td><td>2026-06-01</td><td class="days-overdue">3d</td></tr><tr><td><a href="https://e.com/browse/PSIT1H26-13" target="_blank" class="key">PSIT1H26-13</a></td><td class="summary-cell" title="[QA] Test luong 13">[QA] Test luong 13</td><td>Phương</td><td><span class="status status-progress">In Progress</span></td><td>2026-06-01</td><td class="days-overdue">3d</td></tr><tr><td><a href="https://e.com/browse/PSIT1H26-14" target="_blank" class="key">PSIT1H26-14</a></td><td class="summary-cell" title="[QA] Test luong 14">[QA] Test luong 14</td><td>Thành</td><td><span class="status status-todo">TO DO</span></td><td>2026-06-01</td><td class="days-overdue">3d</td></tr></tbody></table></div>
+        <div class="tab-panel" data-paginate="5" data-panel="dueweek" hidden><div class="empty">Không có task đến hạn trong tuần</div></div>
+        <div class="tab-panel" data-paginate="5" data-panel="stuck" hidden><div class="empty">Không có task kẹt ≥5 ngày 👍</div></div>
+    </div></div><div class="col"><div class="section">
+        <h2>Pie Chart: All Tasks</h2>
+        <div class="chart-card">
+            <div class="donut-wrap"><svg viewBox="0 0 200 200" class="donut"><a href="https://e.com/issues/?jql=assignee%20in%20%28quangbm%2Cnhungnh%2Cphuongct%2Ctholt%2Cthanhht1%29%20AND%20statusCategory%20%21%3D%20Done%20AND%20status%20%3D%20%22In%20Progress%22" target="_blank"><circle cx="100" cy="100" r="80" fill="none" stroke="#94C748" stroke-width="40" stroke-dasharray="201.06 301.59" stroke-dashoffset="-0.00" transform="rotate(-90 100 100)" data-pct="40" data-label="In Progress"><title>In Progress: 6 (40%)</title></circle></a><a href="https://e.com/issues/?jql=assignee%20in%20%28quangbm%2Cnhungnh%2Cphuongct%2Ctholt%2Cthanhht1%29%20AND%20statusCategory%20%21%3D%20Done%20AND%20status%20%3D%20%22TO%20DO%22" target="_blank"><circle cx="100" cy="100" r="80" fill="none" stroke="#85B8FF" stroke-width="40" stroke-dasharray="201.06 301.59" stroke-dashoffset="-201.06" transform="rotate(-90 100 100)" data-pct="40" data-label="TO DO"><title>TO DO: 6 (40%)</title></circle></a><a href="https://e.com/issues/?jql=assignee%20in%20%28quangbm%2Cnhungnh%2Cphuongct%2Ctholt%2Cthanhht1%29%20AND%20statusCategory%20%21%3D%20Done%20AND%20status%20%3D%20%22PENDING%22" target="_blank"><circle cx="100" cy="100" r="80" fill="none" stroke="#F87168" stroke-width="40" stroke-dasharray="100.53 402.12" stroke-dashoffset="-402.12" transform="rotate(-90 100 100)" data-pct="20" data-label="PENDING"><title>PENDING: 3 (20%)</title></circle></a></svg><div class="donut-center"><span class="donut-pct">15</span><span class="donut-lbl">issues</span></div></div>
+            <div class="chart-legend">
+                <div class="legend-title">Issue count per Status<br><strong>Total Issues: 15</strong></div>
+                <table><tbody><tr><td><a class="legend-lbl" href="https://e.com/issues/?jql=assignee%20in%20%28quangbm%2Cnhungnh%2Cphuongct%2Ctholt%2Cthanhht1%29%20AND%20statusCategory%20%21%3D%20Done%20AND%20status%20%3D%20%22In%20Progress%22" target="_blank" title="Mở trong Jira"><span class="legend-swatch" style="background:#94C748"></span>In Progress</a></td><td class="legend-val">6</td></tr><tr><td><a class="legend-lbl" href="https://e.com/issues/?jql=assignee%20in%20%28quangbm%2Cnhungnh%2Cphuongct%2Ctholt%2Cthanhht1%29%20AND%20statusCategory%20%21%3D%20Done%20AND%20status%20%3D%20%22TO%20DO%22" target="_blank" title="Mở trong Jira"><span class="legend-swatch" style="background:#85B8FF"></span>TO DO</a></td><td class="legend-val">6</td></tr><tr><td><a class="legend-lbl" href="https://e.com/issues/?jql=assignee%20in%20%28quangbm%2Cnhungnh%2Cphuongct%2Ctholt%2Cthanhht1%29%20AND%20statusCategory%20%21%3D%20Done%20AND%20status%20%3D%20%22PENDING%22" target="_blank" title="Mở trong Jira"><span class="legend-swatch" style="background:#F87168"></span>PENDING</a></td><td class="legend-val">3</td></tr></tbody></table>
+            </div>
+        </div>
+    </div><div class="section">
+        <h2>Pie Chart: All Tasks</h2>
+        <div class="chart-card">
+            <div class="donut-wrap"><svg viewBox="0 0 200 200" class="donut"><a href="https://e.com/issues/?jql=assignee%20in%20%28quangbm%2Cnhungnh%2Cphuongct%2Ctholt%2Cthanhht1%29%20AND%20statusCategory%20%21%3D%20Done%20AND%20assignee%20%3D%20quangbm" target="_blank"><circle cx="100" cy="100" r="80" fill="none" stroke="#94C748" stroke-width="40" stroke-dasharray="100.53 402.12" stroke-dashoffset="-0.00" transform="rotate(-90 100 100)" data-pct="20" data-label="Quang"><title>Quang: 3 (20%)</title></circle></a><a href="https://e.com/issues/?jql=assignee%20in%20%28quangbm%2Cnhungnh%2Cphuongct%2Ctholt%2Cthanhht1%29%20AND%20statusCategory%20%21%3D%20Done%20AND%20assignee%20%3D%20nhungnh" target="_blank"><circle cx="100" cy="100" r="80" fill="none" stroke="#85B8FF" stroke-width="40" stroke-dasharray="100.53 402.12" stroke-dashoffset="-100.53" transform="rotate(-90 100 100)" data-pct="20" data-label="Nhung"><title>Nhung: 3 (20%)</title></circle></a><a href="https://e.com/issues/?jql=assignee%20in%20%28quangbm%2Cnhungnh%2Cphuongct%2Ctholt%2Cthanhht1%29%20AND%20statusCategory%20%21%3D%20Done%20AND%20assignee%20%3D%20tholt" target="_blank"><circle cx="100" cy="100" r="80" fill="none" stroke="#F87168" stroke-width="40" stroke-dasharray="100.53 402.12" stroke-dashoffset="-201.06" transform="rotate(-90 100 100)" data-pct="20" data-label="Thơ"><title>Thơ: 3 (20%)</title></circle></a><a href="https://e.com/issues/?jql=assignee%20in%20%28quangbm%2Cnhungnh%2Cphuongct%2Ctholt%2Cthanhht1%29%20AND%20statusCategory%20%21%3D%20Done%20AND%20assignee%20%3D%20phuongct" target="_blank"><circle cx="100" cy="100" r="80" fill="none" stroke="#F5CD47" stroke-width="40" stroke-dasharray="100.53 402.12" stroke-dashoffset="-301.59" transform="rotate(-90 100 100)" data-pct="20" data-label="Phương"><title>Phương: 3 (20%)</title></circle></a><a href="https://e.com/issues/?jql=assignee%20in%20%28quangbm%2Cnhungnh%2Cphuongct%2Ctholt%2Cthanhht1%29%20AND%20statusCategory%20%21%3D%20Done%20AND%20assignee%20%3D%20thanhht1" target="_blank"><circle cx="100" cy="100" r="80" fill="none" stroke="#9F8FEF" stroke-width="40" stroke-dasharray="100.53 402.12" stroke-dashoffset="-402.12" transform="rotate(-90 100 100)" data-pct="20" data-label="Thành"><title>Thành: 3 (20%)</title></circle></a></svg><div class="donut-center"><span class="donut-pct">15</span><span class="donut-lbl">issues</span></div></div>
+            <div class="chart-legend">
+                <div class="legend-title">Issue count per Assignee<br><strong>Total Issues: 15</strong></div>
+                <table><tbody><tr><td><a class="legend-lbl" href="https://e.com/issues/?jql=assignee%20in%20%28quangbm%2Cnhungnh%2Cphuongct%2Ctholt%2Cthanhht1%29%20AND%20statusCategory%20%21%3D%20Done%20AND%20assignee%20%3D%20quangbm" target="_blank" title="Mở trong Jira"><span class="legend-swatch" style="background:#94C748"></span>Quang</a></td><td class="legend-val">3</td></tr><tr><td><a class="legend-lbl" href="https://e.com/issues/?jql=assignee%20in%20%28quangbm%2Cnhungnh%2Cphuongct%2Ctholt%2Cthanhht1%29%20AND%20statusCategory%20%21%3D%20Done%20AND%20assignee%20%3D%20nhungnh" target="_blank" title="Mở trong Jira"><span class="legend-swatch" style="background:#85B8FF"></span>Nhung</a></td><td class="legend-val">3</td></tr><tr><td><a class="legend-lbl" href="https://e.com/issues/?jql=assignee%20in%20%28quangbm%2Cnhungnh%2Cphuongct%2Ctholt%2Cthanhht1%29%20AND%20statusCategory%20%21%3D%20Done%20AND%20assignee%20%3D%20tholt" target="_blank" title="Mở trong Jira"><span class="legend-swatch" style="background:#F87168"></span>Thơ</a></td><td class="legend-val">3</td></tr><tr><td><a class="legend-lbl" href="https://e.com/issues/?jql=assignee%20in%20%28quangbm%2Cnhungnh%2Cphuongct%2Ctholt%2Cthanhht1%29%20AND%20statusCategory%20%21%3D%20Done%20AND%20assignee%20%3D%20phuongct" target="_blank" title="Mở trong Jira"><span class="legend-swatch" style="background:#F5CD47"></span>Phương</a></td><td class="legend-val">3</td></tr><tr><td><a class="legend-lbl" href="https://e.com/issues/?jql=assignee%20in%20%28quangbm%2Cnhungnh%2Cphuongct%2Ctholt%2Cthanhht1%29%20AND%20statusCategory%20%21%3D%20Done%20AND%20assignee%20%3D%20thanhht1" target="_blank" title="Mở trong Jira"><span class="legend-swatch" style="background:#9F8FEF"></span>Thành</a></td><td class="legend-val">3</td></tr></tbody></table>
+            </div>
+        </div>
+    </div><div class="section">
+        <h2>Workload Matrix <span class="count">15 active</span></h2>
+        <div class="wl"><div class="wl-head wl-row"><span>Assignee</span><span class="num">TO DO</span><span class="num">In Progress</span><span class="num">PENDING</span><span class="num">Total</span></div><details class="wl-item"><summary class="wl-row"><span class="wl-name">Quang</span><span class="num">0</span><span class="num">3</span><span class="num">0</span><span class="num wl-total">3<span class="badge badge-light">○ NHẸ</span></span></summary><div class="wl-tasks"><div class="wl-task"><a href="https://e.com/browse/PSIT1H26-0" target="_blank" class="key">PSIT1H26-0</a><span class="status status-progress">In Progress</span><span class="wl-task-sum">[QA] Test luong 0</span><span class="wl-task-due">2026-06-01</span><span class="wl-task-stale"></span></div><div class="wl-task"><a href="https://e.com/browse/PSIT1H26-5" target="_blank" class="key">PSIT1H26-5</a><span class="status status-progress">In Progress</span><span class="wl-task-sum">[QA] Test luong 5</span><span class="wl-task-due">2026-06-01</span><span class="wl-task-stale"></span></div><div class="wl-task"><a href="https://e.com/browse/PSIT1H26-10" target="_blank" class="key">PSIT1H26-10</a><span class="status status-progress">In Progress</span><span class="wl-task-sum">[QA] Test luong 10</span><span class="wl-task-due">2026-06-01</span><span class="wl-task-stale"></span></div></div></details><details class="wl-item"><summary class="wl-row"><span class="wl-name">Nhung</span><span class="num">3</span><span class="num">0</span><span class="num">0</span><span class="num wl-total">3<span class="badge badge-light">○ NHẸ</span></span></summary><div class="wl-tasks"><div class="wl-task"><a href="https://e.com/browse/PSIT1H26-1" target="_blank" class="key">PSIT1H26-1</a><span class="status status-todo">TO DO</span><span class="wl-task-sum">[QA] Test luong 1</span><span class="wl-task-due">2026-06-01</span><span class="wl-task-stale"></span></div><div class="wl-task"><a href="https://e.com/browse/PSIT1H26-6" target="_blank" class="key">PSIT1H26-6</a><span class="status status-todo">TO DO</span><span class="wl-task-sum">[QA] Test luong 6</span><span class="wl-task-due">2026-06-01</span><span class="wl-task-stale"></span></div><div class="wl-task"><a href="https://e.com/browse/PSIT1H26-11" target="_blank" class="key">PSIT1H26-11</a><span class="status status-todo">TO DO</span><span class="wl-task-sum">[QA] Test luong 11</span><span class="wl-task-due">2026-06-01</span><span class="wl-task-stale"></span></div></div></details><details class="wl-item"><summary class="wl-row"><span class="wl-name">Phương</span><span class="num">0</span><span class="num">3</span><span class="num">0</span><span class="num wl-total">3<span class="badge badge-light">○ NHẸ</span></span></summary><div class="wl-tasks"><div class="wl-task"><a href="https://e.com/browse/PSIT1H26-3" target="_blank" class="key">PSIT1H26-3</a><span class="status status-progress">In Progress</span><span class="wl-task-sum">[QA] Test luong 3</span><span class="wl-task-due">2026-06-01</span><span class="wl-task-stale"></span></div><div class="wl-task"><a href="https://e.com/browse/PSIT1H26-8" target="_blank" class="key">PSIT1H26-8</a><span class="status status-progress">In Progress</span><span class="wl-task-sum">[QA] Test luong 8</span><span class="wl-task-due">2026-06-01</span><span class="wl-task-stale"></span></div><div class="wl-task"><a href="https://e.com/browse/PSIT1H26-13" target="_blank" class="key">PSIT1H26-13</a><span class="status status-progress">In Progress</span><span class="wl-task-sum">[QA] Test luong 13</span><span class="wl-task-due">2026-06-01</span><span class="wl-task-stale"></span></div></div></details><details class="wl-item"><summary class="wl-row"><span class="wl-name">Thơ</span><span class="num">0</span><span class="num">0</span><span class="num">3</span><span class="num wl-total">3<span class="badge badge-light">○ NHẸ</span></span></summary><div class="wl-tasks"><div class="wl-task"><a href="https://e.com/browse/PSIT1H26-2" target="_blank" class="key">PSIT1H26-2</a><span class="status status-pending">PENDING</span><span class="wl-task-sum">[QA] Test luong 2</span><span class="wl-task-due">2026-06-01</span><span class="wl-task-stale"></span></div><div class="wl-task"><a href="https://e.com/browse/PSIT1H26-7" target="_blank" class="key">PSIT1H26-7</a><span class="status status-pending">PENDING</span><span class="wl-task-sum">[QA] Test luong 7</span><span class="wl-task-due">2026-06-01</span><span class="wl-task-stale"></span></div><div class="wl-task"><a href="https://e.com/browse/PSIT1H26-12" target="_blank" class="key">PSIT1H26-12</a><span class="status status-pending">PENDING</span><span class="wl-task-sum">[QA] Test luong 12</span><span class="wl-task-due">2026-06-01</span><span class="wl-task-stale"></span></div></div></details><details class="wl-item"><summary class="wl-row"><span class="wl-name">Thành</span><span class="num">3</span><span class="num">0</span><span class="num">0</span><span class="num wl-total">3<span class="badge badge-light">○ NHẸ</span></span></summary><div class="wl-tasks"><div class="wl-task"><a href="https://e.com/browse/PSIT1H26-4" target="_blank" class="key">PSIT1H26-4</a><span class="status status-todo">TO DO</span><span class="wl-task-sum">[QA] Test luong 4</span><span class="wl-task-due">2026-06-01</span><span class="wl-task-stale"></span></div><div class="wl-task"><a href="https://e.com/browse/PSIT1H26-9" target="_blank" class="key">PSIT1H26-9</a><span class="status status-todo">TO DO</span><span class="wl-task-sum">[QA] Test luong 9</span><span class="wl-task-due">2026-06-01</span><span class="wl-task-stale"></span></div><div class="wl-task"><a href="https://e.com/browse/PSIT1H26-14" target="_blank" class="key">PSIT1H26-14</a><span class="status status-todo">TO DO</span><span class="wl-task-sum">[QA] Test luong 14</span><span class="wl-task-due">2026-06-01</span><span class="wl-task-stale"></span></div></div></details></div>
+    </div></div></div>
+    <p style="text-align:center;color:#6b778c;font-size:12px;margin-top:30px">
+        Data live từ https://e.com · Tracking: Quang, Nhung, Phương, Thơ, Thành
+    </p>
+</div>
+<button class="theme-fab" id="themeFab" title="Đổi light / dark" aria-label="Đổi theme">🌙</button>
+
+<button class="pic-fab" id="picFab" title="PIC theo line dự án" aria-label="PIC theo line dự án">👥</button>
+<div class="pic-overlay" id="picOverlay">
+  <div class="pic-modal" role="dialog" aria-label="PIC theo line dự án">
+    <div class="pic-modal-head">
+      <h3>👥 PIC theo line dự án</h3>
+      <div style="display:flex;align-items:center;gap:16px">
+        <span class="pic-save-status" id="picStatus"></span>
+        <button class="pic-close" id="picClose" aria-label="Đóng">×</button>
+      </div>
+    </div>
+    <div class="pic-body">
+      <table class="pic-table">
+        <thead><tr><th>Dự án - Luồng</th><th>Người phụ trách</th><th class="pic-act"></th></tr></thead>
+        <tbody><tr class="pic-grp"><td colspan="2"><div class="pic-grp-name" contenteditable="true">Core</div></td><td class="pic-act"><button type="button" class="pic-add-row" title="Thêm luồng vào nhóm" aria-label="Thêm luồng">+</button><button type="button" class="pic-del-grp" title="Xoá cả nhóm" aria-label="Xoá cả nhóm">×</button></td></tr><tr class="pic-row"><td><div class="pic-flow" contenteditable="true">Chi Hộ - Luồng chính</div></td><td class="pic-pic-cell"><select class="pic-select"><option value="ThoLT" selected>ThoLT</option><option value="ThanhHT">ThanhHT</option><option value="PhuongCT">PhuongCT</option><option value="QuangBM">QuangBM</option><option value="NhungNH">NhungNH</option></select></td><td class="pic-act"><button type="button" class="pic-del-row" title="Xoá luồng" aria-label="Xoá luồng">×</button></td></tr><tr class="pic-row"><td><div class="pic-flow" contenteditable="true">Thu Hộ</div></td><td class="pic-pic-cell"><select class="pic-select"><option value="ThoLT">ThoLT</option><option value="ThanhHT" selected>ThanhHT</option><option value="PhuongCT">PhuongCT</option><option value="QuangBM">QuangBM</option><option value="NhungNH">NhungNH</option></select></td><td class="pic-act"><button type="button" class="pic-del-row" title="Xoá luồng" aria-label="Xoá luồng">×</button></td></tr><tr class="pic-row"><td><div class="pic-flow" contenteditable="true">Cổng Thanh Toán (CTT) - Luồng chính</div></td><td class="pic-pic-cell"><select class="pic-select"><option value="ThoLT">ThoLT</option><option value="ThanhHT">ThanhHT</option><option value="PhuongCT" selected>PhuongCT</option><option value="QuangBM">QuangBM</option><option value="NhungNH">NhungNH</option></select></td><td class="pic-act"><button type="button" class="pic-del-row" title="Xoá luồng" aria-label="Xoá luồng">×</button></td></tr><tr class="pic-row"><td><div class="pic-flow" contenteditable="true">Retail - Luồng chính</div></td><td class="pic-pic-cell"><select class="pic-select"><option value="ThoLT">ThoLT</option><option value="ThanhHT">ThanhHT</option><option value="PhuongCT">PhuongCT</option><option value="QuangBM" selected>QuangBM</option><option value="NhungNH">NhungNH</option></select></td><td class="pic-act"><button type="button" class="pic-del-row" title="Xoá luồng" aria-label="Xoá luồng">×</button></td></tr><tr class="pic-row"><td><div class="pic-flow" contenteditable="true">Ví Điện Tử (VĐT)</div></td><td class="pic-pic-cell"><select class="pic-select"><option value="ThoLT">ThoLT</option><option value="ThanhHT">ThanhHT</option><option value="PhuongCT" selected>PhuongCT</option><option value="QuangBM">QuangBM</option><option value="NhungNH">NhungNH</option></select></td><td class="pic-act"><button type="button" class="pic-del-row" title="Xoá luồng" aria-label="Xoá luồng">×</button></td></tr><tr class="pic-row"><td><div class="pic-flow" contenteditable="true">Bill Payment</div></td><td class="pic-pic-cell"><select class="pic-select"><option value="ThoLT">ThoLT</option><option value="ThanhHT">ThanhHT</option><option value="PhuongCT" selected>PhuongCT</option><option value="QuangBM">QuangBM</option><option value="NhungNH">NhungNH</option></select></td><td class="pic-act"><button type="button" class="pic-del-row" title="Xoá luồng" aria-label="Xoá luồng">×</button></td></tr><tr class="pic-row"><td><div class="pic-flow" contenteditable="true">ERP - Luồng Onboarding / Hợp đồng MRC</div></td><td class="pic-pic-cell"><select class="pic-select"><option value="ThoLT" selected>ThoLT</option><option value="ThanhHT">ThanhHT</option><option value="PhuongCT">PhuongCT</option><option value="QuangBM">QuangBM</option><option value="NhungNH">NhungNH</option></select></td><td class="pic-act"><button type="button" class="pic-del-row" title="Xoá luồng" aria-label="Xoá luồng">×</button></td></tr><tr class="pic-row"><td><div class="pic-flow" contenteditable="true">ICCP (Đầu vào VPBank)</div></td><td class="pic-pic-cell"><select class="pic-select"><option value="ThoLT">ThoLT</option><option value="ThanhHT">ThanhHT</option><option value="PhuongCT">PhuongCT</option><option value="QuangBM">QuangBM</option><option value="NhungNH" selected>NhungNH</option></select></td><td class="pic-act"><button type="button" class="pic-del-row" title="Xoá luồng" aria-label="Xoá luồng">×</button></td></tr><tr class="pic-row"><td><div class="pic-flow" contenteditable="true">VietQRPay</div></td><td class="pic-pic-cell"><select class="pic-select"><option value="ThoLT">ThoLT</option><option value="ThanhHT">ThanhHT</option><option value="PhuongCT">PhuongCT</option><option value="QuangBM">QuangBM</option><option value="NhungNH" selected>NhungNH</option></select></td><td class="pic-act"><button type="button" class="pic-del-row" title="Xoá luồng" aria-label="Xoá luồng">×</button></td></tr><tr class="pic-grp"><td colspan="2"><div class="pic-grp-name" contenteditable="true">QTRR</div></td><td class="pic-act"><button type="button" class="pic-add-row" title="Thêm luồng vào nhóm" aria-label="Thêm luồng">+</button><button type="button" class="pic-del-grp" title="Xoá cả nhóm" aria-label="Xoá cả nhóm">×</button></td></tr><tr class="pic-row"><td><div class="pic-flow" contenteditable="true">Luồng quyết toán</div></td><td class="pic-pic-cell"><select class="pic-select"><option value="ThoLT">ThoLT</option><option value="ThanhHT">ThanhHT</option><option value="PhuongCT" selected>PhuongCT</option><option value="QuangBM">QuangBM</option><option value="NhungNH">NhungNH</option></select></td><td class="pic-act"><button type="button" class="pic-del-row" title="Xoá luồng" aria-label="Xoá luồng">×</button></td></tr><tr class="pic-row"><td><div class="pic-flow" contenteditable="true">Đối soát nội bộ</div></td><td class="pic-pic-cell"><select class="pic-select"><option value="ThoLT">ThoLT</option><option value="ThanhHT" selected>ThanhHT</option><option value="PhuongCT">PhuongCT</option><option value="QuangBM">QuangBM</option><option value="NhungNH">NhungNH</option></select></td><td class="pic-act"><button type="button" class="pic-del-row" title="Xoá luồng" aria-label="Xoá luồng">×</button></td></tr><tr class="pic-row"><td><div class="pic-flow" contenteditable="true">Blacklist</div></td><td class="pic-pic-cell"><select class="pic-select"><option value="ThoLT">ThoLT</option><option value="ThanhHT" selected>ThanhHT</option><option value="PhuongCT">PhuongCT</option><option value="QuangBM">QuangBM</option><option value="NhungNH">NhungNH</option></select></td><td class="pic-act"><button type="button" class="pic-del-row" title="Xoá luồng" aria-label="Xoá luồng">×</button></td></tr><tr class="pic-row"><td><div class="pic-flow" contenteditable="true">Whitelist</div></td><td class="pic-pic-cell"><select class="pic-select"><option value="ThoLT">ThoLT</option><option value="ThanhHT" selected>ThanhHT</option><option value="PhuongCT">PhuongCT</option><option value="QuangBM">QuangBM</option><option value="NhungNH">NhungNH</option></select></td><td class="pic-act"><button type="button" class="pic-del-row" title="Xoá luồng" aria-label="Xoá luồng">×</button></td></tr><tr class="pic-grp"><td colspan="2"><div class="pic-grp-name" contenteditable="true">B2B</div></td><td class="pic-act"><button type="button" class="pic-add-row" title="Thêm luồng vào nhóm" aria-label="Thêm luồng">+</button><button type="button" class="pic-del-grp" title="Xoá cả nhóm" aria-label="Xoá cả nhóm">×</button></td></tr><tr class="pic-row"><td><div class="pic-flow" contenteditable="true">Luồng giao dịch VA, Thẻ tín dụng, Trả góp, autodebit, UCOF (thanh toán bằng token), ICCP (Đầu ra Bizzi)</div></td><td class="pic-pic-cell"><select class="pic-select"><option value="ThoLT" selected>ThoLT</option><option value="ThanhHT">ThanhHT</option><option value="PhuongCT">PhuongCT</option><option value="QuangBM">QuangBM</option><option value="NhungNH">NhungNH</option></select></td><td class="pic-act"><button type="button" class="pic-del-row" title="Xoá luồng" aria-label="Xoá luồng">×</button></td></tr><tr class="pic-row"><td><div class="pic-flow" contenteditable="true">VietQRPay</div></td><td class="pic-pic-cell"><select class="pic-select"><option value="ThoLT">ThoLT</option><option value="ThanhHT" selected>ThanhHT</option><option value="PhuongCT">PhuongCT</option><option value="QuangBM">QuangBM</option><option value="NhungNH">NhungNH</option></select></td><td class="pic-act"><button type="button" class="pic-del-row" title="Xoá luồng" aria-label="Xoá luồng">×</button></td></tr><tr class="pic-row"><td><div class="pic-flow" contenteditable="true">Admin Leadgen</div></td><td class="pic-pic-cell"><select class="pic-select"><option value="ThoLT">ThoLT</option><option value="ThanhHT">ThanhHT</option><option value="PhuongCT">PhuongCT</option><option value="QuangBM">QuangBM</option><option value="NhungNH" selected>NhungNH</option></select></td><td class="pic-act"><button type="button" class="pic-del-row" title="Xoá luồng" aria-label="Xoá luồng">×</button></td></tr><tr class="pic-row"><td><div class="pic-flow" contenteditable="true">Tra soát</div></td><td class="pic-pic-cell"><select class="pic-select"><option value="ThoLT">ThoLT</option><option value="ThanhHT">ThanhHT</option><option value="PhuongCT">PhuongCT</option><option value="QuangBM" selected>QuangBM</option><option value="NhungNH">NhungNH</option></select></td><td class="pic-act"><button type="button" class="pic-del-row" title="Xoá luồng" aria-label="Xoá luồng">×</button></td></tr><tr class="pic-row"><td><div class="pic-flow" contenteditable="true">Đối soát, quyết toán</div></td><td class="pic-pic-cell"><select class="pic-select"><option value="ThoLT" selected>ThoLT</option><option value="ThanhHT">ThanhHT</option><option value="PhuongCT">PhuongCT</option><option value="QuangBM">QuangBM</option><option value="NhungNH">NhungNH</option></select></td><td class="pic-act"><button type="button" class="pic-del-row" title="Xoá luồng" aria-label="Xoá luồng">×</button></td></tr><tr class="pic-row"><td><div class="pic-flow" contenteditable="true">Đối chiếu số dư</div></td><td class="pic-pic-cell"><select class="pic-select"><option value="ThoLT" selected>ThoLT</option><option value="ThanhHT">ThanhHT</option><option value="PhuongCT">PhuongCT</option><option value="QuangBM">QuangBM</option><option value="NhungNH">NhungNH</option></select></td><td class="pic-act"><button type="button" class="pic-del-row" title="Xoá luồng" aria-label="Xoá luồng">×</button></td></tr><tr class="pic-grp"><td colspan="2"><div class="pic-grp-name" contenteditable="true">CB</div></td><td class="pic-act"><button type="button" class="pic-add-row" title="Thêm luồng vào nhóm" aria-label="Thêm luồng">+</button><button type="button" class="pic-del-grp" title="Xoá cả nhóm" aria-label="Xoá cả nhóm">×</button></td></tr><tr class="pic-row"><td><div class="pic-flow" contenteditable="true"></div></td><td class="pic-pic-cell"><select class="pic-select"><option value="ThoLT" selected>ThoLT</option><option value="ThanhHT">ThanhHT</option><option value="PhuongCT">PhuongCT</option><option value="QuangBM">QuangBM</option><option value="NhungNH">NhungNH</option></select></td><td class="pic-act"><button type="button" class="pic-del-row" title="Xoá luồng" aria-label="Xoá luồng">×</button></td></tr><tr class="pic-grp"><td colspan="2"><div class="pic-grp-name" contenteditable="true">HRM</div></td><td class="pic-act"><button type="button" class="pic-add-row" title="Thêm luồng vào nhóm" aria-label="Thêm luồng">+</button><button type="button" class="pic-del-grp" title="Xoá cả nhóm" aria-label="Xoá cả nhóm">×</button></td></tr><tr class="pic-row"><td><div class="pic-flow" contenteditable="true"></div></td><td class="pic-pic-cell"><select class="pic-select"><option value="ThoLT">ThoLT</option><option value="ThanhHT">ThanhHT</option><option value="PhuongCT">PhuongCT</option><option value="QuangBM" selected>QuangBM</option><option value="NhungNH">NhungNH</option></select></td><td class="pic-act"><button type="button" class="pic-del-row" title="Xoá luồng" aria-label="Xoá luồng">×</button></td></tr></tbody>
+      </table>
+      <div class="pic-add-grp-wrap"><button type="button" class="pic-add-grp">+ Thêm nhóm</button></div>
+      <p class="pic-hint">Bấm vào text để sửa · di chuột vào dòng/nhóm để hiện nút thêm <b>+</b> / xoá <b>×</b> · tự động lưu.</p>
+    </div>
+    <template id="picRowTpl"><tr class="pic-row"><td><div class="pic-flow" contenteditable="true"></div></td><td class="pic-pic-cell"><select class="pic-select"><option value="ThoLT">ThoLT</option><option value="ThanhHT">ThanhHT</option><option value="PhuongCT">PhuongCT</option><option value="QuangBM">QuangBM</option><option value="NhungNH">NhungNH</option></select></td><td class="pic-act"><button type="button" class="pic-del-row" title="Xoá luồng" aria-label="Xoá luồng">×</button></td></tr></template>
+    <template id="picGrpTpl"><tr class="pic-grp"><td colspan="2"><div class="pic-grp-name" contenteditable="true"></div></td><td class="pic-act"><button type="button" class="pic-add-row" title="Thêm luồng vào nhóm" aria-label="Thêm luồng">+</button><button type="button" class="pic-del-grp" title="Xoá cả nhóm" aria-label="Xoá cả nhóm">×</button></td></tr></template>
+  </div>
+</div>
+<script>function setupPaginate(box){
+  if (box._pg) return;                       // idempotent
+  var size = parseInt(box.getAttribute('data-paginate'), 10) || 5;
+  var rows = Array.prototype.slice.call(box.querySelectorAll('tbody > tr'));
+  if (!rows.length) { box._pg = true; return; }
+  if (!rows[0].offsetHeight) return;         // hidden (e.g. inactive tab) -> defer until shown
+  box._pg = true;
+  var pages = Math.ceil(rows.length / size), page = 0;
+  var tbody = rows[0].parentNode;
+  var cols = rows[0].cells.length;
+  var rowH = rows[0].offsetHeight;
+  var fillers = [];
+  var nav = document.createElement('div'); nav.className = 'pager';
+  var prev = document.createElement('button'); prev.className = 'pager-btn'; prev.textContent = '‹ Prev';
+  var info = document.createElement('span'); info.className = 'pager-info';
+  var next = document.createElement('button'); next.className = 'pager-btn'; next.textContent = 'Next ›';
+  nav.appendChild(prev); nav.appendChild(info); nav.appendChild(next);
+  box.appendChild(nav);
+  function render(){
+    var shown = 0;
+    for (var i = 0; i < rows.length; i++){
+      var on = (i >= page*size && i < (page+1)*size);
+      rows[i].style.display = on ? '' : 'none';
+      if (on) shown++;
+    }
+    while (fillers.length) { var f = fillers.pop(); if (f.parentNode) f.parentNode.removeChild(f); }
+    for (var k = shown; k < size; k++){
+      var tr = document.createElement('tr'); tr.className = 'pager-filler';
+      var td = document.createElement('td'); td.colSpan = cols; td.style.height = rowH + 'px'; td.innerHTML = '&nbsp;';
+      tr.appendChild(td); tbody.appendChild(tr); fillers.push(tr);
+    }
+    info.textContent = (page*size + 1) + '–' + Math.min((page+1)*size, rows.length) + ' / ' + rows.length;
+    prev.disabled = (page === 0); next.disabled = (page >= pages - 1);
+  }
+  prev.addEventListener('click', function(){ if (page > 0) { page--; render(); } });
+  next.addEventListener('click', function(){ if (page < pages - 1) { page++; render(); } });
+  render();
+}
+document.querySelectorAll('[data-paginate]').forEach(setupPaginate);
+
+// Tabbed block: switch panels on tab click
+document.querySelectorAll('.tabbed').forEach(function(block){
+  var tabs = block.querySelectorAll('.tab');
+  var panels = block.querySelectorAll('.tab-panel');
+  tabs.forEach(function(tab){
+    tab.addEventListener('click', function(){
+      tabs.forEach(function(t){ t.classList.remove('active'); });
+      panels.forEach(function(p){ p.hidden = true; });
+      tab.classList.add('active');
+      var p = block.querySelector('.tab-panel[data-panel="' + tab.getAttribute('data-tab') + '"]');
+      if (p) { p.hidden = false; setupPaginate(p); }   // paginate lazily once visible
+    });
+  });
+});
+
+// Column-1 blocks: any cell whose text may be cut off (ellipsis or clipped) shows full text on hover
+document.querySelectorAll('[data-paginate] tbody td, .tab-panel tbody td').forEach(function(td){
+  if (td.classList.contains('pager-filler') || td.parentNode.classList.contains('pager-filler')) return;
+  var t = td.textContent.trim();
+  if (t && !td.title) td.title = t;
+});
+
+// Donut: hover slice -> show that slice's % in the center (Jira-style)
+document.querySelectorAll('.donut-wrap').forEach(function(wrap){
+  var pctEl = wrap.querySelector('.donut-pct');
+  var lblEl = wrap.querySelector('.donut-lbl');
+  var defPct = pctEl.textContent, defLbl = lblEl.textContent;
+  wrap.querySelectorAll('circle[data-pct]').forEach(function(c){
+    c.addEventListener('mouseenter', function(){
+      pctEl.textContent = c.getAttribute('data-pct') + '%';
+      lblEl.textContent = c.getAttribute('data-label');
+    });
+    c.addEventListener('mouseleave', function(){
+      pctEl.textContent = defPct;
+      lblEl.textContent = defLbl;
+    });
+  });
+});
+
+// Layout: reserve equal height for all column-1 blocks, then size donuts so column-2 == column-1
+function layout(){
+  var grid = document.querySelector('.grid-2col');
+  if (!grid) return;
+  var col1 = grid.children[0], col2 = grid.children[1];
+  if (!col1 || !col2) return;
+
+  // 1. paginated blocks are naturally 5-row + pager (equal). Only reserve that height
+  //    for blocks WITHOUT a pager (empty / "no task" states) so the column stays uniform.
+  var secs = Array.prototype.slice.call(col1.children).filter(function(e){ return e.classList.contains('section'); });
+  secs.forEach(function(s){ s.style.height = ''; });
+  var refH = 0;
+  secs.forEach(function(s){ if (s.querySelector('.pager')) refH = Math.max(refH, s.offsetHeight); });
+  if (refH) secs.forEach(function(s){ if (!s.querySelector('.pager') && !s.classList.contains('tabbed')) s.style.height = refH + 'px'; });
+
+  // 2. grow/shrink donuts so column-2 height matches column-1
+  var wraps = Array.prototype.slice.call(col2.querySelectorAll('.donut-wrap'));
+  wraps.forEach(function(w){ w.style.width = ''; w.style.height = ''; w.style.flexBasis = ''; });
+  if (!wraps.length) return;
+  var slack = col1.offsetHeight - col2.offsetHeight;
+  if (Math.abs(slack) < 4) return;
+  var card = wraps[0].parentNode;                     // .chart-card
+  var maxDonut = Math.max(180, card.clientWidth - 280); // keep donut + legend side by side
+  var add = slack / wraps.length;
+  wraps.forEach(function(w){
+    var size = Math.max(180, Math.min(w.offsetWidth + add, maxDonut));
+    w.style.width = size + 'px'; w.style.height = size + 'px'; w.style.flexBasis = size + 'px';
+  });
+}
+window.addEventListener('load', layout);
+window.addEventListener('resize', layout);
+
+// PIC modal: open/close + auto-save edits to the server
+(function(){
+  var fab = document.getElementById('picFab');
+  var overlay = document.getElementById('picOverlay');
+  if (!fab || !overlay) return;
+  var closeBtn = document.getElementById('picClose');
+  var status = document.getElementById('picStatus');
+  fab.addEventListener('click', function(){ overlay.classList.add('open'); });
+  function close(){ overlay.classList.remove('open'); }
+  closeBtn.addEventListener('click', close);
+  overlay.addEventListener('click', function(e){ if (e.target === overlay) close(); });
+  document.addEventListener('keydown', function(e){ if (e.key === 'Escape') close(); });
+
+  var tbody = overlay.querySelector('.pic-table tbody');
+  function collect(){
+    var out = [], cur = null;
+    tbody.querySelectorAll('tr').forEach(function(tr){
+      if (tr.classList.contains('pic-grp')) {
+        cur = { group: tr.querySelector('.pic-grp-name').textContent.trim(), rows: [] };
+        out.push(cur);
+      } else if (tr.classList.contains('pic-row')) {
+        if (!cur) { cur = { group: '', rows: [] }; out.push(cur); }
+        cur.rows.push({
+          flow: tr.querySelector('.pic-flow').textContent.trim(),
+          pic: tr.querySelector('.pic-select').value
+        });
+      }
+    });
+    return out;
+  }
+  var timer = null;
+  function save(){
+    status.textContent = 'Đang lưu…'; status.style.color = '#6b778c';
+    fetch('/save-pic', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(collect()) })
+      .then(function(r){ return r.json(); })
+      .then(function(j){ status.textContent = j.ok ? 'Đã lưu ✓' : 'Lỗi lưu'; status.style.color = j.ok ? '#36b37e' : '#de350b'; })
+      .catch(function(){ status.textContent = 'Lỗi lưu'; status.style.color = '#de350b'; });
+  }
+  function scheduleSave(){ if (timer) clearTimeout(timer); timer = setTimeout(save, 600); }
+
+  function tpl(id){ return document.importNode(document.getElementById(id).content, true).firstElementChild; }
+  function addRow(grpTr){
+    var node = tpl('picRowTpl');
+    var ref = grpTr, next = grpTr.nextElementSibling;
+    while (next && next.classList.contains('pic-row')) { ref = next; next = next.nextElementSibling; }
+    ref.parentNode.insertBefore(node, ref.nextSibling);
+    node.querySelector('.pic-flow').focus();
+    scheduleSave();
+  }
+  function delGroup(grpTr){
+    var next = grpTr.nextElementSibling;
+    while (next && next.classList.contains('pic-row')) { var n2 = next.nextElementSibling; next.remove(); next = n2; }
+    grpTr.remove();
+    scheduleSave();
+  }
+  function addGroup(){
+    var g = tpl('picGrpTpl'), r = tpl('picRowTpl');
+    tbody.appendChild(g); tbody.appendChild(r);
+    g.querySelector('.pic-grp-name').focus();
+    scheduleSave();
+  }
+
+  overlay.addEventListener('click', function(e){
+    var t = e.target;
+    if (t.classList.contains('pic-del-row')) { t.closest('tr').remove(); scheduleSave(); }
+    else if (t.classList.contains('pic-add-row')) { addRow(t.closest('tr')); }
+    else if (t.classList.contains('pic-del-grp')) { if (confirm('Xoá cả nhóm này (gồm tất cả luồng bên trong)?')) delGroup(t.closest('tr')); }
+    else if (t.classList.contains('pic-add-grp')) { addGroup(); }
+  });
+  overlay.addEventListener('input', function(e){
+    if (e.target.classList.contains('pic-flow') || e.target.classList.contains('pic-grp-name')) scheduleSave();
+  });
+  overlay.addEventListener('change', function(e){ if (e.target.classList.contains('pic-select')) scheduleSave(); });
+})();
+
+// Theme toggle: light <-> soft dark, persisted in localStorage
+(function(){
+  var btn = document.getElementById('themeFab');
+  if (!btn) return;
+  function isDark(){ return document.documentElement.getAttribute('data-theme') === 'dark'; }
+  function setIcon(){ btn.textContent = isDark() ? '☀️' : '🌙'; }
+  setIcon();
+  btn.addEventListener('click', function(){
+    var next = isDark() ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    try { localStorage.setItem('qa-theme', next); } catch (e) {}
+    setIcon();
+  });
+})();
+
+// Activity "Đã đọc": clear pending on the server, empty the block (no reload)
+(function(){
+  var btn = document.getElementById('actClear');
+  if (!btn) return;
+  btn.addEventListener('click', function(){
+    // clear the block immediately (optimistic), then tell the server (best-effort)
+    var s = document.getElementById('actStream');
+    if (s) s.innerHTML = '<h2>🔔 Hoạt động <span class="count">0</span></h2><div class="empty">Đã đọc hết. Thông báo mới sẽ xuất hiện ở lần refresh sau.</div>';
+    fetch('/clear-activities', { method: 'POST' }).catch(function(){});
+  });
+})();
+
+// Auto-refresh every 15 min (default ON, pausable, remembered per-browser)
+(function(){
+  var KEY = 'qa-autorefresh', INTERVAL = 15 * 60 * 1000;
+  var btn = document.getElementById('autoBtn');
+  var timer = null;
+  function isOn(){ try { return localStorage.getItem(KEY) !== 'off'; } catch (e) { return true; } }
+  function label(){ if (btn) btn.textContent = isOn() ? '⏸ Auto 15p: ON' : '▶ Auto 15p: OFF'; }
+  function schedule(){ if (timer) clearTimeout(timer); if (isOn()) timer = setTimeout(function(){ location.reload(); }, INTERVAL); }
+  if (btn) btn.addEventListener('click', function(){
+    try { localStorage.setItem(KEY, isOn() ? 'off' : 'on'); } catch (e) {}
+    label(); schedule();
+  });
+  label(); schedule();
+})();
+</script>
+</body>
+</html>

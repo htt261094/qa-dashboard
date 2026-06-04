@@ -1,0 +1,17 @@
+# Credentials & state — NEVER commit
+.env
+.last_seen.json
+.pic_config.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
