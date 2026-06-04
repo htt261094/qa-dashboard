@@ -136,6 +136,33 @@ Hiền THƯỜNG là reporter trong các task QA team được giao — vì cô 
 - **In**: nút "🖨 In báo cáo" → `window.print()`; `@media print` ẩn nav/fab/modal/auto-btn → in ra chỉ nội dung report. KHÔNG dùng lib PDF.
 - Delta "tuần trước vs tuần này" = **v2 chưa làm** (cần baseline đóng băng, xem Likely Next Features #4).
 
+### 8b. Report — "🌳 Tiến độ test theo line dự án" (cây hierarchy theo issue TYPE)
+- **Bối cảnh**: QA làm ở tầng **Sub-task**. Cần xem sub-task QA nằm dưới line/story/task nào (context) + tiến độ test. Cây 5 tier: **Project › Story › Task › Task-PTSP › Sub-task(QA)** (thực tế có thể thêm **Epic** trên Story). Giữ nguyên các tầng trên làm context.
+- **Quan hệ cha-con = HỖN HỢP** (đã verify Jira thật):
+  - Sub-task → Task-PTSP qua **native `parent` field**.
+  - Task-PTSP → Task → Story → (Epic) qua **issue link** `is child of` (outward `is parent of`).
+  - `jira_api._parent_key` check **`parent` field TRƯỚC**, rồi link `is child of`. Nếu Bảo Kim đổi tên link type → sửa string `'is child of'`.
+- **`fetch_lines()`** (jira_api): (1) lấy sub-task/issue QA **assignee in (USERS)** với filter `updated` ∈ `[_last_week_window)` HOẶC `status in ("In Progress","PENDING")` — việc đang dở LUÔN hiện kể cả ngoài tuần (cap 500, fields +`parent,issuelinks`); (2) walk ngược lên cha từng tầng, batch-fetch cha chưa biết (`key in (...)`, cap 200/batch, ⚠ đừng đặt tên biến loop trùng `start`/`end` của window — đã dính shadowing bug); (3) tính `parent_of = {key: _parent_key}` cho mọi node. Trả `{qa_issues, parent_of, known, window}`.
+- **`_last_week_window`**: `[Thứ 2 tuần trước, Thứ 2 tuần này)`. Report thứ 2 8/6 → 1/6–7/6. Mon-based, KHÔNG đổi trừ khi user yêu cầu.
+- **Calls**: `/report` = `fetch_all()` (5) + `fetch_lines()` (1 + số tầng cây, thường 3–4) ≈ 8–9 call. Chỉ `/report`.
+- **Render** (`render_lines_section` + `_render_node` đệ quy): build `children`/`roots` từ `parent_of`, gom roots theo project key. Mỗi node: badge type (`_TYPE_CLASS`, có cả Epic) + key + summary. Node **QA (sub-task)** thêm PIC/status/cờ trễ-kẹt (`lnode-qa`, nền nhạt). Node context thêm bar **% done gộp sub-task QA bên dưới** (`_qa_leaves`/`_qa_pct`, mẫu số bỏ CANCELLED). Cây sort: % thấp lên đầu (project), trong cây theo `_TASK_ORDER`. Cha không xem được → node `lnode-missing` (key trần).
+- **Collapse theo Story/Epic**: node type Story|Epic dùng `<details class="lnode-fold" open>` (native, mặc định mở). Nút "Thu gọn/Mở tất cả Story" (`toggleStories` trong app.js). `@media print` bung hết để in đầy đủ.
+- **Giới hạn**: phụ thuộc team gắn `parent`/`is parent of` nhất quán; cây sâu > `max_depth=8` cắt; cap 500 issue QA.
+
+### 8c. Report — đã GỠ "🗣 Kịch bản báo cáo" + "📌 Điểm cần lưu ý"
+- User yêu cầu bỏ 2 section này (2026-06-04). Đã xoá `_rpt_sentence`/`_pic_detail`/`copyReportScript` + CSS liên quan. `/report` giờ = KPI + 2 donut + bảng tổng quan project + cây tiến độ test theo line. Nếu cần lại thì xem git history.
+
+### 9. Activity Stream — kéo từ Jira changelog + dismiss đồng bộ chéo máy (2026-06-05)
+- **Bối cảnh / vì sao đổi**: cũ activity = diff 2 snapshot local trong `.last_seen.json` → đổi device là mất `pending`, miss update. SUPERSEDES mô hình pending tích luỹ ở Decision #3/#7.
+- **Nguồn = Jira changelog (source of truth)**: `jira_api.fetch_activity_feed(days=7)` — JQL `(assignee in QA OR reporter in QA) AND updated >= -7d`, `expand=changelog`. Parse `changelog.histories` (item field status/assignee/duedate/priority/summary, lọc `created >= now-7d`) + comment + sự kiện created. Mỗi activity có **`id` ổn định** (`key#histId#field` / `key#cmt#id` / `key#created`) → máy nào cũng tính ra y hệt. Device-independent: mở lên thấy đủ 7 ngày, không cần state local.
+- **Comment có snippet nội dung**: activity kind=comment kèm `body` (rút gọn ~140 ký tự qua `_comment_snippet`, full ở `title` hover) — đỡ phải mở issue để đọc. Render: `act-cmt-body`.
+- **Dismiss đồng bộ = Jira user property** (`qa-dashboard-read`, đã verify PAT ghi được): `load_dismissed()`/`save_dismissed()`/`dismiss_activities(ids)` lưu `{activity_id: dismissed_at}` vào property của user (`/rest/api/2/user/properties`). Prune entry > 14 ngày. 2 máy cùng đọc 1 property → dismiss ở máy A, máy B thấy mất ngay.
+- **Wiring**: `do_GET /` = `fetch_all()` + `fetch_activity_feed()` + `load_dismissed()`, lọc `unread = feed - dismissed`. POST `/dismiss` `{ids:[...]}` (thay `/clear-activities` cũ). Nút "✓ Đã đọc hết" gom mọi `data-actid` đang hiện; nút ✕ mỗi dòng bỏ 1 mục (`dismissActivity`/`postDismiss` trong app.js).
+- **Paging activity**: `setupActListPaging` (app.js) phân trang **5 issue (act-group)/trang** trên `.act-list`, dùng style `.pager` sẵn có (KHÁC `setupPaginate` vốn chỉ chạy cho table rows). `measure()` đo trang cao nhất → khoá `min-height` cho `.act-list` để pager Prev/Next KHÔNG nhảy khi đổi trang (mỗi page số dòng khác nhau). Dismiss xoá group → `list._pgRender()` đo lại + vẽ lại. Render tất cả group (bỏ cap 60 cũ).
+- **`.last_seen.json` giờ CHỈ còn** giữ snapshot cho NEW badge (`new_keys`) — `_build_view` đơn giản hoá, không còn `compute_activities`/`_attach_authors`/pending. `state.compute_activities`/`clear_pending` thành dead code (giữ lại, không xoá).
+- **Calls thêm ở `/`**: +1 search (`expand=changelog`, nặng hơn, cap 120 issue) +1 GET property (+1 GET /myself lần đầu, memoized). Window/cap đổi trong `ACTIVITY_DAYS` (qa_dashboard) / params `fetch_activity_feed`.
+- **Giới hạn**: cửa sổ 7 ngày cố định (issue im >7d không lên feed); cap 120 issue đổi/7d; comment cũ trong window có thể sót nếu issue quá nhiều comment.
+
 ## OPSEC Requirements (NON-NEGOTIABLE)
 
 User có strict OPSEC discipline. KHÔNG được:
@@ -154,6 +181,7 @@ User có strict OPSEC discipline. KHÔNG được:
 - ✅ Pull 3 buckets: active / new24 / done_week
 - ✅ Render KPI cards, workload matrix, 3 tables
 - ✅ Tab "Báo cáo tuần" (`/report`): rollup theo project key + RAG + 2 donut + talking points + in (Ctrl+P)
+- ✅ Report: "🌳 Tiến độ test theo line dự án" — cây type Project›Story›Task›Task-PTSP›Sub-task(QA), % done, collapse theo Story, filter tuần trước
 - ✅ New task highlighting (diff vs `.last_seen.json`)
 - ✅ Hyperlink to Jira (`{JIRA_URL}/browse/{key}`)
 - ✅ UTF-8 Vietnamese rendering

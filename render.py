@@ -4,11 +4,12 @@ All render_* functions return HTML fragments; render_page assembles the full doc
 """
 import math
 import urllib.parse
+from collections import defaultdict
 from datetime import datetime, timedelta
 
 from config import SCRIPT_DIR, JIRA_URL, USERS, STUCK_DAYS, display_name
 from issues import (parse_date, i_assignee, i_reporter, i_status, i_summary, i_duedate,
-                    i_created, i_resolved, i_updated, days_overdue, days_since_update,
+                    i_created, i_resolved, i_updated, i_type, days_overdue, days_since_update,
                     is_stuck, esc, status_class, issue_link)
 from pic import PIC_PEOPLE, load_pic
 
@@ -62,21 +63,20 @@ def render_kpis(active, new24, done_week, created_week, resolved_week):
     </div>"""
 
 
-# ===== Activity stream (notification, grouped by task, 1 action per row) =====
-def render_activities(activities, first_run):
-    if first_run:
-        return ('<div class="section act-stream" id="actStream"><h2>🔔 Hoạt động <span class="count">—</span></h2>'
-                '<div class="empty">Lần đầu chạy — hoạt động sẽ xuất hiện từ lần refresh sau.</div></div>')
+# ===== Activity stream (feed từ Jira changelog; dismiss đồng bộ qua Jira user property) =====
+def render_activities(activities, days=7):
     if not activities:
         return ('<div class="section act-stream" id="actStream"><h2>🔔 Hoạt động <span class="count">0</span></h2>'
-                '<div class="empty">Không có thông báo mới.</div></div>')
+                f'<div class="empty">Không có hoạt động chưa đọc trong {days} ngày qua.</div></div>')
 
     def change_html(a):
         kind = a['kind']
         if kind == 'created':
             return '<span class="act-k act-k-new">🆕 Tạo mới</span>'
         if kind == 'comment':
-            return f'<span class="act-k act-k-cmt">💬 +{a.get("comment_delta", 1)} comment</span>'
+            body = a.get('body') or ''
+            snip = f' <span class="act-cmt-body" title="{esc(body)}">{esc(body)}</span>' if body else ''
+            return f'<span class="act-k act-k-cmt">💬 comment</span>{snip}'
         if kind == 'status':
             old = a.get('old', a.get('old_status', ''))   # fallback: legacy entries used old_status/status
             new = a.get('new', a.get('status', ''))
@@ -97,7 +97,7 @@ def render_activities(activities, first_run):
 
     # group activities by task id (newest task first); each change = its own row
     groups, order = {}, []
-    for a in activities[:150]:
+    for a in activities[:300]:
         k = a['key']
         if k not in groups:
             groups[k] = []
@@ -105,25 +105,28 @@ def render_activities(activities, first_run):
         groups[k].append(a)
 
     blocks = []
-    for k in order[:40]:
-        items = sorted(groups[k], key=lambda a: (a.get('detected') or '', a.get('updated') or ''))  # timeline
+    for k in order:
+        items = sorted(groups[k], key=lambda a: a.get('when') or '')  # timeline cũ -> mới
         sm = esc(items[0].get('summary', ''))
         link = f'<a href="{JIRA_URL}/browse/{esc(k)}" target="_blank" class="key">{esc(k)}</a>'
         rows = ''
         for a in items:
-            t = esc((a.get('updated') or '')[5:16].replace('T', ' '))
+            t = esc((a.get('when') or '')[5:16].replace('T', ' '))
             by = esc(a.get('author') or '—')
-            rows += (f'<div class="act-row"><span class="act-change">{change_html(a)}</span>'
-                     f'<span class="act-by">{by}</span><span class="act-time">{t}</span></div>')
+            aid = esc(a.get('id', ''))
+            rows += (f'<div class="act-row" data-actid="{aid}"><span class="act-change">{change_html(a)}</span>'
+                     f'<span class="act-by">{by}</span><span class="act-time">{t}</span>'
+                     f'<button class="act-x" type="button" title="Bỏ qua mục này" '
+                     f'onclick="dismissActivity(this)">✕</button></div>')
         blocks.append(
             f'<div class="act-group"><div class="act-g-head">{link}'
             f'<span class="act-sum" title="{sm}">{sm}</span></div>{rows}</div>'
         )
-    more = f'<div class="act-more">… và {len(order) - 40} task khác có thay đổi</div>' if len(order) > 40 else ''
+    total = sum(len(v) for v in groups.values())
     return (f'<div class="section act-stream" id="actStream"><h2>🔔 Hoạt động'
-            f'<span class="act-head-right"><span class="count act-unread">{len(order)}</span>'
-            f'<button class="act-clear" id="actClear" type="button">✓ Đã đọc</button></span></h2>'
-            f'<div class="act-list">{"".join(blocks)}{more}</div></div>')
+            f'<span class="act-head-right"><span class="count act-unread">{total}</span>'
+            f'<button class="act-clear" id="actClear" type="button">✓ Đã đọc hết</button></span></h2>'
+            f'<div class="act-list">{"".join(blocks)}</div></div>')
 
 
 # ===== Pie / donut charts =====
@@ -554,7 +557,120 @@ def _report_chart(title, items):
             f'<div class="chart-legend"><table><tbody>{"".join(legend)}</tbody></table></div></div></div>')
 
 
-def render_report_page(data):
+# Issue type -> css class cho badge tier (Project=tier1, Sub-task=tier5 là phần QA)
+_TYPE_CLASS = {'Epic': 'ty-epic', 'Story': 'ty-story', 'Task': 'ty-task',
+               'Task-PTSP': 'ty-ptsp', 'Sub-task': 'ty-sub'}
+# Thứ tự sort node cùng cấp: việc đang chạy lên trước, done xuống cuối
+_TASK_ORDER = {'In Progress': 0, 'PENDING': 1, 'TO DO': 2, 'DONE': 3, 'CANCELLED': 4}
+
+
+def _qa_leaves(key, children, qa_keys, known):
+    """Các sub-task QA nằm dưới 1 node (gồm cả chính nó nếu là QA)."""
+    out, stack = [], [key]
+    while stack:
+        k = stack.pop()
+        if k in qa_keys:
+            out.append(known[k])
+        stack.extend(children.get(k, []))
+    return out
+
+
+def _qa_pct(leaves):
+    """(done, denom, pct) trên tập sub-task QA — mẫu số bỏ CANCELLED."""
+    done = sum(1 for i in leaves if (i_status(i) or '').upper() in ('DONE', 'CLOSED', 'RESOLVED'))
+    cancel = sum(1 for i in leaves if (i_status(i) or '').upper() == 'CANCELLED')
+    denom = len(leaves) - cancel
+    return done, denom, (round(done / denom * 100) if denom else 0)
+
+
+def _type_badge(iss):
+    t = i_type(iss)
+    return f'<span class="ty {_TYPE_CLASS.get(t, "ty-other")}">{esc(t or "?")}</span>'
+
+
+def _render_node(key, known, children, qa_keys, parent_of):
+    iss = known.get(key)
+    if iss is None:  # tham chiếu cha nhưng không có quyền xem
+        return (f'<li class="lnode lnode-missing"><span class="ty ty-other">?</span> '
+                f'<span class="key">{esc(key)}</span> '
+                f'<span class="ln-sum">(không xem được)</span></li>')
+    is_qa = key in qa_keys
+    parts = [_type_badge(iss), issue_link(iss), f'<span class="ln-sum">{esc(i_summary(iss))}</span>']
+    if is_qa:  # node QA (sub-task) — hiện PIC + status + cờ
+        st = i_status(iss)
+        parts.append(f'<span class="ln-asg">{esc(display_name(i_assignee(iss)))}</span>')
+        parts.append(f'<span class="status {status_class(st)}">{esc(st)}</span>')
+        od = days_overdue(iss)
+        if od is not None:
+            parts.append(f'<span class="rpt-tag tag-od">trễ {od}d</span>')
+        if is_stuck(iss):
+            parts.append(f'<span class="rpt-tag tag-st">kẹt {days_since_update(iss)}d</span>')
+    else:  # node context (Story/Task/Task-PTSP) — hiện tiến độ test gộp bên dưới
+        done, denom, pct = _qa_pct(_qa_leaves(key, children, qa_keys, known))
+        if denom:
+            bar_cls = 'ln-done' if pct == 100 else ('ln-mid' if pct >= 50 else 'ln-low')
+            parts.append(f'<span class="ln-prog"><span class="ln-bar">'
+                         f'<span class="{bar_cls}" style="width:{pct}%"></span></span>'
+                         f'<span class="ln-pct">{done}/{denom} ({pct}%)</span></span>')
+    kids = sorted(children.get(key, []),
+                  key=lambda k: (_TASK_ORDER.get(i_status(known[k]), 9) if k in known else 9, k))
+    sub = (f'<ul class="lntree">{"".join(_render_node(k, known, children, qa_keys, parent_of) for k in kids)}</ul>'
+           if kids else '')
+    row = f'<div class="lnode-row">{" ".join(parts)}</div>'
+    cls = 'lnode' + (' lnode-qa' if is_qa else '')
+    # Story/Epic = node thu gọn được (<details> native, mặc định mở)
+    if i_type(iss) in ('Story', 'Epic') and kids:
+        return f'<li class="{cls}"><details class="lnode-fold" open><summary>{row}</summary>{sub}</details></li>'
+    return f'<li class="{cls}">{row}{sub}</li>'
+
+
+def render_lines_section(line_data):
+    if not line_data or not line_data.get('qa_issues'):
+        return ''
+    known = line_data['known']
+    parent_of = line_data['parent_of']
+    qa_keys = {i['key'] for i in line_data['qa_issues']}
+
+    children = defaultdict(list)
+    roots = []
+    for k in known:
+        p = parent_of.get(k)
+        if p and p in known:
+            children[p].append(k)
+        else:  # gốc cao nhất (thường Story), hoặc cha không xem được
+            roots.append(k)
+
+    proj_roots = defaultdict(list)
+    for r in roots:
+        proj_roots[_project_of(r)].append(r)
+
+    blocks = []
+    for prj in sorted(proj_roots):
+        rs = proj_roots[prj]
+        all_leaves = [i for r in rs for i in _qa_leaves(r, children, qa_keys, known)]
+        done, denom, pct = _qa_pct(all_leaves)
+        rs_sorted = sorted(rs, key=lambda r: _qa_pct(_qa_leaves(r, children, qa_keys, known))[2])
+        tree = ''.join(_render_node(r, known, children, qa_keys, parent_of) for r in rs_sorted)
+        blocks.append(
+            f'<div class="ln-proj"><h3>{esc(prj)} '
+            f'<span class="ln-proj-pct">{done}/{denom} sub-task done · {pct}%</span></h3>'
+            f'<ul class="lntree lntree-root">{tree}</ul></div>')
+
+    win = line_data.get('window')
+    win_txt = ''
+    if win:
+        start, end = win
+        last_day = end - timedelta(days=1)
+        win_txt = f'Tuần {start.strftime("%d/%m")}–{last_day.strftime("%d/%m")} · '
+    return ('<div class="section lines-sec"><div class="rpt-script-head">'
+            '<h2>🌳 Tiến độ test theo line dự án</h2>'
+            '<button class="report-copy-btn" type="button" onclick="toggleStories(this)">⊟ Thu gọn Story</button></div>'
+            f'<p class="rpt-legend-note">{win_txt}sub-task QA <b>In Progress / PENDING</b> luôn hiện kể cả ngoài tuần. '
+            'Cây: Project › Story › Task › Task-PTSP › <b>Sub-task (QA)</b>. % tính trên sub-task QA, bỏ CANCELLED.</p>'
+            + ''.join(blocks) + '</div>')
+
+
+def render_report_page(data, line_data=None):
     proj = _rpt_collect(data)
     fetched = data['fetched_at'].strftime('%Y-%m-%d %H:%M')
     sev = {'R': 0, 'A': 1, 'G': 2}
@@ -591,24 +707,6 @@ def render_report_page(data):
               f'{_report_chart("Khối lượng theo dự án", proj_items)}'
               f'{_report_chart("Trạng thái (đang chạy)", status_items)}</div>')
 
-    notes = []
-    for name, d, _ in items:
-        if not d['od_list'] and not d['st_list']:
-            continue
-        lines = []
-        for od, iss in sorted(d['od_list'], key=lambda x: -x[0]):
-            lines.append(f'<li><span class="rpt-tag tag-od">trễ {od}d</span> {issue_link(iss)} '
-                         f'<span class="rpt-li-sum">{esc(i_summary(iss))}</span> '
-                         f'<span class="rpt-li-asg">{esc(display_name(i_assignee(iss)))}</span></li>')
-        for st, iss in sorted(d['st_list'], key=lambda x: -x[0]):
-            lines.append(f'<li><span class="rpt-tag tag-st">kẹt {st}d</span> {issue_link(iss)} '
-                         f'<span class="rpt-li-sum">{esc(i_summary(iss))}</span> '
-                         f'<span class="rpt-li-asg">{esc(display_name(i_assignee(iss)))}</span></li>')
-        notes.append(f'<div class="rpt-note"><h4>{esc(name)}</h4><ul>{"".join(lines)}</ul></div>')
-    notes_html = ('<div class="section"><h2>📌 Điểm cần lưu ý (overdue / kẹt)</h2>'
-                  + (''.join(notes) if notes else '<div class="empty">Không có task overdue hay kẹt 🎉</div>')
-                  + '</div>')
-
     legend_note = ('<p class="rpt-legend-note">🔴 có overdue/kẹt · 🟡 phần lớn chưa khởi động · 🟢 on track'
                    ' · thanh phân bổ: <span class="lg seg-todo"></span> TO DO'
                    ' <span class="lg seg-prog"></span> In Progress <span class="lg seg-pend"></span> PENDING</p>')
@@ -622,13 +720,13 @@ def render_report_page(data):
         + render_kpis(data['active'], data['new24'], data['done_week'], data['created_week'], data['resolved_week'])
         + charts
         + f'<div class="section"><h2>Tổng quan theo dự án</h2>{table}{legend_note}</div>'
-        + notes_html
+        + render_lines_section(line_data)
     )
     return _document(body)
 
 
 # ===== Full page =====
-def render_page(data, new_keys, first_run, activities):
+def render_page(data, new_keys, first_run, activities, activity_days=7):
     fetched = data['fetched_at'].strftime('%Y-%m-%d %H:%M:%S')
 
     left_col = (
@@ -642,7 +740,7 @@ def render_page(data, new_keys, first_run, activities):
     )
     body = (
         render_kpis(data['active'], data['new24'], data['done_week'], data['created_week'], data['resolved_week']) +
-        render_activities(activities, first_run) +
+        render_activities(activities, activity_days) +
         f'<div class="grid-2col"><div class="col">{left_col}</div>'
         f'<div class="col">{right_col}</div></div>'
     )

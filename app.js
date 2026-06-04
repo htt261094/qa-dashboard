@@ -38,6 +38,46 @@ function setupPaginate(box){
 }
 document.querySelectorAll('[data-paginate]').forEach(setupPaginate);
 
+// Paging cho Activity: 5 issue (act-group)/trang. min-height = trang cao nhất
+// để pager Prev/Next không nhảy khi đổi trang. Tự cập nhật khi dismiss bớt group.
+function setupActListPaging(list){
+  if (!list || list._pgInit) return;
+  list._pgInit = true;
+  var size = 5, page = 0;
+  var nav = document.createElement('div'); nav.className = 'pager';
+  var prev = document.createElement('button'); prev.className = 'pager-btn'; prev.textContent = '‹ Prev';
+  var info = document.createElement('span'); info.className = 'pager-info';
+  var next = document.createElement('button'); next.className = 'pager-btn'; next.textContent = 'Next ›';
+  nav.appendChild(prev); nav.appendChild(info); nav.appendChild(next);
+  list.parentNode.insertBefore(nav, list.nextSibling);
+  function groupsArr(){ return Array.prototype.slice.call(list.querySelectorAll('.act-group')); }
+  function showPage(g){
+    g.forEach(function(el, i){ el.style.display = (i >= page*size && i < (page+1)*size) ? '' : 'none'; });
+  }
+  function measure(){              // đo chiều cao trang cao nhất -> khoá min-height
+    var g = groupsArr(), pages = Math.max(1, Math.ceil(g.length / size)), saved = page, max = 0;
+    list.style.minHeight = '';
+    for (var p = 0; p < pages; p++){ page = p; showPage(g); if (list.offsetHeight > max) max = list.offsetHeight; }
+    page = Math.min(saved, pages - 1); if (page < 0) page = 0;
+    list.style.minHeight = max + 'px';
+  }
+  function render(){
+    var g = groupsArr(), pages = Math.max(1, Math.ceil(g.length / size));
+    if (page >= pages) page = pages - 1; if (page < 0) page = 0;
+    showPage(g);
+    nav.style.display = g.length > size ? '' : 'none';
+    info.textContent = g.length
+      ? (page*size + 1) + '–' + Math.min((page+1)*size, g.length) + ' / ' + g.length + ' task'
+      : '0';
+    prev.disabled = (page === 0); next.disabled = (page >= pages - 1);
+  }
+  list._pgRender = function(){ measure(); render(); };   // dismiss -> đo lại + vẽ lại
+  prev.addEventListener('click', function(){ if (page > 0) { page--; render(); } });
+  next.addEventListener('click', function(){ page++; render(); });
+  measure(); render();
+}
+setupActListPaging(document.querySelector('.act-list'));
+
 // Tabbed block: switch panels on tab click
 document.querySelectorAll('.tabbed').forEach(function(block){
   var tabs = block.querySelectorAll('.tab');
@@ -199,15 +239,44 @@ window.addEventListener('resize', layout);
   });
 })();
 
-// Activity "Đã đọc": clear pending on the server, empty the block (no reload)
+// Activity dismiss: lưu vào Jira user property (đồng bộ chéo máy)
+function postDismiss(ids){
+  if (!ids.length) return;
+  fetch('/dismiss', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids: ids })
+  }).catch(function(){});
+}
+// Bỏ qua 1 mục
+function dismissActivity(btn){
+  var row = btn.closest('.act-row');
+  if (!row) return;
+  var id = row.getAttribute('data-actid');
+  postDismiss(id ? [id] : []);
+  var grp = row.closest('.act-group');
+  row.remove();
+  if (grp && !grp.querySelector('.act-row')) grp.remove();   // group rỗng -> xoá
+  var box = document.getElementById('actStream');
+  var list = box && box.querySelector('.act-list');
+  if (list && list._pgRender) list._pgRender();              // cập nhật lại paging
+  var left = box ? box.querySelectorAll('.act-row').length : 0;
+  var c = box && box.querySelector('.act-unread'); if (c) c.textContent = left;
+  if (!left && list) {
+    list.innerHTML = '<div class="empty">Đã đọc hết. F5 để xem hoạt động mới từ Jira.</div>';
+  }
+}
+// Đã đọc hết: gom mọi id đang hiện -> dismiss
 (function(){
   var btn = document.getElementById('actClear');
   if (!btn) return;
   btn.addEventListener('click', function(){
-    // clear the block immediately (optimistic), then tell the server (best-effort)
-    var s = document.getElementById('actStream');
-    if (s) s.innerHTML = '<h2>🔔 Hoạt động <span class="count">0</span></h2><div class="empty">Đã đọc hết. Thông báo mới sẽ xuất hiện ở lần refresh sau.</div>';
-    fetch('/clear-activities', { method: 'POST' }).catch(function(){});
+    var box = document.getElementById('actStream');
+    var ids = box ? Array.prototype.map.call(box.querySelectorAll('.act-row[data-actid]'),
+              function(r){ return r.getAttribute('data-actid'); }).filter(Boolean) : [];
+    postDismiss(ids);
+    if (box) box.innerHTML = '<h2>🔔 Hoạt động <span class="count">0</span></h2>' +
+      '<div class="empty">Đã đọc hết. F5 để xem hoạt động mới từ Jira.</div>';
   });
 })();
 
@@ -225,3 +294,12 @@ window.addEventListener('resize', layout);
   });
   label(); schedule();
 })();
+
+// Thu gọn / mở tất cả node Story trong cây tiến độ test
+function toggleStories(btn){
+  var folds = document.querySelectorAll('.lines-sec .lnode-fold');
+  if (!folds.length) return;
+  var anyOpen = Array.prototype.some.call(folds, function(d){ return d.open; });
+  folds.forEach(function(d){ d.open = !anyOpen; });
+  btn.textContent = anyOpen ? '⊞ Mở tất cả Story' : '⊟ Thu gọn Story';
+}

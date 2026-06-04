@@ -238,11 +238,17 @@ tr:hover .legend-lbl { color: #0052cc; }
 .act-g-head { display: flex; align-items: center; gap: 10px; margin-bottom: 2px; }
 .act-g-head .key { white-space: nowrap; }
 .act-g-head .act-sum { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #172b4d; font-size: 13px; }
-.act-row { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center; padding: 4px 0 4px 10px; font-size: 12px; }
+.act-row { display: grid; grid-template-columns: 1fr auto auto auto; gap: 12px; align-items: center; padding: 4px 0 4px 10px; font-size: 12px; }
+.act-x { background: none; border: none; color: #97a0af; cursor: pointer; font-size: 12px; line-height: 1; padding: 2px 4px; border-radius: 4px; opacity: 0; transition: opacity .1s; }
+.act-row:hover .act-x { opacity: 1; }
+.act-x:hover { background: #ffebe6; color: #de350b; }
+html[data-theme="dark"] .act-x:hover { background: rgba(222,53,11,.2); }
 .act-change { display: flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #42526e; }
 .act-k { font-weight: 600; }
 .act-k-new { color: #006644; }
 .act-k-cmt { color: #0052cc; }
+.act-cmt-body { color: #5e6c84; font-style: italic; }
+html[data-theme="dark"] .act-cmt-body { color: var(--muted); }
 .act-k-asg { color: #5e4db2; }
 .act-k-due { color: #974f0c; }
 .act-k-prio { color: #bf2600; }
@@ -456,6 +462,52 @@ html[data-theme="dark"] .navtab.active { color: var(--blue); border-bottom-color
 .report-head h1 { margin: 0; }
 .report-print-btn { background: #0052cc; color: #fff; border: none; border-radius: 6px; padding: 9px 16px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
 .report-print-btn:hover { background: #0747a6; }
+.rpt-script-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.rpt-script-head h2 { margin: 0; }
+.report-copy-btn { background: #f4f5f7; color: #172b4d; border: 1px solid #dfe1e6; border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.report-copy-btn:hover { background: #ebecf0; }
+html[data-theme="dark"] .report-copy-btn { background: var(--surface); color: var(--text); border-color: var(--border); }
+/* Tiến độ test theo line — cây theo type: Project › Story › Task › Task-PTSP › Sub-task(QA) */
+.ln-proj { margin: 14px 0 22px; }
+.ln-proj h3 { margin: 0 0 8px; font-size: 15px; color: #172b4d; display: flex; align-items: baseline; gap: 10px; border-bottom: 2px solid #ebecf0; padding-bottom: 5px; }
+html[data-theme="dark"] .ln-proj h3 { color: var(--text); border-color: var(--border); }
+.ln-proj-pct { font-size: 12px; font-weight: 600; color: #5e6c84; }
+html[data-theme="dark"] .ln-proj-pct { color: var(--muted); }
+.lntree { list-style: none; margin: 0; padding: 0; }
+.lntree-root { padding-left: 4px; }
+.lntree .lntree { margin-left: 7px; padding-left: 18px; border-left: 1.5px solid #dfe1e6; }
+html[data-theme="dark"] .lntree .lntree { border-color: var(--border); }
+.lnode-row { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; padding: 4px 0; font-size: 13px; line-height: 1.5; }
+.lnode-qa > .lnode-row, .lnode-qa > details > summary .lnode-row { background: #f7f8fa; border-radius: 5px; padding: 4px 10px; }
+html[data-theme="dark"] .lnode-qa > .lnode-row { background: rgba(255,255,255,.04); }
+.lnode-missing > .lnode-row { opacity: .6; }
+/* Story/Epic thu gọn được */
+.lnode-fold > summary { display: flex; align-items: center; gap: 5px; cursor: pointer; list-style: none; }
+.lnode-fold > summary::-webkit-details-marker { display: none; }
+.lnode-fold > summary::before { content: '▸'; font-size: 11px; color: #5e6c84; width: 10px; flex: none; }
+.lnode-fold[open] > summary::before { content: '▾'; }
+html[data-theme="dark"] .lnode-fold > summary::before { color: var(--muted); }
+.lnode-fold > summary .lnode-row { flex: 1; }
+.ty { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; padding: 1px 6px; border-radius: 4px; white-space: nowrap; color: #fff; }
+.ty-epic { background: #403294; }
+.ty-story { background: #6554c0; }
+.ty-task { background: #0052cc; }
+.ty-ptsp { background: #00857a; }
+.ty-sub { background: #de7c00; }
+.ty-other { background: #97a0af; }
+.ln-prog { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.ln-bar { display: inline-block; width: 70px; height: 7px; background: #ebecf0; border-radius: 5px; overflow: hidden; }
+html[data-theme="dark"] .ln-bar { background: var(--border); }
+.ln-bar span { display: block; height: 100%; border-radius: 5px; }
+.ln-bar .ln-done { background: #36b37e; }
+.ln-bar .ln-mid { background: #ffab00; }
+.ln-bar .ln-low { background: #ff7452; }
+.ln-pct { font-size: 11px; font-weight: 600; color: #5e6c84; }
+html[data-theme="dark"] .ln-pct { color: var(--muted); }
+.ln-sum { color: #42526e; }
+html[data-theme="dark"] .ln-sum { color: var(--muted); }
+.ln-asg { font-size: 12px; color: #5e6c84; background: #f4f5f7; border-radius: 4px; padding: 1px 7px; }
+html[data-theme="dark"] .ln-asg { background: var(--surface); color: var(--text); }
 .report-charts { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
 .rpt-chart { flex: 1 1 320px; background: #fff; border: 1px solid #ebecf0; border-radius: 10px; padding: 14px 16px; }
 .rpt-chart h3 { margin: 0 0 8px; font-size: 14px; color: #172b4d; }
@@ -504,10 +556,13 @@ html[data-theme="dark"] .rpt-li-asg { color: var(--muted); }
 
 /* ===== Print: only the report content, no chrome ===== */
 @media print {
-    .topnav, .theme-fab, .pic-fab, .pic-overlay, .report-print-btn, #autoBtn { display: none !important; }
+    .topnav, .theme-fab, .pic-fab, .pic-overlay, .report-print-btn, .report-copy-btn, #autoBtn { display: none !important; }
     body { background: #fff; }
     .container { max-width: none; margin: 0; padding: 0; }
     .section, .rpt-chart, .rpt-note { break-inside: avoid; }
     .report-charts { gap: 10px; }
     a { color: #172b4d; text-decoration: none; }
+    /* in: bung hết Story đang thu gọn */
+    .lnode-fold > summary ~ .lntree { display: block !important; }
+    .lnode-fold > summary::before { content: '' !important; }
 }

@@ -11,68 +11,29 @@ import json
 import sys
 from datetime import datetime
 
-from config import JIRA_URL, USERS, PORT, STATE_FILE, display_name, actor_name
-from jira_api import fetch_all, fetch_change_authors
-from state import load_state, save_state, build_snapshot, compute_activities, clear_pending
+from config import JIRA_URL, USERS, PORT, STATE_FILE, display_name
+from jira_api import fetch_all, fetch_lines, fetch_activity_feed, load_dismissed, dismiss_activities
+from state import load_state, save_state, build_snapshot
 from pic import save_pic
 from render import render_page, render_report_page, render_error_page
 
-_FIELD_OF = {'status': 'status', 'assignee': 'assignee', 'duedate': 'duedate',
-             'priority': 'priority', 'summary': 'summary'}
-
-
-def _attach_authors(new_acts, data, detected):
-    """Stamp each activity with detection time + the author who made the change."""
-    issue_by_key = {}
-    for bucket in ('active', 'new24', 'done_week'):
-        for iss in data[bucket]:
-            issue_by_key.setdefault(iss['key'], iss)
-    # field changes -> changelog (1 light call for the handful of changed tasks)
-    changed_keys = sorted({a['key'] for a in new_acts if a['kind'] not in ('created', 'comment')})
-    field_authors = fetch_change_authors(changed_keys)
-    for a in new_acts:
-        a['detected'] = detected
-        k, kind = a['key'], a['kind']
-        if kind == 'created':
-            iss = issue_by_key.get(k)
-            a['author'] = actor_name((iss or {}).get('fields', {}).get('reporter')) if iss else ''
-        elif kind == 'comment':
-            iss = issue_by_key.get(k)
-            cmts = ((iss or {}).get('fields', {}).get('comment') or {}).get('comments') or []
-            a['author'] = actor_name(cmts[-1].get('author')) if cmts else ''
-        else:
-            a['author'] = field_authors.get(k, {}).get(_FIELD_OF.get(kind, ''), '')
+ACTIVITY_DAYS = 7  # cửa sổ activity feed kéo từ Jira changelog
 
 
 def _build_view(data):
-    """From a fresh fetch, compute new_keys + accumulated pending activities, and persist state."""
+    """Snapshot diff CHỈ để highlight task mới (new_keys). Activity giờ kéo từ Jira feed
+    (device-independent), không còn dùng local diff/pending."""
     cur_snapshot = build_snapshot(data)
     prev = load_state()
     first_run = prev is None
-    detected = data['fetched_at'].isoformat()
-
     if first_run:
-        prev_keys, pending = set(), []
+        prev_keys = set()
     else:
         prev_snapshot = prev.get('snapshot') or {}
-        prev_pending = prev.get('pending') or []
-        if prev_snapshot:
-            prev_keys = set(prev_snapshot.keys())
-            new_acts = compute_activities(prev_snapshot, cur_snapshot)
-        else:
-            # legacy state (keys only, no status history): treat new keys as "created"
-            prev_keys = set(prev.get('keys', []))
-            new_acts = [{'kind': 'created', 'key': k, **cur_snapshot[k]}
-                        for k in cur_snapshot if k not in prev_keys]
-        _attach_authors(new_acts, data, detected)
-        # accumulate (notification-style); newest first; cap to bound state/view
-        pending = new_acts + prev_pending
-        pending.sort(key=lambda a: (a.get('detected') or '', a.get('updated') or ''), reverse=True)
-        pending = pending[:100]
-
+        prev_keys = set(prev_snapshot.keys()) if prev_snapshot else set(prev.get('keys', []))
     new_keys = set() if first_run else (set(cur_snapshot) - prev_keys)
-    save_state(cur_snapshot, pending)
-    return new_keys, first_run, pending
+    save_state(cur_snapshot, [])  # pending bỏ trống — không còn tích luỹ local
+    return new_keys, first_run
 
 
 # ===== HTTP server =====
@@ -81,7 +42,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if self.path in ('/report', '/report.html'):
             # read-only weekly report: fresh pull, but do NOT mutate activity state
             try:
-                html_out = render_report_page(fetch_all())
+                html_out = render_report_page(fetch_all(), fetch_lines())
             except RuntimeError as e:
                 html_out = render_error_page(str(e))
             self._html(html_out)
@@ -92,8 +53,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         try:
             data = fetch_all()
-            new_keys, first_run, pending = _build_view(data)
-            html_out = render_page(data, new_keys, first_run, pending)
+            new_keys, first_run = _build_view(data)
+            feed = fetch_activity_feed(days=ACTIVITY_DAYS)
+            dismissed = load_dismissed()
+            unread = [a for a in feed if a['id'] not in dismissed]
+            html_out = render_page(data, new_keys, first_run, unread, ACTIVITY_DAYS)
         except RuntimeError as e:
             html_out = render_error_page(str(e))
         self._html(html_out)
@@ -106,9 +70,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(html_out.encode('utf-8'))
 
     def do_POST(self):
-        if self.path == '/clear-activities':
-            clear_pending()
-            self._json(200, b'{"ok":true}')
+        if self.path == '/dismiss':
+            ok = False
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                if 0 < length <= 100_000:
+                    payload = json.loads(self.rfile.read(length).decode('utf-8'))
+                    ids = payload.get('ids') if isinstance(payload, dict) else None
+                    if isinstance(ids, list) and all(isinstance(x, str) for x in ids):
+                        ok = dismiss_activities(ids[:500])
+            except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
+                ok = False
+            self._json(200 if ok else 400, b'{"ok":true}' if ok else b'{"ok":false}')
             return
         if self.path != '/save-pic':
             self.send_response(404)
