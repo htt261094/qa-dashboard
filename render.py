@@ -2,6 +2,7 @@
 
 All render_* functions return HTML fragments; render_page assembles the full document.
 """
+import json
 import math
 import urllib.parse
 from collections import defaultdict
@@ -12,6 +13,8 @@ from issues import (parse_date, i_assignee, i_reporter, i_status, i_summary, i_d
                     i_created, i_resolved, i_updated, i_type, days_overdue, days_since_update,
                     is_stuck, esc, status_class, issue_link)
 from pic import PIC_PEOPLE, load_pic
+from docs import load_docs
+from roadmap import RM_STATUSES, load_roadmap, due_alerts
 
 
 def load_css():
@@ -72,7 +75,9 @@ def render_activities(activities, days=7):
     def change_html(a):
         kind = a['kind']
         if kind == 'created':
-            return '<span class="act-k act-k-new">🆕 Tạo mới</span>'
+            asg = a.get('assignee')
+            tail = f' <span class="act-k act-k-asg">👤 {esc(asg)}</span>' if asg else ''
+            return f'<span class="act-k act-k-new">🆕 Tạo mới</span>{tail}'
         if kind == 'comment':
             body = a.get('body') or ''
             snip = f' <span class="act-cmt-body" title="{esc(body)}">{esc(body)}</span>' if body else ''
@@ -182,13 +187,14 @@ def render_donut(items):
     return wrap, legend
 
 
-def render_chart_card(title, items):
+def render_chart_card(title, items, chart_key=''):
     wrap, legend = render_donut(items)
     total = sum(v for _, v, _ in items)
+    attr = f' data-chart="{esc(chart_key)}"' if chart_key else ''
     if wrap is None:
-        return """<div class="section"><h2>Pie Chart: All Tasks</h2>
+        return f"""<div class="section"{attr}><h2>Pie Chart: All Tasks</h2>
         <div class="empty">Không có data để vẽ chart</div></div>"""
-    return f"""<div class="section">
+    return f"""<div class="section"{attr}>
         <h2>Pie Chart: All Tasks</h2>
         <div class="chart-card">
             {wrap}
@@ -216,9 +222,21 @@ def render_charts(active):
         else:
             assignee_items.append((display_name(a), c, _jql_link(f' AND assignee = {a}')))
 
+    # Data nhúng để JS vẽ lại donut STATUS theo filter người (client-side, không thêm Jira call).
+    cfg = {
+        'active': [{'s': i_status(i) or '—', 'a': i_assignee(i), 'r': i_reporter(i)} for i in active],
+        'jiraUrl': JIRA_URL,
+        'base': f"assignee in ({','.join(USERS)}) AND statusCategory != Done",
+        'palette': DONUT_PALETTE,
+    }
+    data_script = ('<script type="application/json" id="qaChartData">'
+                   + json.dumps(cfg, ensure_ascii=False).replace('</', '<\\/')
+                   + '</script>')
+
     return (
-        render_chart_card('Issue count per Status', status_items) +
-        render_chart_card('Issue count per Assignee', assignee_items)
+        render_chart_card('Issue count per Status', status_items, 'status') +
+        render_chart_card('Issue count per Assignee', assignee_items, 'assignee') +
+        data_script
     )
 
 
@@ -278,7 +296,7 @@ def render_workload(active):
             trows = '<div class="wl-empty">Không có task active</div>'
 
         rows.append(
-            f'<details class="wl-item"><summary class="wl-row">'
+            f'<details class="wl-item" data-user="{esc(u)}"><summary class="wl-row">'
             f'<span class="wl-name">{esc(display_name(u))}</span>{cells}'
             f'<span class="num wl-total">{total}{badge}</span></summary>'
             f'<div class="wl-tasks">{trows}</div></details>'
@@ -292,9 +310,14 @@ def render_workload(active):
 
 
 # ===== Attention block (tabbed: Overdue / Due tuần / Kẹt) =====
+def _person_attrs(issue):
+    """data-* để client-side filter theo người (assignee/reporter)."""
+    return f' data-assignee="{esc(i_assignee(issue))}" data-reporter="{esc(i_reporter(issue))}"'
+
+
 def _attn_row(issue, new_keys, extra_cells):
     new_cls = ' class="is-new"' if issue['key'] in new_keys else ''
-    return (f'<tr{new_cls}><td>{issue_link(issue)}</td>'
+    return (f'<tr{new_cls}{_person_attrs(issue)}><td>{issue_link(issue)}</td>'
             f'<td class="summary-cell" title="{esc(i_summary(issue))}">{esc(i_summary(issue))}</td>'
             f'<td>{esc(display_name(i_assignee(issue)))}</td>'
             f'<td><span class="status {status_class(i_status(issue))}">{esc(i_status(issue))}</span></td>'
@@ -353,7 +376,7 @@ def render_new24(new24, new_keys):
     for issue in new24:
         new_cls = ' class="is-new"' if issue['key'] in new_keys else ''
         created = (i_created(issue) or '')[:16].replace('T', ' ')
-        rows.append(f"""<tr{new_cls}>
+        rows.append(f"""<tr{new_cls}{_person_attrs(issue)}>
             <td>{issue_link(issue)}</td>
             <td class="summary-cell" title="{esc(i_summary(issue))}">{esc(i_summary(issue))}</td>
             <td>{esc(display_name(i_reporter(issue)))}</td>
@@ -381,7 +404,7 @@ def render_done_week(done_week, new_keys):
         new_cls = ' class="is-new"' if issue['key'] in new_keys else ''
         # resolutiondate hay null (workflow không set resolution) -> fallback sang updated
         done_at = (i_resolved(issue) or i_updated(issue) or '')[:16].replace('T', ' ')
-        rows.append(f"""<tr{new_cls}>
+        rows.append(f"""<tr{new_cls}{_person_attrs(issue)}>
             <td>{issue_link(issue)}</td>
             <td class="summary-cell" title="{esc(i_summary(issue))}">{esc(i_summary(issue))}</td>
             <td>{esc(display_name(i_assignee(issue)))}</td>
@@ -470,6 +493,8 @@ def render_nav(active):
     return ('<nav class="topnav">'
             + tab('/', 'dashboard', '📊 Tổng quan')
             + tab('/report', 'report', '📋 Báo cáo tuần')
+            + tab('/roadmap', 'roadmap', '🗺 Roadmap')
+            + tab('/docs', 'docs', '📚 Tài liệu')
             + '</nav>')
 
 
@@ -725,8 +750,22 @@ def render_report_page(data, line_data=None):
     return _document(body)
 
 
+# ===== Filter bar (client-side filter theo người: assignee / reporter) =====
+def render_filterbar():
+    opts = '<option value="">— Tất cả —</option>' + ''.join(
+        f'<option value="{esc(u)}">{esc(display_name(u))}</option>' for u in USERS)
+    return (
+        '<div class="filterbar" id="filterBar">'
+        '<span class="fb-label">👤 Lọc QA:</span>'
+        f'<select id="personFilter">{opts}</select>'
+        '<button type="button" class="fb-clear" id="filterClear" hidden>✕ Bỏ lọc</button>'
+        '<span class="fb-count" id="filterCount"></span>'
+        '</div>'
+    )
+
+
 # ===== Full page =====
-def render_page(data, new_keys, first_run, activities, activity_days=7):
+def render_page(data, new_keys, first_run, activities, activity_days=7, roadmap_data=None):
     fetched = data['fetched_at'].strftime('%Y-%m-%d %H:%M:%S')
 
     left_col = (
@@ -740,7 +779,9 @@ def render_page(data, new_keys, first_run, activities, activity_days=7):
     )
     body = (
         render_kpis(data['active'], data['new24'], data['done_week'], data['created_week'], data['resolved_week']) +
+        render_roadmap_alerts(roadmap_data) +
         render_activities(activities, activity_days) +
+        render_filterbar() +
         f'<div class="grid-2col"><div class="col">{left_col}</div>'
         f'<div class="col">{right_col}</div></div>'
     )
@@ -760,6 +801,254 @@ def render_page(data, new_keys, first_run, activities, activity_days=7):
 
     inner = render_nav('dashboard') + header + first_run_note + body + footer
     return _document(inner)
+
+
+# ===== Tài liệu training (tab /docs): cây folder + link Google Drive =====
+def _doc_folder_html(name, children_html):
+    return (
+        '<li class="doc-node doc-folder">'
+        '<details class="doc-fold" open>'
+        '<summary class="doc-frow">'
+        '<span class="doc-ficon">📁</span>'
+        f'<span class="doc-fname" contenteditable="true">{esc(name)}</span>'
+        '<span class="doc-fact">'
+        '<button type="button" class="doc-add-folder" title="Thêm thư mục con">＋📁</button>'
+        '<button type="button" class="doc-add-link" title="Thêm link tài liệu">＋🔗</button>'
+        '<button type="button" class="doc-del" title="Xoá thư mục">×</button>'
+        '</span></summary>'
+        f'<ul class="doc-children">{children_html}</ul>'
+        '</details></li>'
+    )
+
+
+def _doc_link_html(title, url):
+    return (
+        f'<li class="doc-node doc-link" data-url="{esc(url)}">'
+        '<span class="doc-licon">🔗</span>'
+        f'<a class="doc-title" href="{esc(url)}" target="_blank" rel="noopener" '
+        f'title="Mở để view/edit ở Google">{esc(title)}</a>'
+        f'<span class="doc-url" title="{esc(url)}">{esc(url)}</span>'
+        '<button type="button" class="doc-edit" title="Sửa tài liệu">✎</button>'
+        '</li>'
+    )
+
+
+def _doc_node_html(node):
+    if node.get('type') == 'link':
+        return _doc_link_html(node.get('title', ''), node.get('url', ''))
+    kids = ''.join(_doc_node_html(c) for c in (node.get('children') or []))
+    return _doc_folder_html(node.get('name', ''), kids)
+
+
+def render_docs_page(tree):
+    nodes = ''.join(_doc_node_html(n) for n in (tree or []))
+    empty = '' if nodes else '<li class="doc-empty">Chưa có thư mục. Bấm “＋ Thư mục gốc” để bắt đầu.</li>'
+    body = (
+        render_nav('docs') +
+        '<header><h1>📚 Tài liệu training</h1>'
+        '<div class="meta">Cây thư mục · link tới Google Drive · click để mở tab mới view/edit · tự động lưu</div></header>'
+        '<div class="section docs-sec">'
+        '<div class="docs-toolbar">'
+        '<button type="button" id="docAddRoot" class="docs-btn">＋ Thư mục gốc</button>'
+        '<button type="button" id="docCollapseAll" class="docs-btn">⊟ Thu gọn tất cả</button>'
+        '<span class="doc-save-status" id="docStatus"></span>'
+        '</div>'
+        f'<ul class="doc-tree" id="docTree">{nodes}{empty}</ul>'
+        f'<template id="docFolderTpl">{_doc_folder_html("Thư mục mới", "")}</template>'
+        f'<template id="docLinkTpl">{_doc_link_html("Tài liệu mới", "")}</template>'
+        '</div>'
+        # popup sửa tài liệu (tên / link / xoá)
+        '<div class="docm-overlay" id="docmOverlay">'
+        '<div class="docm-modal" role="dialog" aria-label="Sửa tài liệu">'
+        '<div class="docm-head"><h3>Sửa tài liệu</h3>'
+        '<button type="button" class="docm-close" id="docmClose" aria-label="Đóng">×</button></div>'
+        '<label class="docm-label" for="docmTitle">Tên tài liệu</label>'
+        '<input type="text" id="docmTitle" class="docm-input" autocomplete="off">'
+        '<label class="docm-label" for="docmUrl">Link Google Drive</label>'
+        '<input type="text" id="docmUrl" class="docm-input" placeholder="https://docs.google.com/..." autocomplete="off">'
+        '<div class="docm-actions">'
+        '<button type="button" class="docm-del" id="docmDel">🗑 Xoá tài liệu</button>'
+        '<button type="button" class="docm-cancel" id="docmCancel">Huỷ</button>'
+        '<button type="button" class="docm-save" id="docmSave">Lưu</button>'
+        '</div></div></div>'
+    )
+    return _document(body)
+
+
+# ===== Roadmap (tab /roadmap): giai đoạn › mục › sub-task =====
+_RM_LABELS = {v: l for v, l in RM_STATUSES}
+
+
+def _rm_clamp(prog):
+    try:
+        return max(0, min(100, int(prog)))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _rm_due_chip(due):
+    hidden = '' if due else ' hidden'
+    return f'<span class="rm-due"{hidden}>📅 {esc(due)}</span>'
+
+
+def _rm_node_cells(node):
+    """Phần hiển thị chung của 1 node (item/sub-task): badge + tên + due + bar + ✎."""
+    status = node.get('status', 'planned')
+    prog = _rm_clamp(node.get('progress', 0))
+    return (
+        f'<span class="rm-status rm-st-{esc(status)}">{esc(_RM_LABELS.get(status, status))}</span>'
+        f'<span class="rm-title">{esc(node.get("title", ""))}</span>'
+        f'{_rm_due_chip(node.get("due", ""))}'
+        f'<span class="rm-bar" title="{prog}%"><i style="width:{prog}%"></i></span>'
+        f'<span class="rm-pct">{prog}%</span>'
+        '<button type="button" class="rm-edit" title="Sửa">✎</button>'
+    )
+
+
+def _rm_data_attrs(node):
+    return (f' data-status="{esc(node.get("status", "planned"))}"'
+            f' data-progress="{_rm_clamp(node.get("progress", 0))}"'
+            f' data-due="{esc(node.get("due", ""))}"')
+
+
+def _rm_item_progress(item):
+    """% mục: nếu có sub-task -> trung bình % sub-task (mục không sửa tay); else % của chính nó."""
+    subs = item.get('subtasks') or []
+    if subs:
+        vals = [_rm_clamp(s.get('progress', 0)) for s in subs]
+        return round(sum(vals) / len(vals)) if vals else 0
+    return _rm_clamp(item.get('progress', 0))
+
+
+def _rm_item_status(item):
+    """Status mục suy từ sub-task: all done->done · có blocked->blocked · có in_progress
+    (hoặc đã có vài done) -> in_progress · còn lại -> planned. Không sub-task -> status của chính nó."""
+    subs = item.get('subtasks') or []
+    if not subs:
+        return item.get('status', 'planned')
+    sts = [s.get('status', 'planned') for s in subs]
+    if all(s == 'done' for s in sts):
+        return 'done'
+    if any(s == 'blocked' for s in sts):
+        return 'blocked'
+    if any(s in ('in_progress', 'done') for s in sts):
+        return 'in_progress'
+    return 'planned'
+
+
+def _rm_subtask_html(sub):
+    return f'<li class="rm-node rm-sub"{_rm_data_attrs(sub)}>{_rm_node_cells(sub)}</li>'
+
+
+def _rm_item_html(item):
+    subs = item.get('subtasks') or []
+    # % + status hiển thị = tổng hợp từ sub-task nếu có
+    item = dict(item, progress=_rm_item_progress(item), status=_rm_item_status(item))
+    subs_html = ''.join(_rm_subtask_html(s) for s in subs)
+    head = (f'<div class="rm-irow">{_rm_node_cells(item)}'
+            '<button type="button" class="rm-add-sub" title="Thêm sub-task">＋</button></div>')
+    inner = (f'<details class="rm-ifold" open><summary>{head}</summary>'
+             f'<ul class="rm-subs">{subs_html}</ul></details>')
+    return f'<li class="rm-node rm-item"{_rm_data_attrs(item)}>{inner}</li>'
+
+
+def _rm_phase_html(phase):
+    name = phase.get('phase', '')
+    items = phase.get('items') or []
+    done = sum(1 for i in items if i.get('status') == 'done')
+    total = len(items)
+    pct = round(done / total * 100) if total else 0
+    items_html = ''.join(_rm_item_html(i) for i in items)
+    return (
+        '<div class="rm-phase">'
+        '<details class="rm-fold" open><summary class="rm-phead">'
+        '<span class="rm-picon">📅</span>'
+        f'<span class="rm-pname">{esc(name)}</span>'
+        f'<span class="rm-summary"><span class="rm-sum-txt">{done}/{total} xong</span>'
+        f'<span class="rm-sum-bar"><i style="width:{pct}%"></i></span></span>'
+        '<span class="rm-pact">'
+        '<button type="button" class="rm-add-item" title="Thêm mục">＋ Mục</button>'
+        '<button type="button" class="rm-edit-phase" title="Sửa giai đoạn">✎</button>'
+        '</span></summary>'
+        f'<ul class="rm-items">{items_html}</ul>'
+        '</details></div>'
+    )
+
+
+def _rm_status_options():
+    return ''.join(f'<option value="{esc(v)}">{esc(l)}</option>' for v, l in RM_STATUSES)
+
+
+def render_roadmap_page(data):
+    phases = ''.join(_rm_phase_html(p) for p in (data or []))
+    empty = '' if phases else '<div class="rm-empty">Chưa có giai đoạn. Bấm “＋ Giai đoạn” để bắt đầu.</div>'
+    body = (
+        render_nav('roadmap') +
+        '<header><h1>🗺 Roadmap team QA</h1>'
+        '<div class="meta">Theo mốc thời gian · bấm để xổ cây · sửa qua ✎ · tự động lưu</div></header>'
+        '<div class="section rm-sec">'
+        '<div class="rm-toolbar">'
+        '<button type="button" id="rmAddPhase" class="rm-tbtn">＋ Giai đoạn</button>'
+        '<button type="button" id="rmCollapse" class="rm-tbtn">⊟ Thu gọn tất cả</button>'
+        '<span class="rm-legend">'
+        + ''.join(f'<span class="rm-lg rm-st-{esc(v)}">{esc(l)}</span>' for v, l in RM_STATUSES)
+        + '</span>'
+        '<span class="doc-save-status" id="rmStatus"></span>'
+        '</div>'
+        f'<div class="rm-list" id="rmList">{phases}{empty}</div>'
+        f'<template id="rmPhaseTpl">{_rm_phase_html({"phase": "Giai đoạn mới", "items": []})}</template>'
+        f'<template id="rmItemTpl">{_rm_item_html({"title": "Mục mới", "status": "planned", "progress": 0, "due": "", "subtasks": []})}</template>'
+        f'<template id="rmSubTpl">{_rm_subtask_html({"title": "Sub-task mới", "status": "planned", "progress": 0, "due": ""})}</template>'
+        '</div>'
+        # popup sửa node (tên / trạng thái / % / hạn / xoá). Phase chỉ dùng tên + xoá.
+        '<div class="docm-overlay" id="rmmOverlay">'
+        '<div class="docm-modal" role="dialog" aria-label="Sửa">'
+        '<div class="docm-head"><h3 id="rmmHead">Sửa mục</h3>'
+        '<button type="button" class="docm-close" id="rmmClose" aria-label="Đóng">×</button></div>'
+        '<label class="docm-label" for="rmmTitle">Tiêu đề</label>'
+        '<input type="text" id="rmmTitle" class="docm-input" autocomplete="off">'
+        '<div class="rmm-grid" id="rmmFields">'
+        '<div><label class="docm-label" for="rmmStatus">Trạng thái</label>'
+        f'<select id="rmmStatus" class="docm-input">{_rm_status_options()}</select>'
+        '<small class="rmm-note" id="rmmStatusNote" hidden>Tự tính theo sub-task</small></div>'
+        '<div><label class="docm-label" for="rmmProg">% tiến độ</label>'
+        '<input type="number" id="rmmProg" class="docm-input" min="0" max="100">'
+        '<small class="rmm-note" id="rmmProgNote" hidden>Tự tính theo sub-task</small></div>'
+        '<div><label class="docm-label" for="rmmDue">Hạn</label>'
+        '<input type="date" id="rmmDue" class="docm-input"></div>'
+        '</div>'
+        '<div class="docm-actions">'
+        '<button type="button" class="docm-del" id="rmmDel">🗑 Xoá</button>'
+        '<button type="button" class="docm-cancel" id="rmmCancel">Huỷ</button>'
+        '<button type="button" class="docm-save" id="rmmSave">Lưu</button>'
+        '</div></div></div>'
+    )
+    return _document(body)
+
+
+def render_roadmap_alerts(roadmap_data):
+    """Block cảnh báo (dashboard): mục roadmap chưa xong, hạn <= 2 tuần. Tách khỏi feed Jira."""
+    alerts = due_alerts(roadmap_data, within_days=14)
+    if not alerts:
+        return ''
+    rows = []
+    for a in alerts:
+        d = a['days_left']
+        if d < 0:
+            tag = f'<span class="rm-al-tag rm-al-over">quá hạn {abs(d)}d</span>'
+        elif d == 0:
+            tag = '<span class="rm-al-tag rm-al-today">hôm nay</span>'
+        else:
+            tag = f'<span class="rm-al-tag rm-al-soon">còn {d}d</span>'
+        rows.append(
+            f'<div class="rm-al-row">{tag}'
+            f'<span class="rm-al-title">{esc(a["title"])}</span>'
+            f'<span class="rm-al-phase">{esc(a["phase"])}</span>'
+            f'<span class="rm-al-due">📅 {esc(a["due"])}</span></div>'
+        )
+    return (f'<div class="section rm-alerts"><h2>🗺 Roadmap sắp đến hạn '
+            f'<span class="count">{len(alerts)}</span></h2>'
+            f'<div class="rm-al-list">{"".join(rows)}</div></div>')
 
 
 def render_error_page(msg):

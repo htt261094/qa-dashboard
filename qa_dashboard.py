@@ -12,10 +12,14 @@ import sys
 from datetime import datetime
 
 from config import JIRA_URL, USERS, PORT, STATE_FILE, display_name
-from jira_api import fetch_all, fetch_lines, fetch_activity_feed, load_dismissed, dismiss_activities
+from jira_api import (fetch_all, fetch_lines, fetch_activity_feed, load_dismissed,
+                      dismiss_activities, run_parallel)
 from state import load_state, save_state, build_snapshot
 from pic import save_pic
-from render import render_page, render_report_page, render_error_page
+from docs import load_docs, save_docs, valid_tree
+from roadmap import load_roadmap, save_roadmap, valid_roadmap
+from render import (render_page, render_report_page, render_docs_page,
+                    render_roadmap_page, render_error_page)
 
 ACTIVITY_DAYS = 7  # cửa sổ activity feed kéo từ Jira changelog
 
@@ -42,22 +46,36 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if self.path in ('/report', '/report.html'):
             # read-only weekly report: fresh pull, but do NOT mutate activity state
             try:
-                html_out = render_report_page(fetch_all(), fetch_lines())
+                rep = run_parallel({'data': fetch_all, 'lines': fetch_lines})
+                html_out = render_report_page(rep['data'], rep['lines'])
             except RuntimeError as e:
                 html_out = render_error_page(str(e))
             self._html(html_out)
+            return
+        if self.path in ('/docs', '/docs.html'):
+            # tài liệu training: read JSON local, KHÔNG gọi Jira
+            self._html(render_docs_page(load_docs()))
+            return
+        if self.path in ('/roadmap', '/roadmap.html'):
+            # roadmap team: read JSON local, KHÔNG gọi Jira
+            self._html(render_roadmap_page(load_roadmap()))
             return
         if self.path not in ('/', '/index.html'):
             self.send_response(404)
             self.end_headers()
             return
         try:
-            data = fetch_all()
+            # 3 nhóm call độc lập -> chạy song song (fetch_all tự song song 5 call bên trong)
+            res = run_parallel({
+                'data': fetch_all,
+                'feed': lambda: fetch_activity_feed(days=ACTIVITY_DAYS),
+                'dismissed': load_dismissed,
+            })
+            data, feed, dismissed = res['data'], res['feed'], res['dismissed']
             new_keys, first_run = _build_view(data)
-            feed = fetch_activity_feed(days=ACTIVITY_DAYS)
-            dismissed = load_dismissed()
             unread = [a for a in feed if a['id'] not in dismissed]
-            html_out = render_page(data, new_keys, first_run, unread, ACTIVITY_DAYS)
+            html_out = render_page(data, new_keys, first_run, unread, ACTIVITY_DAYS,
+                                   roadmap_data=load_roadmap())
         except RuntimeError as e:
             html_out = render_error_page(str(e))
         self._html(html_out)
@@ -80,6 +98,30 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     if isinstance(ids, list) and all(isinstance(x, str) for x in ids):
                         ok = dismiss_activities(ids[:500])
             except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
+                ok = False
+            self._json(200 if ok else 400, b'{"ok":true}' if ok else b'{"ok":false}')
+            return
+        if self.path == '/save-docs':
+            ok = False
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                if 0 < length <= 1_000_000:
+                    payload = json.loads(self.rfile.read(length).decode('utf-8'))
+                    if valid_tree(payload):
+                        ok = save_docs(payload)
+            except (ValueError, json.JSONDecodeError, OSError):
+                ok = False
+            self._json(200 if ok else 400, b'{"ok":true}' if ok else b'{"ok":false}')
+            return
+        if self.path == '/save-roadmap':
+            ok = False
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                if 0 < length <= 1_000_000:
+                    payload = json.loads(self.rfile.read(length).decode('utf-8'))
+                    if valid_roadmap(payload):
+                        ok = save_roadmap(payload)
+            except (ValueError, json.JSONDecodeError, OSError):
                 ok = False
             self._json(200 if ok else 400, b'{"ok":true}' if ok else b'{"ok":false}')
             return

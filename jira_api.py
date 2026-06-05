@@ -4,6 +4,7 @@ PAT is read from config and never logged: network errors are redacted before rai
 """
 import sys
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
 from config import JIRA_URL, PAT, USERS, actor_name
@@ -15,8 +16,23 @@ except ImportError:
     print("ERROR: 'requests' library missing. Run: pip install requests", file=sys.stderr)
     sys.exit(1)
 
+# Session dùng chung -> tái dùng kết nối (keep-alive), khỏi bắt tay TLS mỗi call.
+# urllib3 connection pool thread-safe nên share được giữa các thread của run_parallel.
+_SESSION = requests.Session()
+
 _DEFAULT_FIELDS = ('summary,status,assignee,reporter,duedate,created,'
                    'resolutiondate,updated,issuetype,comment,priority')
+
+
+def run_parallel(jobs):
+    """jobs = {name: callable() -> value}. Chạy đồng thời (I/O mạng), trả {name: value}.
+    Re-raise lỗi đầu tiên (RuntimeError) để do_GET render trang lỗi như cũ."""
+    results = {}
+    with ThreadPoolExecutor(max_workers=min(8, max(1, len(jobs)))) as ex:
+        fut_name = {ex.submit(fn): name for name, fn in jobs.items()}
+        for fut in as_completed(fut_name):
+            results[fut_name[fut]] = fut.result()
+    return results
 
 
 def _jira_request(jql, max_results, fields=_DEFAULT_FIELDS, expand=None):
@@ -24,7 +40,7 @@ def _jira_request(jql, max_results, fields=_DEFAULT_FIELDS, expand=None):
     if expand:
         params['expand'] = expand
     try:
-        resp = requests.get(
+        resp = _SESSION.get(
             f"{JIRA_URL}/rest/api/2/search",
             headers={'Authorization': f'Bearer {PAT}', 'Accept': 'application/json'},
             params=params,
@@ -82,8 +98,13 @@ def fetch_activity_feed(days=7, cap=300, max_issues=120):
         summary = f.get('summary') or ''
         cr = parse_date(f.get('created'))
         if cr and cr >= start:
-            acts.append({'id': f'{key}#created', 'kind': 'created', 'key': key, 'summary': summary,
-                         'author': actor_name(f.get('reporter')), 'when': f.get('created')})
+            # Task tạo kèm assignee -> Jira KHÔNG ghi changelog 'assignee' (set lúc tạo, không phải đổi).
+            # Lấy assignee hiện tại gắn vào event created để feed hiện "tạo mới + giao cho ai".
+            created_act = {'id': f'{key}#created', 'kind': 'created', 'key': key, 'summary': summary,
+                           'author': actor_name(f.get('reporter')), 'when': f.get('created')}
+            if f.get('assignee'):
+                created_act['assignee'] = actor_name(f.get('assignee'))
+            acts.append(created_act)
         for h in (iss.get('changelog', {}) or {}).get('histories', []):
             hc = parse_date(h.get('created'))
             if not hc or hc < start:
@@ -133,7 +154,7 @@ def _current_username():
     global _USERNAME
     if _USERNAME is None:
         try:
-            r = requests.get(f"{JIRA_URL}/rest/api/2/myself", headers=_auth_headers(), timeout=15)
+            r = _SESSION.get(f"{JIRA_URL}/rest/api/2/myself", headers=_auth_headers(), timeout=15)
             r.raise_for_status()
             _USERNAME = r.json().get('name') or r.json().get('key')
         except requests.RequestException as e:
@@ -144,7 +165,7 @@ def _current_username():
 def load_dismissed():
     """{activity_id: dismissed_at_iso} từ Jira user property. {} nếu chưa có."""
     try:
-        r = requests.get(f"{JIRA_URL}/rest/api/2/user/properties/{_READ_PROP}",
+        r = _SESSION.get(f"{JIRA_URL}/rest/api/2/user/properties/{_READ_PROP}",
                          headers=_auth_headers(), params={'username': _current_username()}, timeout=15)
         if r.status_code == 404:
             return {}
@@ -159,7 +180,7 @@ def load_dismissed():
 def save_dismissed(dismissed):
     body = json.dumps({'dismissed': dismissed, 'updated': datetime.now().isoformat()})
     try:
-        requests.put(f"{JIRA_URL}/rest/api/2/user/properties/{_READ_PROP}",
+        _SESSION.put(f"{JIRA_URL}/rest/api/2/user/properties/{_READ_PROP}",
                      headers=_auth_headers({'Content-Type': 'application/json'}),
                      params={'username': _current_username()}, data=body, timeout=15)
     except requests.RequestException as e:
@@ -257,23 +278,19 @@ def fetch_lines(max_results=500, max_depth=8, now=None):
 
 
 def fetch_all():
-    """Pull the 3 task buckets + 2 weekly counts. ~5 Jira calls per refresh."""
+    """Pull the 3 task buckets + 2 weekly counts. 5 Jira calls — chạy SONG SONG."""
     user_list = ', '.join(USERS)
-    return {
-        'active': jira_search(
-            f"assignee in ({user_list}) AND statusCategory != Done ORDER BY duedate ASC",
-            max_results=300,
-        ),
-        'new24': jira_search(
-            f"reporter in ({user_list}) AND created >= -24h ORDER BY created DESC",
-            max_results=50,
-        ),
-        'done_week': jira_search(
-            f'assignee in ({user_list}) AND status CHANGED TO "DONE" AFTER -3d ORDER BY updated DESC',
-            max_results=100,
-        ),
+    data = run_parallel({
+        'active': lambda: jira_search(
+            f"assignee in ({user_list}) AND statusCategory != Done ORDER BY duedate ASC", max_results=300),
+        'new24': lambda: jira_search(
+            f"reporter in ({user_list}) AND created >= -24h ORDER BY created DESC", max_results=50),
+        'done_week': lambda: jira_search(
+            f'assignee in ({user_list}) AND status CHANGED TO "DONE" AFTER -3d ORDER BY updated DESC', max_results=100),
         # weekly inflow vs outflow (count-only, cheap)
-        'created_week': jira_count(f"assignee in ({user_list}) AND created >= startOfWeek()"),
-        'resolved_week': jira_count(f'assignee in ({user_list}) AND status CHANGED TO "DONE" AFTER startOfWeek()'),
-        'fetched_at': datetime.now(),
-    }
+        'created_week': lambda: jira_count(f"assignee in ({user_list}) AND created >= startOfWeek()"),
+        'resolved_week': lambda: jira_count(
+            f'assignee in ({user_list}) AND status CHANGED TO "DONE" AFTER startOfWeek()'),
+    })
+    data['fetched_at'] = datetime.now()
+    return data

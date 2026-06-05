@@ -2,6 +2,8 @@
 .env
 .last_seen.json
 .pic_config.json
+.docs_config.json
+.roadmap_config.json
 
 # Python
 __pycache__/

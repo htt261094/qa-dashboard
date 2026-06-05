@@ -19,6 +19,8 @@ SCRIPT_DIR = Path(__file__).parent
 ENV_FILE = SCRIPT_DIR / '.env'
 STATE_FILE = SCRIPT_DIR / '.last_seen.json'
 PIC_FILE = SCRIPT_DIR / '.pic_config.json'
+DOCS_FILE = SCRIPT_DIR / '.docs_config.json'
+ROADMAP_FILE = SCRIPT_DIR / '.roadmap_config.json'
 
 # ----- Domain constants -----
 STUCK_DAYS = 5   # task In Progress/PENDING không đổi >= 5 ngày = "kẹt"
