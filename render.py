@@ -264,10 +264,10 @@ def render_workload(active):
                 else:
                     matrix[a]['TO DO'] += 1
 
-    status_order = {'TO DO': 0, 'In Progress': 1, 'PENDING': 2}
-
+    # Sort theo due date: gần nhất lên đầu; overdue (ngày quá khứ) tự nhiên ở trên cùng;
+    # task không có due date xuống cuối (datetime.max).
     def task_key(iss):
-        return (status_order.get(i_status(iss), 3), parse_date(i_duedate(iss)) or datetime.max)
+        return parse_date(i_duedate(iss)) or datetime.max
 
     rows = ['<div class="wl-head wl-row"><span>Assignee</span>'
             '<span class="num">TO DO</span><span class="num">In Progress</span>'
