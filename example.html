@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>QA Dashboard — Việc của tôi (mockup lens cá nhân)</title>
+<script>(function(){try{var t=localStorage.getItem('qa-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+<!-- Link thẳng styles.css thật để mockup giống UI production -->
+<link rel="stylesheet" href="styles.css">
+<style>
+/* chỉ vài style phụ riêng cho mockup, không vào production */
+.mock-note{background:#fffae6;border:1px solid #ffe380;border-left:4px solid #ffab00;border-radius:8px;padding:14px 18px;margin-bottom:20px;font-size:13px;color:#5e4700;}
+.mock-note b{color:#172b4d;}
+.mock-note .tag{display:inline-block;background:#ffab00;color:#fff;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:2px 7px;border-radius:4px;margin-right:8px;}
+.removed{font-size:12px;color:#6b778c;margin-top:8px;border-top:1px dashed #ffe380;padding-top:8px;}
+.removed s{color:#bf2600;}
+.flat-table td .status{vertical-align:middle;}
+/* hàng các block cao bằng nhau: grid stretch + section fill chiều cao cell */
+.eqrow{display:grid;gap:20px;align-items:stretch;margin-bottom:20px;}
+.eqrow-3{grid-template-columns:repeat(3,1fr);}
+.eqrow-2{grid-template-columns:1fr 1fr;}
+.eqrow .section{margin-bottom:0;display:flex;flex-direction:column;}
+/* table/list giữ chiều cao tự nhiên (KHÔNG flex-grow -> không giãn row); pager bị đẩy xuống đáy */
+.eqrow .section .pager{margin-top:auto;}
+@media (max-width:1000px){.eqrow-3,.eqrow-2{grid-template-columns:1fr;}}
+/* activity: khoá chiều cao tối thiểu để dismiss không làm co/nhảy block */
+.act-stream .act-list{min-height:300px;}
+/* accent màu cho 3 block ưu tiên (giống viền trái KPI) */
+.prio-overdue{border-left:3px solid #de350b;}
+.prio-dueweek{border-left:3px solid #00b8d9;}
+.prio-stuck{border-left:3px solid #ff8b00;}
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- ===== Top nav (giống production, chip user = QA chỉ xem) ===== -->
+  <nav class="topnav">
+    <a class="navtab active" href="#">📊 Tổng quan</a>
+    <a class="navtab" href="#">📑 Báo cáo tuần</a>
+    <a class="navtab" href="#">📚 Tài liệu</a>
+    <a class="navtab" href="#">🗺 Roadmap</a>
+    <span class="nav-user">👤 quangbm@baokim.vn</span>
+    <a class="nav-logout" href="#">Đăng xuất</a>
+  </nav>
+
+  <!-- ===== Header ===== -->
+  <header>
+    <h1>QA Dashboard — Việc của tôi</h1>
+    <div class="meta">Last refresh: <strong>2026-06-06 09:12:03</strong> · <kbd>F5</kbd> refresh · <button class="auto-btn" type="button">⏸ Auto 15p: ON</button></div>
+  </header>
+
+  <!-- ===== Ghi chú mockup (xoá khi vào production) ===== -->
+  <div class="mock-note">
+    <span class="tag">Mockup</span>
+    Đây là <b>lens cá nhân</b> cho QA non-admin (mẫu: <b>Quang</b>). Data đã auto-scope về riêng người đăng nhập.
+    So với dashboard quản lý: bỏ các widget so-sánh-giữa-người, đẩy "ưu tiên hành động" lên đầu.
+    <div class="removed">
+      Đã bỏ: <s>Workload Matrix</s> · <s>Donut "issue per assignee"</s> · <s>KPI Vào/Ra tuần (backlog team)</s> · <s>New24 theo reporter</s> &nbsp;|&nbsp;
+      Thêm/đẩy lên: <b>🎯 Ưu tiên hành động</b> · <b>🔵 Đang làm</b> · <b>📋 TO DO của tôi</b> (thay matrix)
+    </div>
+  </div>
+
+  <!-- ===== KPI rút gọn (chỉ chỉ số cá nhân) ===== -->
+  <div class="kpis">
+    <div class="kpi"><div class="label">Active của tôi</div><div class="value">11</div></div>
+    <div class="kpi warn"><div class="label">Overdue</div><div class="value">2</div></div>
+    <div class="kpi warn"><div class="label">Kẹt ≥ 5 ngày</div><div class="value">1</div></div>
+    <div class="kpi info"><div class="label">Due This Week</div><div class="value">3</div></div>
+    <div class="kpi success"><div class="label">Done (3 ngày)</div><div class="value">4</div></div>
+  </div>
+
+  <!-- ===== 🎯 Ưu tiên hành động: 3 block riêng (Overdue / Due tuần / Kẹt), cao bằng nhau ===== -->
+  <div class="eqrow eqrow-3">
+
+    <div class="section prio-overdue" data-paginate="5">
+      <h2>⚠ Overdue <span class="count">6</span></h2>
+      <table>
+        <thead><tr><th>Key</th><th>Summary</th><th>Due</th><th>Trễ</th></tr></thead>
+        <tbody>
+          <tr><td><a href="#" class="key">PSIT1H26-412</a></td><td class="summary-cell" title="[QA] Test luồng nạp tiền QR động">[QA] Test luồng nạp tiền QR động</td><td>2026-06-02</td><td class="days-overdue">4d</td></tr>
+          <tr><td><a href="#" class="key">DA51H26-88</a></td><td class="summary-cell" title="[QA] Verify rollback giao dịch chi hộ lỗi">[QA] Verify rollback giao dịch chi hộ lỗi</td><td>2026-06-04</td><td class="days-overdue">2d</td></tr>
+          <tr><td><a href="#" class="key">DA2B-120</a></td><td class="summary-cell" title="[QA] Test giới hạn số lần OTP sai">[QA] Test giới hạn số lần OTP sai</td><td>2026-05-30</td><td class="days-overdue">7d</td></tr>
+          <tr><td><a href="#" class="key">DA61H26-12</a></td><td class="summary-cell" title="[QA] Verify log đối soát cổng VA">[QA] Verify log đối soát cổng VA</td><td>2026-05-29</td><td class="days-overdue">8d</td></tr>
+          <tr><td><a href="#" class="key">PSIT1H26-377</a></td><td class="summary-cell" title="[QA] Test hủy giao dịch treo">[QA] Test hủy giao dịch treo</td><td>2026-06-01</td><td class="days-overdue">5d</td></tr>
+          <tr><td><a href="#" class="key">DA2B-133</a></td><td class="summary-cell" title="[QA] Test phân trang lịch sử GD">[QA] Test phân trang lịch sử GD</td><td>2026-06-03</td><td class="days-overdue">3d</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section prio-dueweek" data-paginate="5">
+      <h2>📅 Due tuần <span class="count">3</span></h2>
+      <table>
+        <thead><tr><th>Key</th><th>Summary</th><th>Due</th></tr></thead>
+        <tbody>
+          <tr><td><a href="#" class="key">PSIT1H26-431</a></td><td class="summary-cell">[QA] Test API hoàn tiền một phần</td><td>2026-06-06</td></tr>
+          <tr><td><a href="#" class="key">DA61H26-23</a></td><td class="summary-cell">[QA] Regression cổng thanh toán VA</td><td>2026-06-07</td></tr>
+          <tr><td><a href="#" class="key">DA2B-150</a></td><td class="summary-cell">[QA] Test webhook callback đối tác</td><td>2026-06-08</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section prio-stuck" data-paginate="5">
+      <h2>⏳ Kẹt ≥ 5 ngày <span class="count">1</span></h2>
+      <table>
+        <thead><tr><th>Key</th><th>Summary</th><th>Kẹt</th></tr></thead>
+        <tbody>
+          <tr><td><a href="#" class="key">DA51H26-88</a></td><td class="summary-cell">[QA] Verify rollback giao dịch chi hộ lỗi</td><td class="days-overdue">7d</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <!-- ===== Hàng 1: Đang làm | Hoạt động (cao bằng nhau) ===== -->
+  <div class="eqrow eqrow-2">
+
+    <!-- 🔵 Đang làm (In Progress) -->
+    <div class="section" data-paginate="5">
+      <h2>🔵 Đang làm <span class="count">3</span></h2>
+      <table class="flat-table">
+        <thead><tr><th>Key</th><th>Summary</th><th>Due</th></tr></thead>
+        <tbody>
+          <tr><td><a href="#" class="key">PSIT1H26-412</a></td><td class="summary-cell">[QA] Test luồng nạp tiền QR động</td><td class="days-overdue">2026-06-02</td></tr>
+          <tr><td><a href="#" class="key">DA61H26-23</a></td><td class="summary-cell">[QA] Regression cổng thanh toán VA</td><td>2026-06-07</td></tr>
+          <tr><td><a href="#" class="key">PSIT1H26-455</a></td><td class="summary-cell">[QA] Test giới hạn hạn mức ví theo tier</td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 🔔 Hoạt động của tôi (dismiss được, chiều cao khoá min-height) -->
+    <div class="section act-stream">
+      <h2>🔔 Hoạt động của tôi <span class="count" id="actCount">6</span></h2>
+      <div class="act-list" id="actList">
+        <div class="act-group">
+          <div class="act-g-head"><a href="#" class="key">PSIT1H26-412</a><span class="act-sum">[QA] Test luồng nạp tiền QR động</span></div>
+          <div class="act-row"><span class="act-change"><span class="act-k act-k-cmt">💬 comment</span> <span class="act-cmt-body">Dev đã fix, mời QA test lại trên UAT</span></span><span class="act-by">Hiền</span><span class="act-time">06-06 08:40</span><button class="act-x" type="button" onclick="dismissAct(this)">✕</button></div>
+        </div>
+        <div class="act-group">
+          <div class="act-g-head"><a href="#" class="key">DA61H26-23</a><span class="act-sum">[QA] Regression cổng thanh toán VA</span></div>
+          <div class="act-row"><span class="act-change">🔄 <span class="status status-todo">TO DO</span><span class="act-arrow">→</span><span class="status status-progress">In Progress</span></span><span class="act-by">Quang</span><span class="act-time">06-05 17:02</span><button class="act-x" type="button" onclick="dismissAct(this)">✕</button></div>
+        </div>
+        <div class="act-group">
+          <div class="act-g-head"><a href="#" class="key">DA2B-150</a><span class="act-sum">[QA] Test webhook callback đối tác</span></div>
+          <div class="act-row"><span class="act-change"><span class="act-k act-k-new">🆕 Tạo mới</span></span><span class="act-by">Hiền</span><span class="act-time">06-05 09:15</span><button class="act-x" type="button" onclick="dismissAct(this)">✕</button></div>
+        </div>
+        <div class="act-group">
+          <div class="act-g-head"><a href="#" class="key">PSIT1H26-431</a><span class="act-sum">[QA] Test API hoàn tiền một phần</span></div>
+          <div class="act-row"><span class="act-change">📅 <span class="act-k act-k-due">Due</span> 2026-06-04 → 2026-06-06</span><span class="act-by">Hiền</span><span class="act-time">06-05 08:30</span><button class="act-x" type="button" onclick="dismissAct(this)">✕</button></div>
+        </div>
+        <div class="act-group">
+          <div class="act-g-head"><a href="#" class="key">DA61H26-19</a><span class="act-sum">[QA] Test timeout cổng VA</span></div>
+          <div class="act-row"><span class="act-change">🔄 <span class="status status-progress">In Progress</span><span class="act-arrow">→</span><span class="status status-done">DONE</span></span><span class="act-by">Quang</span><span class="act-time">06-04 15:30</span><button class="act-x" type="button" onclick="dismissAct(this)">✕</button></div>
+        </div>
+        <div class="act-group">
+          <div class="act-g-head"><a href="#" class="key">DA51H26-88</a><span class="act-sum">[QA] Verify rollback giao dịch chi hộ lỗi</span></div>
+          <div class="act-row"><span class="act-change"><span class="act-k act-k-cmt">💬 comment</span> <span class="act-cmt-body">Đang chờ DBA confirm script rollback</span></span><span class="act-by">Quang</span><span class="act-time">06-04 11:10</span><button class="act-x" type="button" onclick="dismissAct(this)">✕</button></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ===== Hàng 2: TO DO | Done (cao bằng nhau) ===== -->
+  <div class="eqrow eqrow-2">
+
+    <!-- 📋 TO DO của tôi (thay Workload Matrix) -->
+    <div class="section" data-paginate="5">
+      <h2>📋 TO DO của tôi <span class="count">6</span></h2>
+      <table class="flat-table">
+        <thead><tr><th>Key</th><th>Summary</th><th>Due</th></tr></thead>
+        <tbody>
+          <tr><td><a href="#" class="key">PSIT1H26-431</a></td><td class="summary-cell">[QA] Test API hoàn tiền một phần</td><td>2026-06-06</td></tr>
+          <tr><td><a href="#" class="key">DA2B-150</a></td><td class="summary-cell">[QA] Test webhook callback đối tác</td><td>2026-06-08</td></tr>
+          <tr><td><a href="#" class="key">DA61H26-31</a></td><td class="summary-cell">[QA] Test đối soát cuối ngày</td><td>2026-06-10</td></tr>
+          <tr><td><a href="#" class="key">PSIT1H26-460</a></td><td class="summary-cell">[QA] Test thông báo biến động số dư</td><td>2026-06-11</td></tr>
+          <tr><td><a href="#" class="key">DA2B-161</a></td><td class="summary-cell">[QA] Test phân quyền role merchant</td><td>—</td></tr>
+          <tr><td><a href="#" class="key">DA51H26-102</a></td><td class="summary-cell">[QA] Test export báo cáo giao dịch CSV</td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ✅ Done (3 ngày) -->
+    <div class="section" data-paginate="5">
+      <h2>✅ Done (3 ngày) <span class="count">4</span></h2>
+      <table class="flat-table">
+        <thead><tr><th>Key</th><th>Summary</th><th>Status</th><th>Cập nhật</th></tr></thead>
+        <tbody>
+          <tr><td><a href="#" class="key">PSIT1H26-399</a></td><td class="summary-cell">[QA] Test đăng nhập OTP SMS</td><td><span class="status status-done">DONE</span></td><td>2026-06-05 16:20</td></tr>
+          <tr><td><a href="#" class="key">DA51H26-77</a></td><td class="summary-cell">[QA] Verify số dư sau chi hộ lô</td><td><span class="status status-done">DONE</span></td><td>2026-06-05 11:48</td></tr>
+          <tr><td><a href="#" class="key">DA61H26-19</a></td><td class="summary-cell">[QA] Test timeout cổng VA</td><td><span class="status status-done">DONE</span></td><td>2026-06-04 15:30</td></tr>
+          <tr><td><a href="#" class="key">DA2B-141</a></td><td class="summary-cell">[QA] Test ký webhook HMAC</td><td><span class="status status-cancel">CANCELLED</span></td><td>2026-06-04 10:05</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <p style="text-align:center;color:#6b778c;font-size:12px;margin-top:30px">Mockup tĩnh — không có backend · Tracking: Quang</p>
+</div>
+
+<!-- JS mockup: mô phỏng setupPaginate + setupActListPaging của production -->
+<script>
+// --- Pager cho block dạng bảng (giống setupPaginate): chèn filler row giữ chiều cao ổn định ---
+function paginate(box){
+  var size = parseInt(box.getAttribute('data-paginate'), 10) || 5;
+  var tbody = box.querySelector('tbody');
+  if (!tbody) return;
+  var allRows = Array.prototype.slice.call(tbody.querySelectorAll('tr'));
+  if (!allRows.length) return;
+  var cols = allRows[0].cells.length;
+  var rowH = allRows[0].offsetHeight || 37;
+  var page = 0, fillers = [];
+  var nav = document.createElement('div'); nav.className = 'pager';
+  var prev = document.createElement('button'); prev.className = 'pager-btn'; prev.textContent = '‹ Prev';
+  var info = document.createElement('span'); info.className = 'pager-info';
+  var next = document.createElement('button'); next.className = 'pager-btn'; next.textContent = 'Next ›';
+  nav.appendChild(prev); nav.appendChild(info); nav.appendChild(next);
+  box.appendChild(nav);
+  function render(){
+    var pages = Math.max(1, Math.ceil(allRows.length / size));
+    if (page >= pages) page = pages - 1; if (page < 0) page = 0;
+    allRows.forEach(function(r){ r.style.display = 'none'; });
+    var shown = 0;
+    for (var i = page*size; i < (page+1)*size && i < allRows.length; i++){ allRows[i].style.display = ''; shown++; }
+    while (fillers.length){ var f = fillers.pop(); if (f.parentNode) f.parentNode.removeChild(f); }
+    for (var k = shown; k < size; k++){
+      var tr = document.createElement('tr'); tr.className = 'pager-filler';
+      var td = document.createElement('td'); td.colSpan = cols; td.style.height = rowH + 'px'; td.innerHTML = '&nbsp;';
+      tr.appendChild(td); tbody.appendChild(tr); fillers.push(tr);
+    }
+    info.textContent = (page*size + 1) + '–' + Math.min((page+1)*size, allRows.length) + ' / ' + allRows.length;
+    prev.disabled = (page === 0); next.disabled = (page >= pages - 1);
+  }
+  prev.addEventListener('click', function(){ if (page > 0){ page--; render(); } });
+  next.addEventListener('click', function(){ page++; render(); });
+  render();
+}
+document.querySelectorAll('[data-paginate]').forEach(paginate);
+
+// --- Pager cho Activity (giống setupActListPaging): 5 group/trang, khoá min-height, dismiss vẽ lại ---
+var actList = document.getElementById('actList');
+var actNav, actPage = 0, actSize = 5;
+function actGroups(){ return Array.prototype.slice.call(actList.querySelectorAll('.act-group')); }
+function actShow(g){ g.forEach(function(el,i){ el.style.display = (i >= actPage*actSize && i < (actPage+1)*actSize) ? '' : 'none'; }); }
+function actMeasure(){
+  var g = actGroups(), pages = Math.max(1, Math.ceil(g.length/actSize)), saved = actPage, max = 0;
+  actList.style.minHeight = '';
+  for (var p = 0; p < pages; p++){ actPage = p; actShow(g); if (actList.offsetHeight > max) max = actList.offsetHeight; }
+  actPage = Math.min(saved, pages - 1); if (actPage < 0) actPage = 0;
+  actList.style.minHeight = Math.max(max, 300) + 'px';
+}
+function actRender(){
+  var g = actGroups(), pages = Math.max(1, Math.ceil(g.length/actSize));
+  if (actPage >= pages) actPage = pages - 1; if (actPage < 0) actPage = 0;
+  actShow(g);
+  actNav.style.display = g.length > actSize ? '' : 'none';
+  var info = actNav.querySelector('.pager-info');
+  info.textContent = g.length ? (actPage*actSize + 1) + '–' + Math.min((actPage+1)*actSize, g.length) + ' / ' + g.length + ' task' : '0';
+  actNav.querySelector('.pager-prev').disabled = (actPage === 0);
+  actNav.querySelector('.pager-next').disabled = (actPage >= pages - 1);
+  document.getElementById('actCount').textContent = g.length;
+}
+(function initActPaging(){
+  actNav = document.createElement('div'); actNav.className = 'pager';
+  var prev = document.createElement('button'); prev.className = 'pager-btn pager-prev'; prev.textContent = '‹ Prev';
+  var info = document.createElement('span'); info.className = 'pager-info';
+  var next = document.createElement('button'); next.className = 'pager-btn pager-next'; next.textContent = 'Next ›';
+  actNav.appendChild(prev); actNav.appendChild(info); actNav.appendChild(next);
+  actList.parentNode.insertBefore(actNav, actList.nextSibling);
+  prev.addEventListener('click', function(){ if (actPage > 0){ actPage--; actRender(); } });
+  next.addEventListener('click', function(){ actPage++; actRender(); });
+  actMeasure(); actRender();
+})();
+
+function dismissAct(btn){
+  var g = btn.closest('.act-group');
+  if (g) g.remove();
+  if (!actGroups().length){ actList.innerHTML = '<div class="empty">Không có hoạt động chưa đọc.</div>'; }
+  actMeasure(); actRender();   // dismiss -> đo lại + vẽ lại (min-height giữ chiều cao, không nhảy)
+}
+</script>
+</body>
+</html>

@@ -164,6 +164,18 @@ a.key:hover { text-decoration: underline; }
 .grid-2col .col { min-width: 0; }
 @media (max-width: 1000px) { .grid-2col { grid-template-columns: 1fr; } }
 
+/* ===== QA personal lens (non-admin): hàng block cao bằng nhau ===== */
+.eqrow { display: grid; gap: 20px; align-items: stretch; margin-bottom: 20px; }
+.eqrow-3 { grid-template-columns: repeat(3, 1fr); }
+.eqrow-2 { grid-template-columns: 1fr 1fr; }
+.eqrow .section { margin-bottom: 0; display: flex; flex-direction: column; }
+.eqrow .section .pager { margin-top: auto; }   /* pager xuống đáy -> block cao bằng nhau, KHÔNG giãn row */
+.eqrow .act-stream .act-list { min-height: 300px; }
+.prio-overdue { border-left: 3px solid #de350b; }
+.prio-dueweek { border-left: 3px solid #00b8d9; }
+.prio-stuck { border-left: 3px solid #ff8b00; }
+@media (max-width: 1000px) { .eqrow-3, .eqrow-2 { grid-template-columns: 1fr; } }
+
 /* ===== Pie / donut charts ===== */
 .chart-card { display: flex; flex-wrap: wrap; align-items: center; gap: 32px; padding: 36px; }
 .donut-wrap { position: relative; width: 320px; height: 320px; flex: 0 0 320px; }

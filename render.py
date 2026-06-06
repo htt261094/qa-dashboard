@@ -775,32 +775,161 @@ def render_filterbar():
     )
 
 
+# ===== QA personal lens (non-admin): blocks theo việc của chính mình =====
+def render_kpis_personal(active, done_week):
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start = today - timedelta(days=today.weekday())
+    week_end = week_start + timedelta(days=7)
+    overdue = due_week = 0
+    for i in active:
+        d = parse_date(i_duedate(i))
+        if not d:
+            continue
+        if d < today:
+            overdue += 1
+        elif week_start <= d < week_end:
+            due_week += 1
+    stuck = sum(1 for i in active if is_stuck(i))
+    stuck_cls = 'warn' if stuck else ''
+    return f"""<div class="kpis">
+        <div class="kpi"><div class="label">Active của tôi</div><div class="value">{len(active)}</div></div>
+        <div class="kpi warn"><div class="label">Overdue</div><div class="value">{overdue}</div></div>
+        <div class="kpi {stuck_cls}"><div class="label">Kẹt ≥ {STUCK_DAYS} ngày</div><div class="value">{stuck}</div></div>
+        <div class="kpi info"><div class="label">Due This Week</div><div class="value">{due_week}</div></div>
+        <div class="kpi success"><div class="label">Done (3 ngày)</div><div class="value">{len(done_week)}</div></div>
+    </div>"""
+
+
+def _p_section(title, count, head, rows_html, empty_msg, cls=''):
+    """1 block bảng cho lens cá nhân; có rows -> bật data-paginate=5 (filler giữ chiều cao)."""
+    if rows_html:
+        inner = f'<table><thead><tr>{head}</tr></thead><tbody>{rows_html}</tbody></table>'
+        pag = ' data-paginate="5"'
+    else:
+        inner = f'<div class="empty">{empty_msg}</div>'
+        pag = ''
+    extra = f' {cls}' if cls else ''
+    return (f'<div class="section{extra}"{pag}>'
+            f'<h2>{title} <span class="count">{count}</span></h2>{inner}</div>')
+
+
+def _p_base(issue, new_keys):
+    """(new_cls, 2 ô Key+Summary) — dùng chung cho mọi bảng cá nhân (không cột Assignee)."""
+    new_cls = ' class="is-new"' if issue['key'] in new_keys else ''
+    cells = (f'<td>{issue_link(issue)}</td>'
+             f'<td class="summary-cell" title="{esc(i_summary(issue))}">{esc(i_summary(issue))}</td>')
+    return new_cls, cells
+
+
+def render_personal(data, new_keys, activities, activity_days):
+    active = data['active']
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    week_end = today - timedelta(days=today.weekday()) + timedelta(days=7)
+
+    def due_sort(i):   # gần nhất lên đầu; overdue (quá khứ) tự nổi trên; không due -> cuối
+        return parse_date(i_duedate(i)) or datetime.max
+
+    def inflight(i):   # In Progress + PENDING = đang xử lý / chờ (không phải TO DO)
+        s = i_status(i).upper()
+        return 'PROGRESS' in s or 'PEND' in s
+
+    overdue = sorted((i for i in active if days_overdue(i) is not None),
+                     key=lambda i: -(days_overdue(i) or 0))
+    dueweek = sorted((i for i in active
+                      if (d := parse_date(i_duedate(i))) and today <= d < week_end), key=due_sort)
+    stuck = sorted((i for i in active if is_stuck(i)), key=lambda i: -(days_since_update(i) or 0))
+    inprog = sorted((i for i in active if inflight(i)), key=due_sort)
+    todo = sorted((i for i in active if not inflight(i)), key=due_sort)
+    done = data['done_week']
+
+    # Overdue
+    od_rows = ''
+    for i in overdue:
+        nc, base = _p_base(i, new_keys)
+        od_rows += f'<tr{nc}>{base}<td>{esc(i_duedate(i) or "")}</td><td class="days-overdue">{days_overdue(i)}d</td></tr>'
+    od = _p_section('⚠ Overdue', len(overdue),
+                    '<th>Key</th><th>Summary</th><th>Due</th><th>Trễ</th>',
+                    od_rows, 'Không có task quá hạn 🎉', 'prio-overdue')
+    # Due tuần
+    dw_rows = ''
+    for i in dueweek:
+        nc, base = _p_base(i, new_keys)
+        dw_rows += f'<tr{nc}>{base}<td>{esc(i_duedate(i) or "")}</td></tr>'
+    dw = _p_section('📅 Due tuần', len(dueweek),
+                    '<th>Key</th><th>Summary</th><th>Due</th>',
+                    dw_rows, 'Không có task đến hạn trong tuần', 'prio-dueweek')
+    # Kẹt
+    st_rows = ''
+    for i in stuck:
+        nc, base = _p_base(i, new_keys)
+        st_rows += f'<tr{nc}>{base}<td class="days-overdue">{days_since_update(i)}d</td></tr>'
+    st = _p_section(f'⏳ Kẹt ≥ {STUCK_DAYS} ngày', len(stuck),
+                    '<th>Key</th><th>Summary</th><th>Kẹt</th>',
+                    st_rows, f'Không có task kẹt ≥{STUCK_DAYS} ngày 👍', 'prio-stuck')
+    # Đang làm (In Progress + PENDING)
+    ip_rows = ''
+    for i in inprog:
+        nc, base = _p_base(i, new_keys)
+        ip_rows += (f'<tr{nc}>{base}<td><span class="status {status_class(i_status(i))}">{esc(i_status(i))}</span></td>'
+                    f'<td>{esc(i_duedate(i) or "—")}</td></tr>')
+    ip = _p_section('🔵 Đang làm', len(inprog),
+                    '<th>Key</th><th>Summary</th><th>Status</th><th>Due</th>',
+                    ip_rows, 'Không có task đang xử lý')
+    # TO DO
+    td_rows = ''
+    for i in todo:
+        nc, base = _p_base(i, new_keys)
+        td_rows += f'<tr{nc}>{base}<td>{esc(i_duedate(i) or "—")}</td></tr>'
+    td = _p_section('📋 TO DO của tôi', len(todo),
+                    '<th>Key</th><th>Summary</th><th>Due</th>',
+                    td_rows, 'Không có task TO DO')
+    # Done (3 ngày)
+    dn_rows = ''
+    for i in done[:50]:
+        nc, base = _p_base(i, new_keys)
+        done_at = (i_resolved(i) or i_updated(i) or '')[:16].replace('T', ' ')
+        dn_rows += (f'<tr{nc}>{base}<td><span class="status {status_class(i_status(i))}">{esc(i_status(i))}</span></td>'
+                    f'<td>{esc(done_at)}</td></tr>')
+    dn = _p_section('✅ Done (3 ngày)', len(done),
+                    '<th>Key</th><th>Summary</th><th>Status</th><th>Cập nhật</th>',
+                    dn_rows, 'Chưa có task nào chuyển DONE trong 3 ngày')
+
+    return (
+        render_kpis_personal(active, done) +
+        f'<div class="eqrow eqrow-3">{od}{dw}{st}</div>' +
+        f'<div class="eqrow eqrow-2">{ip}{render_activities(activities, activity_days)}</div>' +
+        f'<div class="eqrow eqrow-2">{td}{dn}</div>'
+    )
+
+
 # ===== Full page =====
 def render_page(data, new_keys, first_run, activities, activity_days=7, roadmap_data=None, user=None):
     fetched = data['fetched_at'].strftime('%Y-%m-%d %H:%M:%S')
-
-    left_col = (
-        render_done_week(data['done_week'], new_keys) +
-        render_new24(data['new24'], new_keys) +
-        render_attention(data['active'], new_keys)
-    )
-    right_col = (
-        render_charts(data['active']) +          # status chart -> person chart
-        render_workload(data['active'])
-    )
-    # QA thường đã bị lọc sẵn theo chính họ -> filterbar vô nghĩa, ẩn đi. Admin/local mới có.
     is_admin = user[1] if (user and len(user) > 1) else True
-    filterbar = render_filterbar() if is_admin else ''
-    # cảnh báo hạn roadmap = việc của admin -> QA thường không thấy
-    roadmap_alerts = render_roadmap_alerts(roadmap_data) if is_admin else ''
-    body = (
-        render_kpis(data['active'], data['new24'], data['done_week'], data['created_week'], data['resolved_week']) +
-        roadmap_alerts +
-        render_activities(activities, activity_days) +
-        filterbar +
-        f'<div class="grid-2col"><div class="col">{left_col}</div>'
-        f'<div class="col">{right_col}</div></div>'
-    )
+
+    if is_admin:
+        left_col = (
+            render_done_week(data['done_week'], new_keys) +
+            render_new24(data['new24'], new_keys) +
+            render_attention(data['active'], new_keys)
+        )
+        right_col = (
+            render_charts(data['active']) +          # status chart -> person chart
+            render_workload(data['active'])
+        )
+        body = (
+            render_kpis(data['active'], data['new24'], data['done_week'], data['created_week'], data['resolved_week']) +
+            render_roadmap_alerts(roadmap_data) +
+            render_activities(activities, activity_days) +
+            render_filterbar() +
+            f'<div class="grid-2col"><div class="col">{left_col}</div>'
+            f'<div class="col">{right_col}</div></div>'
+        )
+        title = 'QA Team Dashboard'
+    else:
+        # QA thường: data đã auto-scope về chính họ -> lens cá nhân (bỏ widget so-sánh-người)
+        body = render_personal(data, new_keys, activities, activity_days)
+        title = 'QA Dashboard — Việc của tôi'
 
     first_run_note = ''
     if first_run:
@@ -809,7 +938,7 @@ def render_page(data, new_keys, first_run, activities, activity_days=7, roadmap_
     new_count = len(new_keys)
     new_badge = f' · <strong style="color:#ff8b00">{new_count} task mới từ lần refresh trước</strong>' if new_count > 0 else ''
 
-    header = (f'<header><h1>QA Team Dashboard</h1>'
+    header = (f'<header><h1>{title}</h1>'
               f'<div class="meta">Last refresh: <strong>{fetched}</strong>{new_badge} · '
               f'<kbd>F5</kbd> refresh · <button id="autoBtn" class="auto-btn" type="button"></button></div></header>')
     footer = (f'<p style="text-align:center;color:#6b778c;font-size:12px;margin-top:30px">'
