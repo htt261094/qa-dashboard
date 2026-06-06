@@ -791,9 +791,11 @@ def render_page(data, new_keys, first_run, activities, activity_days=7, roadmap_
     # QA thường đã bị lọc sẵn theo chính họ -> filterbar vô nghĩa, ẩn đi. Admin/local mới có.
     is_admin = user[1] if (user and len(user) > 1) else True
     filterbar = render_filterbar() if is_admin else ''
+    # cảnh báo hạn roadmap = việc của admin -> QA thường không thấy
+    roadmap_alerts = render_roadmap_alerts(roadmap_data) if is_admin else ''
     body = (
         render_kpis(data['active'], data['new24'], data['done_week'], data['created_week'], data['resolved_week']) +
-        render_roadmap_alerts(roadmap_data) +
+        roadmap_alerts +
         render_activities(activities, activity_days) +
         filterbar +
         f'<div class="grid-2col"><div class="col">{left_col}</div>'
