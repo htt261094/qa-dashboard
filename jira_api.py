@@ -78,17 +78,24 @@ def _comment_snippet(body, n=140):
     return s if len(s) <= n else s[:n].rstrip() + '…'
 
 
-def fetch_activity_feed(days=7, cap=300, max_issues=120):
+def fetch_activity_feed(days=7, cap=300, max_issues=120, scope_user=None):
     """Reconstruct activity từ Jira changelog/comment trong `days` ngày gần nhất.
 
     Nguồn = Jira (source of truth), KHÔNG phụ thuộc .last_seen.json → máy nào mở cũng
     thấy y hệt. Mỗi activity có `id` ổn định (key#histId#field / key#cmt#id / key#created)
     để dismiss đồng bộ chéo máy. Trả list dict {id, kind, key, summary, author, when, old, new}.
+
+    scope_user=None -> toàn team; 'quangbm' -> chỉ activity liên quan user đó (QA thường).
     """
-    user_list = ', '.join(USERS)
+    if scope_user is not None and scope_user not in USERS:
+        raise ValueError('unknown scope_user')
     start = datetime.now() - timedelta(days=days)
-    jql = (f"(assignee in ({user_list}) OR reporter in ({user_list})) "
-           f"AND updated >= -{days}d ORDER BY updated DESC")
+    if scope_user:
+        who = f"(assignee = {scope_user} OR reporter = {scope_user})"
+    else:
+        user_list = ', '.join(USERS)
+        who = f"(assignee in ({user_list}) OR reporter in ({user_list}))"
+    jql = (f"{who} AND updated >= -{days}d ORDER BY updated DESC")
     issues = _jira_request(jql, max_issues, expand='changelog',
                            fields='summary,status,assignee,reporter,issuetype,created,comment').get('issues', [])
     acts = []
@@ -320,20 +327,33 @@ def fetch_lines(max_results=500, max_depth=8, now=None):
     return {'qa_issues': qa, 'parent_of': parent_of, 'known': known, 'window': (start, end)}
 
 
-def fetch_all():
-    """Pull the 3 task buckets + 2 weekly counts. 5 Jira calls — chạy SONG SONG."""
-    user_list = ', '.join(USERS)
+def fetch_all(scope_user=None):
+    """Pull the 3 task buckets + 2 weekly counts. 5 Jira calls — chạy SONG SONG.
+
+    scope_user=None  -> toàn team (admin).
+    scope_user='quangbm' -> CHỈ task của user đó (QA thường xem phần mình). Lọc ngay
+    ở JQL nên Jira không trả data người khác (server-side, không lộ qua page source).
+    """
+    if scope_user is not None and scope_user not in USERS:
+        raise ValueError('unknown scope_user')
+    if scope_user:
+        a_clause = f'assignee = {scope_user}'
+        rep_clause = f'reporter = {scope_user}'
+    else:
+        user_list = ', '.join(USERS)
+        a_clause = f'assignee in ({user_list})'
+        rep_clause = f'reporter in ({user_list})'
     data = run_parallel({
         'active': lambda: jira_search(
-            f"assignee in ({user_list}) AND statusCategory != Done ORDER BY duedate ASC", max_results=300),
+            f"{a_clause} AND statusCategory != Done ORDER BY duedate ASC", max_results=300),
         'new24': lambda: jira_search(
-            f"reporter in ({user_list}) AND created >= -24h ORDER BY created DESC", max_results=50),
+            f"{rep_clause} AND created >= -24h ORDER BY created DESC", max_results=50),
         'done_week': lambda: jira_search(
-            f'assignee in ({user_list}) AND status CHANGED TO "DONE" AFTER -3d ORDER BY updated DESC', max_results=100),
+            f'{a_clause} AND status CHANGED TO "DONE" AFTER -3d ORDER BY updated DESC', max_results=100),
         # weekly inflow vs outflow (count-only, cheap)
-        'created_week': lambda: jira_count(f"assignee in ({user_list}) AND created >= startOfWeek()"),
+        'created_week': lambda: jira_count(f"{a_clause} AND created >= startOfWeek()"),
         'resolved_week': lambda: jira_count(
-            f'assignee in ({user_list}) AND status CHANGED TO "DONE" AFTER startOfWeek()'),
+            f'{a_clause} AND status CHANGED TO "DONE" AFTER startOfWeek()'),
     })
     data['fetched_at'] = datetime.now()
     return data

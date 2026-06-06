@@ -497,9 +497,12 @@ def render_nav(active, user=None):
         role = '<span class="nav-role nav-admin">Admin</span>' if is_admin else '<span class="nav-role">Chỉ xem</span>'
         chip = (f'<span class="nav-user" title="{esc(email)}">👤 {esc(email)} {role}</span>'
                 '<a class="nav-logout" href="/logout" title="Đăng xuất">↩ Đăng xuất</a>')
+    # admin (hoặc local dev user=None) thấy đủ; QA thường KHÔNG thấy Báo cáo tuần (toàn team)
+    is_admin = user[1] if (user and len(user) > 1) else True
+    report_tab = tab('/report', 'report', '📋 Báo cáo tuần') if is_admin else ''
     return ('<nav class="topnav">'
             + tab('/', 'dashboard', '📊 Tổng quan')
-            + tab('/report', 'report', '📋 Báo cáo tuần')
+            + report_tab
             + tab('/roadmap', 'roadmap', '🗺 Roadmap')
             + tab('/docs', 'docs', '📚 Tài liệu')
             + chip
@@ -785,11 +788,14 @@ def render_page(data, new_keys, first_run, activities, activity_days=7, roadmap_
         render_charts(data['active']) +          # status chart -> person chart
         render_workload(data['active'])
     )
+    # QA thường đã bị lọc sẵn theo chính họ -> filterbar vô nghĩa, ẩn đi. Admin/local mới có.
+    is_admin = user[1] if (user and len(user) > 1) else True
+    filterbar = render_filterbar() if is_admin else ''
     body = (
         render_kpis(data['active'], data['new24'], data['done_week'], data['created_week'], data['resolved_week']) +
         render_roadmap_alerts(roadmap_data) +
         render_activities(activities, activity_days) +
-        render_filterbar() +
+        filterbar +
         f'<div class="grid-2col"><div class="col">{left_col}</div>'
         f'<div class="col">{right_col}</div></div>'
     )

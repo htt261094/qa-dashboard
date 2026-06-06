@@ -14,7 +14,7 @@ from http.cookies import SimpleCookie
 from urllib.parse import urlparse, parse_qs
 
 from config import (JIRA_URL, USERS, PORT, STATE_FILE, ADMIN_EMAIL, ALLOWED_DOMAIN,
-                    AUTH_ENABLED, display_name)
+                    AUTH_ENABLED, display_name, username_from_email)
 from auth import (SESSION_COOKIE, STATE_COOKIE, SESSION_TTL, STATE_TTL,
                   login_url, exchange_code, email_allowed, email_from_session,
                   make_session_token, make_state_token, state_valid)
@@ -178,6 +178,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._forbidden()
             return
         if self.path in ('/report', '/report.html'):
+            # Báo cáo tuần = toàn team -> CHỈ admin. QA thường đá về dashboard.
+            if not self._is_admin():
+                self._redirect('/')
+                return
             # read-only weekly report: fresh pull, but do NOT mutate activity state
             try:
                 rep = run_parallel({'data': fetch_all, 'lines': fetch_lines})
@@ -205,11 +209,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             return
         email = self._user_email()  # dismiss tách theo người đăng nhập
+        # admin/local -> scope None (xem cả team); QA thường -> scope = username của họ
+        if self._is_admin():
+            scope = None
+        else:
+            scope = username_from_email(email)
+            if scope is None:   # non-admin không khớp QA nào -> không cho xem data team
+                self._html(render_error_page(
+                    "Tài khoản của bạn chưa được gắn với QA nào trong hệ thống. "
+                    "Liên hệ admin (Thành) để cấp quyền."))
+                return
         try:
             # 3 nhóm call độc lập -> chạy song song (fetch_all tự song song 5 call bên trong)
             res = run_parallel({
-                'data': fetch_all,
-                'feed': lambda: fetch_activity_feed(days=ACTIVITY_DAYS),
+                'data': lambda: fetch_all(scope),
+                'feed': lambda: fetch_activity_feed(days=ACTIVITY_DAYS, scope_user=scope),
                 'dismissed': lambda: load_dismissed(email),
             })
             data, feed, dismissed = res['data'], res['feed'], res['dismissed']

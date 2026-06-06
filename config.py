@@ -80,6 +80,13 @@ if AUTH_ENABLED and not SESSION_SECRET:
     sys.exit(1)
 
 
+def username_from_email(email):
+    """Map email đăng nhập -> Jira username (local-part). None nếu không khớp QA nào.
+    Vd 'quangbm@baokim.vn' -> 'quangbm' (nếu trong USERS); email lạ -> None."""
+    local = (email or '').strip().lower().split('@')[0]
+    return local if local in USERS else None
+
+
 def display_name(username):
     """Short team name for a QA username, else the username unchanged."""
     return DEFAULT_DISPLAY_NAMES.get(username, username)
