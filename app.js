@@ -781,3 +781,9 @@ function toggleStories(btn){
 
   apply();                                     // áp filter đã khôi phục (nếu có) ngay khi load
 })();
+
+// Read-only (không phải owner qua Cloudflare Access): khoá contenteditable trong roadmap/tài liệu.
+// Nút edit đã ẩn bằng CSS .ro; server vẫn chặn 403 — đây chỉ là lớp UX.
+document.querySelectorAll('.ro [contenteditable]').forEach(function(el){
+  el.setAttribute('contenteditable', 'false');
+});

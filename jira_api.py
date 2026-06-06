@@ -138,7 +138,7 @@ def fetch_activity_feed(days=7, cap=300, max_issues=120):
     return acts[:cap]
 
 
-# ===== Dismiss state lưu ở Jira user property (shared cross-device) =====
+# ===== Dismiss state lưu ở Jira user property, TÁCH theo người đăng nhập (email) =====
 _READ_PROP = 'qa-dashboard-read'
 _USERNAME = None
 
@@ -162,8 +162,14 @@ def _current_username():
     return _USERNAME
 
 
-def load_dismissed():
-    """{activity_id: dismissed_at_iso} từ Jira user property. {} nếu chưa có."""
+def _ukey(user):
+    """Khoá dismiss theo người đăng nhập (email). Local dev (chưa login) -> 'local'."""
+    return (user or '').strip().lower() or 'local'
+
+
+def _load_read_map():
+    """Toàn bộ map per-user {email: {activity_id: ts}} từ Jira property.
+    Format cũ (flat shared {id: ts}) -> bỏ qua (trả {}), bắt đầu lại per-user."""
     try:
         r = _SESSION.get(f"{JIRA_URL}/rest/api/2/user/properties/{_READ_PROP}",
                          headers=_auth_headers(), params={'username': _current_username()}, timeout=15)
@@ -172,13 +178,18 @@ def load_dismissed():
         r.raise_for_status()
         val = r.json().get('value') or {}
         d = val.get('dismissed') if isinstance(val, dict) else None
-        return d if isinstance(d, dict) else {}
+        if not isinstance(d, dict) or not d:
+            return {}
+        # mới = mỗi value là dict (bucket per-user); cũ = value là string ts -> bỏ
+        if all(isinstance(v, dict) for v in d.values()):
+            return d
+        return {}
     except requests.RequestException as e:
         raise RuntimeError(f"Network error: {str(e).replace(PAT, '<REDACTED>')}")
 
 
-def save_dismissed(dismissed):
-    body = json.dumps({'dismissed': dismissed, 'updated': datetime.now().isoformat()})
+def _save_read_map(read_map):
+    body = json.dumps({'dismissed': read_map, 'updated': datetime.now().isoformat()})
     try:
         _SESSION.put(f"{JIRA_URL}/rest/api/2/user/properties/{_READ_PROP}",
                      headers=_auth_headers({'Content-Type': 'application/json'}),
@@ -187,19 +198,51 @@ def save_dismissed(dismissed):
         raise RuntimeError(f"Network error: {str(e).replace(PAT, '<REDACTED>')}")
 
 
-def dismiss_activities(ids, prune_days=14):
-    """Thêm ids vào set đã-dismiss (Jira), prune entry cũ hơn prune_days. Cross-device."""
+def load_dismissed(user=None):
+    """{activity_id: dismissed_at_iso} RIÊNG của người đăng nhập. {} nếu chưa có."""
+    return _load_read_map().get(_ukey(user), {})
+
+
+def dismiss_activities(user, ids, prune_days=14):
+    """Thêm ids vào bucket dismiss CỦA RIÊNG user (theo email), prune entry cũ.
+    Người khác không bị ảnh hưởng. Cross-device cho cùng 1 user."""
     if not ids:
         return True
-    dismissed = load_dismissed()
+    read_map = _load_read_map()
+    key = _ukey(user)
+    bucket = read_map.get(key) or {}
     now = datetime.now()
     stamp = now.isoformat()
     for i in ids:
-        dismissed[i] = stamp
+        bucket[i] = stamp
     cutoff = (now - timedelta(days=prune_days)).isoformat()
-    dismissed = {k: v for k, v in dismissed.items() if v >= cutoff}
-    save_dismissed(dismissed)
+    read_map[key] = {k: v for k, v in bucket.items() if v >= cutoff}
+    _save_read_map(read_map)
     return True
+
+
+def load_property(key, default=None):
+    """Đọc JSON value từ Jira user property `key` (kho shared cross-device). default nếu 404."""
+    try:
+        r = _SESSION.get(f"{JIRA_URL}/rest/api/2/user/properties/{key}",
+                         headers=_auth_headers(), params={'username': _current_username()}, timeout=15)
+        if r.status_code == 404:
+            return default
+        r.raise_for_status()
+        return r.json().get('value', default)
+    except requests.RequestException as e:
+        raise RuntimeError(f"Network error: {str(e).replace(PAT, '<REDACTED>')}")
+
+
+def save_property(key, value):
+    """Ghi JSON value vào Jira user property `key`. Raise nếu Jira từ chối/lỗi mạng."""
+    try:
+        r = _SESSION.put(f"{JIRA_URL}/rest/api/2/user/properties/{key}",
+                         headers=_auth_headers({'Content-Type': 'application/json'}),
+                         params={'username': _current_username()}, data=json.dumps(value), timeout=15)
+        r.raise_for_status()
+    except requests.RequestException as e:
+        raise RuntimeError(f"Network error: {str(e).replace(PAT, '<REDACTED>')}")
 
 
 def fetch_change_authors(keys):

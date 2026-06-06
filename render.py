@@ -486,15 +486,23 @@ def render_pic_modal(pic_data):
 
 
 # ===== Shared shell + top nav =====
-def render_nav(active):
+def render_nav(active, user=None):
+    """user = (email, is_admin) khi đăng nhập qua Cloudflare Access; None khi local."""
     def tab(href, key, label):
         cls = 'navtab active' if key == active else 'navtab'
         return f'<a class="{cls}" href="{href}">{label}</a>'
+    chip = ''
+    if user and user[0]:
+        email, is_admin = user
+        role = '<span class="nav-role nav-admin">Admin</span>' if is_admin else '<span class="nav-role">Chỉ xem</span>'
+        chip = (f'<span class="nav-user" title="{esc(email)}">👤 {esc(email)} {role}</span>'
+                '<a class="nav-logout" href="/logout" title="Đăng xuất">↩ Đăng xuất</a>')
     return ('<nav class="topnav">'
             + tab('/', 'dashboard', '📊 Tổng quan')
             + tab('/report', 'report', '📋 Báo cáo tuần')
             + tab('/roadmap', 'roadmap', '🗺 Roadmap')
             + tab('/docs', 'docs', '📚 Tài liệu')
+            + chip
             + '</nav>')
 
 
@@ -695,7 +703,7 @@ def render_lines_section(line_data):
             + ''.join(blocks) + '</div>')
 
 
-def render_report_page(data, line_data=None):
+def render_report_page(data, line_data=None, user=None):
     proj = _rpt_collect(data)
     fetched = data['fetched_at'].strftime('%Y-%m-%d %H:%M')
     sev = {'R': 0, 'A': 1, 'G': 2}
@@ -737,7 +745,7 @@ def render_report_page(data, line_data=None):
                    ' <span class="lg seg-prog"></span> In Progress <span class="lg seg-pend"></span> PENDING</p>')
 
     body = (
-        render_nav('report') +
+        render_nav('report', user) +
         '<header class="report-head"><div><h1>📋 Báo cáo tuần — QA</h1>'
         f'<div class="meta">Chốt số: <strong>{fetched}</strong> · gom theo project key · '
         f'Tracking: {esc(", ".join(display_name(u) for u in USERS))}</div></div>'
@@ -765,7 +773,7 @@ def render_filterbar():
 
 
 # ===== Full page =====
-def render_page(data, new_keys, first_run, activities, activity_days=7, roadmap_data=None):
+def render_page(data, new_keys, first_run, activities, activity_days=7, roadmap_data=None, user=None):
     fetched = data['fetched_at'].strftime('%Y-%m-%d %H:%M:%S')
 
     left_col = (
@@ -799,7 +807,7 @@ def render_page(data, new_keys, first_run, activities, activity_days=7, roadmap_
     footer = (f'<p style="text-align:center;color:#6b778c;font-size:12px;margin-top:30px">'
               f'Data live từ {esc(JIRA_URL)} · Tracking: {esc(", ".join(display_name(u) for u in USERS))}</p>')
 
-    inner = render_nav('dashboard') + header + first_run_note + body + footer
+    inner = render_nav('dashboard', user) + header + first_run_note + body + footer
     return _document(inner)
 
 
@@ -840,14 +848,17 @@ def _doc_node_html(node):
     return _doc_folder_html(node.get('name', ''), kids)
 
 
-def render_docs_page(tree):
+def render_docs_page(tree, editable=True, user=None):
     nodes = ''.join(_doc_node_html(n) for n in (tree or []))
     empty = '' if nodes else '<li class="doc-empty">Chưa có thư mục. Bấm “＋ Thư mục gốc” để bắt đầu.</li>'
+    ro = '' if editable else ' ro'
+    banner = '' if editable else '<div class="ro-banner">👁 Chế độ chỉ xem — chỉ quản lý mới chỉnh sửa được.</div>'
     body = (
-        render_nav('docs') +
+        render_nav('docs', user) +
         '<header><h1>📚 Tài liệu training</h1>'
         '<div class="meta">Cây thư mục · link tới Google Drive · click để mở tab mới view/edit · tự động lưu</div></header>'
-        '<div class="section docs-sec">'
+        + banner +
+        f'<div class="section docs-sec{ro}">'
         '<div class="docs-toolbar">'
         '<button type="button" id="docAddRoot" class="docs-btn">＋ Thư mục gốc</button>'
         '<button type="button" id="docCollapseAll" class="docs-btn">⊟ Thu gọn tất cả</button>'
@@ -979,14 +990,17 @@ def _rm_status_options():
     return ''.join(f'<option value="{esc(v)}">{esc(l)}</option>' for v, l in RM_STATUSES)
 
 
-def render_roadmap_page(data):
+def render_roadmap_page(data, editable=True, user=None):
     phases = ''.join(_rm_phase_html(p) for p in (data or []))
     empty = '' if phases else '<div class="rm-empty">Chưa có giai đoạn. Bấm “＋ Giai đoạn” để bắt đầu.</div>'
+    ro = '' if editable else ' ro'
+    banner = '' if editable else '<div class="ro-banner">👁 Chế độ chỉ xem — chỉ quản lý mới chỉnh sửa được.</div>'
     body = (
-        render_nav('roadmap') +
+        render_nav('roadmap', user) +
         '<header><h1>🗺 Roadmap team QA</h1>'
         '<div class="meta">Theo mốc thời gian · bấm để xổ cây · sửa qua ✎ · tự động lưu</div></header>'
-        '<div class="section rm-sec">'
+        + banner +
+        f'<div class="section rm-sec{ro}">'
         '<div class="rm-toolbar">'
         '<button type="button" id="rmAddPhase" class="rm-tbtn">＋ Giai đoạn</button>'
         '<button type="button" id="rmCollapse" class="rm-tbtn">⊟ Thu gọn tất cả</button>'

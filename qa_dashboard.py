@@ -10,8 +10,14 @@ import socketserver
 import json
 import sys
 from datetime import datetime
+from http.cookies import SimpleCookie
+from urllib.parse import urlparse, parse_qs
 
-from config import JIRA_URL, USERS, PORT, STATE_FILE, display_name
+from config import (JIRA_URL, USERS, PORT, STATE_FILE, ADMIN_EMAIL, ALLOWED_DOMAIN,
+                    AUTH_ENABLED, display_name)
+from auth import (SESSION_COOKIE, STATE_COOKIE, SESSION_TTL, STATE_TTL,
+                  login_url, exchange_code, email_allowed, email_from_session,
+                  make_session_token, make_state_token, state_valid)
 from jira_api import (fetch_all, fetch_lines, fetch_activity_feed, load_dismissed,
                       dismiss_activities, run_parallel)
 from state import load_state, save_state, build_snapshot
@@ -42,40 +48,175 @@ def _build_view(data):
 
 # ===== HTTP server =====
 class Handler(http.server.BaseHTTPRequestHandler):
+    # ----- Auth (Google OAuth login + session cookie ký HMAC) -----
+    # Identity = session cookie (đặt sau khi đăng nhập Google, đã verify @ALLOWED_DOMAIN).
+    # Fallback Cloudflare Access header nếu có (không bắt buộc). AUTH_ENABLED=False -> local dev.
+    def _cookies(self):
+        c = SimpleCookie()
+        raw = self.headers.get('Cookie')
+        if raw:
+            try:
+                c.load(raw)
+            except Exception:
+                pass
+        return c
+
+    def _cookie(self, name):
+        m = self._cookies().get(name)
+        return m.value if m else ''
+
+    def _base_url(self):
+        """scheme://host của request (đằng sau cloudflared: X-Forwarded-Proto=https)."""
+        host = self.headers.get('Host', f'localhost:{PORT}')
+        proto = (self.headers.get('X-Forwarded-Proto')
+                 or ('http' if host.startswith(('localhost', '127.0.0.1')) else 'https'))
+        return f'{proto}://{host}'
+
+    def _user_email(self):
+        """Email người đăng nhập từ session cookie; fallback Cloudflare header. '' nếu chưa login."""
+        email = email_from_session(self._cookie(SESSION_COOKIE))
+        if email:
+            return email
+        return (self.headers.get('Cf-Access-Authenticated-User-Email') or '').strip().lower()
+
+    def _authed(self):
+        """Request có được phép vào không. AUTH tắt -> luôn True (local dev)."""
+        if not AUTH_ENABLED:
+            return True
+        return bool(self._user_email())
+
+    def _domain_ok(self):
+        """Domain gate ở tầng app (defense-in-depth; login Google đã verify sẵn)."""
+        email = self._user_email()
+        if not email or not ALLOWED_DOMAIN:   # local, hoặc chưa cấu hình domain -> cho qua
+            return True
+        return email.endswith('@' + ALLOWED_DOMAIN)
+
+    def _is_admin(self):
+        """Role admin = được edit roadmap/tài liệu. Local (chưa login) -> admin (chính bạn)."""
+        email = self._user_email()
+        if not email or not ADMIN_EMAIL:
+            return not AUTH_ENABLED  # AUTH bật mà chưa login -> KHÔNG phải admin
+        return email == ADMIN_EMAIL
+
+    def _user_ctx(self):
+        """(email, is_admin) cho nav chip; None khi chưa login (local dev)."""
+        email = self._user_email()
+        return (email, self._is_admin()) if email else None
+
+    def _forbidden(self):
+        self.send_response(403)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.end_headers()
+        self.wfile.write(
+            '<h2>403 — Tài khoản không có quyền truy cập dashboard này.</h2>'
+            f'<p>Chỉ email <b>@{ALLOWED_DOMAIN or "công ty"}</b> mới vào được. '
+            '<a href="/logout">Đăng nhập lại</a></p>'.encode('utf-8'))
+
+    def _redirect(self, location, cookies=None):
+        self.send_response(302)
+        self.send_header('Location', location)
+        for ck in (cookies or []):
+            self.send_header('Set-Cookie', ck)
+        self.end_headers()
+
+    def _set_cookie(self, name, value, max_age, secure):
+        parts = [f'{name}={value}', 'Path=/', 'HttpOnly', 'SameSite=Lax',
+                 f'Max-Age={max_age}']
+        if secure:
+            parts.append('Secure')
+        return '; '.join(parts)
+
+    # ----- OAuth routes -----
+    def _do_login(self):
+        state = make_state_token()
+        secure = self._base_url().startswith('https')
+        url = login_url(self._base_url() + '/oauth/callback', state)
+        self._redirect(url, [self._set_cookie(STATE_COOKIE, state, STATE_TTL, secure)])
+
+    def _do_callback(self):
+        q = parse_qs(urlparse(self.path).query)
+        code = (q.get('code') or [''])[0]
+        state = (q.get('state') or [''])[0]
+        if not code or not state or state != self._cookie(STATE_COOKIE) or not state_valid(state):
+            self._forbidden()
+            return
+        try:
+            info = exchange_code(code, self._base_url() + '/oauth/callback')
+        except RuntimeError as e:
+            self._html(render_error_page(str(e)))
+            return
+        ok, email = email_allowed(info)
+        if not ok:
+            self._forbidden()
+            return
+        secure = self._base_url().startswith('https')
+        self._redirect('/', [
+            self._set_cookie(SESSION_COOKIE, make_session_token(email), SESSION_TTL, secure),
+            self._set_cookie(STATE_COOKIE, '', 0, secure),  # clear state
+        ])
+
+    def _do_logout(self):
+        secure = self._base_url().startswith('https')
+        self._redirect('/login', [self._set_cookie(SESSION_COOKIE, '', 0, secure)])
+
     def do_GET(self):
+        path = urlparse(self.path).path
+        if path == '/login':
+            self._do_login()
+            return
+        if path == '/oauth/callback':
+            self._do_callback()
+            return
+        if path == '/logout':
+            self._do_logout()
+            return
+        if not self._authed():
+            self._redirect('/login')
+            return
+        if not self._domain_ok():
+            self._forbidden()
+            return
         if self.path in ('/report', '/report.html'):
             # read-only weekly report: fresh pull, but do NOT mutate activity state
             try:
                 rep = run_parallel({'data': fetch_all, 'lines': fetch_lines})
-                html_out = render_report_page(rep['data'], rep['lines'])
+                html_out = render_report_page(rep['data'], rep['lines'], user=self._user_ctx())
             except RuntimeError as e:
                 html_out = render_error_page(str(e))
             self._html(html_out)
             return
         if self.path in ('/docs', '/docs.html'):
-            # tài liệu training: read JSON local, KHÔNG gọi Jira
-            self._html(render_docs_page(load_docs()))
+            # tài liệu training: load từ Jira property (sync chéo máy), fallback cache local
+            try:
+                self._html(render_docs_page(load_docs(), editable=self._is_admin(), user=self._user_ctx()))
+            except RuntimeError as e:
+                self._html(render_error_page(str(e)))
             return
         if self.path in ('/roadmap', '/roadmap.html'):
-            # roadmap team: read JSON local, KHÔNG gọi Jira
-            self._html(render_roadmap_page(load_roadmap()))
+            # roadmap team: load từ Jira property (sync chéo máy), fallback cache local
+            try:
+                self._html(render_roadmap_page(load_roadmap(), editable=self._is_admin(), user=self._user_ctx()))
+            except RuntimeError as e:
+                self._html(render_error_page(str(e)))
             return
         if self.path not in ('/', '/index.html'):
             self.send_response(404)
             self.end_headers()
             return
+        email = self._user_email()  # dismiss tách theo người đăng nhập
         try:
             # 3 nhóm call độc lập -> chạy song song (fetch_all tự song song 5 call bên trong)
             res = run_parallel({
                 'data': fetch_all,
                 'feed': lambda: fetch_activity_feed(days=ACTIVITY_DAYS),
-                'dismissed': load_dismissed,
+                'dismissed': lambda: load_dismissed(email),
             })
             data, feed, dismissed = res['data'], res['feed'], res['dismissed']
             new_keys, first_run = _build_view(data)
             unread = [a for a in feed if a['id'] not in dismissed]
             html_out = render_page(data, new_keys, first_run, unread, ACTIVITY_DAYS,
-                                   roadmap_data=load_roadmap())
+                                   roadmap_data=load_roadmap(), user=self._user_ctx())
         except RuntimeError as e:
             html_out = render_error_page(str(e))
         self._html(html_out)
@@ -88,6 +229,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(html_out.encode('utf-8'))
 
     def do_POST(self):
+        if not self._authed() or not self._domain_ok():
+            self._json(403, b'{"ok":false,"err":"forbidden"}')
+            return
         if self.path == '/dismiss':
             ok = False
             try:
@@ -96,12 +240,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     payload = json.loads(self.rfile.read(length).decode('utf-8'))
                     ids = payload.get('ids') if isinstance(payload, dict) else None
                     if isinstance(ids, list) and all(isinstance(x, str) for x in ids):
-                        ok = dismiss_activities(ids[:500])
+                        ok = dismiss_activities(self._user_email(), ids[:500])
             except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
                 ok = False
             self._json(200 if ok else 400, b'{"ok":true}' if ok else b'{"ok":false}')
             return
         if self.path == '/save-docs':
+            if not self._is_admin():
+                self._json(403, b'{"ok":false,"err":"forbidden"}')
+                return
             ok = False
             try:
                 length = int(self.headers.get('Content-Length', 0))
@@ -114,6 +261,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._json(200 if ok else 400, b'{"ok":true}' if ok else b'{"ok":false}')
             return
         if self.path == '/save-roadmap':
+            if not self._is_admin():
+                self._json(403, b'{"ok":false,"err":"forbidden"}')
+                return
             ok = False
             try:
                 length = int(self.headers.get('Content-Length', 0))

@@ -8,6 +8,9 @@ Edit thật diễn ra ở Google (click link mở tab mới); workspace chỉ gi
 import json
 
 from config import DOCS_FILE
+from jira_api import load_property, save_property
+
+DOCS_PROP = 'qa-dashboard-docs'  # Jira user property = kho sync chéo máy
 
 MAX_NODES = 2000  # chặn payload quá lớn / cây lồng vô hạn
 
@@ -39,7 +42,7 @@ def valid_tree(data):
     return isinstance(data, list) and all(_valid_node(n, [MAX_NODES]) for n in data)
 
 
-def load_docs():
+def _read_cache():
     if DOCS_FILE.exists():
         try:
             data = json.loads(DOCS_FILE.read_text(encoding='utf-8'))
@@ -47,14 +50,36 @@ def load_docs():
                 return data
         except (json.JSONDecodeError, OSError):
             pass
-    return DOCS_DEFAULT
+    return None
+
+
+def _write_cache(data):
+    try:
+        DOCS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+    except OSError:
+        pass
+
+
+def load_docs():
+    """Source of truth = Jira property (sync chéo máy); local file = cache fallback khi Jira lỗi."""
+    try:
+        data = load_property(DOCS_PROP)
+        if data is not None and valid_tree(data):
+            _write_cache(data)
+            return data
+    except RuntimeError:
+        pass  # Jira không với tới -> dùng cache local
+    cached = _read_cache()
+    return cached if cached is not None else DOCS_DEFAULT
 
 
 def save_docs(data):
+    """Ghi Jira property (primary). Chỉ True khi Jira nhận; đồng thời cache local."""
     if not valid_tree(data):
         return False
     try:
-        DOCS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
-        return True
-    except OSError:
+        save_property(DOCS_PROP, data)
+    except RuntimeError:
         return False
+    _write_cache(data)
+    return True

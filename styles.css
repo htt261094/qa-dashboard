@@ -624,6 +624,16 @@ html[data-theme="dark"] .topnav { border-color: var(--border); }
 html[data-theme="dark"] .navtab { color: var(--muted); }
 html[data-theme="dark"] .navtab:hover { color: var(--text); background: var(--surface2); }
 html[data-theme="dark"] .navtab.active { color: var(--blue); border-bottom-color: var(--blue); }
+.nav-user { margin-left: auto; align-self: center; font-size: 12px; color: #6b778c; display: inline-flex; align-items: center; gap: 6px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html[data-theme="dark"] .nav-user { color: var(--muted); }
+.nav-role { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; padding: 1px 7px; border-radius: 4px; background: #dfe1e6; color: #42526e; }
+.nav-role.nav-admin { background: #e3fcef; color: #006644; }
+html[data-theme="dark"] .nav-role { background: var(--surface2); color: var(--text); }
+.nav-logout { align-self: center; margin-left: 10px; font-size: 12px; font-weight: 600; color: #42526e; text-decoration: none; padding: 4px 10px; border: 1px solid #dfe1e6; border-radius: 6px; white-space: nowrap; transition: background .15s, border-color .15s; }
+.nav-logout:hover { background: #ffebe6; border-color: #ff8f73; color: #bf2600; }
+html[data-theme="dark"] .nav-logout { color: var(--text); border-color: var(--border); }
+html[data-theme="dark"] .nav-logout:hover { background: #5c1a12; border-color: #ff8f73; color: #ffbdad; }
+@media print { .nav-logout { display: none; } }
 
 /* ===== Weekly report ===== */
 .report-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 12px; }
@@ -734,3 +744,10 @@ html[data-theme="dark"] .rpt-li-asg { color: var(--muted); }
     .lnode-fold > summary ~ .lntree { display: block !important; }
     .lnode-fold > summary::before { content: '' !important; }
 }
+
+/* ===== Read-only (không phải owner): khoá edit roadmap + tài liệu ===== */
+.ro-banner { background: #fff0b3; color: #974f0c; padding: 10px 16px; border-radius: 6px; margin-bottom: 16px; font-size: 13px; font-weight: 600; }
+html[data-theme="dark"] .ro-banner { background: rgba(255,171,0,.15); color: #ffd591; }
+.ro .doc-add-folder, .ro .doc-add-link, .ro .doc-del, .ro .doc-edit, .ro #docAddRoot,
+.ro .rm-edit, .ro .rm-add-item, .ro .rm-add-sub, .ro .rm-edit-phase, .ro #rmAddPhase { display: none !important; }
+.ro [contenteditable] { cursor: default; }

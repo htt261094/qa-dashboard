@@ -8,6 +8,9 @@ import json
 from datetime import datetime
 
 from config import ROADMAP_FILE
+from jira_api import load_property, save_property
+
+ROADMAP_PROP = 'qa-dashboard-roadmap'  # Jira user property = kho sync chéo máy
 
 MAX_PHASES = 100
 MAX_ITEMS = 1000
@@ -103,7 +106,7 @@ def due_alerts(data, today=None, within_days=14):
     return out
 
 
-def load_roadmap():
+def _read_cache():
     if ROADMAP_FILE.exists():
         try:
             data = json.loads(ROADMAP_FILE.read_text(encoding='utf-8'))
@@ -111,14 +114,36 @@ def load_roadmap():
                 return data
         except (json.JSONDecodeError, OSError):
             pass
-    return ROADMAP_DEFAULT
+    return None
+
+
+def _write_cache(data):
+    try:
+        ROADMAP_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+    except OSError:
+        pass
+
+
+def load_roadmap():
+    """Source of truth = Jira property (sync chéo máy); local file = cache fallback khi Jira lỗi."""
+    try:
+        data = load_property(ROADMAP_PROP)
+        if data is not None and valid_roadmap(data):
+            _write_cache(data)
+            return data
+    except RuntimeError:
+        pass  # Jira không với tới -> dùng cache local
+    cached = _read_cache()
+    return cached if cached is not None else ROADMAP_DEFAULT
 
 
 def save_roadmap(data):
+    """Ghi Jira property (primary). Chỉ True khi Jira nhận → tránh mất data thầm lặng; đồng thời cache local."""
     if not valid_roadmap(data):
         return False
     try:
-        ROADMAP_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
-        return True
-    except OSError:
+        save_property(ROADMAP_PROP, data)
+    except RuntimeError:
         return False
+    _write_cache(data)
+    return True
