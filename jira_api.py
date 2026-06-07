@@ -4,6 +4,8 @@ PAT is read from config and never logged: network errors are redacted before rai
 """
 import sys
 import json
+import time
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
@@ -19,6 +21,24 @@ except ImportError:
 # Session dùng chung -> tái dùng kết nối (keep-alive), khỏi bắt tay TLS mỗi call.
 # urllib3 connection pool thread-safe nên share được giữa các thread của run_parallel.
 _SESSION = requests.Session()
+
+# In-memory cache với TTL 2 phút: giảm số call Jira khi F5 nhanh hoặc nhiều tab.
+_CACHE_TTL = 120  # giây
+_cache: dict = {}
+_cache_lock = threading.Lock()
+
+
+def _cache_get(key):
+    with _cache_lock:
+        entry = _cache.get(key)
+        if entry and entry[1] > time.monotonic():
+            return entry[0], True
+        return None, False
+
+
+def _cache_set(key, data):
+    with _cache_lock:
+        _cache[key] = (data, time.monotonic() + _CACHE_TTL)
 
 _DEFAULT_FIELDS = ('summary,status,assignee,reporter,duedate,created,'
                    'resolutiondate,updated,issuetype,comment,priority')
@@ -86,7 +106,12 @@ def fetch_activity_feed(days=7, cap=300, max_issues=120, scope_user=None):
     để dismiss đồng bộ chéo máy. Trả list dict {id, kind, key, summary, author, when, old, new}.
 
     scope_user=None -> toàn team; 'quangbm' -> chỉ activity liên quan user đó (QA thường).
+    Cache TTL 2 phút (call nặng nhất vì expand=changelog).
     """
+    cache_key = f'activity:{days}:{scope_user}'
+    cached, hit = _cache_get(cache_key)
+    if hit:
+        return cached
     if scope_user is not None and scope_user not in USERS:
         raise ValueError('unknown scope_user')
     start = datetime.now() - timedelta(days=days)
@@ -142,7 +167,9 @@ def fetch_activity_feed(days=7, cap=300, max_issues=120, scope_user=None):
                          'when': c.get('created'), 'comment_delta': 1,
                          'body': _comment_snippet(c.get('body'))})
     acts.sort(key=lambda a: a.get('when') or '', reverse=True)
-    return acts[:cap]
+    result = acts[:cap]
+    _cache_set(cache_key, result)
+    return result
 
 
 # ===== Dismiss state lưu ở Jira user property, TÁCH theo người đăng nhập (email) =====
@@ -333,7 +360,12 @@ def fetch_all(scope_user=None):
     scope_user=None  -> toàn team (admin).
     scope_user='quangbm' -> CHỈ task của user đó (QA thường xem phần mình). Lọc ngay
     ở JQL nên Jira không trả data người khác (server-side, không lộ qua page source).
+    Cache TTL 2 phút: F5 liên tiếp trong 2p trả cache, tránh spam Jira.
     """
+    cache_key = f'fetch_all:{scope_user}'
+    cached, hit = _cache_get(cache_key)
+    if hit:
+        return cached
     if scope_user is not None and scope_user not in USERS:
         raise ValueError('unknown scope_user')
     if scope_user:
@@ -356,4 +388,5 @@ def fetch_all(scope_user=None):
             f'{a_clause} AND status CHANGED TO "DONE" AFTER startOfWeek()'),
     })
     data['fetched_at'] = datetime.now()
+    _cache_set(cache_key, data)
     return data

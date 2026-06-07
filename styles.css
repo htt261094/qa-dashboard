@@ -763,3 +763,14 @@ html[data-theme="dark"] .ro-banner { background: rgba(255,171,0,.15); color: #ff
 .ro .doc-add-folder, .ro .doc-add-link, .ro .doc-del, .ro .doc-edit, .ro #docAddRoot,
 .ro .rm-edit, .ro .rm-add-item, .ro .rm-add-sub, .ro .rm-edit-phase, .ro #rmAddPhase { display: none !important; }
 .ro [contenteditable] { cursor: default; }
+
+/* ===== Toast notifications (góc phải dưới, tự dismiss 5s) ===== */
+#qa-toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.qa-toast { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 8px; font-size: 13px; font-weight: 500; min-width: 200px; max-width: 340px; box-shadow: 0 4px 16px rgba(0,0,0,.18); opacity: 0; transform: translateX(40px); transition: opacity .25s, transform .25s; pointer-events: auto; }
+.qa-toast.qa-toast-show { opacity: 1; transform: translateX(0); }
+.qa-toast-ok { background: #e3fcef; color: #006644; border-left: 4px solid #36b37e; }
+.qa-toast-err { background: #ffebe6; color: #bf2600; border-left: 4px solid #de350b; }
+.qa-toast-close { margin-left: auto; background: none; border: none; cursor: pointer; font-size: 16px; color: inherit; opacity: .6; line-height: 1; padding: 0 2px; }
+.qa-toast-close:hover { opacity: 1; }
+html[data-theme="dark"] .qa-toast-ok { background: rgba(54,179,126,.15); color: #79f2c0; border-color: #36b37e; }
+html[data-theme="dark"] .qa-toast-err { background: rgba(222,53,11,.15); color: #ff8f73; border-color: #de350b; }
