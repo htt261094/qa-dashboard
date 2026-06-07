@@ -24,8 +24,11 @@ from state import load_state, save_state, build_snapshot
 from pic import save_pic
 from docs import load_docs, save_docs, valid_tree
 from roadmap import load_roadmap, save_roadmap, valid_roadmap
+from pat_store import save_user_pat, has_pat, delete_user_pat, load_user_pat
+from custom_status import (load_bundle, set_custom_status, is_valid)
+from jira_write import get_transitions, do_transition, add_comment
 from render import (render_page, render_report_page, render_docs_page,
-                    render_roadmap_page, render_error_page)
+                    render_roadmap_page, render_settings_page, render_error_page, render_403)
 
 ACTIVITY_DAYS = 7  # cửa sổ activity feed kéo từ Jira changelog
 
@@ -105,13 +108,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return (email, self._is_admin()) if email else None
 
     def _forbidden(self):
+        # Trang 403 tối giản — KHÔNG lộ domain/điều kiện được phép (giấu thông tin).
         self.send_response(403)
         self.send_header('Content-Type', 'text/html; charset=utf-8')
         self.end_headers()
-        self.wfile.write(
-            '<h2>403 — Tài khoản không có quyền truy cập dashboard này.</h2>'
-            f'<p>Chỉ email <b>@{ALLOWED_DOMAIN or "công ty"}</b> mới vào được. '
-            '<a href="/logout">Đăng nhập lại</a></p>'.encode('utf-8'))
+        self.wfile.write(render_403().encode('utf-8'))
 
     def _redirect(self, location, cookies=None):
         self.send_response(302)
@@ -204,6 +205,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except RuntimeError as e:
                 self._html(render_error_page(str(e)))
             return
+        if self.path in ('/settings', '/settings.html'):
+            # Cài đặt PAT cá nhân (mã hoá khi lưu) — thao tác Jira ghi đúng tên người dùng
+            try:
+                self._html(render_settings_page(has_pat(self._user_email()), user=self._user_ctx()))
+            except RuntimeError as e:
+                self._html(render_error_page(str(e)))
+            return
         if self.path not in ('/', '/index.html'):
             self.send_response(404)
             self.end_headers()
@@ -220,17 +228,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     "Liên hệ admin (Thành) để cấp quyền."))
                 return
         try:
-            # 3 nhóm call độc lập -> chạy song song (fetch_all tự song song 5 call bên trong)
+            # các call độc lập -> chạy song song (fetch_all tự song song 5 call bên trong)
             res = run_parallel({
                 'data': lambda: fetch_all(scope),
                 'feed': lambda: fetch_activity_feed(days=ACTIVITY_DAYS, scope_user=scope),
                 'dismissed': lambda: load_dismissed(email),
+                # 1 lần đọc property -> (nhãn custom hiện tại, sự kiện đổi nhãn để báo admin)
+                'custom': lambda: load_bundle(scope, ACTIVITY_DAYS),
             })
             data, feed, dismissed = res['data'], res['feed'], res['dismissed']
+            overlay, cust_act = res['custom']
             new_keys, first_run = _build_view(data)
-            unread = [a for a in feed if a['id'] not in dismissed]
+            # gộp custom-status events vào feed Jira, sort mới->cũ, rồi lọc unread
+            merged = sorted(feed + cust_act, key=lambda a: a.get('when') or '', reverse=True)
+            unread = [a for a in merged if a['id'] not in dismissed]
             html_out = render_page(data, new_keys, first_run, unread, ACTIVITY_DAYS,
-                                   roadmap_data=load_roadmap(), user=self._user_ctx())
+                                   roadmap_data=load_roadmap(), user=self._user_ctx(),
+                                   custom_overlay=overlay)
         except RuntimeError as e:
             html_out = render_error_page(str(e))
         self._html(html_out)
@@ -241,6 +255,53 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
         self.end_headers()
         self.wfile.write(html_out.encode('utf-8'))
+
+    def _read_json_body(self, max_len):
+        length = int(self.headers.get('Content-Length', 0))
+        if not (0 < length <= max_len):
+            return None
+        return json.loads(self.rfile.read(length).decode('utf-8'))
+
+    def _reply_json(self, ok, payload):
+        self._json(200 if ok else 400, json.dumps(payload).encode('utf-8'))
+
+    def _handle_jira_write(self):
+        """Transition / comment THẬT lên Jira bằng PAT cá nhân của người đăng nhập.
+        Không có PAT -> từ chối (để KHÔNG ghi nhầm tên tài khoản chung)."""
+        pat = load_user_pat(self._user_email())
+        if not pat:
+            self._reply_json(False, {'ok': False, 'code': 'no_pat',
+                'msg': 'Bạn chưa cấu hình PAT. Vào ⚙ Cài đặt để thêm, rồi thử lại.'})
+            return
+        try:
+            payload = self._read_json_body(20_000)
+            if not isinstance(payload, dict):
+                self._reply_json(False, {'ok': False, 'msg': 'Dữ liệu không hợp lệ.'})
+                return
+            key = payload.get('key')
+            if not isinstance(key, str) or not key:
+                self._reply_json(False, {'ok': False, 'msg': 'Thiếu key task.'})
+                return
+            if self.path == '/jira-transitions':
+                # CHỈ trả các transition QA này thật sự đổi được (theo PAT + workflow).
+                ok, data = get_transitions(key, pat)
+                self._reply_json(ok, {'ok': True, 'transitions': data} if ok else {'ok': False, 'msg': data})
+            elif self.path == '/do-transition':
+                tid = payload.get('id')
+                if not isinstance(tid, (str, int)) or str(tid) == '':
+                    self._reply_json(False, {'ok': False, 'msg': 'Thiếu transition id.'})
+                    return
+                ok, msg = do_transition(key, tid, pat)
+                self._reply_json(ok, {'ok': ok, 'msg': msg})
+            else:  # /add-comment
+                body = payload.get('body')
+                if not isinstance(body, str):
+                    self._reply_json(False, {'ok': False, 'msg': 'Thiếu nội dung comment.'})
+                    return
+                ok, msg = add_comment(key, body[:5000], pat)
+                self._reply_json(ok, {'ok': ok, 'msg': msg})
+        except (ValueError, json.JSONDecodeError, OSError):
+            self._reply_json(False, {'ok': False, 'msg': 'Lỗi xử lý yêu cầu.'})
 
     def do_POST(self):
         if not self._authed() or not self._domain_ok():
@@ -258,6 +319,52 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
                 ok = False
             self._json(200 if ok else 400, b'{"ok":true}' if ok else b'{"ok":false}')
+            return
+        if self.path == '/save-pat':
+            # Lưu PAT cá nhân (mã hoá). Bất kỳ user đã đăng nhập đều lưu được PAT CỦA HỌ.
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                if not (0 < length <= 10_000):
+                    self._json(400, b'{"ok":false,"msg":"payload"}')
+                    return
+                payload = json.loads(self.rfile.read(length).decode('utf-8'))
+                pat = payload.get('pat') if isinstance(payload, dict) else None
+                if not isinstance(pat, str):
+                    self._json(400, b'{"ok":false,"msg":"thieu pat"}')
+                    return
+                ok, msg = save_user_pat(self._user_email(), pat)
+            except (ValueError, json.JSONDecodeError, OSError):
+                ok, msg = False, 'Lỗi xử lý yêu cầu.'
+            self._json(200 if ok else 400,
+                       json.dumps({'ok': ok, 'msg': msg}).encode('utf-8'))
+            return
+        if self.path == '/delete-pat':
+            try:
+                ok = delete_user_pat(self._user_email())
+            except (RuntimeError, OSError):
+                ok = False
+            self._json(200 if ok else 400, b'{"ok":true}' if ok else b'{"ok":false}')
+            return
+        if self.path == '/set-custom-status':
+            # QA gắn/gỡ nhãn nội bộ cho task. Author = người đăng nhập (không cần PAT).
+            ok = False
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                if 0 < length <= 20_000:
+                    payload = json.loads(self.rfile.read(length).decode('utf-8'))
+                    if isinstance(payload, dict):
+                        key = payload.get('key')
+                        value = payload.get('status', '')
+                        summary = payload.get('summary', '')
+                        if (isinstance(key, str) and key and isinstance(value, str)
+                                and is_valid(value) and isinstance(summary, str)):
+                            ok = set_custom_status(self._user_email(), key, value, summary[:200])
+            except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
+                ok = False
+            self._json(200 if ok else 400, b'{"ok":true}' if ok else b'{"ok":false}')
+            return
+        if self.path in ('/jira-transitions', '/do-transition', '/add-comment'):
+            self._handle_jira_write()
             return
         if self.path == '/save-docs':
             if not self._is_admin():

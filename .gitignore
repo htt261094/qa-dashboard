@@ -4,6 +4,8 @@
 .pic_config.json
 .docs_config.json
 .roadmap_config.json
+.custom_status.json
+.crypto_key
 
 # Python
 __pycache__/
@@ -11,6 +13,10 @@ __pycache__/
 *.pyo
 .venv/
 venv/
+
+# Generated preview pages (tạo bằng gen_preview.py, không commit)
+preview*.html
+.commit_msg.tmp
 
 # Editor
 .vscode/
