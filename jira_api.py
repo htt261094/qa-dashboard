@@ -279,6 +279,22 @@ def save_property(key, value):
         raise RuntimeError(f"Network error: {str(e).replace(PAT, '<REDACTED>')}")
 
 
+def verify_pat(candidate_pat):
+    """Gọi /myself bằng PAT ứng viên -> trả Jira username (field 'name') nếu hợp lệ, None nếu sai/hết hạn.
+    Dùng để xác thực PAT thuộc đúng người trước khi lưu. KHÔNG đụng _SESSION (header Auth khác)."""
+    if not candidate_pat or not isinstance(candidate_pat, str):
+        return None
+    try:
+        r = requests.get(f"{JIRA_URL}/rest/api/2/myself",
+                         headers={'Authorization': f'Bearer {candidate_pat}', 'Accept': 'application/json'},
+                         timeout=15)
+        if r.status_code == 200:
+            return r.json().get('name') or r.json().get('key')
+        return None
+    except requests.RequestException:
+        return None
+
+
 def fetch_change_authors(keys):
     """For the given changed issue keys, return {key: {field: latest_author}} from changelog (1 light call)."""
     if not keys:

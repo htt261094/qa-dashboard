@@ -15,6 +15,7 @@ from issues import (parse_date, i_assignee, i_reporter, i_status, i_summary, i_d
 from pic import PIC_PEOPLE, load_pic
 from docs import load_docs
 from roadmap import RM_STATUSES, load_roadmap, due_alerts
+from custom_status import CUSTOM_STATUSES, label_of
 
 
 def load_css():
@@ -98,6 +99,8 @@ def render_activities(activities, days=7):
             return f'<span class="act-k act-k-prio">⚡ Priority</span> {esc(a.get("old",""))} → {esc(a.get("new",""))}'
         if kind == 'summary':
             return '<span class="act-k">✏️ Đổi tiêu đề</span>'
+        if kind == 'custom_status':
+            return f'<span class="act-k act-k-cstat">🏷 Nhãn nội bộ</span> {esc(a.get("new",""))}'
         return ''
 
     # group activities by task id (newest task first); each change = its own row
@@ -315,6 +318,42 @@ def _person_attrs(issue):
     return f' data-assignee="{esc(i_assignee(issue))}" data-reporter="{esc(i_reporter(issue))}"'
 
 
+# Các status chuẩn của workflow Bảo Kim (gộp vào menu thống nhất; chọn = đổi Jira thật nếu hợp lệ)
+JIRA_STATUSES = ['TO DO', 'In Progress', 'PENDING', 'DONE', 'CANCELLED']
+
+
+def status_control(issue, cmap=None):
+    """Badge status + nút ▾ mở menu thống nhất. Nếu task có CUSTOM status -> badge hiện
+    custom (kiểu status, màu tím ●), status Jira gốc nằm trong tooltip. Không custom -> status Jira.
+
+    Menu (JS) gộp 2 nhóm: 'Status Jira' (chọn -> đổi Jira THẬT nếu nằm trong workflow) và
+    'Custom status' (chọn -> chỉ đổi trên dashboard). data-jira = LUÔN là status Jira thật."""
+    key = esc(issue['key'])
+    st = i_status(issue)
+    jira_esc = esc(st)
+    cur = ((cmap or {}).get(issue['key']) or {}).get('v', '')
+    if cur:
+        badge = (f'<span class="status status-custom" '
+                 f'title="Custom status (chỉ dashboard) · Jira gốc: {jira_esc}">● {esc(label_of(cur))}</span>')
+    else:
+        badge = f'<span class="status {status_class(st)}">{jira_esc}</span>'
+    return (
+        f'{badge}'
+        f'<button type="button" class="ustat-caret" data-key="{key}" '
+        f'data-jira="{jira_esc}" data-cust="{esc(cur)}" '
+        f'title="Đổi status Jira hoặc gắn custom status" onclick="openStatusMenu(this)">▾</button>'
+    )
+
+
+def summary_cell(issue, comment=True):
+    """Ô Summary: dòng tiêu đề (truncate) + ô comment inline ngay dưới (luôn hiện, Enter gửi).
+    Comment nằm DƯỚI summary (không thêm cột) -> bảng không tràn ngang ở block hẹp."""
+    s = esc(i_summary(issue))
+    inp = (f'<input class="cmt-inline" type="text" data-key="{esc(issue["key"])}" '
+           f'placeholder="💬 Comment… (Enter)">' if comment else '')
+    return f'<td class="summary-cell has-cmt" title="{s}"><div class="sum-text">{s}</div>{inp}</td>'
+
+
 def _attn_row(issue, new_keys, extra_cells):
     new_cls = ' class="is-new"' if issue['key'] in new_keys else ''
     return (f'<tr{new_cls}{_person_attrs(issue)}><td>{issue_link(issue)}</td>'
@@ -491,12 +530,26 @@ def render_nav(active, user=None):
     def tab(href, key, label):
         cls = 'navtab active' if key == active else 'navtab'
         return f'<a class="{cls}" href="{href}">{label}</a>'
-    chip = ''
+    # Chip = dropdown từ profile: Cài đặt PAT + Đăng xuất. Local dev (user=None) vẫn cho vào /settings.
     if user and user[0]:
         email, is_admin = user
         role = '<span class="nav-role nav-admin">Admin</span>' if is_admin else '<span class="nav-role">Chỉ xem</span>'
-        chip = (f'<span class="nav-user" title="{esc(email)}">👤 {esc(email)} {role}</span>'
-                '<a class="nav-logout" href="/logout" title="Đăng xuất">↩ Đăng xuất</a>')
+        chip = (
+            '<div class="nav-user-menu" id="navUserMenu">'
+            f'<button type="button" class="nav-user" id="navUserBtn" title="{esc(email)}">👤 {esc(email)} {role} ▾</button>'
+            '<div class="nav-menu">'
+            '<a class="nav-menu-item" href="/settings">⚙ Cài đặt PAT</a>'
+            '<a class="nav-menu-item" href="/logout">↩ Đăng xuất</a>'
+            '</div></div>'
+        )
+    else:
+        chip = (
+            '<div class="nav-user-menu" id="navUserMenu">'
+            '<button type="button" class="nav-user" id="navUserBtn">👤 Local ▾</button>'
+            '<div class="nav-menu">'
+            '<a class="nav-menu-item" href="/settings">⚙ Cài đặt PAT</a>'
+            '</div></div>'
+        )
     # admin (hoặc local dev user=None) thấy đủ; QA thường KHÔNG thấy Báo cáo tuần (toàn team)
     is_admin = user[1] if (user and len(user) > 1) else True
     report_tab = tab('/report', 'report', '📋 Báo cáo tuần') if is_admin else ''
@@ -507,6 +560,26 @@ def render_nav(active, user=None):
             + tab('/docs', 'docs', '📚 Tài liệu')
             + chip
             + '</nav>')
+
+
+def render_403():
+    """Trang 403 tối giản — KHÔNG lộ domain/điều kiện được phép (giấu thông tin)."""
+    return ('<!DOCTYPE html><html lang="vi"><head><meta charset="UTF-8"><title>403</title>'
+            '<style>body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#091e42;'
+            'color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}'
+            '.b{text-align:center}.c{font-size:64px;font-weight:800;letter-spacing:2px}'
+            '.m{color:#a5adba;margin-top:8px}a{color:#85b8ff}</style></head>'
+            '<body><div class="b"><div class="c">403</div>'
+            '<div class="m">Unauthorized</div>'
+            '<p><a href="/logout">Đăng nhập lại</a></p></div></body></html>')
+
+
+def _jira_action_widgets():
+    """Data status (cho JS dựng menu) + container menu status thống nhất (popup fixed).
+    Comment giờ inline mỗi dòng (Enter để gửi) -> không còn modal."""
+    # Status Jira KHÔNG inject tĩnh nữa: menu tự fetch transition khả dụng qua PAT của QA.
+    return (f'<script>window.QA_CUSTOM_STATUSES={json.dumps(CUSTOM_STATUSES, ensure_ascii=False)};</script>'
+            '<div class="umenu" id="statusMenu" hidden></div>')
 
 
 def _document(inner):
@@ -520,8 +593,43 @@ def _document(inner):
 <div class="container">{inner}</div>
 <button class="theme-fab" id="themeFab" title="Đổi light / dark" aria-label="Đổi theme">🌙</button>
 {render_pic_modal(load_pic())}
+{_jira_action_widgets()}
 <script>{load_js()}</script>
 </body></html>"""
+
+
+# ===== Settings page (/settings): nhập PAT cá nhân để thao tác Jira ghi đúng tên mình =====
+def render_settings_page(has_pat, user=None):
+    status_line = ('<div class="set-state set-ok">✓ Bạn đã lưu PAT. Thao tác đổi status/comment sẽ ghi đúng tên bạn trên Jira.</div>'
+                   if has_pat else
+                   '<div class="set-state set-none">⚠ Bạn chưa lưu PAT. Hiện thao tác (nếu có) sẽ mang tên tài khoản chung.</div>')
+    jira_base = esc(JIRA_URL)
+    inner = (
+        render_nav('settings', user) +
+        '<header><h1>⚙ Cài đặt — Personal Access Token (PAT)</h1>'
+        '<div class="meta">PAT giúp dashboard thao tác Jira <strong>nhân danh chính bạn</strong>. '
+        'Mã được mã hoá (AES) trước khi lưu, không bao giờ lưu dạng thô.</div></header>'
+        f'<div class="set-wrap">{status_line}'
+        '<div class="set-card">'
+        '<h2>1. Tạo PAT trên Jira</h2>'
+        '<ol class="set-steps">'
+        f'<li>Mở <a href="{jira_base}/secure/ViewProfile.jspa" target="_blank" rel="noopener">Hồ sơ Jira của bạn</a> → '
+        '<b>Personal Access Tokens</b>.</li>'
+        '<li>Bấm <b>Create token</b>, đặt tên (vd "QA Dashboard"), chọn thời hạn.</li>'
+        '<li>Copy chuỗi token (chỉ hiện 1 lần).</li>'
+        '</ol>'
+        '<h2>2. Dán vào đây</h2>'
+        '<div class="set-form">'
+        '<input type="password" id="patInput" class="set-input" placeholder="Dán PAT của bạn..." autocomplete="off" spellcheck="false">'
+        '<button type="button" id="patSave" class="set-btn">Lưu PAT</button>'
+        '<button type="button" id="patShow" class="set-btn ghost" title="Hiện/ẩn">👁</button>'
+        '</div>'
+        + ('<button type="button" id="patDelete" class="set-link-del">Xoá PAT đã lưu</button>' if has_pat else '')
+        + '<p class="set-note">⚠ Token được verify thuộc đúng tài khoản của bạn (gọi <code>/myself</code>) trước khi lưu. '
+        'PAT của người khác sẽ bị từ chối.</p>'
+        '</div></div>'
+    )
+    return _document(inner)
 
 
 # ===== Weekly report (separate /report view) =====
@@ -814,14 +922,13 @@ def _p_section(title, count, head, rows_html, empty_msg, cls=''):
 
 
 def _p_base(issue, new_keys):
-    """(new_cls, 2 ô Key+Summary) — dùng chung cho mọi bảng cá nhân (không cột Assignee)."""
+    """(new_cls, 2 ô Key+Summary) — Summary kèm ô comment inline bên dưới (không cột Assignee)."""
     new_cls = ' class="is-new"' if issue['key'] in new_keys else ''
-    cells = (f'<td>{issue_link(issue)}</td>'
-             f'<td class="summary-cell" title="{esc(i_summary(issue))}">{esc(i_summary(issue))}</td>')
+    cells = f'<td>{issue_link(issue)}</td>{summary_cell(issue)}'
     return new_cls, cells
 
 
-def render_personal(data, new_keys, activities, activity_days):
+def render_personal(data, new_keys, activities, activity_days, cmap=None):
     active = data['active']
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     week_end = today - timedelta(days=today.weekday()) + timedelta(days=7)
@@ -842,46 +949,57 @@ def render_personal(data, new_keys, activities, activity_days):
     todo = sorted((i for i in active if not inflight(i)), key=due_sort)
     done = data['done_week']
 
-    # Overdue
+    # Overdue / Due tuần / Kẹt -> gom vào 1 block 3 tab (như design gốc của admin)
+    def p_panel(head, body, empty_msg):
+        if not body:
+            return f'<div class="empty">{empty_msg}</div>'
+        return f'<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>'
+
     od_rows = ''
     for i in overdue:
         nc, base = _p_base(i, new_keys)
-        od_rows += f'<tr{nc}>{base}<td>{esc(i_duedate(i) or "")}</td><td class="days-overdue">{days_overdue(i)}d</td></tr>'
-    od = _p_section('⚠ Overdue', len(overdue),
-                    '<th>Key</th><th>Summary</th><th>Due</th><th>Trễ</th>',
-                    od_rows, 'Không có task quá hạn 🎉', 'prio-overdue')
-    # Due tuần
+        od_rows += (f'<tr{nc}>{base}<td class="status-cell">{status_control(i, cmap)}</td>'
+                    f'<td>{esc(i_duedate(i) or "")}</td><td class="days-overdue">{days_overdue(i)}d</td></tr>')
     dw_rows = ''
     for i in dueweek:
         nc, base = _p_base(i, new_keys)
-        dw_rows += f'<tr{nc}>{base}<td>{esc(i_duedate(i) or "")}</td></tr>'
-    dw = _p_section('📅 Due tuần', len(dueweek),
-                    '<th>Key</th><th>Summary</th><th>Due</th>',
-                    dw_rows, 'Không có task đến hạn trong tuần', 'prio-dueweek')
-    # Kẹt
+        dw_rows += (f'<tr{nc}>{base}<td class="status-cell">{status_control(i, cmap)}</td>'
+                    f'<td>{esc(i_duedate(i) or "")}</td></tr>')
     st_rows = ''
     for i in stuck:
         nc, base = _p_base(i, new_keys)
-        st_rows += f'<tr{nc}>{base}<td class="days-overdue">{days_since_update(i)}d</td></tr>'
-    st = _p_section(f'⏳ Kẹt ≥ {STUCK_DAYS} ngày', len(stuck),
-                    '<th>Key</th><th>Summary</th><th>Kẹt</th>',
-                    st_rows, f'Không có task kẹt ≥{STUCK_DAYS} ngày 👍', 'prio-stuck')
+        st_rows += (f'<tr{nc}>{base}<td class="status-cell">{status_control(i, cmap)}</td>'
+                    f'<td class="days-overdue">{days_since_update(i)}d</td></tr>')
+    od_head = '<th>Key</th><th>Summary + comment</th><th>Trạng thái</th><th>Due</th><th>Trễ</th>'
+    dw_head = '<th>Key</th><th>Summary + comment</th><th>Trạng thái</th><th>Due</th>'
+    st_head = '<th>Key</th><th>Summary + comment</th><th>Trạng thái</th><th>Kẹt</th>'
+    alerts = f"""<div class="section tabbed">
+        <div class="tab-bar">
+            <button class="tab active" type="button" data-tab="p-overdue">⚠ Overdue <span class="tab-count">{len(overdue)}</span></button>
+            <button class="tab" type="button" data-tab="p-dueweek">📅 Due tuần <span class="tab-count">{len(dueweek)}</span></button>
+            <button class="tab" type="button" data-tab="p-stuck">⏳ Kẹt ≥{STUCK_DAYS}d <span class="tab-count">{len(stuck)}</span></button>
+        </div>
+        <div class="tab-panel" data-paginate="5" data-panel="p-overdue">{p_panel(od_head, od_rows, 'Không có task quá hạn 🎉')}</div>
+        <div class="tab-panel" data-paginate="5" data-panel="p-dueweek" hidden>{p_panel(dw_head, dw_rows, 'Không có task đến hạn trong tuần')}</div>
+        <div class="tab-panel" data-paginate="5" data-panel="p-stuck" hidden>{p_panel(st_head, st_rows, f'Không có task kẹt ≥{STUCK_DAYS} ngày 👍')}</div>
+    </div>"""
     # Đang làm (In Progress + PENDING)
     ip_rows = ''
     for i in inprog:
         nc, base = _p_base(i, new_keys)
-        ip_rows += (f'<tr{nc}>{base}<td><span class="status {status_class(i_status(i))}">{esc(i_status(i))}</span></td>'
+        ip_rows += (f'<tr{nc}>{base}<td class="status-cell">{status_control(i, cmap)}</td>'
                     f'<td>{esc(i_duedate(i) or "—")}</td></tr>')
     ip = _p_section('🔵 Đang làm', len(inprog),
-                    '<th>Key</th><th>Summary</th><th>Status</th><th>Due</th>',
+                    '<th>Key</th><th>Summary + comment</th><th>Trạng thái</th><th>Due</th>',
                     ip_rows, 'Không có task đang xử lý')
     # TO DO
     td_rows = ''
     for i in todo:
         nc, base = _p_base(i, new_keys)
-        td_rows += f'<tr{nc}>{base}<td>{esc(i_duedate(i) or "—")}</td></tr>'
+        td_rows += (f'<tr{nc}>{base}<td class="status-cell">{status_control(i, cmap)}</td>'
+                    f'<td>{esc(i_duedate(i) or "—")}</td></tr>')
     td = _p_section('📋 TO DO của tôi', len(todo),
-                    '<th>Key</th><th>Summary</th><th>Due</th>',
+                    '<th>Key</th><th>Summary + comment</th><th>Trạng thái</th><th>Due</th>',
                     td_rows, 'Không có task TO DO')
     # Done (3 ngày)
     dn_rows = ''
@@ -891,19 +1009,21 @@ def render_personal(data, new_keys, activities, activity_days):
         dn_rows += (f'<tr{nc}>{base}<td><span class="status {status_class(i_status(i))}">{esc(i_status(i))}</span></td>'
                     f'<td>{esc(done_at)}</td></tr>')
     dn = _p_section('✅ Done (3 ngày)', len(done),
-                    '<th>Key</th><th>Summary</th><th>Status</th><th>Cập nhật</th>',
+                    '<th>Key</th><th>Summary + comment</th><th>Status</th><th>Cập nhật</th>',
                     dn_rows, 'Chưa có task nào chuyển DONE trong 3 ngày')
 
+    # Layout cũ: 3 alert gom 1 block 3 tab; rồi eqrow-2 (Đang làm | Hoạt động) + (TO DO | Done).
     return (
         render_kpis_personal(active, done) +
-        f'<div class="eqrow eqrow-3">{od}{dw}{st}</div>' +
+        alerts +
         f'<div class="eqrow eqrow-2">{ip}{render_activities(activities, activity_days)}</div>' +
         f'<div class="eqrow eqrow-2">{td}{dn}</div>'
     )
 
 
 # ===== Full page =====
-def render_page(data, new_keys, first_run, activities, activity_days=7, roadmap_data=None, user=None):
+def render_page(data, new_keys, first_run, activities, activity_days=7, roadmap_data=None,
+                user=None, custom_overlay=None):
     fetched = data['fetched_at'].strftime('%Y-%m-%d %H:%M:%S')
     is_admin = user[1] if (user and len(user) > 1) else True
 
@@ -928,7 +1048,7 @@ def render_page(data, new_keys, first_run, activities, activity_days=7, roadmap_
         title = 'QA Team Dashboard'
     else:
         # QA thường: data đã auto-scope về chính họ -> lens cá nhân (bỏ widget so-sánh-người)
-        body = render_personal(data, new_keys, activities, activity_days)
+        body = render_personal(data, new_keys, activities, activity_days, custom_overlay)
         title = 'QA Dashboard — Việc của tôi'
 
     first_run_note = ''

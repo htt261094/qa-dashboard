@@ -774,3 +774,109 @@ html[data-theme="dark"] .ro-banner { background: rgba(255,171,0,.15); color: #ff
 .qa-toast-close:hover { opacity: 1; }
 html[data-theme="dark"] .qa-toast-ok { background: rgba(54,179,126,.15); color: #79f2c0; border-color: #36b37e; }
 html[data-theme="dark"] .qa-toast-err { background: rgba(222,53,11,.15); color: #ff8f73; border-color: #de350b; }
+
+/* ===== Status control: badge (custom hiện ● tím) + nút ▾ mở menu ===== */
+.status-cell { white-space: nowrap; }
+/* badge 1 dòng, full text (không cắt) -> nhất quán mọi block. Cột hẹp thì summary/comment co lại nhường chỗ. */
+.status-cell .status { white-space: nowrap; vertical-align: middle; }
+.status-custom { background: #e9defa; color: #5e3bbf; }
+html[data-theme="dark"] .status-custom { background: rgba(124,77,255,.22); color: #c4b1ff; }
+.ustat-caret { background: none; border: 1px solid #dfe1e6; border-radius: 4px; cursor: pointer; font-size: 11px;
+               line-height: 1; padding: 2px 6px; margin-left: 6px; color: #5e6c84; vertical-align: middle; }
+.ustat-caret:hover { border-color: #4c9aff; color: #0052cc; background: #e9f2ff; }
+.act-k-cstat { background: #e9defa; color: #5e3bbf; }
+html[data-theme="dark"] .ustat-caret { border-color: var(--border); color: var(--muted); }
+html[data-theme="dark"] .act-k-cstat { background: rgba(124,77,255,.22); color: #c4b1ff; }
+
+/* Summary kèm comment inline bên dưới (luôn hiện) — Enter để gửi.
+   Comment nằm DƯỚI tiêu đề, chiếm chiều rộng cột summary -> không thêm cột, không tràn ngang. */
+.summary-cell.has-cmt { max-width: 0; width: 100%; white-space: normal; overflow: visible; }
+.summary-cell.has-cmt .sum-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cmt-inline { width: 100%; min-width: 0; box-sizing: border-box; border: 1px solid #dfe1e6; border-radius: 6px;
+              padding: 4px 8px; margin-top: 4px; font: inherit; font-size: 11px; background: #fafbfc; color: #5e6c84; }
+.cmt-inline:focus { outline: none; border-color: #4c9aff; background: #fff; color: inherit; }
+.cmt-inline:disabled { opacity: .5; }
+.wl-cmt { flex: 1 1 100%; margin-top: 4px; }
+html[data-theme="dark"] .cmt-inline { background: var(--surface2); border-color: var(--border); color: var(--muted); }
+
+/* Menu status thống nhất (popup FIXED, scroll được, group dính đầu) */
+.umenu { position: fixed; z-index: 3000; background: #fff; border: 1px solid #dfe1e6; border-radius: 10px;
+         box-shadow: 0 10px 30px rgba(9,30,66,.28); padding: 6px; min-width: 230px; max-height: 60vh; overflow-y: auto; }
+.umenu-grp { font-size: 10px; text-transform: uppercase; letter-spacing: .4px; color: #5e6c84; font-weight: 700;
+             padding: 8px 10px 4px; position: sticky; top: -6px; background: #fff; }
+.umenu-hint { text-transform: none; font-weight: 400; color: #97a0af; letter-spacing: 0; }
+.umenu-item { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; background: none;
+              border: none; cursor: pointer; padding: 8px 10px; border-radius: 7px; font-size: 13px; color: #172b4d; }
+.umenu-item:hover { background: #e9f2ff; color: #0052cc; }
+.umenu-check { display: inline-block; width: 12px; color: #36b37e; font-weight: 700; }
+.umenu-dot { color: #7c4dff; }
+.umenu-on { background: #f4f5f7; font-weight: 600; }
+.umenu-clear { color: #de350b; border-top: 1px solid #ebecf0; border-radius: 0; margin-top: 4px; }
+.umenu-clear:hover { background: #ffebe6; color: #de350b; }
+.umenu-load { padding: 8px 10px; font-size: 12px; color: #6b778c; font-style: italic; }
+.umenu-err { color: #de350b; font-style: normal; }
+.umenu-lock { color: #974f0c; }
+.umenu-lock:hover { background: #fff7e6; color: #974f0c; }
+html[data-theme="dark"] .umenu-load { color: var(--muted); }
+html[data-theme="dark"] .umenu { background: var(--surface); border-color: var(--border); }
+html[data-theme="dark"] .umenu-grp { background: var(--surface); }
+html[data-theme="dark"] .umenu-item { color: var(--text); }
+html[data-theme="dark"] .umenu-item:hover { background: var(--surface2); color: var(--blue); }
+html[data-theme="dark"] .umenu-on { background: var(--surface2); }
+html[data-theme="dark"] .umenu-clear { border-color: var(--border); }
+
+/* ===== Popup "chưa cung cấp PAT" ===== */
+.pat-need-overlay { position: fixed; inset: 0; background: rgba(9,30,66,.55); display: flex;
+                    align-items: center; justify-content: center; z-index: 4000; }
+.pat-need-box { background: #fff; border-radius: 12px; width: min(420px, 92vw); padding: 26px 24px;
+                text-align: center; box-shadow: 0 14px 44px rgba(0,0,0,.35); }
+.pat-need-ic { font-size: 40px; }
+.pat-need-box h3 { margin: 8px 0 6px; font-size: 18px; color: #172b4d; }
+.pat-need-box p { margin: 0 0 18px; font-size: 13px; color: #5e6c84; line-height: 1.6; }
+.pat-need-act { display: flex; gap: 10px; justify-content: center; }
+.pat-need-act .set-btn { text-decoration: none; display: inline-flex; align-items: center; }
+html[data-theme="dark"] .pat-need-box { background: var(--surface); }
+html[data-theme="dark"] .pat-need-box h3 { color: var(--text); }
+html[data-theme="dark"] .pat-need-box p { color: var(--muted); }
+
+/* ===== Nav profile dropdown ===== */
+.nav-user-menu { position: relative; display: inline-block; margin-left: auto; }
+.nav-user { background: none; border: none; cursor: pointer; font: inherit; color: inherit; padding: 6px 10px;
+            border-radius: 6px; display: inline-flex; align-items: center; gap: 6px; }
+.nav-user:hover { background: rgba(0,0,0,.05); }
+html[data-theme="dark"] .nav-user:hover { background: rgba(255,255,255,.08); }
+.nav-menu { position: absolute; right: 0; top: 100%; margin-top: 4px; min-width: 180px; background: #fff;
+            border: 1px solid #dfe1e6; border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.16);
+            padding: 6px; display: none; z-index: 100; }
+.nav-user-menu.open .nav-menu { display: block; }
+.nav-menu-item { display: block; padding: 8px 12px; border-radius: 6px; text-decoration: none; color: #172b4d; font-size: 13px; }
+.nav-menu-item:hover { background: #f4f5f7; }
+html[data-theme="dark"] .nav-menu { background: var(--surface); border-color: var(--border); }
+html[data-theme="dark"] .nav-menu-item { color: var(--text); }
+html[data-theme="dark"] .nav-menu-item:hover { background: var(--surface2); }
+
+/* ===== Settings page (/settings) — nhập PAT ===== */
+.set-wrap { max-width: 720px; margin: 0 auto; }
+.set-state { padding: 10px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; margin-bottom: 16px; }
+.set-state.set-ok { background: #e3fcef; color: #006644; }
+.set-state.set-none { background: #fff7e6; color: #974f0c; }
+.set-card { background: #fff; border: 1px solid #ebecf0; border-radius: 10px; padding: 18px 20px; }
+.set-card h2 { font-size: 14px; color: #172b4d; margin: 0 0 8px; }
+.set-card h2 + h2, .set-steps + h2 { margin-top: 20px; }
+.set-steps { margin: 0 0 4px; padding-left: 20px; font-size: 13px; color: #42526e; line-height: 1.7; }
+.set-form { display: flex; gap: 8px; margin: 8px 0; }
+.set-input { flex: 1; padding: 8px 12px; border: 1px solid #c1c7d0; border-radius: 6px; font-size: 13px; }
+.set-input:focus { outline: none; border-color: #4c9aff; }
+.set-btn { padding: 8px 16px; border: none; border-radius: 6px; background: #0052cc; color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; }
+.set-btn:hover { background: #0747a6; }
+.set-btn.ghost { background: #f4f5f7; color: #42526e; }
+.set-btn:disabled { opacity: .5; cursor: default; }
+.set-link-del { background: none; border: none; color: #de350b; font-size: 12px; cursor: pointer; padding: 4px 0; text-decoration: underline; }
+.set-note { font-size: 12px; color: #6b778c; margin: 10px 0 0; }
+.set-note code { background: #f4f5f7; padding: 1px 4px; border-radius: 3px; }
+html[data-theme="dark"] .set-card { background: var(--surface); border-color: var(--border); }
+html[data-theme="dark"] .set-card h2 { color: var(--text); }
+html[data-theme="dark"] .set-steps { color: var(--muted); }
+html[data-theme="dark"] .set-input { background: var(--surface2); border-color: var(--border); color: var(--text); }
+html[data-theme="dark"] .set-state.set-ok { background: rgba(54,179,126,.15); color: #79f2c0; }
+html[data-theme="dark"] .set-state.set-none { background: rgba(255,171,0,.15); color: #ffd591; }

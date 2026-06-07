@@ -795,6 +795,234 @@ function toggleStories(btn){
   apply();                                     // áp filter đã khôi phục (nếu có) ngay khi load
 })();
 
+// ===== Thao tác Jira THẬT (transition + comment) bằng PAT cá nhân =====
+// Mirror status_class() phía server để recolor badge sau khi đổi.
+function jsStatusClass(name){
+  var n = (name || '').toUpperCase();
+  if (n.indexOf('PROGRESS') >= 0) return 'status-progress';
+  if (n.indexOf('PEND') >= 0) return 'status-pending';
+  if (n.indexOf('DONE') >= 0 || n.indexOf('CLOSED') >= 0 || n.indexOf('RESOLVED') >= 0) return 'status-done';
+  if (n.indexOf('CANCEL') >= 0) return 'status-cancel';
+  return 'status-todo';
+}
+// Popup khi QA chưa cung cấp PAT mà cố đổi status Jira / comment
+function showPatModal(msg){
+  if (document.getElementById('patNeedOverlay')) return;   // tránh mở chồng
+  var ov = document.createElement('div');
+  ov.id = 'patNeedOverlay'; ov.className = 'pat-need-overlay';
+  ov.innerHTML =
+    '<div class="pat-need-box">'
+    + '<div class="pat-need-ic">🔑</div>'
+    + '<h3>Chưa cung cấp PAT</h3>'
+    + '<p>' + (msg || 'Bạn cần thêm Personal Access Token (PAT) để thao tác Jira nhân danh chính mình.') + '</p>'
+    + '<div class="pat-need-act">'
+    + '<button type="button" class="set-btn ghost" id="patNeedClose">Để sau</button>'
+    + '<a class="set-btn" href="/settings">⚙ Tới Cài đặt PAT</a>'
+    + '</div></div>';
+  document.body.appendChild(ov);
+  function close(){ if (ov.parentNode) ov.parentNode.removeChild(ov); }
+  ov.querySelector('#patNeedClose').addEventListener('click', close);
+  ov.addEventListener('click', function(e){ if (e.target === ov) close(); });
+  document.addEventListener('keydown', function esc(e){
+    if (e.key === 'Escape'){ close(); document.removeEventListener('keydown', esc); } });
+}
+function patToast(j){   // lỗi no_pat -> popup nhắc thêm PAT (thay vì toast)
+  if (j && j.code === 'no_pat'){ showPatModal(j.msg); return true; }
+  return false;
+}
+
+// --- Menu status THỐNG NHẤT (popup fixed, scroll được, mở lên/xuống) ---
+// 2 nhóm: "Status Jira" (chọn -> đổi Jira THẬT nếu nằm trong workflow) + "Custom status"
+// (chọn -> chỉ dashboard, badge hiện ● tím). data-jira LUÔN là status Jira gốc.
+(function(){
+  var menu = document.getElementById('statusMenu');
+  if (!menu) return;
+  var custMap = {};
+  (window.QA_CUSTOM_STATUSES || []).forEach(function(p){ custMap[p[0]] = p[1]; });
+  var curBtn = null;
+  function close(){ menu.hidden = true; menu.innerHTML = ''; curBtn = null; }
+
+  // Nhóm "Status Jira" = LAZY-FETCH transition khả dụng theo PAT của QA (chỉ status đổi được,
+  // không tự thêm). jiraState: null=đang tải · {ok,transitions} · {ok:false,code/msg}.
+  // Nhóm "Custom status" = tĩnh, luôn hiện (không cần PAT).
+  function renderMenu(btn, jiraState){
+    var curCust = btn.getAttribute('data-cust') || '';
+    var html = '<div class="umenu-grp">Status Jira <span class="umenu-hint">— đổi cả trên Jira</span></div>';
+    if (jiraState === null){
+      html += '<div class="umenu-load">Đang tải các status đổi được…</div>';
+    } else if (jiraState.code === 'no_pat'){
+      html += '<button type="button" class="umenu-item umenu-lock" data-kind="nopat">'
+            + '<span class="umenu-check">🔒</span>Cần PAT để đổi status Jira — bấm để thêm</button>';
+    } else if (!jiraState.ok){
+      html += '<div class="umenu-load umenu-err">' + _escH(jiraState.msg || 'Không tải được status') + '</div>';
+    } else if (!jiraState.transitions.length){
+      html += '<div class="umenu-load">Không có bước chuyển khả dụng cho task này</div>';
+    } else {
+      jiraState.transitions.forEach(function(t){
+        html += '<button type="button" class="umenu-item" data-kind="jira" data-id="' + _escH(t.id) + '" data-to="' + _escH(t.to) + '">'
+              + '<span class="umenu-check"></span>' + _escH(t.to) + '</button>';
+      });
+    }
+    html += '<div class="umenu-grp">Custom status <span class="umenu-hint">— chỉ trên dashboard</span></div>';
+    (window.QA_CUSTOM_STATUSES || []).forEach(function(p){
+      var on = (p[0] === curCust) ? ' umenu-on' : '';
+      html += '<button type="button" class="umenu-item' + on + '" data-kind="cust" data-val="' + p[0] + '">'
+            + '<span class="umenu-check">' + ((p[0] === curCust) ? '✓' : '') + '</span><span class="umenu-dot">●</span> ' + p[1] + '</button>';
+    });
+    if (curCust) html += '<button type="button" class="umenu-item umenu-clear" data-kind="cust" data-val="">✕ Bỏ custom, về status Jira</button>';
+    menu.innerHTML = html;
+    menu.querySelectorAll('.umenu-item').forEach(function(it){
+      it.addEventListener('click', function(){
+        var kind = it.getAttribute('data-kind'), key = btn.getAttribute('data-key');
+        close();
+        if (kind === 'nopat'){ showPatModal('Bạn cần thêm Personal Access Token (PAT) để đổi status Jira.'); }
+        else if (kind === 'jira'){ doTransition(btn, key, it.getAttribute('data-id'), it.getAttribute('data-to')); }
+        else { setCustom(btn, key, it.getAttribute('data-val')); }
+      });
+    });
+  }
+
+  function positionMenu(btn){
+    menu.style.maxHeight = '';
+    menu.hidden = false;                       // hiện để đo chiều cao
+    var r = btn.getBoundingClientRect(), mh = menu.offsetHeight, vh = window.innerHeight, top;
+    if (r.bottom + mh + 8 <= vh) top = r.bottom + 4;            // đủ chỗ -> mở xuống
+    else if (r.top - mh - 8 >= 0) top = r.top - mh - 4;        // không -> mở lên
+    else { top = 8; menu.style.maxHeight = (vh - 16) + 'px'; } // quá dài -> kẹp + scroll
+    menu.style.top = top + 'px';
+    menu.style.left = Math.min(r.left, document.documentElement.clientWidth - menu.offsetWidth - 8) + 'px';
+  }
+
+  window.openStatusMenu = function(btn){
+    if (curBtn === btn && !menu.hidden){ close(); return; }
+    curBtn = btn;
+    renderMenu(btn, null);                      // hiện custom ngay + "đang tải" cho Jira
+    positionMenu(btn);
+    var key = btn.getAttribute('data-key');
+    fetch('/jira-transitions', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ key: key }) })
+      .then(function(res){ return res.json(); })
+      .then(function(j){ if (curBtn === btn){ renderMenu(btn, j); positionMenu(btn); } })
+      .catch(function(){ if (curBtn === btn){ renderMenu(btn, { ok:false, msg:'Lỗi mạng khi tải status' }); positionMenu(btn); } });
+  };
+
+  function doTransition(btn, key, id, toName){
+    showToast(key + ': đang đổi status trên Jira...', true);
+    fetch('/do-transition', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ key: key, id: id }) })
+      .then(function(res){ return res.json(); })
+      .then(function(j){
+        if (patToast(j)) return;
+        if (j.ok){ applyToAll(key, toName, ''); showToast(key + ' → ' + toName + ' ✓ (đã đổi trên Jira)', true); }
+        else { showToast(j.msg || ('Lỗi đổi status ' + key), false); }
+      })
+      .catch(function(){ showToast('Lỗi mạng khi đổi status', false); });
+  }
+
+  function paintCaret(b2){           // vẽ lại badge của 1 caret từ data-jira / data-cust
+    var cell = b2.closest('.status-cell') || b2.parentNode;
+    var b = cell.querySelector('.status');
+    if (!b) return;
+    var jira = b2.getAttribute('data-jira') || '', cust = b2.getAttribute('data-cust') || '';
+    if (cust){ b.textContent = '● ' + (custMap[cust] || cust); b.className = 'status status-custom';
+               b.title = 'Custom status (chỉ dashboard) · Jira gốc: ' + jira; }
+    else { b.textContent = jira; b.className = 'status ' + jsStatusClass(jira); b.title = ''; }
+  }
+
+  // Cùng 1 task có thể nằm ở nhiều block (Overdue + Đang làm...) -> đồng bộ MỌI dòng cùng key.
+  function applyToAll(key, jira, cust){
+    var sel = document.querySelectorAll('.ustat-caret[data-key="' + key + '"]');
+    Array.prototype.forEach.call(sel, function(b2){
+      if (jira !== null) b2.setAttribute('data-jira', jira);
+      b2.setAttribute('data-cust', cust);
+      paintCaret(b2);
+    });
+  }
+
+  function setCustom(btn, key, val){
+    fetch('/set-custom-status', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ key: key, status: val, summary: '' }) })
+      .then(function(res){ return res.json(); })
+      .then(function(j){
+        if (!j.ok){ showToast('Lỗi lưu custom status ' + key, false); return; }
+        applyToAll(key, null, val);            // giữ status Jira, đồng bộ custom mọi block
+        showToast(val ? (key + ': ' + (custMap[val] || val) + ' (chỉ dashboard)') : (key + ': về status Jira'), true);
+      })
+      .catch(function(){ showToast('Lỗi lưu custom status ' + key, false); });
+  }
+
+  document.addEventListener('click', function(e){
+    if (menu.hidden) return;
+    if (e.target.closest('.ustat-caret') || e.target.closest('#statusMenu')) return;
+    close();
+  });
+  window.addEventListener('scroll', close, true);
+})();
+
+// --- Comment inline: Enter để gửi comment lên Jira (ghi tên người login) ---
+document.addEventListener('keydown', function(e){
+  if (e.key !== 'Enter') return;
+  var inp = e.target;
+  if (!inp.classList || !inp.classList.contains('cmt-inline')) return;
+  e.preventDefault();
+  var key = inp.getAttribute('data-key');
+  var body = inp.value.trim();
+  if (!body){ showToast('Comment rỗng', false); return; }
+  inp.disabled = true;
+  fetch('/add-comment', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ key: key, body: body }) })
+    .then(function(res){ return res.json(); })
+    .then(function(j){
+      inp.disabled = false;
+      if (patToast(j)) return;
+      if (j.ok){ inp.value = ''; showToast(key + ': ' + (j.msg || 'đã gửi comment ✓'), true); }
+      else { showToast(j.msg || ('Lỗi gửi comment ' + key), false); }
+    })
+    .catch(function(){ inp.disabled = false; showToast('Lỗi mạng khi gửi comment', false); });
+});
+
+// Dropdown profile ở nav: mở/đóng menu (Cài đặt PAT / Đăng xuất)
+(function(){
+  var menu = document.getElementById('navUserMenu');
+  var btn = document.getElementById('navUserBtn');
+  if (!menu || !btn) return;
+  btn.addEventListener('click', function(e){ e.stopPropagation(); menu.classList.toggle('open'); });
+  document.addEventListener('click', function(){ menu.classList.remove('open'); });
+})();
+
+// Trang Cài đặt PAT (/settings): lưu / hiện-ẩn / xoá PAT
+(function(){
+  var input = document.getElementById('patInput');
+  if (!input) return;
+  var saveBtn = document.getElementById('patSave');
+  var showBtn = document.getElementById('patShow');
+  var delBtn = document.getElementById('patDelete');
+  saveBtn.addEventListener('click', function(){
+    var pat = input.value.trim();
+    if (!pat){ showToast('Chưa nhập PAT', false); return; }
+    saveBtn.disabled = true;
+    fetch('/save-pat', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ pat: pat }) })
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        saveBtn.disabled = false;
+        showToast(j.msg || (j.ok ? 'Đã lưu PAT' : 'Lỗi lưu PAT'), j.ok);
+        if (j.ok){ input.value = ''; setTimeout(function(){ location.reload(); }, 1500); }
+      })
+      .catch(function(){ saveBtn.disabled = false; showToast('Lỗi mạng khi lưu PAT', false); });
+  });
+  showBtn.addEventListener('click', function(){
+    input.type = input.type === 'password' ? 'text' : 'password';
+  });
+  if (delBtn) delBtn.addEventListener('click', function(){
+    if (!confirm('Xoá PAT đã lưu? Sau đó thao tác Jira sẽ không còn ghi tên bạn.')) return;
+    fetch('/delete-pat', { method:'POST' }).then(function(r){ return r.json(); })
+      .then(function(j){ showToast(j.ok ? 'Đã xoá PAT' : 'Lỗi xoá', j.ok);
+        if (j.ok) setTimeout(function(){ location.reload(); }, 1200); })
+      .catch(function(){ showToast('Lỗi mạng', false); });
+  });
+})();
+
 // Read-only (không phải owner qua Cloudflare Access): khoá contenteditable trong roadmap/tài liệu.
 // Nút edit đã ẩn bằng CSS .ro; server vẫn chặn 403 — đây chỉ là lớp UX.
 document.querySelectorAll('.ro [contenteditable]').forEach(function(el){
