@@ -1,3 +1,19 @@
+// Toast notifications: popup góc phải dưới, tự dismiss sau 5s. ok=true→xanh, false→đỏ.
+function showToast(msg, ok){
+  var c = document.getElementById('qa-toast-container');
+  if (!c){ c = document.createElement('div'); c.id = 'qa-toast-container'; document.body.appendChild(c); }
+  var t = document.createElement('div');
+  t.className = 'qa-toast ' + (ok === false ? 'qa-toast-err' : 'qa-toast-ok');
+  var span = document.createElement('span'); span.textContent = msg; t.appendChild(span);
+  var x = document.createElement('button'); x.className = 'qa-toast-close'; x.setAttribute('aria-label', 'Đóng'); x.textContent = '×';
+  t.appendChild(x);
+  c.appendChild(t);
+  requestAnimationFrame(function(){ t.classList.add('qa-toast-show'); });
+  var tid = setTimeout(function(){ remove(t); }, 5000);
+  x.addEventListener('click', function(){ clearTimeout(tid); remove(t); });
+  function remove(el){ el.classList.remove('qa-toast-show'); setTimeout(function(){ if (el.parentNode) el.parentNode.removeChild(el); }, 300); }
+}
+
 // Filter theo người: 1 dòng có khớp filter hiện tại không? (dòng không mang
 // data-assignee/reporter -> luôn hiện, vd bảng không theo người)
 function rowMatch(row){
@@ -253,11 +269,10 @@ window.addEventListener('resize', layout);
   }
   var timer = null;
   function save(){
-    status.textContent = 'Đang lưu…'; status.style.color = '#6b778c';
     fetch('/save-pic', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(collect()) })
       .then(function(r){ return r.json(); })
-      .then(function(j){ status.textContent = j.ok ? 'Đã lưu ✓' : 'Lỗi lưu'; status.style.color = j.ok ? '#36b37e' : '#de350b'; })
-      .catch(function(){ status.textContent = 'Lỗi lưu'; status.style.color = '#de350b'; });
+      .then(function(j){ showToast(j.ok ? 'Đã lưu PIC ✓' : 'Lỗi lưu PIC', j.ok); })
+      .catch(function(){ showToast('Lỗi lưu PIC', false); });
   }
   function scheduleSave(){ if (timer) clearTimeout(timer); timer = setTimeout(save, 600); }
 
@@ -405,11 +420,10 @@ function toggleStories(btn){
 
   var timer = null;
   function save(){
-    status.textContent = 'Đang lưu…'; status.style.color = '#6b778c';
     fetch('/save-docs', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(collect(tree)) })
       .then(function(r){ return r.json(); })
-      .then(function(j){ status.textContent = j.ok ? 'Đã lưu ✓' : 'Lỗi lưu'; status.style.color = j.ok ? '#36b37e' : '#de350b'; })
-      .catch(function(){ status.textContent = 'Lỗi lưu'; status.style.color = '#de350b'; });
+      .then(function(j){ showToast(j.ok ? 'Đã lưu tài liệu ✓' : 'Lỗi lưu tài liệu', j.ok); })
+      .catch(function(){ showToast('Lỗi lưu tài liệu', false); });
   }
   function scheduleSave(){ if (timer) clearTimeout(timer); timer = setTimeout(save, 600); }
 
@@ -541,11 +555,10 @@ function toggleStories(btn){
 
   var timer = null;
   function save(){
-    status.textContent = 'Đang lưu…'; status.style.color = '#6b778c';
     fetch('/save-roadmap', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(collect()) })
       .then(function(r){ return r.json(); })
-      .then(function(j){ status.textContent = j.ok ? 'Đã lưu ✓' : 'Lỗi lưu'; status.style.color = j.ok ? '#36b37e' : '#de350b'; })
-      .catch(function(){ status.textContent = 'Lỗi lưu'; status.style.color = '#de350b'; });
+      .then(function(j){ showToast(j.ok ? 'Đã lưu roadmap ✓' : 'Lỗi lưu roadmap', j.ok); })
+      .catch(function(){ showToast('Lỗi lưu roadmap', false); });
   }
   function scheduleSave(){ if (timer) clearTimeout(timer); timer = setTimeout(save, 600); }
 
