@@ -1274,8 +1274,23 @@ def _rm_status_options():
     return ''.join(f'<option value="{esc(v)}">{esc(l)}</option>' for v, l in RM_STATUSES)
 
 
+def _rm_count_statuses(data):
+    """Đếm task theo status. Đơn vị = leaf: mục có sub-task -> đếm từng sub-task;
+    mục không sub-task -> đếm chính nó (status sửa tay)."""
+    counts = {v: 0 for v, _ in RM_STATUSES}
+    for phase in (data or []):
+        for item in (phase.get('items') or []):
+            subs = item.get('subtasks') or []
+            nodes = subs if subs else [item]
+            for n in nodes:
+                st = n.get('status', 'planned')
+                counts[st] = counts.get(st, 0) + 1
+    return counts
+
+
 def render_roadmap_page(data, editable=True, user=None):
     phases = ''.join(_rm_phase_html(p) for p in (data or []))
+    counts = _rm_count_statuses(data)
     empty = '' if phases else '<div class="rm-empty">Chưa có giai đoạn. Bấm “＋ Giai đoạn” để bắt đầu.</div>'
     ro = '' if editable else ' ro'
     banner = '' if editable else '<div class="ro-banner">👁 Chế độ chỉ xem — chỉ quản lý mới chỉnh sửa được.</div>'
@@ -1289,7 +1304,10 @@ def render_roadmap_page(data, editable=True, user=None):
         '<button type="button" id="rmAddPhase" class="rm-tbtn">＋ Giai đoạn</button>'
         '<button type="button" id="rmCollapse" class="rm-tbtn">⊟ Thu gọn tất cả</button>'
         '<span class="rm-legend">'
-        + ''.join(f'<span class="rm-lg rm-st-{esc(v)}">{esc(l)}</span>' for v, l in RM_STATUSES)
+        + ''.join(
+            f'<span class="rm-lg rm-st-{esc(v)}" data-st="{esc(v)}">{esc(l)} '
+            f'<b class="rm-lg-n">{counts.get(v, 0)}</b></span>'
+            for v, l in RM_STATUSES)
         + '</span>'
         '<span class="doc-save-status" id="rmStatus"></span>'
         '</div>'
