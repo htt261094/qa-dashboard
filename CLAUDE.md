@@ -128,29 +128,14 @@ Hiền THƯỜNG là reporter trong các task QA team được giao — vì cô 
 - fields fetch thêm `comment`,`priority`. Mỗi refresh: 5 call + (nếu có task đổi) 1 call changelog. Description KHÔNG track (nặng) → "đổi nội dung" = đổi summary thôi
 - Tự migrate: state cũ chỉ có `keys` → lần refresh đầu sau nâng cấp chỉ show "tạo mới", không có false status-change
 
-### 8. Tab "Báo cáo tuần" = route riêng `/report`, KHÔNG phải in-page tab
-- 2 view tách bạch: **Dashboard `/`** (operational, live, theo người) vs **Report `/report`** (theo project key, RAG, để họp/in). Top nav (`render_nav`) link giữa 2 — chuyển tab = full reload (re-pull Jira, chấp nhận như design auto-refresh).
-- `/report` **read-only**: gọi `fetch_all()` nhưng KHÔNG `_build_view` (không đụng `.last_seen.json`/activities). Chỉ `/` mới update state.
-- Shell chung `_document(inner)` (css/theme-init/fab/pic-modal/js) cho cả 2 page — tránh lặp boilerplate.
-- Report gom theo **project key** (parse `key.rsplit('-',1)[0]`, không thêm Jira call). RAG tự suy: overdue|kẹt→🔴, TO DO≥½→🟡, else→🟢. Có 2 donut (theo dự án / theo status), bảng rollup + comp-bar CSS (không SVG, print tốt), section "Điểm cần lưu ý" liệt kê overdue+kẹt theo dự án = talking points họp.
-- **In**: nút "🖨 In báo cáo" → `window.print()`; `@media print` ẩn nav/fab/modal/auto-btn → in ra chỉ nội dung report. KHÔNG dùng lib PDF.
-- Delta "tuần trước vs tuần này" = **v2 chưa làm** (cần baseline đóng băng, xem Likely Next Features #4).
+### 8. Tab "Báo cáo tuần" = đã xoá khỏi dự án (2026-06-08)
+- Đã gỡ hoàn toàn route `/report`, `fetch_lines()`, logic render và các file liên quan.
 
-### 8b. Report — "🌳 Tiến độ test theo line dự án" (cây hierarchy theo issue TYPE)
-- **Bối cảnh**: QA làm ở tầng **Sub-task**. Cần xem sub-task QA nằm dưới line/story/task nào (context) + tiến độ test. Cây 5 tier: **Project › Story › Task › Task-PTSP › Sub-task(QA)** (thực tế có thể thêm **Epic** trên Story). Giữ nguyên các tầng trên làm context.
-- **Quan hệ cha-con = HỖN HỢP** (đã verify Jira thật):
-  - Sub-task → Task-PTSP qua **native `parent` field**.
-  - Task-PTSP → Task → Story → (Epic) qua **issue link** `is child of` (outward `is parent of`).
-  - `jira_api._parent_key` check **`parent` field TRƯỚC**, rồi link `is child of`. Nếu Bảo Kim đổi tên link type → sửa string `'is child of'`.
-- **`fetch_lines()`** (jira_api): (1) lấy sub-task/issue QA **assignee in (USERS)** với filter `updated` ∈ `[_last_week_window)` HOẶC `status in ("In Progress","PENDING")` — việc đang dở LUÔN hiện kể cả ngoài tuần (cap 500, fields +`parent,issuelinks`); (2) walk ngược lên cha từng tầng, batch-fetch cha chưa biết (`key in (...)`, cap 200/batch, ⚠ đừng đặt tên biến loop trùng `start`/`end` của window — đã dính shadowing bug); (3) tính `parent_of = {key: _parent_key}` cho mọi node. Trả `{qa_issues, parent_of, known, window}`.
-- **`_last_week_window`**: `[Thứ 2 tuần trước, Thứ 2 tuần này)`. Report thứ 2 8/6 → 1/6–7/6. Mon-based, KHÔNG đổi trừ khi user yêu cầu.
-- **Calls**: `/report` = `fetch_all()` (5) + `fetch_lines()` (1 + số tầng cây, thường 3–4) ≈ 8–9 call. Chỉ `/report`.
-- **Render** (`render_lines_section` + `_render_node` đệ quy): build `children`/`roots` từ `parent_of`, gom roots theo project key. Mỗi node: badge type (`_TYPE_CLASS`, có cả Epic) + key + summary. Node **QA (sub-task)** thêm PIC/status/cờ trễ-kẹt (`lnode-qa`, nền nhạt). Node context thêm bar **% done gộp sub-task QA bên dưới** (`_qa_leaves`/`_qa_pct`, mẫu số bỏ CANCELLED). Cây sort: % thấp lên đầu (project), trong cây theo `_TASK_ORDER`. Cha không xem được → node `lnode-missing` (key trần).
-- **Collapse theo Story/Epic**: node type Story|Epic dùng `<details class="lnode-fold" open>` (native, mặc định mở). Nút "Thu gọn/Mở tất cả Story" (`toggleStories` trong app.js). `@media print` bung hết để in đầy đủ.
-- **Giới hạn**: phụ thuộc team gắn `parent`/`is parent of` nhất quán; cây sâu > `max_depth=8` cắt; cap 500 issue QA.
+### 8b. Report — "🌳 Tiến độ test theo line dự án" = đã xoá khỏi dự án (2026-06-08)
+- Đã gỡ cùng với logic của weekly report.
 
-### 8c. Report — đã GỠ "🗣 Kịch bản báo cáo" + "📌 Điểm cần lưu ý"
-- User yêu cầu bỏ 2 section này (2026-06-04). Đã xoá `_rpt_sentence`/`_pic_detail`/`copyReportScript` + CSS liên quan. `/report` giờ = KPI + 2 donut + bảng tổng quan project + cây tiến độ test theo line. Nếu cần lại thì xem git history.
+### 8c. Report — đã GỠ các phần khác
+- Đã xoá toàn bộ route và logic.
 
 ### 9. Activity Stream — kéo từ Jira changelog + dismiss đồng bộ chéo máy (2026-06-05)
 - **Bối cảnh / vì sao đổi**: cũ activity = diff 2 snapshot local trong `.last_seen.json` → đổi device là mất `pending`, miss update. SUPERSEDES mô hình pending tích luỹ ở Decision #3/#7.
@@ -211,7 +196,7 @@ Hiền THƯỜNG là reporter trong các task QA team được giao — vì cô 
 ### 13. Tăng tốc load: Session keep-alive + call Jira song song (2026-06-05)
 - **Bối cảnh**: web load chậm dần. Nguyên nhân = **call Jira REST tuần tự qua mạng**. `/` = `fetch_all` (5 call) + `fetch_activity_feed` (1, nặng vì `expand=changelog`) + `load_dismissed` (1-2) ≈ 7-8 round-trip nối đuôi. Render string thì nhanh — bottleneck là I/O mạng.
 - **Fix 1 — `requests.Session` dùng chung** (`jira_api._SESSION`): tái dùng kết nối TCP/TLS (keep-alive) thay vì bắt tay HTTPS mỗi call. Mọi `_SESSION.get/put` thay cho `requests.get/put` (4 chỗ). urllib3 pool thread-safe → share giữa thread OK.
-- **Fix 2 — `run_parallel(jobs)`** (`ThreadPoolExecutor`, cap 8 worker): chạy các call **độc lập** đồng thời, re-raise lỗi đầu tiên (RuntimeError) để `do_GET` render trang lỗi như cũ. Áp dụng: (a) trong `fetch_all` — 5 call song song; (b) `/` — `fetch_all` ‖ `feed` ‖ `dismissed`; (c) `/report` — `fetch_all` ‖ `fetch_lines`. Thời gian ≈ call chậm nhất thay vì tổng → giảm mạnh.
+- **Fix 2 — `run_parallel(jobs)`** (`ThreadPoolExecutor`, cap 8 worker): chạy các call **độc lập** đồng thời, re-raise lỗi đầu tiên (RuntimeError) để `do_GET` render trang lỗi như cũ. Áp dụng: (a) trong `fetch_all` — 5 call song song; (b) `/` — `fetch_all` ‖ `feed` ‖ `dismissed`. Thời gian ≈ call chậm nhất thay vì tổng → giảm mạnh.
 - **Lồng pool**: `/` outer 3 worker, trong đó `fetch_all` spawn pool 5 → đỉnh ~7-8 request đồng thời tới Jira DC (chấp nhận được). I/O-bound nên GIL không cản.
 - **KHÔNG đổi**: server vẫn single-thread (`TCPServer`) cho việc nhận request (tránh race ghi `.last_seen.json`); chỉ song song hoá *call ra Jira* trong 1 request. KHÔNG cache `fetch_all` (giữ "F5 = data tươi"). Nếu cần thêm: cân nhắc `ThreadingHTTPServer` (đa request) nhưng phải xử lý race file state trước.
 
@@ -255,7 +240,7 @@ Hiền THƯỜNG là reporter trong các task QA team được giao — vì cô 
 - **Route `/my-work`** (admin-only; non-admin → 302 `/` vì `/` của họ đã là lens cá nhân rồi). Fetch giống `/` nhưng **scope = username của chính admin** (`_self_username()`: `username_from_email(login) or username_from_email(ADMIN_EMAIL) or SELF_USER`). Local dev (chưa login) fallback `SELF_USER` (config `JIRA_SELF_USER`, default `thanhht1`).
 - **UI = HỆT QA member** (user chốt 2026-06-08): tái dùng thẳng `render_qa_v2()` (sidebar Stitch v2 — bảng + tabs + KPI + drawer), KHÔNG dùng topnav cũ/`render_personal`. `render_qa_v2` thêm param `nav_active='dashboard'` → `/my-work` truyền `'mywork'` để sidebar highlight đúng tab; mọi thứ khác y chang. (`render_personal` lại thành dead code như sau Decision #16.)
 - **Baseline NEW badge** (`_build_view`) dùng scope_key = `thanhht1`, tách khỏi `__all__` (dashboard team) → không giẫm baseline nhau.
-- **Nav**: tab "Việc của tôi" thêm vào `render_sidebar_v2` (sidebar v2) **và** `render_nav` (topnav cũ — admin `/`, `/report`, `/docs` vẫn dùng), CHỈ hiện khi `is_admin`. Active key = `mywork`.
+- **Nav**: tab "Việc của tôi" thêm vào `render_sidebar_v2` (sidebar v2) **và** `render_nav` (topnav cũ — admin `/`, `/docs` vẫn dùng), CHỈ hiện khi `is_admin`. Active key = `mywork`.
 - **Giới hạn**: scope theo `SELF_USER` config nên nếu admin đổi người thì phải sửa `.env`.
 
 ## OPSEC Requirements (NON-NEGOTIABLE)
@@ -275,7 +260,7 @@ User có strict OPSEC discipline. KHÔNG được:
 - ✅ PAT auth via Bearer header
 - ✅ Pull 3 buckets: active / new24 / done_week
 - ✅ Render KPI cards, workload matrix, 3 tables
-- ✅ Tab "Báo cáo tuần" (`/report`): rollup theo project key + RAG + 2 donut + talking points + in (Ctrl+P)
+- ~~✅ Tab "Báo cáo tuần" (`/report`): rollup theo project key + RAG + 2 donut + talking points + in (Ctrl+P)~~ (Xoá hoàn toàn ngày 2026-06-08)
 - ✅ Report: "🌳 Tiến độ test theo line dự án" — cây type Project›Story›Task›Task-PTSP›Sub-task(QA), % done, collapse theo Story, filter tuần trước
 - ✅ Tab "Roadmap" (`/roadmap`): giai đoạn theo mốc thời gian + mục (status/PIC/%/link), tracking "x/y xong", auto-save
 - ✅ Tab "Roadmap" (`/roadmap`): giai đoạn › mục › sub-task (status/%/hạn), edit popup, cảnh báo hạn ≤2 tuần ở dashboard, auto-save
@@ -307,7 +292,7 @@ Sắp xếp theo thứ tự khả năng cao → thấp:
 1. **Auto-launch browser** khi chạy script (Windows `start http://...`, macOS `open`)
 2. **start.bat / start.sh** wrapper để click 1 phát chạy
 3. ~~**Filter UI**: dropdown chọn assignee, status — client-side JS~~ ✅ ĐÃ LÀM (Decision #10: filter theo người assignee/reporter). Còn có thể thêm filter theo status nếu cần.
-4. **Report v2 — delta tuần**: "xong/trượt/mới vào từ thứ 2 trước" — cần baseline đóng băng (file `.weekly_baseline.json` chốt đầu tuần) rồi so với hiện tại. Route `/report` đã có, chỉ thêm cột delta.
+4. ~~**Report v2 — delta tuần**: "xong/trượt/mới vào từ thứ 2 trước"~~ (Bỏ cùng tab report)
 5. **Report gom theo luồng thật** (Component/Label) thay vì project key — hiện gom theo project key (bucket release/sprint), không phải luồng nghiệp vụ Core/Chi Hộ. Cần team gắn Component/Label nhất quán trước.
 6. **Export PDF/xlsx** cho report (hiện đã in được qua Ctrl+P / nút "In báo cáo" — print CSS ẩn chrome). xlsx mới cần lib.
 7. **Velocity chart**: line chart created-vs-resolved theo tuần (vanilla SVG hoặc Chart.js CDN — JS giờ OK)
@@ -380,7 +365,7 @@ qa-dashboard/
 ├── docs.py            ← Tài liệu training: cây folder+link, load/save .docs_config.json, valid_tree
 ├── roadmap.py         ← Roadmap team: giai đoạn›mục›sub-task, due_alerts, load/save .roadmap_config.json
 ├── roadmap.py         ← Roadmap team: giai đoạn+mục, load/save .roadmap_config.json, valid_roadmap
-├── render.py          ← toàn bộ render_* + load_css/load_js. 2 page: render_page (dashboard `/`) + render_report_page (`/report`), shell chung _document() + render_nav()
+├── render.py          ← toàn bộ render_* + load_css/load_js. render_page (dashboard `/`), shell chung _document() + render_nav()
 ├── styles.css         ← toàn bộ CSS; load_css() đọc per-render, inline vào <style>
 ├── app.js             ← toàn bộ JS; load_js() đọc per-render, inline vào <script>
 ├── .env.example       ← template

@@ -364,61 +364,7 @@ def fetch_change_authors(keys):
     return out
 
 
-_LINE_FIELDS = _DEFAULT_FIELDS + ',parent,issuelinks'
 
-
-def _parent_key(issue):
-    """Immediate parent key. Native `parent` field first (Sub-task -> Task-PTSP),
-    rồi issue-link `is child of` (Task-PTSP -> Task -> Story). None nếu là gốc."""
-    fields = issue.get('fields', {})
-    p = fields.get('parent')
-    if p and p.get('key'):
-        return p['key']
-    for link in (fields.get('issuelinks') or []):
-        t = link.get('type') or {}
-        if link.get('inwardIssue') and t.get('inward') == 'is child of':
-            return link['inwardIssue']['key']
-    return None
-
-
-def _last_week_window(now=None):
-    """[Thứ 2 tuần trước, Thứ 2 tuần này) — cửa sổ báo cáo tuần."""
-    now = now or datetime.now()
-    this_mon = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
-    return this_mon - timedelta(days=7), this_mon
-
-
-def fetch_lines(max_results=500, max_depth=8, now=None):
-    """QA tasks tuần trước (+ mọi task In Progress/PENDING) gom theo line gốc qua 'is child of'.
-
-    Filter: updated trong cửa sổ tuần trước HOẶC đang In Progress/PENDING (việc dở luôn liệt kê).
-    Returns {'qa_issues', 'root_of', 'known', 'window': (start, end)}.
-    Calls: 1 (QA tasks) + 1 per ancestry level (usually 1-3). Used only by /report.
-    """
-    user_list = ', '.join(USERS)
-    start, end = _last_week_window(now)
-    s, e = start.strftime('%Y-%m-%d'), end.strftime('%Y-%m-%d')
-    jql = (f'assignee in ({user_list}) AND ('
-           f'status in ("In Progress", "PENDING") '
-           f'OR (updated >= "{s}" AND updated < "{e}")) ORDER BY updated DESC')
-    qa = jira_search(jql, max_results=max_results, fields=_LINE_FIELDS)
-    known = {i['key']: i for i in qa}
-    frontier = {pk for i in qa if (pk := _parent_key(i))}
-    depth = 0
-    while frontier and depth < max_depth:
-        need = [k for k in frontier if k not in known]
-        if not need:
-            break
-        for off in range(0, len(need), 200):  # JQL 'key in (...)' batch cap
-            chunk = need[off:off + 200]
-            for i in jira_search('key in (' + ','.join(chunk) + ')',
-                                 max_results=len(chunk), fields=_LINE_FIELDS):
-                known[i['key']] = i
-        frontier = {pk for k in need if k in known and (pk := _parent_key(known[k]))}
-        depth += 1
-
-    parent_of = {k: _parent_key(iss) for k, iss in known.items()}
-    return {'qa_issues': qa, 'parent_of': parent_of, 'known': known, 'window': (start, end)}
 
 
 def fetch_all(scope_user=None):

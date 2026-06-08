@@ -11,7 +11,6 @@ Stack: Python 3.8+ · chỉ 2 dep (`requests`, `cryptography`) · server `http.s
 | Route | Tab | Mô tả | Ai xem được |
 |---|---|---|---|
 | `/` | **Tổng quan** | Dashboard vận hành live. Admin thấy lens quản lý (workload matrix, donut, KPI Vào/Ra, activity feed toàn team). QA thường thấy **lens cá nhân** ("Việc của tôi") tự scope về mình. | Mọi người |
-| `/report` | **Báo cáo tuần** | Rollup theo project key + RAG, 2 donut, cây "Tiến độ test theo line", in được (Ctrl+P). | Chỉ admin |
 | `/roadmap` | **Roadmap** | Giai đoạn › mục › sub-task, status/%/hạn, cảnh báo hạn ≤2 tuần đẩy lên dashboard. | Mọi người xem; chỉ admin sửa |
 | `/docs` | **Tài liệu** | Cây thư mục + link Google Drive cho tài liệu training. | Mọi người xem; chỉ admin sửa |
 | `/settings` | **Cài đặt** | Đặt PAT cá nhân (mã hoá khi lưu) để thao tác Jira ghi đúng tên người dùng. | Mọi người |
@@ -31,7 +30,7 @@ Stack: Python 3.8+ · chỉ 2 dep (`requests`, `cryptography`) · server `http.s
 ## Đăng nhập & phân quyền
 
 - **Local dev** (`GOOGLE_CLIENT_ID`/`SECRET` để trống): không bắt login, mọi request = admin.
-- **Golive**: Google OAuth — app redirect sang Google, chỉ chấp nhận email thuộc `JIRA_ALLOWED_DOMAIN`, set session cookie ký HMAC (TTL 12h). `JIRA_ADMIN_EMAIL` = người duy nhất được sửa roadmap/docs + xem báo cáo tuần. (Chi tiết kiến trúc auth xem `CLAUDE.md` Decision #15.)
+- **Golive**: Google OAuth — app redirect sang Google, chỉ chấp nhận email thuộc `JIRA_ALLOWED_DOMAIN`, set session cookie ký HMAC (TTL 12h). `JIRA_ADMIN_EMAIL` = người duy nhất được sửa roadmap/docs. (Chi tiết kiến trúc auth xem `CLAUDE.md` Decision #15.)
 
 ---
 
@@ -65,7 +64,7 @@ Các biến chính (xem `.env.example` để đầy đủ + chú thích):
 | `JIRA_PAT` | Personal Access Token |
 | `JIRA_USERS` | username QA team, phân tách dấu phẩy |
 | `JIRA_PORT` | cổng local (mặc định 8080) |
-| `JIRA_ADMIN_EMAIL` | email role admin (sửa roadmap/docs, xem báo cáo) |
+| `JIRA_ADMIN_EMAIL` | email role admin (sửa roadmap/docs) |
 | `JIRA_ALLOWED_DOMAIN` | domain được phép login (vd `baokim.vn`) |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | bật khi golive → bắt đăng nhập Google |
 | `SESSION_SECRET` | khoá ký session cookie (bắt buộc khi bật OAuth): `python -c "import secrets;print(secrets.token_urlsafe(48))"` |
@@ -139,7 +138,7 @@ Module theo layer (không vòng import): `config` → `issues` → `{jira_api, s
 qa_dashboard.py   ← ENTRY: HTTP Handler (do_GET/do_POST) + main()
 config.py         ← env load, JIRA_URL/PAT/USERS/PORT, display_name, STUCK_DAYS
 issues.py         ← accessor i_* + helper (parse_date, days_overdue, is_stuck, esc...)
-jira_api.py       ← gọi Jira REST (fetch_all/lines/activity_feed, load/save property)
+jira_api.py       ← gọi Jira REST (fetch_all/activity_feed, load/save property)
 state.py          ← snapshot .last_seen.json cho NEW badge
 auth.py           ← Google OAuth + session cookie HMAC
 pat_store.py      ← PAT cá nhân per-user (mã hoá qua crypto_util)
