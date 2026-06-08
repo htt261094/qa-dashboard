@@ -557,6 +557,21 @@ tbody tr:not(.pager-filler):hover{background:var(--surface-low)}
 .kpi-trend .material-symbols-rounded{font-size:14px}
 
 /* ===== Documents Page Redesign ===== */
+.content-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.content-header .page-title { margin-bottom: 0; }
+.action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 .btn-sec {
   display: flex;
   align-items: center;
