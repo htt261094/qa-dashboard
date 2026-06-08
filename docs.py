@@ -29,7 +29,8 @@ def _valid_node(node, budget):
         return False
     t = node.get('type')
     if t == 'link':
-        return isinstance(node.get('title', ''), str) and isinstance(node.get('url', ''), str)
+        name_or_title = node.get('name') if 'name' in node else node.get('title')
+        return isinstance(name_or_title, str) and isinstance(node.get('url', ''), str)
     if t == 'folder':
         children = node.get('children')
         return (isinstance(node.get('name', ''), str) and isinstance(children, list)

@@ -23,3 +23,7 @@ preview*.html
 .idea/
 *.swp
 .DS_Store
+
+# Local uploaded files
+uploads/
+
