@@ -191,14 +191,36 @@ def fetch_activity_feed(days=7, cap=300, max_issues=120, scope_user=None):
             cc = parse_date(c.get('created'))
             if not cc or cc < start:
                 continue
+            raw = c.get('body') or ''
+            # Mention = body chứa token [~username] của người đang xem (Jira DC markup).
+            mention = bool(scope_user) and f'[~{scope_user}]'.lower() in raw.lower()
             acts.append({'id': f"{key}#cmt#{c.get('id')}", 'kind': 'comment', 'key': key,
                          'summary': summary, 'author': actor_name(c.get('author')),
                          'when': c.get('created'), 'comment_delta': 1,
-                         'body': _comment_snippet(c.get('body'))})
+                         'mention': mention, 'body': _comment_snippet(raw)})
     acts.sort(key=lambda a: a.get('when') or '', reverse=True)
     result = acts[:cap]
     _cache_set(cache_key, result)
     return result
+
+
+def fetch_issue_detail(key):
+    """Chi tiết 1 issue cho drawer/comment panel: {key, summary, description, comments:[...]}.
+    1 call read-only bằng PAT chung. comments mới->cũ, body rút gọn ~600 ký tự."""
+    data = _jira_request(f'key = {key}', 1, fields='summary,description,comment')
+    issues = data.get('issues') or []
+    if not issues:
+        return {'key': key, 'summary': '', 'description': '', 'comments': []}
+    f = issues[0].get('fields', {})
+    comments = []
+    for c in ((f.get('comment') or {}).get('comments') or []):
+        comments.append({'author': actor_name(c.get('author')),
+                         'when': c.get('created'),
+                         'body': _comment_snippet(c.get('body'), 600)})
+    comments.reverse()  # mới nhất lên đầu
+    return {'key': key, 'summary': f.get('summary') or '',
+            'description': _comment_snippet(f.get('description'), 1200),
+            'comments': comments}
 
 
 # ===== Dismiss state lưu ở Jira user property, TÁCH theo người đăng nhập (email) =====

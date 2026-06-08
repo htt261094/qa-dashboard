@@ -8,14 +8,15 @@ import urllib.parse
 from collections import defaultdict
 from datetime import datetime, timedelta
 
-from config import SCRIPT_DIR, JIRA_URL, USERS, STUCK_DAYS, display_name
+from config import SCRIPT_DIR, JIRA_URL, USERS, STUCK_DAYS, display_name, username_from_email
 from issues import (parse_date, i_assignee, i_reporter, i_assignee_name, i_reporter_name,
                     i_status, i_summary, i_duedate,
                     i_created, i_resolved, i_updated, i_type, days_overdue, days_since_update,
                     is_stuck, esc, status_class, issue_link)
 from pic import PIC_PEOPLE, load_pic
 from docs import load_docs
-from roadmap import RM_STATUSES, load_roadmap, due_alerts
+from roadmap import (RM_STATUSES, RM_PEOPLE, load_roadmap, due_alerts,
+                     task_done, task_started, plan_done, derive_plan_status)
 from custom_status import CUSTOM_STATUSES, label_of, values_of
 
 
@@ -33,6 +34,28 @@ def load_js():
         return (SCRIPT_DIR / 'app.js').read_text(encoding='utf-8')
     except OSError:
         return ''
+
+
+def load_css_v2():
+    """Read styles_v2.css per-render (shell UI v2 — dashboard QA + roadmap)."""
+    try:
+        return (SCRIPT_DIR / 'styles_v2.css').read_text(encoding='utf-8')
+    except OSError:
+        return ''
+
+
+def load_js_v2():
+    """Read app_v2.js per-render (shell UI v2)."""
+    try:
+        return (SCRIPT_DIR / 'app_v2.js').read_text(encoding='utf-8')
+    except OSError:
+        return ''
+
+
+def _json_script(elem_id, obj):
+    """Embed JSON an toàn vào <script type=application/json> (chống đóng tag sớm)."""
+    return (f'<script type="application/json" id="{elem_id}">'
+            + json.dumps(obj, ensure_ascii=False).replace('</', '<\\/') + '</script>')
 
 
 # ===== KPI cards =====
@@ -1048,6 +1071,10 @@ def render_page(data, new_keys, first_run, activities, activity_days=7, roadmap_
     fetched = data['fetched_at'].strftime('%Y-%m-%d %H:%M:%S')
     is_admin = user[1] if (user and len(user) > 1) else True
 
+    # QA thường (non-admin): data đã auto-scope về chính họ -> UI v2 (shell sidebar Stitch).
+    if not is_admin:
+        return render_qa_v2(data, new_keys, activities, custom_overlay, user)
+
     # key -> summary từ data Jira hiện tại: fallback title cho activity thiếu summary
     # (record cũ / custom status). Gộp mọi bucket.
     summary_map = {i['key']: i_summary(i)
@@ -1170,180 +1197,247 @@ def render_docs_page(tree, editable=True, user=None):
     return _document(body)
 
 
-# ===== Roadmap (tab /roadmap): giai đoạn › mục › sub-task =====
-_RM_LABELS = {v: l for v, l in RM_STATUSES}
+# ===================================================================
+# ===== UI v2 (Stitch) — shell sidebar dùng cho dashboard QA + roadmap
+# ===================================================================
+_FONTS_V2 = (
+    '<link rel="preconnect" href="https://fonts.googleapis.com">'
+    '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700'
+    '&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">'
+    '<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:'
+    'opsz,wght,FILL,GRAD@20,400,0,0" rel="stylesheet">'
+)
+_AV_CLS = ['av-a', 'av-b', 'av-c', 'av-d', 'av-e', 'av-f']
 
 
-def _rm_clamp(prog):
-    try:
-        return max(0, min(100, int(prog)))
-    except (TypeError, ValueError):
-        return 0
+def _avatar(username, name):
+    """(init, cls) cho avatar tròn: chữ cái đầu + màu theo index người trong USERS (ổn định)."""
+    init = (name or username or '?').strip()[:1].upper() or '?'
+    if username in USERS:
+        cls = _AV_CLS[USERS.index(username) % len(_AV_CLS)]
+    else:
+        seed = sum(ord(c) for c in (username or name or 'x'))
+        cls = _AV_CLS[seed % len(_AV_CLS)]
+    return init, cls
 
 
-def _rm_due_chip(due):
-    hidden = '' if due else ' hidden'
-    return f'<span class="rm-due"{hidden}>📅 {esc(due)}</span>'
+def render_sidebar_v2(active, user):
+    is_admin = user[1] if (user and len(user) > 1) else True
+    email = user[0] if (user and user[0]) else ''
 
+    def lnk(href, key, icon, label):
+        cls = ' class="active"' if key == active else ''
+        fill = " style=\"font-variation-settings:'FILL' 1\"" if key == active else ''
+        return (f'<a{cls} href="{href}"><span class="material-symbols-rounded"{fill}>{icon}</span> {label}</a>')
 
-def _rm_node_cells(node):
-    """Phần hiển thị chung của 1 node (item/sub-task): badge + tên + due + bar + ✎."""
-    status = node.get('status', 'planned')
-    prog = _rm_clamp(node.get('progress', 0))
+    nav = lnk('/', 'dashboard', 'space_dashboard', 'Dashboard')
+    if is_admin:
+        nav += lnk('/report', 'report', 'summarize', 'Báo cáo tuần')
+    nav += lnk('/roadmap', 'roadmap', 'map', 'Roadmap')
+    nav += lnk('/docs', 'docs', 'description', 'Tài liệu')
+
+    uname = username_from_email(email) if (email and '@' in email) else None
+    short = display_name(uname) if uname else (email.split('@')[0] if '@' in email else 'Local')
+    init = (short[:2] or 'ME').upper()
+    role = ('<span class="role-chip admin">Admin</span>' if is_admin
+            else '<span class="role-chip">Chỉ xem</span>')
+    sub = esc(email) if email else 'Local dev'
+    logout = ('<div class="sep"></div>'
+              '<a class="danger" href="/logout"><span class="material-symbols-rounded mi-sm">logout</span> Đăng xuất</a>'
+              ) if email else ''
     return (
-        f'<span class="rm-status rm-st-{esc(status)}">{esc(_RM_LABELS.get(status, status))}</span>'
-        f'<span class="rm-title">{esc(node.get("title", ""))}</span>'
-        f'{_rm_due_chip(node.get("due", ""))}'
-        f'<span class="rm-bar" title="{prog}%"><i style="width:{prog}%"></i></span>'
-        f'<span class="rm-pct">{prog}%</span>'
-        '<button type="button" class="rm-edit" title="Sửa">✎</button>'
+        '<aside class="sidebar">'
+        '<div class="brand"><h1>QA Suite</h1><p>Jira Integration Active</p></div>'
+        f'<nav class="nav">{nav}</nav>'
+        '<div class="nav-foot">'
+        '<div class="pmenu" id="pmenu">'
+        '<button type="button" id="pmSettings"><span class="material-symbols-rounded mi-sm">key</span> Cài đặt PAT</button>'
+        f'{logout}</div>'
+        '<button class="profile" id="profileBtn">'
+        f'<span class="av">{esc(init)}</span>'
+        f'<span class="who"><b>{esc(short)} {role}</b><small>{sub}</small></span>'
+        '<span class="material-symbols-rounded mi-sm">unfold_more</span>'
+        '</button></div></aside>'
     )
 
 
-def _rm_data_attrs(node):
-    return (f' data-status="{esc(node.get("status", "planned"))}"'
-            f' data-progress="{_rm_clamp(node.get("progress", 0))}"'
-            f' data-due="{esc(node.get("due", ""))}"')
-
-
-def _rm_item_progress(item):
-    """% mục: nếu có sub-task -> trung bình % sub-task (mục không sửa tay); else % của chính nó."""
-    subs = item.get('subtasks') or []
-    if subs:
-        vals = [_rm_clamp(s.get('progress', 0)) for s in subs]
-        return round(sum(vals) / len(vals)) if vals else 0
-    return _rm_clamp(item.get('progress', 0))
-
-
-def _rm_item_status(item):
-    """Status mục suy từ sub-task: all done->done · có blocked->blocked · có in_progress
-    (hoặc đã có vài done) -> in_progress · còn lại -> planned. Không sub-task -> status của chính nó."""
-    subs = item.get('subtasks') or []
-    if not subs:
-        return item.get('status', 'planned')
-    sts = [s.get('status', 'planned') for s in subs]
-    if all(s == 'done' for s in sts):
-        return 'done'
-    if any(s == 'blocked' for s in sts):
-        return 'blocked'
-    if any(s in ('in_progress', 'done') for s in sts):
-        return 'in_progress'
-    return 'planned'
-
-
-def _rm_subtask_html(sub):
-    return f'<li class="rm-node rm-sub"{_rm_data_attrs(sub)}>{_rm_node_cells(sub)}</li>'
-
-
-def _rm_item_html(item):
-    subs = item.get('subtasks') or []
-    # % + status hiển thị = tổng hợp từ sub-task nếu có
-    item = dict(item, progress=_rm_item_progress(item), status=_rm_item_status(item))
-    subs_html = ''.join(_rm_subtask_html(s) for s in subs)
-    head = (f'<div class="rm-irow">{_rm_node_cells(item)}'
-            '<button type="button" class="rm-add-sub" title="Thêm sub-task">＋</button></div>')
-    inner = (f'<details class="rm-ifold" open><summary>{head}</summary>'
-             f'<ul class="rm-subs">{subs_html}</ul></details>')
-    return f'<li class="rm-node rm-item"{_rm_data_attrs(item)}>{inner}</li>'
-
-
-def _rm_phase_html(phase):
-    name = phase.get('phase', '')
-    items = phase.get('items') or []
-    done = sum(1 for i in items if i.get('status') == 'done')
-    total = len(items)
-    pct = round(done / total * 100) if total else 0
-    items_html = ''.join(_rm_item_html(i) for i in items)
+def render_topbar_v2():
     return (
-        '<div class="rm-phase">'
-        '<details class="rm-fold" open><summary class="rm-phead">'
-        '<span class="rm-picon">📅</span>'
-        f'<span class="rm-pname">{esc(name)}</span>'
-        f'<span class="rm-summary"><span class="rm-sum-txt">{done}/{total} xong</span>'
-        f'<span class="rm-sum-bar"><i style="width:{pct}%"></i></span></span>'
-        '<span class="rm-pact">'
-        '<button type="button" class="rm-add-item" title="Thêm mục">＋ Mục</button>'
-        '<button type="button" class="rm-edit-phase" title="Sửa giai đoạn">✎</button>'
-        '</span></summary>'
-        f'<ul class="rm-items">{items_html}</ul>'
-        '</details></div>'
+        '<div class="topbar">'
+        '<div class="search"><span class="si material-symbols-rounded mi-sm">search</span>'
+        '<input type="text" id="searchInp" placeholder="Tìm task, kế hoạch..."></div>'
+        '<div class="top-right">'
+        '<button class="iconbtn" id="bellBtn" title="Thông báo">'
+        '<span class="material-symbols-rounded mi-lg">notifications</span>'
+        '<span class="badge-dot" id="bellDot" style="display:none">0</span></button>'
+        '<button class="iconbtn" id="themeBtn" title="Đổi giao diện">'
+        '<span class="material-symbols-rounded" id="themeIc">dark_mode</span></button>'
+        '</div>'
+        '<div class="notif" id="notif">'
+        '<div class="notif-head"><h4>Thông báo</h4>'
+        '<a class="notif-readall" id="notifReadAll">Đánh dấu tất cả đã đọc</a></div>'
+        '<div class="notif-filters">'
+        '<button class="nf-tab active" data-nf="all">Tất cả</button>'
+        '<button class="nf-tab" data-nf="unread">Chưa đọc</button></div>'
+        '<div class="notif-list" id="notifList"></div></div>'
+        '</div>'
     )
 
 
-def _rm_status_options():
-    return ''.join(f'<option value="{esc(v)}">{esc(l)}</option>' for v, l in RM_STATUSES)
-
-
-def _rm_count_statuses(data):
-    """Đếm task theo status. Đơn vị = leaf: mục có sub-task -> đếm từng sub-task;
-    mục không sub-task -> đếm chính nó (status sửa tay)."""
-    counts = {v: 0 for v, _ in RM_STATUSES}
-    for phase in (data or []):
-        for item in (phase.get('items') or []):
-            subs = item.get('subtasks') or []
-            nodes = subs if subs else [item]
-            for n in nodes:
-                st = n.get('status', 'planned')
-                counts[st] = counts.get(st, 0) + 1
-    return counts
-
-
-def render_roadmap_page(data, editable=True, user=None):
-    phases = ''.join(_rm_phase_html(p) for p in (data or []))
-    counts = _rm_count_statuses(data)
-    empty = '' if phases else '<div class="rm-empty">Chưa có giai đoạn. Bấm “＋ Giai đoạn” để bắt đầu.</div>'
-    ro = '' if editable else ' ro'
-    banner = '' if editable else '<div class="ro-banner">👁 Chế độ chỉ xem — chỉ quản lý mới chỉnh sửa được.</div>'
-    body = (
-        render_nav('roadmap', user) +
-        '<header><h1>🗺 Roadmap team QA</h1>'
-        '<div class="meta">Theo mốc thời gian · bấm để xổ cây · sửa qua ✎ · tự động lưu</div></header>'
-        + banner +
-        f'<div class="section rm-sec{ro}">'
-        '<div class="rm-toolbar">'
-        '<button type="button" id="rmAddPhase" class="rm-tbtn">＋ Giai đoạn</button>'
-        '<button type="button" id="rmCollapse" class="rm-tbtn">⊟ Thu gọn tất cả</button>'
-        '<span class="rm-legend">'
-        + ''.join(
-            f'<span class="rm-lg rm-st-{esc(v)}" data-st="{esc(v)}">{esc(l)} '
-            f'<b class="rm-lg-n">{counts.get(v, 0)}</b></span>'
-            for v, l in RM_STATUSES)
-        + '</span>'
-        '<span class="doc-save-status" id="rmStatus"></span>'
-        '</div>'
-        f'<div class="rm-list" id="rmList">{phases}{empty}</div>'
-        f'<template id="rmPhaseTpl">{_rm_phase_html({"phase": "Giai đoạn mới", "items": []})}</template>'
-        f'<template id="rmItemTpl">{_rm_item_html({"title": "Mục mới", "status": "planned", "progress": 0, "due": "", "subtasks": []})}</template>'
-        f'<template id="rmSubTpl">{_rm_subtask_html({"title": "Sub-task mới", "status": "planned", "progress": 0, "due": ""})}</template>'
-        '</div>'
-        # popup sửa node (tên / trạng thái / % / hạn / xoá). Phase chỉ dùng tên + xoá.
-        '<div class="docm-overlay" id="rmmOverlay">'
-        '<div class="docm-modal" role="dialog" aria-label="Sửa">'
-        '<div class="docm-head"><h3 id="rmmHead">Sửa mục</h3>'
-        '<button type="button" class="docm-close" id="rmmClose" aria-label="Đóng">×</button></div>'
-        '<label class="docm-label" for="rmmTitle">Tiêu đề</label>'
-        '<input type="text" id="rmmTitle" class="docm-input" autocomplete="off">'
-        '<div class="rmm-grid" id="rmmFields">'
-        '<div><label class="docm-label" for="rmmStatus">Trạng thái</label>'
-        f'<select id="rmmStatus" class="docm-input">{_rm_status_options()}</select>'
-        '<small class="rmm-note" id="rmmStatusNote" hidden>Tự tính theo sub-task</small></div>'
-        '<div><label class="docm-label" for="rmmProg">% tiến độ</label>'
-        '<input type="number" id="rmmProg" class="docm-input" min="0" max="100">'
-        '<small class="rmm-note" id="rmmProgNote" hidden>Tự tính theo sub-task</small></div>'
-        '<div><label class="docm-label" for="rmmDue">Hạn</label>'
-        '<input type="date" id="rmmDue" class="docm-input"></div>'
-        '</div>'
-        '<div class="docm-actions">'
-        '<button type="button" class="docm-del" id="rmmDel">🗑 Xoá</button>'
-        '<button type="button" class="docm-cancel" id="rmmCancel">Huỷ</button>'
-        '<button type="button" class="docm-save" id="rmmSave">Lưu</button>'
+def _settings_modal_v2():
+    return (
+        '<div class="overlay" id="setOverlay">'
+        '<div class="modal">'
+        '<div class="modal-head"><span class="material-symbols-rounded">key</span>'
+        '<h3>Cài đặt PAT cá nhân</h3>'
+        '<button type="button" class="x material-symbols-rounded" id="setClose">close</button></div>'
+        '<div class="modal-body"><p class="modal-note">Thêm Personal Access Token để thao tác Jira '
+        '(đổi status, comment) nhân danh chính bạn. Token được mã hoá khi lưu, không hiển thị lại.</p>'
+        '<div class="field"><label>Personal Access Token</label>'
+        '<div class="inp-wrap"><input type="password" id="patInp" placeholder="Dán PAT của bạn vào đây..." autocomplete="off" spellcheck="false">'
+        '<button type="button" class="eye material-symbols-rounded mi-sm" id="patShowBtn">visibility</button></div></div></div>'
+        '<div class="modal-foot">'
+        '<button type="button" class="btn btn-danger" id="patDelBtn">Xoá PAT</button>'
+        '<button type="button" class="btn btn-ghost" id="setCancel">Huỷ</button>'
+        '<button type="button" class="btn btn-primary" id="patSaveBtn">Lưu</button>'
         '</div></div></div>'
     )
-    return _document(body)
+
+
+def _document_v2(content_inner, active, user, activities, title='QA Suite'):
+    """Shell sidebar Material-3 cho dashboard QA + roadmap. Inline styles_v2.css + app_v2.js.
+    `activities` = feed (đã lọc dismissed) cho chuông notif (embed JSON #qaNotif)."""
+    return f"""<!DOCTYPE html>
+<html lang="vi"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{esc(title)}</title>
+{_FONTS_V2}
+<script>(function(){{try{{var t=localStorage.getItem('qa-theme');if(t)document.documentElement.setAttribute('data-theme',t);}}catch(e){{}}}})();</script>
+<style>{load_css_v2()}</style></head>
+<body>
+<div class="app">{render_sidebar_v2(active, user)}
+<div class="main">{render_topbar_v2()}
+<div class="content">{content_inner}</div></div></div>
+{_settings_modal_v2()}
+<div class="toast" id="toast"></div>
+{_json_script('qaNotif', activities)}
+<script>{load_js_v2()}</script>
+</body></html>"""
+
+
+# ===== Dashboard QA v2 (lens cá nhân — 1 bảng + tabs + KPI + drawer) =====
+def render_qa_v2(data, new_keys, activities, cmap, user):
+    active = data['active']
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start = today - timedelta(days=today.weekday())
+    week_end = week_start + timedelta(days=7)
+    new_keys = new_keys or set()
+
+    tasks = []
+    n_over = n_stuck = n_dueweek = 0
+    for iss in active:
+        st = i_status(iss)
+        a = i_assignee(iss)
+        aname = i_assignee_name(iss)
+        init, cls = _avatar(a, aname)
+        d = parse_date(i_duedate(iss))
+        overdue = days_overdue(iss) is not None
+        stuck = is_stuck(iss)
+        duecls = 'overdue' if overdue else ('today' if (d and d == today) else '')
+        if overdue:
+            n_over += 1
+        if stuck:
+            n_stuck += 1
+        dueweek = bool(d and not overdue and week_start <= d < week_end)
+        if dueweek:
+            n_dueweek += 1
+        customs = values_of((cmap or {}).get(iss['key']))   # values; JS map -> label qua QA_CUSTOM_STATUSES
+        tasks.append({
+            'key': iss['key'], 'summary': i_summary(iss), 'jira': st,
+            'customs': customs, 'canCustom': st in ('TO DO', 'In Progress'),
+            'assignee': {'name': aname, 'init': init, 'cls': cls},
+            'due': i_duedate(iss) or '', 'dueDisp': i_duedate(iss) or 'Chưa đặt hạn',
+            'dueCls': duecls, 'overdue': overdue, 'stuck': stuck, 'dueWeek': dueweek,
+            'isNew': iss['key'] in new_keys,
+            'jiraUrl': f'{JIRA_URL}/browse/{iss["key"]}',
+        })
+    meta = {'active': len(active), 'overdue': n_over, 'stuck': n_stuck,
+            'dueweek': n_dueweek, 'done': len(data['done_week']), 'stuckDays': STUCK_DAYS}
+
+    tabs = (
+        '<div class="tabs" id="tabs">'
+        f'<button class="active" data-f="all">Task của tôi <span class="tcount">{meta["active"]}</span></button>'
+        f'<button data-f="overdue">Quá hạn <span class="tcount">{n_over}</span></button>'
+        f'<button data-f="stuck">Bị kẹt <span class="tcount">{n_stuck}</span></button>'
+        '</div>'
+    )
+    kpis = (
+        '<div class="kpis" id="kpis">'
+        f'<div class="kpi sel" data-f="all"><div class="label">Active của tôi</div><div class="value">{meta["active"]}</div></div>'
+        f'<div class="kpi warn" data-f="overdue"><div class="label">Quá hạn</div><div class="value">{n_over}</div></div>'
+        f'<div class="kpi stuck" data-f="stuck"><div class="label">Kẹt ≥ {STUCK_DAYS} ngày</div><div class="value">{n_stuck}</div></div>'
+        f'<div class="kpi" data-f="dueweek"><div class="label">Due tuần này</div><div class="value">{n_dueweek}</div></div>'
+        f'<div class="kpi success" data-f="done"><div class="label">Done (3 ngày)</div><div class="value">{meta["done"]}</div></div>'
+        '</div>'
+    )
+    table = (
+        '<div class="card"><table><thead><tr>'
+        '<th style="width:90px">ID</th><th>Tiêu đề</th><th style="width:160px">Trạng thái</th>'
+        '<th style="width:150px">Người xử lý</th><th style="width:130px">Hạn chót</th>'
+        '<th style="width:70px">Thao tác</th>'
+        '</tr></thead><tbody id="rows"></tbody></table></div>'
+        '<div class="pager" id="pager"></div>'
+    )
+    content = (
+        '<div class="page-head"><div class="page-title">Tổng quan — Việc của tôi</div></div>'
+        + tabs + kpis + table
+        + '<div class="smenu" id="smenu"></div>'
+        + '<div class="drawer-ov" id="drawerOv"></div><aside class="drawer" id="drawer"></aside>'
+        + _json_script('qaData', {'tasks': tasks, 'meta': meta})
+        + f'<script>window.QA_CUSTOM_STATUSES={json.dumps(CUSTOM_STATUSES, ensure_ascii=False)};</script>'
+    )
+    return _document_v2(content, 'dashboard', user, activities, title='QA Dashboard — Việc của tôi')
+
+
+# ===== Roadmap v2 (plan › task › sub-task, schema Stitch) =====
+def render_roadmap_v2(data, editable=True, user=None, activities=None):
+    add_btn = ('<button class="btn-pri" id="rmAddPlan"><span class="material-symbols-rounded mi-sm">add_circle</span> Thêm kế hoạch</button>'
+               if editable else '')
+    banner = '' if editable else '<div class="ro-banner">👁 Chế độ chỉ xem — chỉ quản lý mới chỉnh sửa được.</div>'
+    ro = '' if editable else ' ro'
+    seg = (
+        '<div class="rm-filter"><div class="seg" id="rmSeg">'
+        '<button class="active" data-f="all">Tất cả</button>'
+        '<button data-f="in_progress">Đang thực hiện</button>'
+        '<button data-f="planned">Sắp tới</button>'
+        '<button data-f="done">Hoàn thành</button>'
+        '</div></div>'
+    )
+    modal = (
+        '<div class="overlay" id="modalOverlay">'
+        '<div class="modal">'
+        '<div class="modal-head"><span class="material-symbols-rounded" id="modalIcon">edit</span>'
+        '<h3 id="modalTitle">Sửa</h3>'
+        '<button type="button" class="x material-symbols-rounded" id="modalClose">close</button></div>'
+        '<div class="modal-body" id="modalBody"></div>'
+        '<div class="modal-foot"><button type="button" class="btn btn-ghost" id="modalCancel">Huỷ</button>'
+        '<button type="button" class="btn btn-primary" id="modalSave">Lưu</button></div>'
+        '</div></div>'
+    )
+    rm_meta = {'editable': bool(editable), 'statuses': RM_STATUSES, 'people': RM_PEOPLE}
+    content = (
+        f'<div class="page-head"><div><h2>Lộ trình QA Team</h2></div>{add_btn}</div>'
+        + banner + seg
+        + f'<div class="rm-list{ro}" id="rmList2"></div>'
+        + modal
+        + _json_script('rmData', data or [])
+        + _json_script('rmMeta', rm_meta)
+    )
+    return _document_v2(content, 'roadmap', user, activities or [], title='Roadmap QA Team')
 
 
 def render_roadmap_alerts(roadmap_data):
-    """Block cảnh báo (dashboard): mục roadmap chưa xong, hạn <= 2 tuần. Tách khỏi feed Jira."""
+    """Block cảnh báo (dashboard admin shell cũ): plan roadmap chưa xong, hạn <= 2 tuần."""
     alerts = due_alerts(roadmap_data, within_days=14)
     if not alerts:
         return ''
@@ -1359,7 +1453,7 @@ def render_roadmap_alerts(roadmap_data):
         rows.append(
             f'<div class="rm-al-row">{tag}'
             f'<span class="rm-al-title">{esc(a["title"])}</span>'
-            f'<span class="rm-al-phase">{esc(a["phase"])}</span>'
+            f'<span class="rm-al-phase">{esc(a["plan"])}</span>'
             f'<span class="rm-al-due">📅 {esc(a["due"])}</span></div>'
         )
     return (f'<div class="section rm-alerts"><h2>🗺 Roadmap sắp đến hạn '
