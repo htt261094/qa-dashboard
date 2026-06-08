@@ -12,6 +12,23 @@ function showToast(msg, ok){
   var tid = setTimeout(function(){ remove(t); }, 5000);
   x.addEventListener('click', function(){ clearTimeout(tid); remove(t); });
   function remove(el){ el.classList.remove('qa-toast-show'); setTimeout(function(){ if (el.parentNode) el.parentNode.removeChild(el); }, 300); }
+  return { close: function(){ clearTimeout(tid); remove(t); } };
+}
+
+// POST JSON có TIMEOUT (AbortController). Quá `ms` -> abort -> fetch reject -> rơi .catch
+// như mất mạng (không treo "đang xử lý..." vô hạn). Không có AbortController -> fetch thường.
+function postJSON(url, body, ms){
+  var opts = { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) };
+  var timer = null;
+  if (window.AbortController){
+    var ctrl = new AbortController();
+    opts.signal = ctrl.signal;
+    timer = setTimeout(function(){ ctrl.abort(); }, ms || 20000);
+  }
+  return fetch(url, opts).then(
+    function(res){ if (timer) clearTimeout(timer); return res.json(); },
+    function(err){ if (timer) clearTimeout(timer); throw err; }
+  );
 }
 
 // Filter theo người: 1 dòng có khớp filter hiện tại không? (dòng không mang
@@ -840,6 +857,7 @@ function patToast(j){   // lỗi no_pat -> popup nhắc thêm PAT (thay vì toas
   var custMap = {};
   (window.QA_CUSTOM_STATUSES || []).forEach(function(p){ custMap[p[0]] = p[1]; });
   var curBtn = null;
+  var inflight = {};   // key -> true khi đang gửi đổi status: chặn double-click cùng task
   function close(){ menu.hidden = true; menu.innerHTML = ''; curBtn = null; }
 
   // Nhóm "Status Jira" = LAZY-FETCH transition khả dụng theo PAT của QA (chỉ status đổi được,
@@ -899,24 +917,24 @@ function patToast(j){   // lỗi no_pat -> popup nhắc thêm PAT (thay vì toas
     renderMenu(btn, null);                      // hiện custom ngay + "đang tải" cho Jira
     positionMenu(btn);
     var key = btn.getAttribute('data-key');
-    fetch('/jira-transitions', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ key: key }) })
-      .then(function(res){ return res.json(); })
+    postJSON('/jira-transitions', { key: key }, 20000)
       .then(function(j){ if (curBtn === btn){ renderMenu(btn, j); positionMenu(btn); } })
-      .catch(function(){ if (curBtn === btn){ renderMenu(btn, { ok:false, msg:'Lỗi mạng khi tải status' }); positionMenu(btn); } });
+      .catch(function(){ if (curBtn === btn){ renderMenu(btn, { ok:false, msg:'Lỗi mạng/timeout khi tải status' }); positionMenu(btn); } });
   };
 
   function doTransition(btn, key, id, toName){
-    showToast(key + ': đang đổi status trên Jira...', true);
-    fetch('/do-transition', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ key: key, id: id }) })
-      .then(function(res){ return res.json(); })
+    if (inflight[key]) return;                 // đang gửi cho task này -> bỏ qua click thừa
+    inflight[key] = true;
+    var pending = showToast(key + ': đang đổi status trên Jira…', true);
+    postJSON('/do-transition', { key: key, id: id }, 20000)
       .then(function(j){
+        pending.close();
         if (patToast(j)) return;
         if (j.ok){ applyToAll(key, toName, ''); showToast(key + ' → ' + toName + ' ✓ (đã đổi trên Jira)', true); }
         else { showToast(j.msg || ('Lỗi đổi status ' + key), false); }
       })
-      .catch(function(){ showToast('Lỗi mạng khi đổi status', false); });
+      .catch(function(){ pending.close(); showToast('Lỗi mạng/timeout khi đổi status ' + key + ' — F5 để kiểm tra lại', false); })
+      .then(function(){ delete inflight[key]; }, function(){ delete inflight[key]; });
   }
 
   function paintCaret(b2){           // vẽ lại badge của 1 caret từ data-jira / data-cust
@@ -940,15 +958,18 @@ function patToast(j){   // lỗi no_pat -> popup nhắc thêm PAT (thay vì toas
   }
 
   function setCustom(btn, key, val){
-    fetch('/set-custom-status', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ key: key, status: val, summary: '' }) })
-      .then(function(res){ return res.json(); })
+    if (inflight[key]) return;                 // chặn double-click cùng task
+    inflight[key] = true;
+    var pending = showToast(key + ': đang lưu nhãn…', true);
+    postJSON('/set-custom-status', { key: key, status: val, summary: '' }, 20000)
       .then(function(j){
+        pending.close();
         if (!j.ok){ showToast('Lỗi lưu custom status ' + key, false); return; }
         applyToAll(key, null, val);            // giữ status Jira, đồng bộ custom mọi block
         showToast(val ? (key + ': ' + (custMap[val] || val) + ' (chỉ dashboard)') : (key + ': về status Jira'), true);
       })
-      .catch(function(){ showToast('Lỗi lưu custom status ' + key, false); });
+      .catch(function(){ pending.close(); showToast('Lỗi mạng/timeout khi lưu custom status ' + key, false); })
+      .then(function(){ delete inflight[key]; }, function(){ delete inflight[key]; });
   }
 
   document.addEventListener('click', function(e){
@@ -969,16 +990,14 @@ document.addEventListener('keydown', function(e){
   var body = inp.value.trim();
   if (!body){ showToast('Comment rỗng', false); return; }
   inp.disabled = true;
-  fetch('/add-comment', { method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ key: key, body: body }) })
-    .then(function(res){ return res.json(); })
+  postJSON('/add-comment', { key: key, body: body }, 20000)
     .then(function(j){
       inp.disabled = false;
       if (patToast(j)) return;
       if (j.ok){ inp.value = ''; showToast(key + ': ' + (j.msg || 'đã gửi comment ✓'), true); }
       else { showToast(j.msg || ('Lỗi gửi comment ' + key), false); }
     })
-    .catch(function(){ inp.disabled = false; showToast('Lỗi mạng khi gửi comment', false); });
+    .catch(function(){ inp.disabled = false; showToast('Lỗi mạng/timeout khi gửi comment', false); });
 });
 
 // Dropdown profile ở nav: mở/đóng menu (Cài đặt PAT / Đăng xuất)
