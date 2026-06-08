@@ -453,6 +453,12 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     $('pager').innerHTML='<span class="pinfo">'+(start+1)+'–'+(start+slice.length)+' / '+all.length+' task · trang '+curPage+'/'+pages+'</span>'
       +'<button '+(curPage<=1?'disabled':'')+' data-pg="-1"><span class="material-symbols-rounded mi-sm">chevron_left</span>Trước</button>'
       +'<button '+(curPage>=pages?'disabled':'')+' data-pg="1">Sau<span class="material-symbols-rounded mi-sm">chevron_right</span></button>';
+
+    if(curCaret && smenu && smenu.classList.contains('open')){
+      var key=curCaret.getAttribute('data-key');
+      var newCaret=document.querySelector('[data-act="smenu"][data-key="'+key+'"]');
+      if(newCaret) curCaret=newCaret;
+    }
   }
   function setFilter(f){ curFilter=f; curPage=1;
     document.querySelectorAll('#tabs button').forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-f')===f); });
@@ -592,12 +598,21 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     smenu.style.left=Math.min(r.left, window.innerWidth-292)+'px';
   }
   window.openStatusMenu=function(caret){
-    if(curCaret===caret && smenu.classList.contains('open')){ closeSmenu(); return; }
-    curCaret=caret; var key=caret.getAttribute('data-key'), t=taskByKey(key);
+    var key=caret.getAttribute('data-key');
+    if(curCaret && curCaret.getAttribute('data-key') === key && smenu.classList.contains('open')){ closeSmenu(); return; }
+    curCaret=caret; var t=taskByKey(key);
     renderSmenu(t, null); positionSmenu(caret);
     postJSON('/jira-transitions', { key:key }, 20000)
-      .then(function(j){ if(curCaret===caret){ renderSmenu(t, j); positionSmenu(caret); } })
-      .catch(function(){ if(curCaret===caret){ renderSmenu(t, { ok:false, msg:'Lỗi mạng khi tải status' }); positionSmenu(caret); } });
+      .then(function(j){
+        if(curCaret && curCaret.getAttribute('data-key') === key && smenu.classList.contains('open')){
+          renderSmenu(t, j); positionSmenu(curCaret);
+        }
+      })
+      .catch(function(){
+        if(curCaret && curCaret.getAttribute('data-key') === key && smenu.classList.contains('open')){
+          renderSmenu(t, { ok:false, msg:'Lỗi mạng khi tải status' }); positionSmenu(curCaret);
+        }
+      });
   };
   if(smenu) smenu.addEventListener('click', function(e){
     var o=e.target.closest('[data-sm]'); if(!o) return;
