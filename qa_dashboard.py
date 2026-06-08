@@ -20,7 +20,7 @@ from auth import (SESSION_COOKIE, STATE_COOKIE, SESSION_TTL, STATE_TTL,
                   make_session_token, make_state_token, state_valid)
 from jira_api import (fetch_all, fetch_lines, fetch_activity_feed, load_dismissed,
                       dismiss_activities, run_parallel)
-from state import load_state, save_state, build_snapshot
+from state import load_snapshots, save_snapshots, build_snapshot
 from pic import save_pic
 from docs import load_docs, save_docs, valid_tree
 from roadmap import load_roadmap, save_roadmap, valid_roadmap
@@ -33,19 +33,21 @@ from render import (render_page, render_report_page, render_docs_page,
 ACTIVITY_DAYS = 7  # cửa sổ activity feed kéo từ Jira changelog
 
 
-def _build_view(data):
-    """Snapshot diff CHỈ để highlight task mới (new_keys). Activity giờ kéo từ Jira feed
-    (device-independent), không còn dùng local diff/pending."""
+def _build_view(data, scope):
+    """Snapshot diff để highlight task mới (new_keys). Activity giờ kéo từ Jira feed
+    (device-independent), không còn dùng local diff/pending.
+
+    Baseline RIÊNG cho từng scope (admin='__all__', QA=username): data của scope này
+    KHÔNG ghi đè baseline scope khác. Trước đây dùng chung 1 snapshot -> admin (toàn team)
+    và QA (1 người) giẫm baseline nhau, khiến task cũ bị gắn NEW oan rồi nhấp nháy."""
     cur_snapshot = build_snapshot(data)
-    prev = load_state()
-    first_run = prev is None
-    if first_run:
-        prev_keys = set()
-    else:
-        prev_snapshot = prev.get('snapshot') or {}
-        prev_keys = set(prev_snapshot.keys()) if prev_snapshot else set(prev.get('keys', []))
-    new_keys = set() if first_run else (set(cur_snapshot) - prev_keys)
-    save_state(cur_snapshot, [])  # pending bỏ trống — không còn tích luỹ local
+    scope_key = scope or '__all__'
+    snaps = load_snapshots()
+    prev_snap = snaps.get(scope_key)
+    first_run = prev_snap is None
+    new_keys = set() if first_run else (set(cur_snapshot) - set(prev_snap.keys()))
+    snaps[scope_key] = cur_snapshot
+    save_snapshots(snaps)
     return new_keys, first_run
 
 
@@ -238,7 +240,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             })
             data, feed, dismissed = res['data'], res['feed'], res['dismissed']
             overlay, cust_act = res['custom']
-            new_keys, first_run = _build_view(data)
+            new_keys, first_run = _build_view(data, scope)
             # gộp custom-status events vào feed Jira, sort mới->cũ, rồi lọc unread
             merged = sorted(feed + cust_act, key=lambda a: a.get('when') or '', reverse=True)
             unread = [a for a in merged if a['id'] not in dismissed]

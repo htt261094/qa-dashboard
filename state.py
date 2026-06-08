@@ -44,6 +44,31 @@ def clear_pending():
     return True
 
 
+def load_snapshots():
+    """Return {scope_key: snapshot} từ .last_seen.json (baseline NEW-badge theo từng scope).
+
+    Migration-safe: định dạng cũ (1 snapshot phẳng, dùng chung) -> trả {} để mỗi scope
+    bắt đầu baseline mới ở lần load kế (không bùng NEW oan)."""
+    st = load_state()
+    if not isinstance(st, dict):
+        return {}
+    snaps = st.get('snapshots')
+    return snaps if isinstance(snaps, dict) else {}
+
+
+def save_snapshots(snaps):
+    """Ghi map {scope_key: snapshot} (mỗi scope giữ baseline riêng -> admin vs QA không
+    ghi đè nhau)."""
+    try:
+        STATE_FILE.write_text(
+            json.dumps({'snapshots': snaps, 'updated': datetime.now().isoformat()},
+                       ensure_ascii=False),
+            encoding='utf-8',
+        )
+    except OSError:
+        pass
+
+
 def build_snapshot(data):
     """Map key -> {status, summary, assignee, type, updated, comments, duedate, priority} across all buckets."""
     snap = {}
