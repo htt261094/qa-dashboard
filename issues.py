@@ -3,7 +3,7 @@
 Pure functions over the raw issue dicts returned by the Jira API. No network, no state.
 """
 import html as html_lib
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from config import JIRA_URL, STUCK_DAYS
 
@@ -77,13 +77,28 @@ def i_priority(issue):
     return p.get('name', '') if isinstance(p, dict) else ''
 
 
+def _business_days_between(start, end):
+    """Số ngày làm việc (T2–T6) trong khoảng (start, end], bỏ T7/CN."""
+    if end <= start:
+        return 0
+    days = 0
+    cur = start + timedelta(days=1)
+    while cur <= end:
+        if cur.weekday() < 5:  # 0=T2 ... 4=T6
+            days += 1
+        cur += timedelta(days=1)
+    return days
+
+
 def days_overdue(issue):
+    """Quá hạn tính theo NGÀY LÀM VIỆC (T2–T6), bỏ T7/CN.
+    Vd: due T6, hôm nay T2 → 1 ngày (chỉ tính T2), không phải 3."""
     d = parse_date(i_duedate(issue))
     if not d:
         return None
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    delta = (today - d).days
-    return delta if delta > 0 else None
+    n = _business_days_between(d, today)
+    return n if n > 0 else None
 
 
 def days_since_update(issue):
