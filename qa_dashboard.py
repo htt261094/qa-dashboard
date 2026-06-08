@@ -19,7 +19,7 @@ from auth import (SESSION_COOKIE, STATE_COOKIE, SESSION_TTL, STATE_TTL,
                   login_url, exchange_code, email_allowed, email_from_session,
                   make_session_token, make_state_token, state_valid)
 from jira_api import (fetch_all, fetch_lines, fetch_activity_feed, load_dismissed,
-                      dismiss_activities, run_parallel)
+                      dismiss_activities, run_parallel, fetch_issue_detail)
 from state import load_snapshots, save_snapshots, build_snapshot
 from pic import save_pic
 from docs import load_docs, save_docs, valid_tree
@@ -28,7 +28,7 @@ from pat_store import save_user_pat, has_pat, delete_user_pat, load_user_pat
 from custom_status import (load_bundle, set_custom_status, is_valid)
 from jira_write import get_transitions, do_transition, add_comment
 from render import (render_page, render_report_page, render_docs_page,
-                    render_roadmap_page, render_settings_page, render_error_page, render_403)
+                    render_roadmap_v2, render_settings_page, render_error_page, render_403)
 
 ACTIVITY_DAYS = 7  # cửa sổ activity feed kéo từ Jira changelog
 
@@ -201,11 +201,34 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._html(render_error_page(str(e)))
             return
         if self.path in ('/roadmap', '/roadmap.html'):
-            # roadmap team: load từ Jira property (sync chéo máy), fallback cache local
+            # roadmap team (UI v2): roadmap + feed chuông (watcher-scope theo người) song song
             try:
-                self._html(render_roadmap_page(load_roadmap(), editable=self._is_admin(), user=self._user_ctx()))
+                email = self._user_email()
+                uname = username_from_email(email)
+                res = run_parallel({
+                    'roadmap': load_roadmap,
+                    'feed': lambda: fetch_activity_feed(days=ACTIVITY_DAYS, scope_user=uname),
+                    'dismissed': lambda: load_dismissed(email),
+                })
+                acts = [a for a in res['feed'] if a['id'] not in res['dismissed']]
+                self._html(render_roadmap_v2(res['roadmap'], editable=self._is_admin(),
+                                             user=self._user_ctx(), activities=acts))
             except RuntimeError as e:
                 self._html(render_error_page(str(e)))
+            return
+        if path == '/issue-comments':
+            # JSON chi tiết 1 issue (drawer + comment panel lazy-load). Read-only PAT chung.
+            q = parse_qs(urlparse(self.path).query)
+            key = (q.get('key') or [''])[0]
+            parts = key.split('-')
+            if len(parts) != 2 or not parts[0].isalnum() or not parts[1].isdigit():
+                self._json(400, b'{"ok":false,"msg":"key"}')
+                return
+            try:
+                detail = fetch_issue_detail(key)
+                self._json(200, json.dumps({'ok': True, 'detail': detail}).encode('utf-8'))
+            except RuntimeError:
+                self._json(400, b'{"ok":false,"msg":"loi"}')
             return
         if self.path in ('/settings', '/settings.html'):
             # Cài đặt PAT cá nhân (mã hoá khi lưu) — thao tác Jira ghi đúng tên người dùng

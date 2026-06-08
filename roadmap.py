@@ -1,78 +1,184 @@
-"""Roadmap team QA: các giai đoạn (mốc thời gian) › mục › sub-task. Load/save .roadmap_config.json.
+"""Roadmap team QA — UI v2 (Stitch). Load/save .roadmap_config.json + Jira property sync.
 
-Roadmap = list giai đoạn. Mỗi giai đoạn {phase: str, items: [item]}.
-node (item/sub-task) = {title, status, progress(int 0-100), due(str 'YYYY-MM-DD' | '')}.
-item có thể thêm "subtasks": [leaf]. Tự author + chỉnh tay (KHÔNG suy từ Jira).
+Schema (plan-based, theo mockup Stitch):
+    roadmap = list[plan]
+    plan = {id, title, desc, status, pic, due('YYYY-MM-DD'|''), tasks: [task]}
+    task = {id, title, pic, done(bool), subs: [leaf]}
+    leaf = {id, title, done(bool)}
+
+Status plan ∈ RM_STATUSES (planned/in_progress/done/blocked). PIC = tên hiển thị trong RM_PEOPLE.
+Tự author + chỉnh tay (KHÔNG suy từ Jira). Data schema cũ (phase/items/status/progress/due per-node)
+được `migrate_roadmap` convert tự động khi load → không mất roadmap đang lưu.
 """
 import json
 from datetime import datetime
 
-from config import ROADMAP_FILE
+from config import ROADMAP_FILE, USERS, display_name
 from jira_api import load_property, save_property
 
 ROADMAP_PROP = 'qa-dashboard-roadmap'  # Jira user property = kho sync chéo máy
 
-MAX_PHASES = 100
+MAX_PLANS = 100
 MAX_ITEMS = 1000
 
 # (value, label) — value lưu JSON, label hiện UI. CSS class = rm-st-<value>.
 RM_STATUSES = [
-    ('planned', 'Planned'),
-    ('in_progress', 'In Progress'),
-    ('done', 'Done'),
-    ('blocked', 'Blocked'),
+    ('planned', 'Đang lập kế hoạch'),
+    ('in_progress', 'Đang thực hiện'),
+    ('done', 'Hoàn thành'),
+    ('blocked', 'Bị chặn'),
 ]
 RM_STATUS_VALUES = {v for v, _ in RM_STATUSES}
 
+# Người phụ trách (PIC) = QA team theo tên hiển thị + Hiền (manager).
+RM_PEOPLE = [display_name(u) for u in USERS] + ['Hiền']
+
 ROADMAP_DEFAULT = [
-    {'phase': 'Q3 2026', 'items': [
-        {'title': 'Ví dụ: Tăng test coverage luồng Chi Hộ', 'status': 'in_progress',
-         'progress': 40, 'due': '2026-07-15', 'subtasks': [
-            {'title': 'Rà soát test case hiện có', 'status': 'done', 'progress': 100, 'due': '2026-07-05'},
-            {'title': 'Bổ sung case thiếu', 'status': 'in_progress', 'progress': 30, 'due': '2026-07-15'},
-         ]},
-        {'title': 'Ví dụ: Chuẩn hoá bộ test case regression', 'status': 'planned',
-         'progress': 0, 'due': '', 'subtasks': []},
-    ]},
-    {'phase': 'Q4 2026', 'items': [
-        {'title': 'Ví dụ: Tự động hoá smoke test', 'status': 'planned', 'progress': 0, 'due': '', 'subtasks': []},
-    ]},
+    {'id': 'p_demo1', 'title': 'Tăng test coverage luồng Chi Hộ',
+     'desc': 'Bổ sung & chuẩn hoá test case cho luồng Chi Hộ giai đoạn 2.',
+     'status': 'in_progress', 'pic': 'Thành', 'due': '2026-07-15', 'tasks': [
+        {'id': 't_demo1', 'title': 'Rà soát test case hiện có', 'pic': 'Quang', 'done': True, 'subs': [
+            {'id': 's_demo1', 'title': 'Liệt kê case Core', 'done': True},
+            {'id': 's_demo2', 'title': 'Liệt kê case Chi Hộ', 'done': True},
+        ]},
+        {'id': 't_demo2', 'title': 'Bổ sung case thiếu', 'pic': 'Nhung', 'done': False, 'subs': []},
+     ]},
+    {'id': 'p_demo2', 'title': 'Tự động hoá smoke test',
+     'desc': 'Dựng bộ smoke test tự động chạy mỗi lần deploy.',
+     'status': 'planned', 'pic': 'Quang', 'due': '2026-09-30', 'tasks': []},
 ]
 
 
-def _valid_leaf(it):
-    return (isinstance(it, dict)
-            and isinstance(it.get('title', ''), str)
-            and isinstance(it.get('status', 'planned'), str)
-            and isinstance(it.get('due', ''), str)
-            and isinstance(it.get('progress', 0), int)
-            and 0 <= it.get('progress', 0) <= 100)
+# ===== Validation (schema mới) =====
+def _valid_leaf(s):
+    return (isinstance(s, dict)
+            and isinstance(s.get('title', ''), str)
+            and isinstance(s.get('done', False), bool)
+            and isinstance(s.get('id', ''), str))
 
 
-def _valid_item(it):
-    if not _valid_leaf(it):
+def _valid_task(t):
+    if not isinstance(t, dict):
         return False
-    subs = it.get('subtasks', [])
+    if not (isinstance(t.get('title', ''), str)
+            and isinstance(t.get('pic', ''), str)
+            and isinstance(t.get('done', False), bool)
+            and isinstance(t.get('id', ''), str)):
+        return False
+    subs = t.get('subs', [])
     return isinstance(subs, list) and all(_valid_leaf(s) for s in subs)
 
 
-def valid_roadmap(data):
-    if not isinstance(data, list) or len(data) > MAX_PHASES:
+def _valid_plan(p):
+    if not isinstance(p, dict):
         return False
-    total = 0
-    for ph in data:
-        if not isinstance(ph, dict) or not isinstance(ph.get('phase', ''), str):
-            return False
-        items = ph.get('items')
-        if not isinstance(items, list):
-            return False
-        for it in items:
-            total += 1 + len(it.get('subtasks', []) if isinstance(it, dict) else [])
-            if total > MAX_ITEMS or not _valid_item(it):
-                return False
-    return True
+    if not (isinstance(p.get('title', ''), str)
+            and isinstance(p.get('desc', ''), str)
+            and isinstance(p.get('status', 'planned'), str)
+            and isinstance(p.get('pic', ''), str)
+            and isinstance(p.get('due', ''), str)
+            and isinstance(p.get('id', ''), str)):
+        return False
+    tasks = p.get('tasks', [])
+    return isinstance(tasks, list) and all(_valid_task(t) for t in tasks)
 
 
+def _node_count(data):
+    n = 0
+    for p in data:
+        n += 1 + len(p.get('tasks') or [])
+        for t in (p.get('tasks') or []):
+            n += len(t.get('subs') or [])
+    return n
+
+
+def valid_roadmap(data):
+    if not isinstance(data, list) or len(data) > MAX_PLANS:
+        return False
+    if not all(_valid_plan(p) for p in data):
+        return False
+    return _node_count(data) <= MAX_ITEMS
+
+
+# ===== Helpers (done/status) =====
+def task_done(t):
+    """Task xong = có sub thì mọi sub xong; không sub thì cờ done của chính nó."""
+    subs = t.get('subs') or []
+    if subs:
+        return all(bool(s.get('done')) for s in subs)
+    return bool(t.get('done'))
+
+
+def task_started(t):
+    subs = t.get('subs') or []
+    if subs:
+        return any(bool(s.get('done')) for s in subs)
+    return bool(t.get('done'))
+
+
+def plan_done(p):
+    tasks = p.get('tasks') or []
+    if tasks:
+        return all(task_done(t) for t in tasks)
+    return p.get('status') == 'done'
+
+
+def derive_plan_status(p):
+    """Status plan: có task -> suy ra (all done->done · có việc chạy->in_progress · else planned);
+    không task -> giữ status tay (có thể là blocked/planned do user đặt)."""
+    tasks = p.get('tasks') or []
+    if not tasks:
+        return p.get('status', 'planned')
+    if all(task_done(t) for t in tasks):
+        return 'done'
+    if any(task_started(t) for t in tasks):
+        return 'in_progress'
+    return 'planned'
+
+
+# ===== Migration: schema cũ (phase/items/status/progress) -> schema plan mới =====
+def _is_legacy(data):
+    return (isinstance(data, list)
+            and any(isinstance(x, dict) and ('phase' in x or 'items' in x) for x in data))
+
+
+def _migrate_old_status(st):
+    return st if st in RM_STATUS_VALUES else 'planned'
+
+
+def migrate_roadmap(old):
+    """Convert data schema cũ -> mới. Bỏ %/hạn per-node (sub-task thành tick done).
+    phase->plan, item->task (done=status==done), subtasks->subs (done=status==done)."""
+    plans = []
+    for i, ph in enumerate(old or []):
+        if not isinstance(ph, dict):
+            continue
+        tasks = []
+        for j, it in enumerate(ph.get('items') or []):
+            if not isinstance(it, dict):
+                continue
+            subs = []
+            for k, s in enumerate(it.get('subtasks') or []):
+                if isinstance(s, dict):
+                    subs.append({'id': f'mig_s{i}_{j}_{k}', 'title': s.get('title', ''),
+                                 'done': s.get('status') == 'done'})
+            tasks.append({'id': f'mig_t{i}_{j}', 'title': it.get('title', ''), 'pic': '',
+                          'done': it.get('status') == 'done', 'subs': subs})
+        plan = {'id': f'mig_p{i}', 'title': ph.get('phase', ''), 'desc': '',
+                'pic': '', 'due': '', 'tasks': tasks}
+        plan['status'] = derive_plan_status(plan)
+        plans.append(plan)
+    return plans
+
+
+def _coerce(data):
+    """Trả data hợp lệ schema mới (migrate nếu là schema cũ), hoặc None nếu không dùng được."""
+    if _is_legacy(data):
+        data = migrate_roadmap(data)
+    return data if valid_roadmap(data) else None
+
+
+# ===== Due alerts (plan-level) cho dashboard admin =====
 def _parse_due(s):
     try:
         return datetime.strptime(s, '%Y-%m-%d').date()
@@ -81,37 +187,29 @@ def _parse_due(s):
 
 
 def due_alerts(data, today=None, within_days=14):
-    """Mục/sub-task chưa Done mà còn <= within_days tới hạn (gồm cả quá hạn).
-
-    Trả list dict {phase, title, due, days_left} sort theo days_left tăng dần.
-    days_left < 0 = quá hạn. Dùng cho cảnh báo ở phần Hoạt động dashboard.
-    """
+    """Plan chưa xong mà còn <= within_days tới hạn (gồm quá hạn).
+    Trả list {plan, title, due, days_left} sort theo days_left tăng dần."""
     today = today or datetime.now().date()
     out = []
-    for ph in (data or []):
-        pname = ph.get('phase', '')
-        for it in (ph.get('items') or []):
-            nodes = [it] + list(it.get('subtasks') or [])
-            for n in nodes:
-                if n.get('status') == 'done':
-                    continue
-                d = _parse_due(n.get('due', ''))
-                if d is None:
-                    continue
-                days = (d - today).days
-                if days <= within_days:
-                    out.append({'phase': pname, 'title': n.get('title', ''),
-                                'due': n.get('due', ''), 'days_left': days})
+    for p in (data or []):
+        if plan_done(p):
+            continue
+        d = _parse_due(p.get('due', ''))
+        if d is None:
+            continue
+        days = (d - today).days
+        if days <= within_days:
+            out.append({'plan': p.get('title', ''), 'title': p.get('title', ''),
+                        'due': p.get('due', ''), 'days_left': days})
     out.sort(key=lambda a: a['days_left'])
     return out
 
 
+# ===== Load / save (Jira property primary, file cache fallback) =====
 def _read_cache():
     if ROADMAP_FILE.exists():
         try:
-            data = json.loads(ROADMAP_FILE.read_text(encoding='utf-8'))
-            if valid_roadmap(data):
-                return data
+            return _coerce(json.loads(ROADMAP_FILE.read_text(encoding='utf-8')))
         except (json.JSONDecodeError, OSError):
             pass
     return None
@@ -125,10 +223,11 @@ def _write_cache(data):
 
 
 def load_roadmap():
-    """Source of truth = Jira property (sync chéo máy); local file = cache fallback khi Jira lỗi."""
+    """Source of truth = Jira property (sync chéo máy); local file = cache fallback khi Jira lỗi.
+    Data schema cũ được migrate tự động trước khi dùng."""
     try:
-        data = load_property(ROADMAP_PROP)
-        if data is not None and valid_roadmap(data):
+        data = _coerce(load_property(ROADMAP_PROP))
+        if data is not None:
             _write_cache(data)
             return data
     except RuntimeError:
