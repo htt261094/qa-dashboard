@@ -348,8 +348,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._json(200 if ok else 400, b'{"ok":true}' if ok else b'{"ok":false}')
             return
         if self.path == '/set-custom-status':
-            # QA gắn/gỡ nhãn nội bộ cho task. Author = người đăng nhập (không cần PAT).
-            ok = False
+            # QA toggle nhãn nội bộ cho task (chọn nhiều). Author = người đăng nhập (không cần PAT).
+            values = None
             try:
                 length = int(self.headers.get('Content-Length', 0))
                 if 0 < length <= 20_000:
@@ -360,10 +360,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         summary = payload.get('summary', '')
                         if (isinstance(key, str) and key and isinstance(value, str)
                                 and is_valid(value) and isinstance(summary, str)):
-                            ok = set_custom_status(self._user_email(), key, value, summary[:200])
+                            values = set_custom_status(self._user_email(), key, value, summary[:200])
             except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
-                ok = False
-            self._json(200 if ok else 400, b'{"ok":true}' if ok else b'{"ok":false}')
+                values = None
+            if values is not None:
+                self._json(200, json.dumps({'ok': True, 'values': values}).encode('utf-8'))
+            else:
+                self._json(400, b'{"ok":false}')
             return
         if self.path in ('/jira-transitions', '/do-transition', '/add-comment'):
             self._handle_jira_write()

@@ -5,11 +5,13 @@ trên dashboard. Đây là lớp PHỦ local, KHÔNG đụng status Jira thật 
 không có). Mỗi lần đổi -> ghi 1 sự kiện vào activity log để gộp vào block Hoạt động
 (admin mở dashboard thấy ai vừa đổi gì).
 
+Mỗi task gắn được NHIỀU nhãn cùng lúc (vd vừa 'Chờ deploy test' vừa 'Chờ data test').
 Lưu = Jira user property `qa-dashboard-custom-status` (sync chéo máy), cache local fallback:
   {
-    "status":   { "KEY-1": {"v": "dev_fixing", "by": "quangbm", "at": iso}, ... },
+    "status":   { "KEY-1": {"v": ["dev_fixing","wait_data"], "by": "quangbm", "at": iso}, ... },
     "activity": [ {"id","key","summary","by","author","when","new"}, ... ]  # cap + prune
   }
+Migration-safe: `v` cũ là string đơn -> đọc như list 1 phần tử (`values_of`).
 
 Layer: config -> jira_api -> (this). Không cycle.
 """
@@ -46,6 +48,19 @@ def label_of(value):
 
 def is_valid(value):
     return value == '' or value in _VALID
+
+
+def values_of(entry):
+    """Chuẩn hoá nhãn của 1 task -> list value hợp lệ. Migration-safe:
+    `v` cũ là string đơn -> [v]; mới là list -> lọc hợp lệ; thiếu -> []."""
+    if not entry:
+        return []
+    v = entry.get('v')
+    if isinstance(v, list):
+        return [x for x in v if x in _VALID]
+    if isinstance(v, str) and v in _VALID:
+        return [v]
+    return []
 
 
 # ----- storage -----
@@ -90,12 +105,14 @@ def load_overlay():
 
 
 def set_custom_status(email, key, value, summary=''):
-    """Đặt/gỡ nhãn custom cho task `key`. Ghi activity. Trả True nếu lưu được lên Jira.
+    """TOGGLE 1 nhãn custom cho task `key`. Ghi activity. Trả LIST nhãn mới (sau toggle)
+    nếu lưu được lên Jira, None nếu lỗi (caller phân biệt fail vs list rỗng).
 
-    value='' -> gỡ nhãn. Author lấy từ email đăng nhập (ai bấm), KHÔNG cần PAT.
+    value='' -> gỡ HẾT nhãn. value hợp lệ -> bật nếu chưa có, tắt nếu đang có.
+    Author lấy từ email đăng nhập (ai bấm), KHÔNG cần PAT.
     """
     if not key or not is_valid(value):
-        return False
+        return None
     data = _load_data()
     statuses = data.setdefault('status', {})
     activity = data.setdefault('activity', [])
@@ -103,14 +120,26 @@ def set_custom_status(email, key, value, summary=''):
     author = display_name(username) if username != 'local' else 'Bạn'
     now = datetime.now()
     iso = now.isoformat()
-    if value:
-        statuses[key] = {'v': value, 'by': username, 'at': iso}
-    else:
+    cur = values_of(statuses.get(key))
+    if value == '':
         statuses.pop(key, None)
+        cur = []
+        desc = '— (gỡ hết nhãn)'
+    else:
+        if value in cur:
+            cur.remove(value)
+            desc = '✕ ' + label_of(value)
+        else:
+            cur.append(value)
+            desc = label_of(value)
+        if cur:
+            statuses[key] = {'v': cur, 'by': username, 'at': iso}
+        else:
+            statuses.pop(key, None)
     activity.insert(0, {
         'id': f"{key}#cstat#{now.strftime('%Y%m%d%H%M%S%f')}",
         'key': key, 'summary': summary or '', 'by': username, 'author': author,
-        'when': iso, 'new': label_of(value) if value else '— (gỡ nhãn)',
+        'when': iso, 'new': desc,
     })
     # prune theo thời gian + cap số lượng
     cutoff = (now - timedelta(days=_ACT_PRUNE_DAYS)).isoformat()
@@ -118,9 +147,9 @@ def set_custom_status(email, key, value, summary=''):
     try:
         save_property(CUSTOM_PROP, data)
     except RuntimeError:
-        return False
+        return None
     _write_cache(data)
-    return True
+    return cur
 
 
 def _filter_activity(activity, scope_user, days):

@@ -15,7 +15,7 @@ from issues import (parse_date, i_assignee, i_reporter, i_status, i_summary, i_d
 from pic import PIC_PEOPLE, load_pic
 from docs import load_docs
 from roadmap import RM_STATUSES, load_roadmap, due_alerts
-from custom_status import CUSTOM_STATUSES, label_of
+from custom_status import CUSTOM_STATUSES, label_of, values_of
 
 
 def load_css():
@@ -244,7 +244,7 @@ def render_charts(active):
 
 
 # ===== Workload matrix (expandable per person) =====
-def render_workload(active):
+def render_workload(active, cmap=None):
     statuses = ['TO DO', 'In Progress', 'PENDING']
     matrix = {u: {s: 0 for s in statuses} for u in USERS}
     totals = {u: 0 for u in USERS}
@@ -289,7 +289,7 @@ def render_workload(active):
         if tlist:
             trows = ''.join(
                 f'<div class="wl-task">{issue_link(iss)}'
-                f'<span class="status {status_class(i_status(iss))}">{esc(i_status(iss))}</span>'
+                f'{_status_badge(iss, cmap)}'
                 f'<span class="wl-task-sum">{esc(i_summary(iss))}</span>'
                 f'<span class="wl-task-due">{esc(i_duedate(iss) or "—")}</span>'
                 f'<span class="wl-task-stale">{(str(days_since_update(iss)) + "d kẹt") if is_stuck(iss) else ""}</span></div>'
@@ -322,6 +322,20 @@ def _person_attrs(issue):
 JIRA_STATUSES = ['TO DO', 'In Progress', 'PENDING', 'DONE', 'CANCELLED']
 
 
+def _status_badge(issue, cmap=None):
+    """Badge status hiển thị: task có custom -> badge tím gộp các nhãn (Jira gốc ở tooltip),
+    không có -> badge status Jira thường. Dùng chung lens cá nhân (kèm caret) lẫn view admin
+    (read-only) -> admin cũng THẤY nhãn nội bộ QA gắn, không chỉ ở activity feed."""
+    st = i_status(issue)
+    jira_esc = esc(st)
+    cur = values_of((cmap or {}).get(issue['key']))
+    if cur:
+        labels = ', '.join(label_of(v) for v in cur)
+        return (f'<span class="status status-custom" '
+                f'title="Custom status (chỉ dashboard) · Jira gốc: {jira_esc}">● {esc(labels)}</span>')
+    return f'<span class="status {status_class(st)}">{jira_esc}</span>'
+
+
 def status_control(issue, cmap=None):
     """Badge status + nút ▾ mở menu thống nhất. Nếu task có CUSTOM status -> badge hiện
     custom (kiểu status, màu tím ●), status Jira gốc nằm trong tooltip. Không custom -> status Jira.
@@ -331,16 +345,12 @@ def status_control(issue, cmap=None):
     key = esc(issue['key'])
     st = i_status(issue)
     jira_esc = esc(st)
-    cur = ((cmap or {}).get(issue['key']) or {}).get('v', '')
-    if cur:
-        badge = (f'<span class="status status-custom" '
-                 f'title="Custom status (chỉ dashboard) · Jira gốc: {jira_esc}">● {esc(label_of(cur))}</span>')
-    else:
-        badge = f'<span class="status {status_class(st)}">{jira_esc}</span>'
+    cur = values_of((cmap or {}).get(issue['key']))
+    badge = _status_badge(issue, cmap)
     return (
         f'{badge}'
         f'<button type="button" class="ustat-caret" data-key="{key}" '
-        f'data-jira="{jira_esc}" data-cust="{esc(cur)}" '
+        f'data-jira="{jira_esc}" data-cust="{esc(",".join(cur))}" '
         f'title="Đổi status Jira hoặc gắn custom status" onclick="openStatusMenu(this)">▾</button>'
     )
 
@@ -354,16 +364,16 @@ def summary_cell(issue, comment=True):
     return f'<td class="summary-cell has-cmt" title="{s}"><div class="sum-text">{s}</div>{inp}</td>'
 
 
-def _attn_row(issue, new_keys, extra_cells):
+def _attn_row(issue, new_keys, extra_cells, cmap=None):
     new_cls = ' class="is-new"' if issue['key'] in new_keys else ''
     return (f'<tr{new_cls}{_person_attrs(issue)}><td>{issue_link(issue)}</td>'
             f'<td class="summary-cell" title="{esc(i_summary(issue))}">{esc(i_summary(issue))}</td>'
             f'<td>{esc(display_name(i_assignee(issue)))}</td>'
-            f'<td><span class="status {status_class(i_status(issue))}">{esc(i_status(issue))}</span></td>'
+            f'<td>{_status_badge(issue, cmap)}</td>'
             f'{extra_cells}</tr>')
 
 
-def render_attention(active, new_keys):
+def render_attention(active, new_keys, cmap=None):
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     week_end = today - timedelta(days=today.weekday()) + timedelta(days=7)
 
@@ -382,15 +392,15 @@ def render_attention(active, new_keys):
 
     od_head = '<th>Key</th><th>Summary</th><th>Assignee</th><th>Status</th><th>Due</th><th>Trễ</th>'
     od_body = ''.join(_attn_row(i, new_keys,
-                  f'<td>{esc(i_duedate(i) or "")}</td><td class="days-overdue">{d}d</td>')
+                  f'<td>{esc(i_duedate(i) or "")}</td><td class="days-overdue">{d}d</td>', cmap)
                   for d, i in overdue)
 
     dw_head = '<th>Key</th><th>Summary</th><th>Assignee</th><th>Status</th><th>Due</th>'
-    dw_body = ''.join(_attn_row(i, new_keys, f'<td>{esc(i_duedate(i) or "")}</td>')
+    dw_body = ''.join(_attn_row(i, new_keys, f'<td>{esc(i_duedate(i) or "")}</td>', cmap)
                   for _, i in dueweek)
 
     st_head = '<th>Key</th><th>Summary</th><th>Assignee</th><th>Status</th><th>Kẹt</th>'
-    st_body = ''.join(_attn_row(i, new_keys, f'<td class="days-overdue">{d}d</td>')
+    st_body = ''.join(_attn_row(i, new_keys, f'<td class="days-overdue">{d}d</td>', cmap)
                   for d, i in stuck)
 
     return f"""<div class="section tabbed">
@@ -406,7 +416,7 @@ def render_attention(active, new_keys):
 
 
 # ===== New 24h / Done buckets =====
-def render_new24(new24, new_keys):
+def render_new24(new24, new_keys, cmap=None):
     if not new24:
         return """<div class="section"><h2>🆕 New 24h (self-created by QA) <span class="count">0</span></h2>
         <div class="empty">Không có task mới do team tự tạo trong 24h</div></div>"""
@@ -420,7 +430,7 @@ def render_new24(new24, new_keys):
             <td class="summary-cell" title="{esc(i_summary(issue))}">{esc(i_summary(issue))}</td>
             <td>{esc(display_name(i_reporter(issue)))}</td>
             <td>{esc(display_name(i_assignee(issue)))}</td>
-            <td><span class="status {status_class(i_status(issue))}">{esc(i_status(issue))}</span></td>
+            <td>{_status_badge(issue, cmap)}</td>
             <td>{esc(created)}</td>
         </tr>""")
 
@@ -433,7 +443,7 @@ def render_new24(new24, new_keys):
     </div>"""
 
 
-def render_done_week(done_week, new_keys):
+def render_done_week(done_week, new_keys, cmap=None):
     if not done_week:
         return """<div class="section"><h2>✅ Done (3 ngày) <span class="count">0</span></h2>
         <div class="empty">Chưa có task nào chuyển DONE trong 3 ngày</div></div>"""
@@ -447,7 +457,7 @@ def render_done_week(done_week, new_keys):
             <td>{issue_link(issue)}</td>
             <td class="summary-cell" title="{esc(i_summary(issue))}">{esc(i_summary(issue))}</td>
             <td>{esc(display_name(i_assignee(issue)))}</td>
-            <td><span class="status {status_class(i_status(issue))}">{esc(i_status(issue))}</span></td>
+            <td>{_status_badge(issue, cmap)}</td>
             <td>{esc(done_at)}</td>
         </tr>""")
 
@@ -1029,13 +1039,13 @@ def render_page(data, new_keys, first_run, activities, activity_days=7, roadmap_
 
     if is_admin:
         left_col = (
-            render_done_week(data['done_week'], new_keys) +
-            render_new24(data['new24'], new_keys) +
-            render_attention(data['active'], new_keys)
+            render_done_week(data['done_week'], new_keys, custom_overlay) +
+            render_new24(data['new24'], new_keys, custom_overlay) +
+            render_attention(data['active'], new_keys, custom_overlay)
         )
         right_col = (
             render_charts(data['active']) +          # status chart -> person chart
-            render_workload(data['active'])
+            render_workload(data['active'], custom_overlay)
         )
         body = (
             render_kpis(data['active'], data['new24'], data['done_week'], data['created_week'], data['resolved_week']) +
