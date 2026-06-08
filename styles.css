@@ -779,7 +779,11 @@ html[data-theme="dark"] .qa-toast-err { background: rgba(222,53,11,.15); color: 
 .status-cell { white-space: nowrap; }
 /* badge 1 dòng, full text (không cắt) -> nhất quán mọi block. Cột hẹp thì summary/comment co lại nhường chỗ. */
 .status-cell .status { white-space: nowrap; vertical-align: middle; }
-.status-custom { background: #e9defa; color: #5e3bbf; }
+/* custom status gộp nhiều nhãn -> cắt 1 dòng + … khi quá dài, KHÔNG đẩy/che nút ▾.
+   Full nhãn xem trong tooltip (title) + menu ▾ (tick ✓). */
+.status-custom { background: #e9defa; color: #5e3bbf;
+    max-width: 200px; white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; vertical-align: middle; }
 html[data-theme="dark"] .status-custom { background: rgba(124,77,255,.22); color: #c4b1ff; }
 .ustat-caret { background: none; border: 1px solid #dfe1e6; border-radius: 4px; cursor: pointer; font-size: 11px;
                line-height: 1; padding: 2px 6px; margin-left: 6px; color: #5e6c84; vertical-align: middle; }

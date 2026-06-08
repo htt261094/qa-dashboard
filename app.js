@@ -857,14 +857,17 @@ function patToast(j){   // lỗi no_pat -> popup nhắc thêm PAT (thay vì toas
   var custMap = {};
   (window.QA_CUSTOM_STATUSES || []).forEach(function(p){ custMap[p[0]] = p[1]; });
   var curBtn = null;
-  var inflight = {};   // key -> true khi đang gửi đổi status: chặn double-click cùng task
-  function close(){ menu.hidden = true; menu.innerHTML = ''; curBtn = null; }
+  var curJiraState = null;   // jiraState của menu đang mở (để re-render khi toggle custom)
+  var inflight = {};   // key (+'#'+val cho custom) -> true khi đang gửi: chặn double-click
+  function close(){ menu.hidden = true; menu.innerHTML = ''; curBtn = null; curJiraState = null; }
 
   // Nhóm "Status Jira" = LAZY-FETCH transition khả dụng theo PAT của QA (chỉ status đổi được,
   // không tự thêm). jiraState: null=đang tải · {ok,transitions} · {ok:false,code/msg}.
   // Nhóm "Custom status" = tĩnh, luôn hiện (không cần PAT).
   function renderMenu(btn, jiraState){
-    var curCust = btn.getAttribute('data-cust') || '';
+    curJiraState = jiraState;
+    var curList = (btn.getAttribute('data-cust') || '').split(',').filter(Boolean);
+    var curSet = {}; curList.forEach(function(v){ curSet[v] = 1; });
     var html = '<div class="umenu-grp">Status Jira <span class="umenu-hint">— đổi cả trên Jira</span></div>';
     if (jiraState === null){
       html += '<div class="umenu-load">Đang tải các status đổi được…</div>';
@@ -881,21 +884,20 @@ function patToast(j){   // lỗi no_pat -> popup nhắc thêm PAT (thay vì toas
               + '<span class="umenu-check"></span>' + _escH(t.to) + '</button>';
       });
     }
-    html += '<div class="umenu-grp">Custom status <span class="umenu-hint">— chỉ trên dashboard</span></div>';
+    html += '<div class="umenu-grp">Custom status <span class="umenu-hint">— chỉ dashboard · chọn nhiều</span></div>';
     (window.QA_CUSTOM_STATUSES || []).forEach(function(p){
-      var on = (p[0] === curCust) ? ' umenu-on' : '';
+      var on = curSet[p[0]] ? ' umenu-on' : '';
       html += '<button type="button" class="umenu-item' + on + '" data-kind="cust" data-val="' + p[0] + '">'
-            + '<span class="umenu-check">' + ((p[0] === curCust) ? '✓' : '') + '</span><span class="umenu-dot">●</span> ' + p[1] + '</button>';
+            + '<span class="umenu-check">' + (curSet[p[0]] ? '✓' : '') + '</span><span class="umenu-dot">●</span> ' + p[1] + '</button>';
     });
-    if (curCust) html += '<button type="button" class="umenu-item umenu-clear" data-kind="cust" data-val="">✕ Bỏ custom, về status Jira</button>';
+    if (curList.length) html += '<button type="button" class="umenu-item umenu-clear" data-kind="cust" data-val="">✕ Bỏ hết nhãn, về status Jira</button>';
     menu.innerHTML = html;
     menu.querySelectorAll('.umenu-item').forEach(function(it){
       it.addEventListener('click', function(){
         var kind = it.getAttribute('data-kind'), key = btn.getAttribute('data-key');
-        close();
-        if (kind === 'nopat'){ showPatModal('Bạn cần thêm Personal Access Token (PAT) để đổi status Jira.'); }
-        else if (kind === 'jira'){ doTransition(btn, key, it.getAttribute('data-id'), it.getAttribute('data-to')); }
-        else { setCustom(btn, key, it.getAttribute('data-val')); }
+        if (kind === 'nopat'){ close(); showPatModal('Bạn cần thêm Personal Access Token (PAT) để đổi status Jira.'); }
+        else if (kind === 'jira'){ close(); doTransition(btn, key, it.getAttribute('data-id'), it.getAttribute('data-to')); }
+        else { setCustom(btn, key, it.getAttribute('data-val')); }   // toggle, giữ menu mở
       });
     });
   }
@@ -942,8 +944,11 @@ function patToast(j){   // lỗi no_pat -> popup nhắc thêm PAT (thay vì toas
     var b = cell.querySelector('.status');
     if (!b) return;
     var jira = b2.getAttribute('data-jira') || '', cust = b2.getAttribute('data-cust') || '';
-    if (cust){ b.textContent = '● ' + (custMap[cust] || cust); b.className = 'status status-custom';
-               b.title = 'Custom status (chỉ dashboard) · Jira gốc: ' + jira; }
+    var vals = cust ? cust.split(',').filter(Boolean) : [];
+    if (vals.length){ var labels = vals.map(function(v){ return custMap[v] || v; }).join(', ');
+               b.textContent = '● ' + labels;
+               b.className = 'status status-custom';
+               b.title = 'Nhãn nội bộ (' + vals.length + '): ' + labels + ' · Jira gốc: ' + jira + ' (chỉ dashboard)'; }
     else { b.textContent = jira; b.className = 'status ' + jsStatusClass(jira); b.title = ''; }
   }
 
@@ -957,19 +962,32 @@ function patToast(j){   // lỗi no_pat -> popup nhắc thêm PAT (thay vì toas
     });
   }
 
+  // Toggle 1 nhãn (chọn nhiều). Server trả LIST nhãn mới -> đồng bộ mọi block + giữ menu mở.
   function setCustom(btn, key, val){
-    if (inflight[key]) return;                 // chặn double-click cùng task
-    inflight[key] = true;
+    var fk = key + '#' + val;
+    if (inflight[fk]) return;                  // chặn double-click cùng task+nhãn
+    inflight[fk] = true;
     var pending = showToast(key + ': đang lưu nhãn…', true);
     postJSON('/set-custom-status', { key: key, status: val, summary: '' }, 20000)
       .then(function(j){
         pending.close();
         if (!j.ok){ showToast('Lỗi lưu custom status ' + key, false); return; }
-        applyToAll(key, null, val);            // giữ status Jira, đồng bộ custom mọi block
-        showToast(val ? (key + ': ' + (custMap[val] || val) + ' (chỉ dashboard)') : (key + ': về status Jira'), true);
+        // Server trả list nhãn mới. Nếu thiếu (vd preview stub) -> tự toggle client-side.
+        var vals;
+        if (Array.isArray(j.values)){ vals = j.values; }
+        else {
+          vals = (btn.getAttribute('data-cust') || '').split(',').filter(Boolean);
+          if (val === ''){ vals = []; }
+          else { var idx = vals.indexOf(val); if (idx >= 0) vals.splice(idx, 1); else vals.push(val); }
+        }
+        var joined = vals.join(',');
+        applyToAll(key, null, joined);         // giữ status Jira, đồng bộ custom mọi block
+        if (curBtn === btn && !menu.hidden){ renderMenu(btn, curJiraState); positionMenu(btn); }
+        showToast(joined ? (key + ': ' + vals.map(function(v){ return custMap[v] || v; }).join(', ') + ' (chỉ dashboard)')
+                         : (key + ': về status Jira'), true);
       })
       .catch(function(){ pending.close(); showToast('Lỗi mạng/timeout khi lưu custom status ' + key, false); })
-      .then(function(){ delete inflight[key]; }, function(){ delete inflight[key]; });
+      .then(function(){ delete inflight[fk]; }, function(){ delete inflight[fk]; });
   }
 
   document.addEventListener('click', function(e){
