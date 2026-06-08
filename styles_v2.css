@@ -449,6 +449,29 @@ tr.cmt-row:hover td{background:var(--surface-low)}
             cursor:pointer;color:var(--outline);padding:3px}
 .modal-note{font-size:13px;color:var(--on-surface-variant);line-height:19px}
 
+/* ===== Tạo Sub-task: nút topbar + type-ahead ===== */
+.topcreate{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border:none;cursor:pointer;
+           background:var(--primary);color:var(--on-primary);border-radius:var(--r-md);
+           font-family:inherit;font-size:13px;font-weight:600}
+.topcreate:hover{background:var(--primary-strong)}
+.typeahead{position:relative}
+.ta-results{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:5;background:var(--card);
+            border:1px solid var(--outline-variant);border-radius:var(--r-md);box-shadow:var(--shadow);
+            max-height:240px;overflow-y:auto;display:none}
+.ta-results.open{display:block}
+.ta-opt{padding:8px 11px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--divider)}
+.ta-opt:last-child{border-bottom:none}
+.ta-opt:hover,.ta-opt.act{background:var(--surface-low)}
+.ta-opt b{color:var(--primary-strong);font-weight:700;margin-right:6px}
+.ta-opt small{display:block;color:var(--on-surface-variant);font-size:11px;margin-top:2px}
+.ta-empty{padding:9px 11px;font-size:12px;color:var(--on-surface-variant)}
+.ta-chip{display:flex;align-items:center;gap:8px;margin-top:7px;padding:6px 10px;background:var(--primary-tint);
+         border:1px solid var(--outline-variant);border-radius:var(--r-md);font-size:13px}
+.ta-chip b{color:var(--primary-strong)}
+.ta-chip .ta-x{margin-left:auto;cursor:pointer;background:none;border:none;color:var(--outline);
+               display:flex;align-items:center;padding:2px}
+.ta-chip .ta-x:hover{color:var(--error)}
+
 /* ===== Toast ===== */
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--on-surface);
        color:var(--card);padding:11px 18px;border-radius:var(--r-md);font-size:13px;font-weight:500;

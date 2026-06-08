@@ -1125,6 +1125,8 @@ def render_topbar_v2():
         '<div class="search"><span class="si material-symbols-rounded mi-sm">search</span>'
         '<input type="text" id="searchInp" placeholder="Tìm task, kế hoạch..."></div>'
         '<div class="top-right">'
+        '<button class="topcreate" id="createSubBtn" title="Tạo sub-task QA dưới 1 Task-PTSP">'
+        '<span class="material-symbols-rounded mi-sm">add</span> Tạo Sub-task</button>'
         '<button class="iconbtn" id="bellBtn" title="Thông báo">'
         '<span class="material-symbols-rounded mi-lg">notifications</span>'
         '<span class="badge-dot" id="bellDot" style="display:none">0</span></button>'
@@ -1162,6 +1164,45 @@ def _settings_modal_v2():
     )
 
 
+def _subtask_modal_v2():
+    """Modal tạo Sub-task QA dưới 1 Task-PTSP (dùng chung mọi trang v2).
+    Parent + Leader = type-ahead (gọi /search-parents, /search-people); assignee =
+    dropdown 5 QA; start date default hôm nay. JS điều khiển trong app_v2.js."""
+    today = datetime.now().strftime('%Y-%m-%d')
+    opts = '<option value="">— Không gán —</option>'
+    for u in USERS:
+        opts += f'<option value="{esc(u)}">{esc(display_name(u))}</option>'
+    return (
+        '<div class="overlay" id="subOverlay"><div class="modal">'
+        '<div class="modal-head"><span class="material-symbols-rounded">add_task</span>'
+        '<h3>Tạo Sub-task</h3>'
+        '<button type="button" class="x material-symbols-rounded" id="subClose">close</button></div>'
+        '<div class="modal-body">'
+        '<div class="mfield"><label>Task cha — Task-PTSP *</label>'
+        '<div class="typeahead" id="subParentTA">'
+        '<input type="text" id="subParentInp" placeholder="Gõ key hoặc tên Task-PTSP…" autocomplete="off" spellcheck="false">'
+        '<div class="ta-results" id="subParentRes"></div></div>'
+        '<div class="ta-chip" id="subParentChip" style="display:none"></div></div>'
+        '<div class="mfield"><label>Tiêu đề *</label>'
+        '<input type="text" id="subSummary" placeholder="Nội dung sub-task…" autocomplete="off"></div>'
+        '<div class="mfield row2">'
+        f'<div><label>Ngày bắt đầu *</label><input type="date" id="subStart" value="{today}"></div>'
+        '<div><label>Hạn chót *</label><input type="date" id="subDue"></div>'
+        '</div>'
+        f'<div class="mfield"><label>Người xử lý</label><select id="subAssignee">{opts}</select></div>'
+        '<div class="mfield"><label>Leader</label>'
+        '<div class="typeahead" id="subLeaderTA">'
+        '<input type="text" id="subLeaderInp" placeholder="Gõ tên leader…" autocomplete="off" spellcheck="false">'
+        '<div class="ta-results" id="subLeaderRes"></div></div>'
+        '<div class="ta-chip" id="subLeaderChip" style="display:none"></div></div>'
+        '</div>'
+        '<div class="modal-foot">'
+        '<button type="button" class="btn btn-ghost" id="subCancel">Huỷ</button>'
+        '<button type="button" class="btn btn-primary" id="subCreate">Tạo sub-task</button>'
+        '</div></div></div>'
+    )
+
+
 def _document_v2(content_inner, active, user, activities, title='QA Suite'):
     """Shell sidebar Material-3 cho dashboard QA + roadmap. Inline styles_v2.css + app_v2.js.
     `activities` = feed (đã lọc dismissed) cho chuông notif (embed JSON #qaNotif)."""
@@ -1177,6 +1218,7 @@ def _document_v2(content_inner, active, user, activities, title='QA Suite'):
 <div class="main">{render_topbar_v2()}
 <div class="content">{content_inner}</div></div></div>
 {_settings_modal_v2()}
+{_subtask_modal_v2()}
 <div class="toast" id="toast"></div>
 {_json_script('qaNotif', activities)}
 <script>{load_js_v2()}</script>
