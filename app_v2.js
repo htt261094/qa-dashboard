@@ -1529,8 +1529,6 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   renderTable();
 })();
 
-})();
-
 // ---------- Tạo Sub-task (modal type-ahead, dùng chung mọi trang v2) ----------
 (function(){
   var ov = $('subOverlay'); if(!ov) return;
@@ -1621,4 +1619,6 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       })
       .catch(function(){ createBtn.disabled=false; toast('Lỗi mạng khi tạo sub-task', false); });
   });
+})();
+
 })();
