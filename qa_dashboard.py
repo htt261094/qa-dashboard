@@ -14,7 +14,7 @@ from http.cookies import SimpleCookie
 from urllib.parse import urlparse, parse_qs
 
 from config import (JIRA_URL, USERS, PORT, STATE_FILE, ADMIN_EMAIL, ALLOWED_DOMAIN,
-                    AUTH_ENABLED, display_name, username_from_email)
+                    AUTH_ENABLED, SELF_USER, display_name, username_from_email)
 from auth import (SESSION_COOKIE, STATE_COOKIE, SESSION_TTL, STATE_TTL,
                   login_url, exchange_code, email_allowed, email_from_session,
                   make_session_token, make_state_token, state_valid)
@@ -27,7 +27,7 @@ from roadmap import load_roadmap, save_roadmap, valid_roadmap
 from pat_store import save_user_pat, has_pat, delete_user_pat, load_user_pat
 from custom_status import (load_bundle, set_custom_status, is_valid)
 from jira_write import get_transitions, do_transition, add_comment
-from render import (render_page, render_report_page, render_docs_page,
+from render import (render_page, render_qa_v2, render_report_page, render_docs_page,
                     render_roadmap_v2, render_settings_page, render_error_page, render_403)
 
 ACTIVITY_DAYS = 7  # cửa sổ activity feed kéo từ Jira changelog
@@ -109,6 +109,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         email = self._user_email()
         return (email, self._is_admin()) if email else None
 
+    def _self_username(self):
+        """Jira username của chính người đăng nhập (cho tab My work). Local dev /
+        admin-email-không-trong-USERS -> SELF_USER (default thanhht1)."""
+        return username_from_email(self._user_email()) or username_from_email(ADMIN_EMAIL) or SELF_USER
+
     def _forbidden(self):
         # Trang 403 tối giản — KHÔNG lộ domain/điều kiện được phép (giấu thông tin).
         self.send_response(403)
@@ -179,6 +184,33 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         if not self._domain_ok():
             self._forbidden()
+            return
+        if self.path in ('/my-work', '/my-work.html'):
+            # Việc của tôi = lens cá nhân của admin (task của chính mình). QA thường KHÔNG
+            # cần (dashboard `/` của họ đã auto-scope về chính họ) -> đá về dashboard.
+            if not self._is_admin():
+                self._redirect('/')
+                return
+            email = self._user_email()
+            scope = self._self_username()
+            try:
+                res = run_parallel({
+                    'data': lambda: fetch_all(scope),
+                    'feed': lambda: fetch_activity_feed(days=ACTIVITY_DAYS, scope_user=scope),
+                    'dismissed': lambda: load_dismissed(email),
+                    'custom': lambda: load_bundle(scope, ACTIVITY_DAYS),
+                })
+                data, feed, dismissed = res['data'], res['feed'], res['dismissed']
+                overlay, cust_act = res['custom']
+                new_keys, _first_run = _build_view(data, scope)
+                merged = sorted(feed + cust_act, key=lambda a: a.get('when') or '', reverse=True)
+                unread = [a for a in merged if a['id'] not in dismissed]
+                # UI hệt QA member (render_qa_v2), chỉ highlight tab "Việc của tôi" ở sidebar
+                html_out = render_qa_v2(data, new_keys, unread, overlay,
+                                        self._user_ctx(), nav_active='mywork')
+            except RuntimeError as e:
+                html_out = render_error_page(str(e))
+            self._html(html_out)
             return
         if self.path in ('/report', '/report.html'):
             # Báo cáo tuần = toàn team -> CHỈ admin. QA thường đá về dashboard.

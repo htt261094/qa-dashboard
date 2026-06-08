@@ -592,10 +592,13 @@ def render_nav(active, user=None):
             '</div></div>'
         )
     # admin (hoặc local dev user=None) thấy đủ; QA thường KHÔNG thấy Báo cáo tuần (toàn team)
+    # + "Việc của tôi" (QA `/` đã là lens cá nhân nên không cần tab riêng)
     is_admin = user[1] if (user and len(user) > 1) else True
+    mywork_tab = tab('/my-work', 'mywork', '🙋 Việc của tôi') if is_admin else ''
     report_tab = tab('/report', 'report', '📋 Báo cáo tuần') if is_admin else ''
     return ('<nav class="topnav">'
             + tab('/', 'dashboard', '📊 Tổng quan')
+            + mywork_tab
             + report_tab
             + tab('/roadmap', 'roadmap', '🗺 Roadmap')
             + tab('/docs', 'docs', '📚 Tài liệu')
@@ -1232,6 +1235,7 @@ def render_sidebar_v2(active, user):
 
     nav = lnk('/', 'dashboard', 'space_dashboard', 'Dashboard')
     if is_admin:
+        nav += lnk('/my-work', 'mywork', 'person', 'Việc của tôi')
         nav += lnk('/report', 'report', 'summarize', 'Báo cáo tuần')
     nav += lnk('/roadmap', 'roadmap', 'map', 'Roadmap')
     nav += lnk('/docs', 'docs', 'description', 'Tài liệu')
@@ -1326,7 +1330,9 @@ def _document_v2(content_inner, active, user, activities, title='QA Suite'):
 
 
 # ===== Dashboard QA v2 (lens cá nhân — 1 bảng + tabs + KPI + drawer) =====
-def render_qa_v2(data, new_keys, activities, cmap, user):
+# Dùng chung cho QA member (`/`, nav_active='dashboard') và admin xem việc mình
+# (`/my-work`, nav_active='mywork') — UI hệt nhau, chỉ khác tab sidebar được highlight.
+def render_qa_v2(data, new_keys, activities, cmap, user, nav_active='dashboard'):
     active = data['active']
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     week_start = today - timedelta(days=today.weekday())
@@ -1396,7 +1402,7 @@ def render_qa_v2(data, new_keys, activities, cmap, user):
         + _json_script('qaData', {'tasks': tasks, 'meta': meta})
         + f'<script>window.QA_CUSTOM_STATUSES={json.dumps(CUSTOM_STATUSES, ensure_ascii=False)};</script>'
     )
-    return _document_v2(content, 'dashboard', user, activities, title='QA Dashboard — Việc của tôi')
+    return _document_v2(content, nav_active, user, activities, title='QA Dashboard — Việc của tôi')
 
 
 # ===== Roadmap v2 (plan › task › sub-task, schema Stitch) =====
