@@ -302,6 +302,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except RuntimeError:
                 self._json(400, b'{"ok":false,"msg":"loi"}')
             return
+        if path == '/has-pat':
+            # FE check trước khi mở form tạo sub-task: chưa có PAT -> mở luôn modal Cài đặt PAT.
+            # Lỗi Jira -> bỏ qua (ok=false) để FE vẫn mở form, backend /create-subtask tự chặn.
+            try:
+                self._json(200, json.dumps(
+                    {'ok': True, 'hasPat': has_pat(self._user_email())}).encode('utf-8'))
+            except RuntimeError:
+                self._json(200, b'{"ok":false}')
+            return
         if path == '/search-parents':
             # type-ahead Task-PTSP cho form tạo sub-task. Read-only PAT chung.
             q = (parse_qs(urlparse(self.path).query).get('q') or [''])[0]

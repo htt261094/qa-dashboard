@@ -9,8 +9,6 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
-import re
-
 from config import JIRA_URL, PAT, USERS, TASK_PTSP_TYPE_ID, actor_name
 from issues import parse_date
 
@@ -206,28 +204,35 @@ def fetch_activity_feed(days=7, cap=300, max_issues=120, scope_user=None):
     return result
 
 
+def _ptsp_index():
+    """Toàn bộ Task-PTSP (key+summary+project), cache TTL 2 phút. 1 call/2p; mọi keystroke
+    của type-ahead filter in-memory. JQL không wildcard được trên key -> phải fetch rồi lọc
+    substring trong Python (gõ '2717' khớp PSIT1H26-2717)."""
+    cached, hit = _cache_get('ptsp_index')
+    if hit:
+        return cached
+    issues = _jira_request(f'issuetype = {TASK_PTSP_TYPE_ID} ORDER BY updated DESC',
+                           1000, fields='summary,project').get('issues', [])
+    idx = [{'key': i['key'], 'summary': (i.get('fields', {}).get('summary') or ''),
+            'project': (i.get('fields', {}).get('project') or {}).get('key') or ''}
+           for i in issues]
+    _cache_set('ptsp_index', idx)
+    return idx
+
+
 def search_parent_ptsp(query, limit=20):
     """Tìm Task-PTSP làm parent cho sub-task (form tạo sub-task). Read-only, PAT chung.
-    Trả [{key, summary, project}]. Query sanitize để không phá JQL; lỗi JQL -> []."""
-    q = (query or '').strip()
-    # bỏ ký tự phá string-literal JQL
-    safe = q.replace('\\', '').replace('"', '').replace("'", '').strip()
-    if len(safe) < 2:
+    Khớp substring trên key HOẶC summary (case-insensitive) — gõ '2717' ra mọi key chứa
+    2717, không cần gõ đủ 'PSIT1H26-2717'. Trả [{key, summary, project}]."""
+    q = (query or '').strip().lower()
+    if len(q) < 2:
         return []
-    clauses = [f'text ~ "{safe}*"']
-    if re.match(r'^[A-Za-z0-9]+-\d+$', safe):
-        clauses.append(f'key = "{safe}"')
-    jql = (f'issuetype = {TASK_PTSP_TYPE_ID} AND ({" OR ".join(clauses)}) '
-           'ORDER BY updated DESC')
-    try:
-        issues = _jira_request(jql, limit, fields='summary,project').get('issues', [])
-    except RuntimeError:
-        return []   # query thành JQL không hợp lệ (reserved word...) -> không gợi ý
     out = []
-    for iss in issues:
-        f = iss.get('fields', {})
-        out.append({'key': iss['key'], 'summary': f.get('summary') or '',
-                    'project': (f.get('project') or {}).get('key') or ''})
+    for it in _ptsp_index():
+        if q in it['key'].lower() or q in it['summary'].lower():
+            out.append(it)
+            if len(out) >= limit:
+                break
     return out
 
 
