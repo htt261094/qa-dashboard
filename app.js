@@ -945,9 +945,10 @@ function patToast(j){   // lỗi no_pat -> popup nhắc thêm PAT (thay vì toas
     if (!b) return;
     var jira = b2.getAttribute('data-jira') || '', cust = b2.getAttribute('data-cust') || '';
     var vals = cust ? cust.split(',').filter(Boolean) : [];
-    if (vals.length){ b.textContent = '● ' + vals.map(function(v){ return custMap[v] || v; }).join(', ');
+    if (vals.length){ var labels = vals.map(function(v){ return custMap[v] || v; }).join(', ');
+               b.textContent = '● ' + labels;
                b.className = 'status status-custom';
-               b.title = 'Custom status (chỉ dashboard) · Jira gốc: ' + jira; }
+               b.title = 'Nhãn nội bộ (' + vals.length + '): ' + labels + ' · Jira gốc: ' + jira + ' (chỉ dashboard)'; }
     else { b.textContent = jira; b.className = 'status ' + jsStatusClass(jira); b.title = ''; }
   }
 

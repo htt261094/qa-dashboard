@@ -331,8 +331,10 @@ def _status_badge(issue, cmap=None):
     cur = values_of((cmap or {}).get(issue['key']))
     if cur:
         labels = ', '.join(label_of(v) for v in cur)
+        # tooltip liệt kê ĐỦ nhãn (badge có thể bị cắt … khi nhiều) + status Jira gốc
+        tip = esc(f'Nhãn nội bộ ({len(cur)}): {labels} · Jira gốc: {st} (chỉ dashboard)')
         return (f'<span class="status status-custom" '
-                f'title="Custom status (chỉ dashboard) · Jira gốc: {jira_esc}">● {esc(labels)}</span>')
+                f'title="{tip}">● {esc(labels)}</span>')
     return f'<span class="status {status_class(st)}">{jira_esc}</span>'
 
 
