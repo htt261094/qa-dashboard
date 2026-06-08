@@ -224,9 +224,9 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       tbody.innerHTML=html;
 
       var ph='<span class="pager-summary">'+(start+1)+'–'+(start+slice.length)+' / '+total+' task · trang '+curPage+'/'+pages+'</span>'
-        +'<div class="pager-nav"><button class="pager-btn"'+(curPage<=1?' disabled':'')+' data-pg="-1"><span class="material-symbols-rounded mi-xs">chevron_left</span></button>';
+        +'<div class="pager-nav"><button class="pager-btn"'+(curPage<=1?' disabled':'')+' data-pg="'+(curPage-1)+'"><span class="material-symbols-rounded mi-xs">chevron_left</span></button>';
       for(var i=1;i<=pages;i++) ph+='<button class="pager-page'+(i===curPage?' active':'')+'" data-pg="'+i+'">'+i+'</button>';
-      ph+='<button class="pager-btn"'+(curPage>=pages?' disabled':'')+' data-pg="'+(pages+1)+'"><span class="material-symbols-rounded mi-xs">chevron_right</span></button></div>';
+      ph+='<button class="pager-btn"'+(curPage>=pages?' disabled':'')+' data-pg="'+(curPage+1)+'"><span class="material-symbols-rounded mi-xs">chevron_right</span></button></div>';
       $('pager').innerHTML=ph;
     }
 
@@ -235,11 +235,11 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       TASKS.forEach(function(t){
         if(!memberMatch(t)||!searchMatch(t)) return;
         if(t.isNew) counts['new']++;
-        else if(t.overdue) counts.overdue++;
-        else if(t.stuck) counts.stuck++;
-        else if(t.jira==='TO DO') counts.todo++;
-        else if(t.jira==='In Progress'||t.jira==='PENDING') counts.progress++;
-        else if(t.jira.toUpperCase()==='DONE') counts.done++;
+        if(t.overdue) counts.overdue++;
+        if(t.stuck) counts.stuck++;
+        if(t.jira==='TO DO' && !t.isNew && !t.overdue) counts.todo++;
+        if((t.jira==='In Progress'||t.jira==='PENDING') && !t.stuck && !t.overdue) counts.progress++;
+        if(t.jira.toUpperCase()==='DONE') counts.done++;
       });
       ['todo','progress','new','stuck','overdue','done'].forEach(function(k){
         var el=$('count-'+k); if(el) el.textContent=counts[k];
@@ -293,8 +293,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     // Pager clicks
     $('pager').addEventListener('click', function(e){
       var b=e.target.closest('[data-pg]'); if(!b) return;
-      var v=parseInt(b.getAttribute('data-pg'),10);
-      if(v===-1) curPage--; else if(v>curPage) curPage=v; else curPage=v;
+      curPage=parseInt(b.getAttribute('data-pg'),10);
       renderRows();
     });
 
