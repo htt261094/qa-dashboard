@@ -204,9 +204,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 overlay, cust_act = res['custom']
                 new_keys, _first_run = _build_view(data, scope)
                 merged = sorted(feed + cust_act, key=lambda a: a.get('when') or '', reverse=True)
-                unread = [a for a in merged if a['id'] not in dismissed]
+                for a in merged:
+                    a['is_unread'] = a['id'] not in dismissed
                 # UI hệt QA member (render_qa_v2), chỉ highlight tab "Việc của tôi" ở sidebar
-                html_out = render_qa_v2(data, new_keys, unread, overlay,
+                html_out = render_qa_v2(data, new_keys, merged, overlay,
                                         self._user_ctx(), nav_active='mywork')
             except RuntimeError as e:
                 html_out = render_error_page(str(e))
@@ -242,9 +243,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     'feed': lambda: fetch_activity_feed(days=ACTIVITY_DAYS, scope_user=uname),
                     'dismissed': lambda: load_dismissed(email),
                 })
-                acts = [a for a in res['feed'] if a['id'] not in res['dismissed']]
+                feed = res['feed']
+                dismissed = res['dismissed']
+                for a in feed:
+                    a['is_unread'] = a['id'] not in dismissed
                 self._html(render_roadmap_v2(res['roadmap'], editable=self._is_admin(),
-                                             user=self._user_ctx(), activities=acts))
+                                             user=self._user_ctx(), activities=feed))
             except RuntimeError as e:
                 self._html(render_error_page(str(e)))
             return
@@ -296,10 +300,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             data, feed, dismissed = res['data'], res['feed'], res['dismissed']
             overlay, cust_act = res['custom']
             new_keys, first_run = _build_view(data, scope)
-            # gộp custom-status events vào feed Jira, sort mới->cũ, rồi lọc unread
+            # gộp custom-status events vào feed Jira, sort mới->cũ
             merged = sorted(feed + cust_act, key=lambda a: a.get('when') or '', reverse=True)
-            unread = [a for a in merged if a['id'] not in dismissed]
-            html_out = render_page(data, new_keys, first_run, unread, ACTIVITY_DAYS,
+            for a in merged:
+                a['is_unread'] = a['id'] not in dismissed
+            html_out = render_page(data, new_keys, first_run, merged, ACTIVITY_DAYS,
                                    roadmap_data=load_roadmap(), user=self._user_ctx(),
                                    custom_overlay=overlay)
         except RuntimeError as e:

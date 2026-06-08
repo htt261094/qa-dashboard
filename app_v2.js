@@ -108,8 +108,10 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       case 'custom_status': return w+' gắn nhãn '+k+': '+esc(n.new||'');
       default: return w+' cập nhật '+k;
     } }
-  function visible(){ var l=NOTIFS.slice().sort(function(a,b){ return minsAgo(a.when)-minsAgo(b.when); });
-    return filter==='unread' ? l : l; }   // server chỉ gửi chưa-đọc -> all == unread
+  function visible(){
+    var l=NOTIFS.slice().sort(function(a,b){ return minsAgo(a.when)-minsAgo(b.when); });
+    return filter==='unread' ? l.filter(function(n){ return n.is_unread; }) : l;
+  }
   function render(){
     var l=visible();
     list.innerHTML = l.length ? l.map(function(n){
@@ -118,18 +120,21 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       var rsn = n.mention ? '<span class="nrsn mention">Được nhắc</span>'
                           : '<span class="nrsn watch">Đang theo dõi</span>';
       var snip = n.body ? '<div class="nsnip">"'+esc(n.body)+'"</div>' : '';
-      return '<div class="notif-item unread" data-actid="'+esc(n.id)+'" data-key="'+esc(n.key)+'">'
+      var unreadCls = n.is_unread ? ' unread' : '';
+      var dotHtml = n.is_unread ? '<span class="ndot"></span>' : '';
+      return '<div class="notif-item'+unreadCls+'" data-actid="'+esc(n.id)+'" data-key="'+esc(n.key)+'">'
         +'<span class="nav-wrap"><span class="av '+av+'">'+esc(initOf(n.author))+'</span>'
         +'<span class="nkind '+kindCls(n)+' material-symbols-rounded">'+ic+'</span></span>'
         +'<div class="ncontent"><div class="nt">'+ntext(n)+'</div>'+snip
         +'<div class="nmeta">'+rsn+'<span class="ntime">'+timeAgo(minsAgo(n.when))+'</span></div></div>'
-        +'<span class="ndot"></span></div>';
+        +dotHtml+'</div>';
     }).join('') : '<div class="notif-empty">Không có thông báo mới 🎉</div>';
-    if(dot){ if(NOTIFS.length){ dot.style.display='flex'; dot.textContent=NOTIFS.length>99?'99+':NOTIFS.length; }
+    var unreadCount = NOTIFS.filter(function(n){ return n.is_unread; }).length;
+    if(dot){ if(unreadCount){ dot.style.display='flex'; dot.textContent=unreadCount>99?'99+':unreadCount; }
              else dot.style.display='none'; }
   }
-  function removeIds(ids){ var set={}; ids.forEach(function(i){ set[i]=1; });
-    NOTIFS = NOTIFS.filter(function(n){ return !set[n.id]; }); render(); }
+  function markRead(ids){ var set={}; ids.forEach(function(i){ set[i]=1; });
+    NOTIFS.forEach(function(n){ if(set[n.id]) n.is_unread=false; }); render(); }
   bell.addEventListener('click', function(e){ e.stopPropagation(); notif.classList.toggle('open');
     var m=$('pmenu'); if(m) m.classList.remove('open'); });
   document.addEventListener('click', function(e){
@@ -138,18 +143,24 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     filter=b.getAttribute('data-nf'); document.querySelectorAll('.nf-tab').forEach(function(x){
       x.classList.toggle('active', x===b); }); render(); }); });
   var all=$('notifReadAll');
-  if(all) all.addEventListener('click', function(){ if(!NOTIFS.length) return;
-    var ids=NOTIFS.map(function(n){ return n.id; });
+  if(all) all.addEventListener('click', function(){
+    var unreads = NOTIFS.filter(function(n){ return n.is_unread; });
+    if(!unreads.length) return;
+    var ids=unreads.map(function(n){ return n.id; });
     postJSON('/dismiss', { ids: ids }, 20000).catch(function(){});
-    removeIds(ids); toast('Đã đánh dấu tất cả đã đọc', true); });
+    markRead(ids); toast('Đã đánh dấu tất cả đã đọc', true); });
   list.addEventListener('click', function(e){
     var it=e.target.closest('.notif-item'); if(!it) return;
     var id=it.getAttribute('data-actid'), key=it.getAttribute('data-key');
-    postJSON('/dismiss', { ids: [id] }, 20000).catch(function(){});
-    removeIds([id]); notif.classList.remove('open');
+    var isUnread = it.classList.contains('unread');
+    if(isUnread){
+      postJSON('/dismiss', { ids: [id] }, 20000).catch(function(){});
+      markRead([id]);
+    }
+    notif.classList.remove('open');
     if(window.__openDetail) window.__openDetail(key);   // dashboard -> drawer
     else if(window.__jiraBase) window.open(window.__jiraBase+'/browse/'+key, '_blank');
-    else toast('Đã đánh dấu đã đọc '+key, true); });
+    else toast('Đã đọc thông báo '+key, true); });
   render();
 })();
 
