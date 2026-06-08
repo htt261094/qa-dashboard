@@ -18,7 +18,7 @@ from config import (JIRA_URL, USERS, PORT, STATE_FILE, ADMIN_EMAIL, ALLOWED_DOMA
 from auth import (SESSION_COOKIE, STATE_COOKIE, SESSION_TTL, STATE_TTL,
                   login_url, exchange_code, email_allowed, email_from_session,
                   make_session_token, make_state_token, state_valid)
-from jira_api import (fetch_all, fetch_lines, fetch_activity_feed, load_dismissed,
+from jira_api import (fetch_all, fetch_activity_feed, load_dismissed,
                       dismiss_activities, run_parallel, fetch_issue_detail)
 from state import load_snapshots, save_snapshots, build_snapshot
 from pic import save_pic
@@ -27,7 +27,7 @@ from roadmap import load_roadmap, save_roadmap, valid_roadmap
 from pat_store import save_user_pat, has_pat, delete_user_pat, load_user_pat
 from custom_status import (load_bundle, set_custom_status, is_valid)
 from jira_write import get_transitions, do_transition, add_comment
-from render import (render_page, render_qa_v2, render_report_page, render_docs_page,
+from render import (render_page, render_qa_v2, render_docs_page,
                     render_roadmap_v2, render_settings_page, render_error_page, render_403)
 
 ACTIVITY_DAYS = 7  # cửa sổ activity feed kéo từ Jira changelog
@@ -213,19 +213,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 html_out = render_error_page(str(e))
             self._html(html_out)
             return
-        if self.path in ('/report', '/report.html'):
-            # Báo cáo tuần = toàn team -> CHỈ admin. QA thường đá về dashboard.
-            if not self._is_admin():
-                self._redirect('/')
-                return
-            # read-only weekly report: fresh pull, but do NOT mutate activity state
-            try:
-                rep = run_parallel({'data': fetch_all, 'lines': fetch_lines})
-                html_out = render_report_page(rep['data'], rep['lines'], user=self._user_ctx())
-            except RuntimeError as e:
-                html_out = render_error_page(str(e))
-            self._html(html_out)
-            return
+
         if self.path in ('/docs', '/docs.html'):
             # tài liệu training: load từ Jira property (sync chéo máy), fallback cache local
             try:

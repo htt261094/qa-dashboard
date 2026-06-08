@@ -119,7 +119,7 @@ def _patch(html, home_file, has_pat=True, extra='', seed='{}'):
     html = html.replace('</body>', _BANNER + extra + '</body>', 1)
     html = html.replace('href="/settings"', 'href="preview_settings.html"')
     html = html.replace('href="/"', f'href="{home_file}"')
-    for h in ('href="/report"', 'href="/roadmap"', 'href="/docs"', 'href="/logout"'):
+    for h in ('href="/roadmap"', 'href="/docs"', 'href="/logout"'):
         html = html.replace(h, 'href="#"')
     return html
 
