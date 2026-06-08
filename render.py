@@ -69,7 +69,7 @@ def render_kpis(active, new24, done_week, created_week, resolved_week):
 
 
 # ===== Activity stream (feed từ Jira changelog; dismiss đồng bộ qua Jira user property) =====
-def render_activities(activities, days=7):
+def render_activities(activities, days=7, summary_map=None):
     if not activities:
         return ('<div class="section act-stream" id="actStream"><h2>🔔 Hoạt động <span class="count">0</span></h2>'
                 f'<div class="empty">Không có hoạt động chưa đọc trong {days} ngày qua.</div></div>')
@@ -116,7 +116,10 @@ def render_activities(activities, days=7):
     blocks = []
     for k in order:
         items = sorted(groups[k], key=lambda a: a.get('when') or '')  # timeline cũ -> mới
-        sm = esc(next((it.get('summary') for it in items if it.get('summary')), ''))
+        # summary lưu trong activity (rỗng với record cũ / custom status) -> fallback tra
+        # từ data Jira hiện tại (summary_map) để header luôn có title.
+        sm = esc(next((it.get('summary') for it in items if it.get('summary')), '')
+                 or (summary_map or {}).get(k, ''))
         link = f'<a href="{JIRA_URL}/browse/{esc(k)}" target="_blank" class="key">{esc(k)}</a>'
         rows = ''
         for a in items:
@@ -945,6 +948,9 @@ def _p_base(issue, new_keys):
 
 def render_personal(data, new_keys, activities, activity_days, cmap=None):
     active = data['active']
+    summary_map = {i['key']: i_summary(i)
+                   for bucket in (data['active'], data['new24'], data['done_week'])
+                   for i in bucket}
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     week_end = today - timedelta(days=today.weekday()) + timedelta(days=7)
 
@@ -1031,7 +1037,7 @@ def render_personal(data, new_keys, activities, activity_days, cmap=None):
     return (
         render_kpis_personal(active, done) +
         alerts +
-        f'<div class="eqrow eqrow-2">{ip}{render_activities(activities, activity_days)}</div>' +
+        f'<div class="eqrow eqrow-2">{ip}{render_activities(activities, activity_days, summary_map)}</div>' +
         f'<div class="eqrow eqrow-2">{td}{dn}</div>'
     )
 
@@ -1041,6 +1047,12 @@ def render_page(data, new_keys, first_run, activities, activity_days=7, roadmap_
                 user=None, custom_overlay=None):
     fetched = data['fetched_at'].strftime('%Y-%m-%d %H:%M:%S')
     is_admin = user[1] if (user and len(user) > 1) else True
+
+    # key -> summary từ data Jira hiện tại: fallback title cho activity thiếu summary
+    # (record cũ / custom status). Gộp mọi bucket.
+    summary_map = {i['key']: i_summary(i)
+                   for bucket in (data['active'], data['new24'], data['done_week'])
+                   for i in bucket}
 
     if is_admin:
         left_col = (
@@ -1055,7 +1067,7 @@ def render_page(data, new_keys, first_run, activities, activity_days=7, roadmap_
         body = (
             render_kpis(data['active'], data['new24'], data['done_week'], data['created_week'], data['resolved_week']) +
             render_roadmap_alerts(roadmap_data) +
-            render_activities(activities, activity_days) +
+            render_activities(activities, activity_days, summary_map) +
             render_filterbar() +
             f'<div class="grid-2col"><div class="col">{left_col}</div>'
             f'<div class="col">{right_col}</div></div>'

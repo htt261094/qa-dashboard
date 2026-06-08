@@ -156,7 +156,8 @@ def fetch_activity_feed(days=7, cap=300, max_issues=120, scope_user=None):
             hc = parse_date(h.get('created'))
             if not hc or hc < start:
                 continue
-            who = actor_name(h.get('author'))
+            author_obj = h.get('author') or {}
+            who = actor_name(author_obj)
             for it in h.get('items', []):
                 fid = (it.get('fieldId') or it.get('field') or '').lower().replace(' ', '')
                 if fid not in _ACT_FIELDS:
@@ -170,13 +171,21 @@ def fetch_activity_feed(days=7, cap=300, max_issues=120, scope_user=None):
                     a['old'] = it.get('fromString') or '—'
                     a['new'] = it.get('toString') or '—'
                 elif fid == 'assignee':
+                    # Tự giao task cho CHÍNH MÌNH = nhiễu -> bỏ. Chỉ giữ khi giao cho người khác.
+                    # So danh tính người đổi (author) vs assignee mới qua key/name/displayName
+                    # (author hiển thị tên ngắn, assignee có thể là displayName -> không so chuỗi đã resolve).
+                    to_key, to_str = it.get('to'), it.get('toString')
+                    if to_key and (to_key == author_obj.get('key')
+                                   or to_key == author_obj.get('name')
+                                   or (to_str and to_str == author_obj.get('displayName'))):
+                        continue
                     # Jira DC: from/to = user KEY (account mới = "JIRAUSER10220" ẩn danh),
                     # fromString/toString = tên hiển thị. Resolve qua actor_name để QA ra tên
                     # ngắn (key == username) và người khác ra displayName, KHÔNG lòi key thô.
                     a['old'] = (actor_name({'name': it.get('from'), 'displayName': it.get('fromString')})
                                 if it.get('from') else 'Chưa giao')
-                    a['new'] = (actor_name({'name': it.get('to'), 'displayName': it.get('toString')})
-                                if it.get('to') else 'Chưa giao')
+                    a['new'] = (actor_name({'name': to_key, 'displayName': to_str})
+                                if to_key else 'Chưa giao')
                 acts.append(a)
         for c in ((f.get('comment') or {}).get('comments') or []):
             cc = parse_date(c.get('created'))
