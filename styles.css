@@ -363,6 +363,7 @@ html[data-theme="dark"] .docm-close { color: var(--muted); }
 .rm-tbtn:hover { background: #ebecf0; }
 .rm-legend { display: flex; gap: 6px; flex-wrap: wrap; }
 .rm-lg { font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+.rm-lg-n { font-weight: 700; }
 .rm-empty { color: #6b778c; font-size: 13px; padding: 14px 4px; }
 .rm-phase { border: 1px solid #ebecf0; border-radius: 6px; margin-bottom: 12px; overflow: hidden; }
 .rm-fold > summary, .rm-ifold > summary { list-style: none; cursor: pointer; }

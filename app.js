@@ -598,6 +598,24 @@ function toggleStories(btn){
     var pct = total ? Math.round(done / total * 100) : 0;
     ph.querySelector('.rm-sum-txt').textContent = done + '/' + total + ' xong';
     ph.querySelector('.rm-sum-bar > i').style.width = pct + '%';
+    updateLegend();
+  }
+  var legend = document.querySelector('.rm-legend');
+  function updateLegend(){               // đếm task theo status (leaf: sub-task, hoặc mục không sub-task)
+    if (!legend) return;
+    var counts = {};
+    rmList.querySelectorAll('.rm-item').forEach(function(item){
+      var subs = item.querySelectorAll('.rm-subs > .rm-sub');
+      if (subs.length){
+        subs.forEach(function(s){ var st = s.getAttribute('data-status') || 'planned'; counts[st] = (counts[st] || 0) + 1; });
+      } else {
+        var st = item.getAttribute('data-status') || 'planned'; counts[st] = (counts[st] || 0) + 1;
+      }
+    });
+    legend.querySelectorAll('.rm-lg').forEach(function(el){
+      var n = el.querySelector('.rm-lg-n');
+      if (n) n.textContent = counts[el.getAttribute('data-st')] || 0;
+    });
   }
   function subsOf(itemLi){ return itemLi.querySelectorAll('.rm-subs > .rm-sub'); }
   function deriveStatus(subs){      // all done->done · có blocked->blocked · có in_progress/done->in_progress
@@ -692,6 +710,7 @@ function toggleStories(btn){
       if (parentItem) recalcItem(parentItem);   // xoá sub -> cập nhật % mục cha
       updateSummary(ph);
     }
+    updateLegend();                              // xoá cả giai đoạn -> đếm lại
     scheduleSave(); closeM();
   });
   document.getElementById('rmmCancel').addEventListener('click', closeM);
