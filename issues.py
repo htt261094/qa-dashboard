@@ -5,7 +5,7 @@ Pure functions over the raw issue dicts returned by the Jira API. No network, no
 import html as html_lib
 from datetime import datetime, timedelta
 
-from config import JIRA_URL, STUCK_DAYS
+from config import JIRA_URL, STUCK_DAYS, actor_name
 
 
 def parse_date(s):
@@ -35,6 +35,19 @@ def i_reporter(issue):
     if not r:
         return 'Unknown'
     return r.get('name') or r.get('displayName', 'Unknown')
+
+
+# Tên để HIỂN THỊ (khác i_assignee/i_reporter vốn trả username/key cho filter/JQL):
+# QA team -> tên ngắn; người ngoài (account Jira DC kiểu mới, name='JIRAUSER10220')
+# -> displayName, KHÔNG lòi key thô. Dùng cho cột Assignee/Reporter, donut, lines.
+def i_assignee_name(issue):
+    a = f(issue, 'assignee')
+    return actor_name(a) if a else 'Unassigned'
+
+
+def i_reporter_name(issue):
+    r = f(issue, 'reporter')
+    return actor_name(r) if r else 'Unknown'
 
 
 def i_status(issue):

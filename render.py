@@ -9,7 +9,8 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 
 from config import SCRIPT_DIR, JIRA_URL, USERS, STUCK_DAYS, display_name
-from issues import (parse_date, i_assignee, i_reporter, i_status, i_summary, i_duedate,
+from issues import (parse_date, i_assignee, i_reporter, i_assignee_name, i_reporter_name,
+                    i_status, i_summary, i_duedate,
                     i_created, i_resolved, i_updated, i_type, days_overdue, days_since_update,
                     is_stuck, esc, status_class, issue_link)
 from pic import PIC_PEOPLE, load_pic
@@ -92,7 +93,7 @@ def render_activities(activities, days=7):
                     f'<span class="act-arrow">→</span>'
                     f'<span class="status {status_class(new)}">{esc(new)}</span>')
         if kind == 'assignee':
-            return f'<span class="act-k act-k-asg">👤 Reassign</span> {esc(display_name(a.get("old","")))} → {esc(display_name(a.get("new","")))}'
+            return f'<span class="act-k act-k-asg">👤 Reassign</span> {esc(a.get("old","—"))} → {esc(a.get("new","—"))}'
         if kind == 'duedate':
             return f'<span class="act-k act-k-due">📅 Due</span> {esc(a.get("old",""))} → {esc(a.get("new",""))}'
         if kind == 'priority':
@@ -115,7 +116,7 @@ def render_activities(activities, days=7):
     blocks = []
     for k in order:
         items = sorted(groups[k], key=lambda a: a.get('when') or '')  # timeline cũ -> mới
-        sm = esc(items[0].get('summary', ''))
+        sm = esc(next((it.get('summary') for it in items if it.get('summary')), ''))
         link = f'<a href="{JIRA_URL}/browse/{esc(k)}" target="_blank" class="key">{esc(k)}</a>'
         rows = ''
         for a in items:
@@ -210,12 +211,13 @@ def render_chart_card(title, items, chart_key=''):
 
 
 def render_charts(active):
-    status_counts, assignee_counts = {}, {}
+    status_counts, assignee_counts, assignee_disp = {}, {}, {}
     for issue in active:
         s = i_status(issue) or '—'
         status_counts[s] = status_counts.get(s, 0) + 1
         a = i_assignee(issue)
         assignee_counts[a] = assignee_counts.get(a, 0) + 1
+        assignee_disp[a] = i_assignee_name(issue)   # name/key -> tên hiển thị (đỡ lòi JIRAUSER)
 
     status_items = [(s, c, _jql_link(f' AND status = "{s}"')) for s, c in status_counts.items()]
     assignee_items = []
@@ -223,7 +225,7 @@ def render_charts(active):
         if a == 'Unassigned':
             assignee_items.append(('Unassigned', c, _jql_link(' AND assignee is EMPTY')))
         else:
-            assignee_items.append((display_name(a), c, _jql_link(f' AND assignee = {a}')))
+            assignee_items.append((assignee_disp.get(a, display_name(a)), c, _jql_link(f' AND assignee = {a}')))
 
     # Data nhúng để JS vẽ lại donut STATUS theo filter người (client-side, không thêm Jira call).
     cfg = {
@@ -353,6 +355,7 @@ def status_control(issue, cmap=None):
         f'{badge}'
         f'<button type="button" class="ustat-caret" data-key="{key}" '
         f'data-jira="{jira_esc}" data-cust="{esc(",".join(cur))}" '
+        f'data-sum="{esc(i_summary(issue))}" '
         f'title="Đổi status Jira hoặc gắn custom status" onclick="openStatusMenu(this)">▾</button>'
     )
 
@@ -370,7 +373,7 @@ def _attn_row(issue, new_keys, extra_cells, cmap=None):
     new_cls = ' class="is-new"' if issue['key'] in new_keys else ''
     return (f'<tr{new_cls}{_person_attrs(issue)}><td>{issue_link(issue)}</td>'
             f'<td class="summary-cell" title="{esc(i_summary(issue))}">{esc(i_summary(issue))}</td>'
-            f'<td>{esc(display_name(i_assignee(issue)))}</td>'
+            f'<td>{esc(i_assignee_name(issue))}</td>'
             f'<td>{_status_badge(issue, cmap)}</td>'
             f'{extra_cells}</tr>')
 
@@ -430,8 +433,8 @@ def render_new24(new24, new_keys, cmap=None):
         rows.append(f"""<tr{new_cls}{_person_attrs(issue)}>
             <td>{issue_link(issue)}</td>
             <td class="summary-cell" title="{esc(i_summary(issue))}">{esc(i_summary(issue))}</td>
-            <td>{esc(display_name(i_reporter(issue)))}</td>
-            <td>{esc(display_name(i_assignee(issue)))}</td>
+            <td>{esc(i_reporter_name(issue))}</td>
+            <td>{esc(i_assignee_name(issue))}</td>
             <td>{_status_badge(issue, cmap)}</td>
             <td>{esc(created)}</td>
         </tr>""")
@@ -458,7 +461,7 @@ def render_done_week(done_week, new_keys, cmap=None):
         rows.append(f"""<tr{new_cls}{_person_attrs(issue)}>
             <td>{issue_link(issue)}</td>
             <td class="summary-cell" title="{esc(i_summary(issue))}">{esc(i_summary(issue))}</td>
-            <td>{esc(display_name(i_assignee(issue)))}</td>
+            <td>{esc(i_assignee_name(issue))}</td>
             <td>{_status_badge(issue, cmap)}</td>
             <td>{esc(done_at)}</td>
         </tr>""")
@@ -754,7 +757,7 @@ def _render_node(key, known, children, qa_keys, parent_of):
     parts = [_type_badge(iss), issue_link(iss), f'<span class="ln-sum">{esc(i_summary(iss))}</span>']
     if is_qa:  # node QA (sub-task) — hiện PIC + status + cờ
         st = i_status(iss)
-        parts.append(f'<span class="ln-asg">{esc(display_name(i_assignee(iss)))}</span>')
+        parts.append(f'<span class="ln-asg">{esc(i_assignee_name(iss))}</span>')
         parts.append(f'<span class="status {status_class(st)}">{esc(st)}</span>')
         od = days_overdue(iss)
         if od is not None:

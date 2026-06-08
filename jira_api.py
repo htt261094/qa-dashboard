@@ -170,8 +170,13 @@ def fetch_activity_feed(days=7, cap=300, max_issues=120, scope_user=None):
                     a['old'] = it.get('fromString') or '—'
                     a['new'] = it.get('toString') or '—'
                 elif fid == 'assignee':
-                    a['old'] = it.get('from') or ''
-                    a['new'] = it.get('to') or ''
+                    # Jira DC: from/to = user KEY (account mới = "JIRAUSER10220" ẩn danh),
+                    # fromString/toString = tên hiển thị. Resolve qua actor_name để QA ra tên
+                    # ngắn (key == username) và người khác ra displayName, KHÔNG lòi key thô.
+                    a['old'] = (actor_name({'name': it.get('from'), 'displayName': it.get('fromString')})
+                                if it.get('from') else 'Chưa giao')
+                    a['new'] = (actor_name({'name': it.get('to'), 'displayName': it.get('toString')})
+                                if it.get('to') else 'Chưa giao')
                 acts.append(a)
         for c in ((f.get('comment') or {}).get('comments') or []):
             cc = parse_date(c.get('created'))
