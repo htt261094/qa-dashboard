@@ -1071,58 +1071,14 @@ def render_personal(data, new_keys, activities, activity_days, cmap=None):
 # ===== Full page =====
 def render_page(data, new_keys, first_run, activities, activity_days=7, roadmap_data=None,
                 user=None, custom_overlay=None):
-    fetched = data['fetched_at'].strftime('%Y-%m-%d %H:%M:%S')
     is_admin = user[1] if (user and len(user) > 1) else True
 
     # QA thường (non-admin): data đã auto-scope về chính họ -> UI v2 (shell sidebar Stitch).
     if not is_admin:
         return render_qa_v2(data, new_keys, activities, custom_overlay, user)
 
-    # key -> summary từ data Jira hiện tại: fallback title cho activity thiếu summary
-    # (record cũ / custom status). Gộp mọi bucket.
-    summary_map = {i['key']: i_summary(i)
-                   for bucket in (data['active'], data['new24'], data['done_week'])
-                   for i in bucket}
-
-    if is_admin:
-        left_col = (
-            render_done_week(data['done_week'], new_keys, custom_overlay) +
-            render_new24(data['new24'], new_keys, custom_overlay) +
-            render_attention(data['active'], new_keys, custom_overlay)
-        )
-        right_col = (
-            render_charts(data['active']) +          # status chart -> person chart
-            render_workload(data['active'], custom_overlay)
-        )
-        body = (
-            render_kpis(data['active'], data['new24'], data['done_week'], data['created_week'], data['resolved_week']) +
-            render_roadmap_alerts(roadmap_data) +
-            render_activities(activities, activity_days, summary_map) +
-            render_filterbar() +
-            f'<div class="grid-2col"><div class="col">{left_col}</div>'
-            f'<div class="col">{right_col}</div></div>'
-        )
-        title = 'QA Team Dashboard'
-    else:
-        # QA thường: data đã auto-scope về chính họ -> lens cá nhân (bỏ widget so-sánh-người)
-        body = render_personal(data, new_keys, activities, activity_days, custom_overlay)
-        title = 'QA Dashboard — Việc của tôi'
-
-    first_run_note = ''
-    if first_run:
-        first_run_note = '<div class="first-run">📍 First run — đã ghi nhận snapshot ban đầu. F5 lần sau sẽ highlight task mới phát sinh.</div>'
-
-    new_count = len(new_keys)
-    new_badge = f' · <strong style="color:#ff8b00">{new_count} task mới từ lần refresh trước</strong>' if new_count > 0 else ''
-
-    header = (f'<header><h1>{title}</h1>'
-              f'<div class="meta">Last refresh: <strong>{fetched}</strong>{new_badge} · '
-              f'<kbd>F5</kbd> refresh · <button id="autoBtn" class="auto-btn" type="button"></button></div></header>')
-    footer = (f'<p style="text-align:center;color:#6b778c;font-size:12px;margin-top:30px">'
-              f'Data live từ {esc(JIRA_URL)} · Tracking: {esc(", ".join(display_name(u) for u in USERS))}</p>')
-
-    inner = render_nav('dashboard', user) + header + first_run_note + body + footer
-    return _document(inner)
+    # Admin -> new v2 dashboard (pills + member filter + 5-col table + KPI cards)
+    return render_admin_v2(data, new_keys, activities, custom_overlay, user)
 
 
 # ===== Tài liệu training (tab /docs): cây folder + link Google Drive =====
@@ -1251,7 +1207,7 @@ def render_sidebar_v2(active, user):
               ) if email else ''
     return (
         '<aside class="sidebar">'
-        '<div class="brand"><h1>QA Suite</h1><p>Jira Integration Active</p></div>'
+        '<div class="brand"><h1>QA Workspace</h1></div>'
         f'<nav class="nav">{nav}</nav>'
         '<div class="nav-foot">'
         '<div class="pmenu" id="pmenu">'
@@ -1327,6 +1283,156 @@ def _document_v2(content_inner, active, user, activities, title='QA Suite'):
 {_json_script('qaNotif', activities)}
 <script>{load_js_v2()}</script>
 </body></html>"""
+
+
+# ===== Admin Dashboard v2 (team-wide — pills + member filter + 5-col table + KPI cards) =====
+def render_admin_v2(data, new_keys, activities, cmap, user):
+    """Admin dashboard v2: team-wide view with status pills, member dropdown, paginated
+    5-column table, 3 KPI cards, and a task detail drawer. Data is embedded as JSON and
+    rendered entirely client-side by the admin controller in app_v2.js."""
+    active = data['active']
+    done = data['done_week']
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    new_keys = new_keys or set()
+
+    tasks = []
+    seen = set()
+
+    # Active tasks (TO DO, In Progress, PENDING, etc.)
+    for iss in active:
+        key = iss['key']
+        if key in seen:
+            continue
+        seen.add(key)
+        st = i_status(iss)
+        a = i_assignee(iss)
+        aname = i_assignee_name(iss)
+        init, cls = _avatar(a, aname)
+        overdue = days_overdue(iss) is not None
+        stuck = is_stuck(iss)
+        customs = values_of((cmap or {}).get(key))
+        tasks.append({
+            'key': key, 'summary': i_summary(iss), 'jira': st,
+            'customs': customs, 'canCustom': st in ('TO DO', 'In Progress'),
+            'assignee': {'name': aname, 'init': init, 'cls': cls},
+            'due': i_duedate(iss) or '', 'dueDisp': i_duedate(iss) or 'Chưa đặt hạn',
+            'dueCls': 'overdue' if overdue else '',
+            'overdue': overdue, 'stuck': stuck,
+            'isNew': key in new_keys,
+            'jiraUrl': f'{JIRA_URL}/browse/{key}',
+        })
+
+    # Done tasks (3 ngày)
+    for iss in done:
+        key = iss['key']
+        if key in seen:
+            continue
+        seen.add(key)
+        st = i_status(iss)
+        a = i_assignee(iss)
+        aname = i_assignee_name(iss)
+        init, cls = _avatar(a, aname)
+        tasks.append({
+            'key': key, 'summary': i_summary(iss), 'jira': st,
+            'customs': [], 'canCustom': False,
+            'assignee': {'name': aname, 'init': init, 'cls': cls},
+            'due': i_duedate(iss) or '', 'dueDisp': i_duedate(iss) or '',
+            'dueCls': '', 'overdue': False, 'stuck': False,
+            'isNew': key in new_keys,
+            'jiraUrl': f'{JIRA_URL}/browse/{key}',
+        })
+
+    # Pill counts
+    n_todo = sum(1 for t in tasks if t['jira'] == 'TO DO' and not t['isNew'] and not t['overdue'])
+    n_prog = sum(1 for t in tasks if t['jira'] in ('In Progress', 'PENDING') and not t['stuck'] and not t['overdue'])
+    n_new = sum(1 for t in tasks if t['isNew'])
+    n_stuck = sum(1 for t in tasks if t['stuck'])
+    n_over = sum(1 for t in tasks if t['overdue'])
+    n_done = sum(1 for t in tasks if t['jira'].upper() == 'DONE')
+
+    # Unique member names for dropdown
+    members = []
+    seen_m = set()
+    for t in tasks:
+        nm = t['assignee']['name']
+        if nm not in seen_m:
+            seen_m.add(nm)
+            members.append(nm)
+    member_opts = '<div class="member-opt active" data-member="all">All Members</div>'
+    for m in sorted(members):
+        member_opts += f'<div class="member-opt" data-member="{esc(m)}">{esc(m)}</div>'
+
+    meta = {
+        'isAdmin': True,
+        'todo': n_todo, 'progress': n_prog, 'new': n_new,
+        'stuck': n_stuck, 'overdue': n_over, 'done': n_done,
+        'resolvedWeek': data.get('resolved_week', 0),
+        'createdWeek': data.get('created_week', 0),
+    }
+
+    content = (
+        # Page header + member filter
+        '<div class="page-head"><div>'
+        '<h2 class="page-title">Task Management</h2>'
+        '</div>'
+        '<div class="member-filter-wrap">'
+        '<button class="member-filter-btn" id="memberFilterBtn">'
+        '<span class="material-symbols-rounded">group</span>'
+        '<span id="selectedMemberLabel">All Members</span>'
+        '<span class="material-symbols-rounded">expand_more</span>'
+        '</button>'
+        f'<div class="member-dropdown" id="memberDropdown">{member_opts}</div>'
+        '</div></div>'
+        # Status pills
+        '<div class="status-pills" id="statusPills">'
+        f'<button class="pill-btn active" data-pill="todo">To Do <span class="pill-badge" id="count-todo">{n_todo}</span></button>'
+        f'<button class="pill-btn" data-pill="progress">In Progress <span class="pill-badge" id="count-progress">{n_prog}</span></button>'
+        f'<button class="pill-btn" data-pill="new">New <span class="pill-badge" id="count-new">{n_new}</span></button>'
+        f'<button class="pill-btn" data-pill="stuck">Stuck <span class="pill-badge" id="count-stuck">{n_stuck}</span></button>'
+        f'<button class="pill-btn" data-pill="overdue">Overdue <span class="pill-badge" id="count-overdue">{n_over}</span></button>'
+        f'<button class="pill-btn" data-pill="done">Done <span class="pill-badge" id="count-done">{n_done}</span></button>'
+        '</div>'
+        # Table card
+        '<div class="card">'
+        '<div class="table-header">'
+        '<div class="table-title" id="tableTitleText">'
+        '<span class="material-symbols-rounded">assignment</span>'
+        '<span>To Do Tasks</span></div>'
+        '<div class="table-actions"></div></div>'
+        '<div style="overflow-x:auto"><table id="taskTable"><thead><tr>'
+        '<th style="width:140px">Task ID</th><th>Title</th>'
+        '<th style="width:180px">Member</th><th style="width:170px">Status</th>'
+        '<th style="width:130px">Date</th>'
+        '</tr></thead><tbody id="rows"></tbody></table></div>'
+        '<div class="pager" id="pager"></div></div>'
+        # KPI cards
+        '<div class="kpi-grid">'
+        '<div class="kpi-card"><div class="kpi-icon">'
+        '<span class="material-symbols-rounded">speed</span></div>'
+        '<div class="kpi-details"><div class="kpi-title">JIRA VELOCITY</div>'
+        '<div class="kpi-value" id="kpiVelocity">0</div>'
+        '<div class="kpi-trend up"><span class="material-symbols-rounded">trending_up</span>'
+        '<span>this week</span></div></div></div>'
+        '<div class="kpi-card"><div class="kpi-icon">'
+        '<span class="material-symbols-rounded">hub</span></div>'
+        '<div class="kpi-details"><div class="kpi-title">TOTAL TASKS</div>'
+        '<div class="kpi-value" id="kpiTotalTasks">0</div>'
+        '<div class="kpi-trend up"><span class="material-symbols-rounded">trending_up</span>'
+        '<span>active</span></div></div></div>'
+        '<div class="kpi-card"><div class="kpi-icon">'
+        '<span class="material-symbols-rounded">bug_report</span></div>'
+        '<div class="kpi-details"><div class="kpi-title">OVERDUE</div>'
+        '<div class="kpi-value" id="kpiBugs">0</div>'
+        '<div class="kpi-trend down"><span class="material-symbols-rounded">warning</span>'
+        '<span>need attention</span></div></div></div></div>'
+        # Status menu + Drawer
+        '<div class="smenu" id="smenu"></div>'
+        '<div class="drawer-ov" id="drawerOv"></div><aside class="drawer" id="drawer"></aside>'
+        + _json_script('qaData', {'tasks': tasks, 'meta': meta})
+        + f'<script>window.QA_CUSTOM_STATUSES={json.dumps(CUSTOM_STATUSES, ensure_ascii=False)};</script>'
+    )
+    return _document_v2(content, 'dashboard', user, activities,
+                        title='QA Workspace — Task Management')
 
 
 # ===== Dashboard QA v2 (lens cá nhân — 1 bảng + tabs + KPI + drawer) =====
