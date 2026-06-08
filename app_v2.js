@@ -1544,7 +1544,10 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   // --- generic type-ahead: gắn input -> results, gọi search(url), chọn 1 mục ---
   function wireTA(inpId, resId, chipId, url, fmt, onPick){
     var inp=$(inpId), res=$(resId), chip=$(chipId), opts=[], active=-1;
+    function place(){ var r=inp.getBoundingClientRect();   // toạ độ viewport cho position:fixed
+      res.style.top=(r.bottom+4)+'px'; res.style.left=r.left+'px'; res.style.width=r.width+'px'; }
     function hide(){ res.classList.remove('open'); res.innerHTML=''; opts=[]; active=-1; }
+    function show(){ place(); res.classList.add('open'); }
     function showChip(label){ chip.innerHTML = label +
         '<button type="button" class="ta-x material-symbols-rounded mi-sm" title="Bỏ chọn">close</button>';
       chip.style.display='flex'; inp.style.display='none';
@@ -1556,12 +1559,15 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       if(q.length<2){ hide(); return; }
       getJSON(url+encodeURIComponent(q)).then(function(j){
         opts=(j&&j.results)||[]; active=-1;
-        if(!opts.length){ res.innerHTML='<div class="ta-empty">Không tìm thấy</div>'; res.classList.add('open'); return; }
+        if(!opts.length){ res.innerHTML='<div class="ta-empty">Không tìm thấy</div>'; show(); return; }
         res.innerHTML = opts.map(function(o,i){ return '<div class="ta-opt" data-i="'+i+'">'+fmt(o)+'</div>'; }).join('');
-        res.classList.add('open');
+        show();
       }).catch(function(){ hide(); });
     }, 260);
     inp.addEventListener('input', run);
+    // dropdown position:fixed -> bám lại input khi cuộn/đổi kích thước (lúc đang mở)
+    window.addEventListener('scroll', function(){ if(res.classList.contains('open')) place(); }, true);
+    window.addEventListener('resize', function(){ if(res.classList.contains('open')) place(); });
     inp.addEventListener('keydown', function(e){
       if(!res.classList.contains('open')) return;
       if(e.key==='ArrowDown'||e.key==='ArrowUp'){ e.preventDefault();
@@ -1572,6 +1578,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       else if(e.key==='Escape'){ hide(); }
     });
     res.addEventListener('mousedown', function(e){ var el=e.target.closest('.ta-opt'); if(el) pick(+el.getAttribute('data-i')); });
+    inp.addEventListener('blur', function(){ setTimeout(hide, 150); });  // click ra ngoài -> đóng (mousedown pick chạy trước)
     function pick(i){ var o=opts[i]; if(!o) return; onPick(o); showChip(fmt(o)); hide(); }
     return { reset:function(){ chip.style.display='none'; chip.innerHTML=''; inp.style.display=''; inp.value=''; hide(); } };
   }
@@ -1591,7 +1598,15 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     var a=$('subAssignee'); if(a) a.value='';
   }
 
-  if(openBtn) openBtn.addEventListener('click', function(){ open(); });
+  // Chưa có PAT -> không mở form tạo, mở thẳng modal Cài đặt PAT (create cần PAT cá nhân).
+  if(openBtn) openBtn.addEventListener('click', function(){
+    getJSON('/has-pat').then(function(j){
+      if(j && j.ok && !j.hasPat){
+        var so=$('setOverlay'); if(so) so.classList.add('open');
+        toast('Bạn cần cấu hình PAT trước khi tạo sub-task', false);
+      } else { open(); }
+    }).catch(function(){ open(); });   // lỗi check -> vẫn mở form, backend tự chặn
+  });
   var c1=$('subClose'), c2=$('subCancel');
   if(c1) c1.addEventListener('click', close);
   if(c2) c2.addEventListener('click', close);

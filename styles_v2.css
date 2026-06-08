@@ -455,9 +455,10 @@ tr.cmt-row:hover td{background:var(--surface-low)}
            font-family:inherit;font-size:13px;font-weight:600}
 .topcreate:hover{background:var(--primary-strong)}
 .typeahead{position:relative}
-.ta-results{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:5;background:var(--card);
+/* position:fixed (toạ độ set bằng JS) -> KHÔNG bị .modal-body{overflow:auto} cắt/đẩy scroll */
+.ta-results{position:fixed;z-index:120;background:var(--card);
             border:1px solid var(--outline-variant);border-radius:var(--r-md);box-shadow:var(--shadow);
-            max-height:240px;overflow-y:auto;display:none}
+            max-height:232px;overflow-y:auto;display:none}
 .ta-results.open{display:block}
 .ta-opt{padding:8px 11px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--divider)}
 .ta-opt:last-child{border-bottom:none}
