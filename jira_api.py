@@ -115,14 +115,29 @@ def fetch_activity_feed(days=7, cap=300, max_issues=120, scope_user=None):
     if scope_user is not None and scope_user not in USERS:
         raise ValueError('unknown scope_user')
     start = datetime.now() - timedelta(days=days)
+    fallback = None
     if scope_user:
-        who = f"(assignee = {scope_user} OR reporter = {scope_user})"
+        # Mô hình "watching": QA watch task nào thì thấy MỌI hoạt động trên task đó
+        # (PM đổi duedate, người khác comment...). Assignee/reporter thường auto-watch
+        # nên watcher là superset. watcher=<người khác> có thể vướng "Manage Watchers"
+        # permission của PAT chung -> fallback assignee/reporter để feed không vỡ.
+        who = f"watcher = {scope_user}"
+        fallback = f"(assignee = {scope_user} OR reporter = {scope_user})"
     else:
         user_list = ', '.join(USERS)
         who = f"(assignee in ({user_list}) OR reporter in ({user_list}))"
-    jql = (f"{who} AND updated >= -{days}d ORDER BY updated DESC")
-    issues = _jira_request(jql, max_issues, expand='changelog',
-                           fields='summary,status,assignee,reporter,issuetype,created,comment').get('issues', [])
+    _flds = 'summary,status,assignee,reporter,issuetype,created,comment'
+
+    def _run(clause):
+        jql = f"{clause} AND updated >= -{days}d ORDER BY updated DESC"
+        return _jira_request(jql, max_issues, expand='changelog', fields=_flds).get('issues', [])
+
+    try:
+        issues = _run(who)
+    except RuntimeError:
+        if fallback is None:
+            raise
+        issues = _run(fallback)  # PAT không query được watcher người khác -> dùng assignee/reporter
     acts = []
     for iss in issues:
         key = iss['key']
