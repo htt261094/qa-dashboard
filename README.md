@@ -21,7 +21,7 @@ Stack: Python 3.8+ · chỉ 2 dep (`requests`, `cryptography`) · server `http.s
 - **5 KPI cards** (admin: Active / Overdue / Due tuần / Vào-Ra tuần / Done · QA: bản cá nhân)
 - **Workload matrix** Assignee × Status, badge QUÁ TẢI/OK/NHẸ (ngưỡng ≥15 / 5–14 / ≤4)
 - **Overdue tính theo ngày làm việc** (T2–T6, bỏ T7/CN)
-- **Activity feed** dựng từ Jira changelog (status/assignee/duedate/priority/comment/tạo mới); dismiss đồng bộ chéo máy qua Jira user property. Lens cá nhân: feed theo **watcher** (QA watch task nào thì thấy hoạt động trên task đó).
+- **Activity feed** dựng từ Jira changelog (status/assignee/duedate/priority/comment/tạo mới); tên người hiển thị đúng (QA = tên ngắn, người ngoài team = tên hiển thị Jira, không lòi user key); **bỏ qua reassign khi tự giao task cho chính mình** (chỉ hiện khi giao cho người khác); dismiss đồng bộ chéo máy qua Jira user property. Lens cá nhân: feed theo **watcher** (QA watch task nào thì thấy hoạt động trên task đó).
 - **Filter theo người** (assignee/reporter) — client-side, nhớ qua localStorage
 - **Auto-refresh 15 phút** (toggle ON/OFF ở header, nhớ qua localStorage). F5 = pull data tươi.
 - **Highlight task mới** phát sinh giữa 2 lần refresh (badge NEW cam)
