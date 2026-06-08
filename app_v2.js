@@ -1530,3 +1530,95 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
 })();
 
 })();
+
+// ---------- Tạo Sub-task (modal type-ahead, dùng chung mọi trang v2) ----------
+(function(){
+  var ov = $('subOverlay'); if(!ov) return;
+  var openBtn = $('createSubBtn');
+  var parent = { key:'', summary:'' };   // Task-PTSP đã chọn
+  var leader = { name:'', display:'' };  // user đã chọn (optional)
+
+  function open(){ ov.classList.add('open'); var p=$('subParentInp'); if(p) setTimeout(function(){ p.focus(); }, 60); }
+  function close(){ ov.classList.remove('open'); }
+  function debounce(fn, ms){ var t; return function(){ var a=arguments, self=this;
+    clearTimeout(t); t=setTimeout(function(){ fn.apply(self, a); }, ms||260); }; }
+
+  // --- generic type-ahead: gắn input -> results, gọi search(url), chọn 1 mục ---
+  function wireTA(inpId, resId, chipId, url, fmt, onPick){
+    var inp=$(inpId), res=$(resId), chip=$(chipId), opts=[], active=-1;
+    function hide(){ res.classList.remove('open'); res.innerHTML=''; opts=[]; active=-1; }
+    function showChip(label){ chip.innerHTML = label +
+        '<button type="button" class="ta-x material-symbols-rounded mi-sm" title="Bỏ chọn">close</button>';
+      chip.style.display='flex'; inp.style.display='none';
+      chip.querySelector('.ta-x').addEventListener('click', function(){
+        chip.style.display='none'; chip.innerHTML=''; inp.style.display=''; inp.value=''; onPick(null); inp.focus(); });
+    }
+    var run = debounce(function(){
+      var q=(inp.value||'').trim();
+      if(q.length<2){ hide(); return; }
+      getJSON(url+encodeURIComponent(q)).then(function(j){
+        opts=(j&&j.results)||[]; active=-1;
+        if(!opts.length){ res.innerHTML='<div class="ta-empty">Không tìm thấy</div>'; res.classList.add('open'); return; }
+        res.innerHTML = opts.map(function(o,i){ return '<div class="ta-opt" data-i="'+i+'">'+fmt(o)+'</div>'; }).join('');
+        res.classList.add('open');
+      }).catch(function(){ hide(); });
+    }, 260);
+    inp.addEventListener('input', run);
+    inp.addEventListener('keydown', function(e){
+      if(!res.classList.contains('open')) return;
+      if(e.key==='ArrowDown'||e.key==='ArrowUp'){ e.preventDefault();
+        active += (e.key==='ArrowDown'?1:-1);
+        if(active<0) active=opts.length-1; if(active>=opts.length) active=0;
+        res.querySelectorAll('.ta-opt').forEach(function(el,i){ el.classList.toggle('act', i===active); });
+      } else if(e.key==='Enter'){ e.preventDefault(); if(active>=0) pick(active); }
+      else if(e.key==='Escape'){ hide(); }
+    });
+    res.addEventListener('mousedown', function(e){ var el=e.target.closest('.ta-opt'); if(el) pick(+el.getAttribute('data-i')); });
+    function pick(i){ var o=opts[i]; if(!o) return; onPick(o); showChip(fmt(o)); hide(); }
+    return { reset:function(){ chip.style.display='none'; chip.innerHTML=''; inp.style.display=''; inp.value=''; hide(); } };
+  }
+
+  var parentTA = wireTA('subParentInp','subParentRes','subParentChip','/search-parents?q=',
+    function(o){ return '<b>'+esc(o.key)+'</b>'+esc(o.summary||''); },
+    function(o){ parent = o ? {key:o.key, summary:o.summary||''} : {key:'',summary:''}; });
+  var leaderTA = wireTA('subLeaderInp','subLeaderRes','subLeaderChip','/search-people?q=',
+    function(o){ return '<b>'+esc(o.display||o.name)+'</b><small>'+esc(o.name)+'</small>'; },
+    function(o){ leader = o ? {name:o.name, display:o.display||o.name} : {name:'',display:''}; });
+
+  function reset(){
+    parent={key:'',summary:''}; leader={name:'',display:''};
+    parentTA.reset(); leaderTA.reset();
+    var s=$('subSummary'); if(s) s.value='';
+    var d=$('subDue'); if(d) d.value='';
+    var a=$('subAssignee'); if(a) a.value='';
+  }
+
+  if(openBtn) openBtn.addEventListener('click', function(){ open(); });
+  var c1=$('subClose'), c2=$('subCancel');
+  if(c1) c1.addEventListener('click', close);
+  if(c2) c2.addEventListener('click', close);
+  ov.addEventListener('click', function(e){ if(e.target===ov) close(); });
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape' && ov.classList.contains('open')) close(); });
+
+  var createBtn=$('subCreate');
+  if(createBtn) createBtn.addEventListener('click', function(){
+    var summary=($('subSummary').value||'').trim();
+    var start=($('subStart').value||'').trim();
+    var due=($('subDue').value||'').trim();
+    var assignee=($('subAssignee').value||'').trim();
+    if(!parent.key){ toast('Chưa chọn Task-PTSP cha', false); return; }
+    if(!summary){ toast('Chưa nhập tiêu đề', false); return; }
+    if(!start){ toast('Chưa chọn ngày bắt đầu', false); return; }
+    if(!due){ toast('Chưa chọn hạn chót', false); return; }
+    createBtn.disabled=true;
+    postJSON('/create-subtask', { parent:parent.key, summary:summary, startDate:start,
+        duedate:due, assignee:assignee, leader:leader.name })
+      .then(function(j){
+        createBtn.disabled=false;
+        if(j && j.ok){ toast(j.msg||'Đã tạo sub-task ✓', true); reset(); close();
+          setTimeout(function(){ location.reload(); }, 1100); }
+        else if(!patToast(j)){ toast((j&&j.msg)||'Lỗi tạo sub-task', false); }
+      })
+      .catch(function(){ createBtn.disabled=false; toast('Lỗi mạng khi tạo sub-task', false); });
+  });
+})();

@@ -25,6 +25,12 @@ ROADMAP_FILE = SCRIPT_DIR / '.roadmap_config.json'
 # ----- Domain constants -----
 STUCK_DAYS = 5   # task In Progress/PENDING không đổi >= 5 ngày = "kẹt"
 
+# ----- Tạo Sub-task (id lấy từ createmeta Jira DC — instance-specific, KHÔNG đổi tuỳ tiện) -----
+SUBTASK_TYPE_ID = '10003'              # issuetype "Sub-task"
+TASK_PTSP_TYPE_ID = '10103'            # issuetype "Task-PTSP" (parent của sub-task QA)
+START_DATE_FIELD = 'customfield_10208'  # "Start date" (required khi tạo, default = hôm nay)
+LEADER_FIELD = 'customfield_10606'      # "Leader" (user-picker, optional)
+
 DEFAULT_DISPLAY_NAMES = {
     'quangbm': 'Quang',
     'nhungnh': 'Nhung',

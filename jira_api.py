@@ -9,7 +9,9 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
-from config import JIRA_URL, PAT, USERS, actor_name
+import re
+
+from config import JIRA_URL, PAT, USERS, TASK_PTSP_TYPE_ID, actor_name
 from issues import parse_date
 
 try:
@@ -202,6 +204,53 @@ def fetch_activity_feed(days=7, cap=300, max_issues=120, scope_user=None):
     result = acts[:cap]
     _cache_set(cache_key, result)
     return result
+
+
+def search_parent_ptsp(query, limit=20):
+    """Tìm Task-PTSP làm parent cho sub-task (form tạo sub-task). Read-only, PAT chung.
+    Trả [{key, summary, project}]. Query sanitize để không phá JQL; lỗi JQL -> []."""
+    q = (query or '').strip()
+    # bỏ ký tự phá string-literal JQL
+    safe = q.replace('\\', '').replace('"', '').replace("'", '').strip()
+    if len(safe) < 2:
+        return []
+    clauses = [f'text ~ "{safe}*"']
+    if re.match(r'^[A-Za-z0-9]+-\d+$', safe):
+        clauses.append(f'key = "{safe}"')
+    jql = (f'issuetype = {TASK_PTSP_TYPE_ID} AND ({" OR ".join(clauses)}) '
+           'ORDER BY updated DESC')
+    try:
+        issues = _jira_request(jql, limit, fields='summary,project').get('issues', [])
+    except RuntimeError:
+        return []   # query thành JQL không hợp lệ (reserved word...) -> không gợi ý
+    out = []
+    for iss in issues:
+        f = iss.get('fields', {})
+        out.append({'key': iss['key'], 'summary': f.get('summary') or '',
+                    'project': (f.get('project') or {}).get('key') or ''})
+    return out
+
+
+def search_people(query, limit=15):
+    """Tìm user Jira theo username/tên hiển thị (dropdown Leader). Read-only, PAT chung.
+    Trả [{name, display}] (chỉ user active)."""
+    q = (query or '').strip()
+    if len(q) < 2:
+        return []
+    try:
+        r = _SESSION.get(f"{JIRA_URL}/rest/api/2/user/search", headers=_auth_headers(),
+                         params={'username': q, 'maxResults': limit}, timeout=15)
+        r.raise_for_status()
+        users = r.json()
+    except requests.RequestException as e:
+        raise RuntimeError(f"Network error: {str(e).replace(PAT, '<REDACTED>')}")
+    out = []
+    for u in users or []:
+        if u.get('active') is False:
+            continue
+        out.append({'name': u.get('name') or u.get('key') or '',
+                    'display': u.get('displayName') or u.get('name') or ''})
+    return out
 
 
 def fetch_issue_detail(key):

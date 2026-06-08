@@ -8,7 +8,8 @@ Layer: config -> (this). Caller (handler) tự lấy PAT qua pat_store rồi tru
 """
 import requests
 
-from config import JIRA_URL
+from config import (JIRA_URL, SUBTASK_TYPE_ID, TASK_PTSP_TYPE_ID,
+                    START_DATE_FIELD, LEADER_FIELD)
 
 _TIMEOUT = 20
 
@@ -78,6 +79,67 @@ def transition_to_status(key, target_name, pat):
         avail = ', '.join(t['to'] for t in data) or '(không có)'
         return False, f'Không chuyển sang "{target_name}" — không nằm trong bước kế tiếp của workflow. Cho phép: {avail}.'
     return do_transition(key, match['id'], pat)
+
+
+def create_subtask(parent_key, summary, duedate, start_date,
+                   assignee=None, leader=None, pat=None):
+    """Tạo Sub-task QA dưới 1 Task-PTSP, NHÂN DANH chủ PAT (reporter = người đăng nhập).
+
+    Field bắt buộc (theo createmeta): summary, duedate, start_date (customfield_10208).
+    assignee/leader optional (user-picker -> {'name': username}).
+    Trả (True, '<KEY mới>') hoặc (False, '<thông báo lỗi tiếng Việt>')."""
+    summary = (summary or '').strip()
+    if not summary:
+        return False, 'Thiếu tiêu đề sub-task.'
+    if not duedate:
+        return False, 'Thiếu hạn chót (Due date).'
+    if not start_date:
+        return False, 'Thiếu ngày bắt đầu (Start date).'
+    # 1. Lấy project key từ parent + verify parent đúng là Task-PTSP (không tin client)
+    try:
+        r = requests.get(f"{JIRA_URL}/rest/api/2/issue/{parent_key}",
+                         headers=_headers(pat), params={'fields': 'project,issuetype'},
+                         timeout=_TIMEOUT)
+    except requests.RequestException as e:
+        return False, _redact(f'Lỗi mạng: {e}', pat)
+    if r.status_code != 200:
+        return False, _err_for(r.status_code, pat)
+    pf = r.json().get('fields', {})
+    project_key = (pf.get('project') or {}).get('key')
+    ptype = pf.get('issuetype') or {}
+    if not project_key:
+        return False, 'Không xác định được dự án của task cha.'
+    if str(ptype.get('id')) != str(TASK_PTSP_TYPE_ID):
+        return False, f'Task cha phải là Task-PTSP (đang là {ptype.get("name") or "?"}).'
+    # 2. Build payload + tạo
+    fields = {
+        'project': {'key': project_key},
+        'parent': {'key': parent_key},
+        'issuetype': {'id': str(SUBTASK_TYPE_ID)},
+        'summary': summary[:250],
+        'duedate': duedate,
+        START_DATE_FIELD: start_date,
+    }
+    if assignee:
+        fields['assignee'] = {'name': assignee}
+    if leader:
+        fields[LEADER_FIELD] = {'name': leader}
+    try:
+        r = requests.post(f"{JIRA_URL}/rest/api/2/issue",
+                          headers=_headers(pat), json={'fields': fields}, timeout=_TIMEOUT)
+    except requests.RequestException as e:
+        return False, _redact(f'Lỗi mạng: {e}', pat)
+    if r.status_code in (200, 201):
+        return True, r.json().get('key') or ''
+    # Jira 400 -> trả lỗi field cụ thể (vd Leader không tồn tại, due sai định dạng)
+    try:
+        err = r.json()
+        msgs = list((err.get('errors') or {}).values()) + (err.get('errorMessages') or [])
+        if msgs:
+            return False, _redact('; '.join(str(m) for m in msgs), pat)
+    except ValueError:
+        pass
+    return False, _err_for(r.status_code, pat)
 
 
 def add_comment(key, body, pat):
