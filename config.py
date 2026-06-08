@@ -63,6 +63,9 @@ PORT = int(CFG.get('JIRA_PORT', '8080'))
 # ----- Auth (qua Cloudflare Access; identity = header Cf-Access-Authenticated-User-Email) -----
 # Email role ADMIN: được edit roadmap/tài liệu. Rỗng = không khoá (local dev).
 ADMIN_EMAIL = CFG.get('JIRA_ADMIN_EMAIL', '').strip().lower()
+# Username Jira của chính admin (cho tab "My work" — task của riêng mình). Local dev (chưa
+# login) fallback về đây. Default = thanhht1 (acting manager). Override qua .env nếu cần.
+SELF_USER = CFG.get('JIRA_SELF_USER', 'thanhht1').strip()
 # Domain được phép vào (vd 'baokim.vn'). Rỗng = không chặn domain ở app (để Cloudflare lo).
 ALLOWED_DOMAIN = CFG.get('JIRA_ALLOWED_DOMAIN', '').strip().lstrip('@').lower()
 
