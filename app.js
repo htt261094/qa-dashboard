@@ -968,7 +968,7 @@ function patToast(j){   // lỗi no_pat -> popup nhắc thêm PAT (thay vì toas
     if (inflight[fk]) return;                  // chặn double-click cùng task+nhãn
     inflight[fk] = true;
     var pending = showToast(key + ': đang lưu nhãn…', true);
-    postJSON('/set-custom-status', { key: key, status: val, summary: '' }, 20000)
+    postJSON('/set-custom-status', { key: key, status: val, summary: (btn.getAttribute('data-sum') || '') }, 20000)
       .then(function(j){
         pending.close();
         if (!j.ok){ showToast('Lỗi lưu custom status ' + key, false); return; }
