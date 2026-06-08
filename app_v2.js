@@ -856,4 +856,677 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   render();
 })();
 
+// ================= DOCUMENTS (guard #folderGrid) =================
+(function(){
+  var grid = $('folderGrid'); if(!grid) return;
+  var EDIT = !!window.QA_DOCS_EDITABLE;
+  var DOC_TREE = readJSON('docsData') || [];
+  var currentPath = []; // Mảng lưu trữ đường dẫn thư mục hiện tại từ root
+  var contextMenuSelectedId = null;
+
+  // Normalise DOC_TREE nodes (ensure they have ids and map title to name for backward compatibility)
+  function normaliseNodes(nodes) {
+    if (!nodes) return;
+    nodes.forEach(function(node) {
+      if (!node.id) {
+        node.id = (node.type === 'folder' ? 'f_' : 'd_') + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+      }
+      if (node.type === 'link') {
+        if (!node.name && node.title) {
+          node.name = node.title;
+        }
+        if (!node.date) {
+          node.date = '--';
+        }
+      }
+      if (node.type === 'folder') {
+        if (!node.color) {
+          node.color = 'blue';
+        }
+        if (node.children) {
+          normaliseNodes(node.children);
+        } else {
+          node.children = [];
+        }
+      }
+    });
+  }
+  normaliseNodes(DOC_TREE);
+
+  // Helper functions
+  function getCurrentNode() {
+    if (currentPath.length === 0) {
+      return { children: DOC_TREE };
+    }
+    return currentPath[currentPath.length - 1];
+  }
+
+  function getAllFilesRecursive(node) {
+    var files = [];
+    if (!node.children) return files;
+    node.children.forEach(function(child) {
+      if (child.type === 'link') {
+        files.push(child);
+      } else if (child.type === 'folder') {
+        files = files.concat(getAllFilesRecursive(child));
+      }
+    });
+    return files;
+  }
+
+  function getFolderCount(folderNode) {
+    return getAllFilesRecursive(folderNode).length;
+  }
+
+  function findFolderById(list, id) {
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].id === id && list[i].type === 'folder') return list[i];
+      if (list[i].children) {
+        var found = findFolderById(list[i].children, id);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  function findFileById(list, id) {
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].id === id && list[i].type === 'link') return list[i];
+      if (list[i].children) {
+        var found = findFileById(list[i].children, id);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  function findFileParentAndIndex(list, id) {
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].id === id) {
+        return { parentList: list, index: i };
+      }
+      if (list[i].children) {
+        var found = findFileParentAndIndex(list[i].children, id);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  function buildPathToFolder(list, id, path) {
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].id === id && list[i].type === 'folder') {
+        path.push(list[i]);
+        return true;
+      }
+      if (list[i].children) {
+        path.push(list[i]);
+        var found = buildPathToFolder(list[i].children, id, path);
+        if (found) return true;
+        path.pop(); // backtrack
+      }
+    }
+    return false;
+  }
+
+  // Navigation
+  window.navigateToFolder = function(folderId) {
+    var folder = findFolderById(DOC_TREE, folderId);
+    if (!folder) return;
+    currentPath = [];
+    buildPathToFolder(DOC_TREE, folderId, currentPath);
+    updateBreadcrumbs();
+    renderFolders();
+    renderTable();
+  };
+
+  window.navigateBackToRoot = function() {
+    currentPath = [];
+    updateBreadcrumbs();
+    renderFolders();
+    renderTable();
+  };
+
+  function updateBreadcrumbs() {
+    var breadcrumbs = $('breadcrumbs');
+    var tableTitle = $('tableTitle');
+    var viewAllDocs = $('viewAllDocs');
+    
+    if (currentPath.length === 0) {
+      breadcrumbs.style.display = 'none';
+      tableTitle.textContent = 'Tài liệu gần đây';
+      if (viewAllDocs) viewAllDocs.style.display = 'block';
+    } else {
+      breadcrumbs.style.display = 'flex';
+      if (viewAllDocs) viewAllDocs.style.display = 'none';
+      
+      var html = '<a onclick="navigateBackToRoot()">Tài liệu QA</a>';
+      for (var i = 0; i < currentPath.length; i++) {
+        html += ' <span class="separator">/</span> ';
+        if (i === currentPath.length - 1) {
+          html += '<span class="current">' + esc(currentPath[i].name) + '</span>';
+          tableTitle.textContent = 'Danh sách tài liệu - ' + currentPath[i].name;
+        } else {
+          var folderId = currentPath[i].id;
+          html += '<a onclick="navigateToFolder(\'' + esc(folderId) + '\')">' + esc(currentPath[i].name) + '</a>';
+        }
+      }
+      breadcrumbs.innerHTML = html;
+    }
+  }
+
+  function renderFolders() {
+    var currentNode = getCurrentNode();
+    var subfolders = (currentNode.children || []).filter(function(n) { return n.type === 'folder'; });
+    var section = $('foldersSection');
+    
+    section.style.display = 'block';
+    
+    if (subfolders.length === 0) {
+      if (currentPath.length > 0) {
+        grid.innerHTML = '';
+        section.style.display = 'none';
+      } else {
+        grid.innerHTML = '<div style="grid-column:1/-1; padding:20px; text-align:center; color:var(--on-surface-variant); font-style:italic">Chưa có thư mục nào</div>';
+      }
+      return;
+    }
+    
+    grid.innerHTML = subfolders.map(function(f) {
+      var count = getFolderCount(f);
+      return '<div class="folder-card" onclick="navigateToFolder(\'' + esc(f.id) + '\')">' +
+        '<div class="folder-icon-box folder-' + esc(f.color || 'blue') + '">' +
+          '<span class="material-symbols-rounded">folder</span>' +
+        '</div>' +
+        '<div class="folder-info">' +
+          '<div class="folder-name">' + esc(f.name) + '</div>' +
+          '<div class="folder-count">' + count + ' tài liệu</div>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  function getFileIconClass(name, type) {
+    var ext = name.split('.').pop().toLowerCase();
+    if (ext === 'xlsx' || ext === 'xls') return { icon: 'table_chart', cls: 'file-excel' };
+    if (ext === 'pdf') return { icon: 'picture_as_pdf', cls: 'file-pdf' };
+    if (ext === 'docx' || ext === 'doc') return { icon: 'description', cls: 'file-sop' };
+    if (type === 'Link' || ext === 'url') return { icon: 'link', cls: 'file-link' };
+    return { icon: 'article', cls: 'file-sop' };
+  }
+
+  function renderTable() {
+    var tbody = $('docTableBody');
+    if (!tbody) return;
+    var query = (($('searchInp') || {}).value || '').toLowerCase().trim();
+    var currentNode = getCurrentNode();
+    
+    var files = [];
+    if (currentPath.length === 0) {
+      files = getAllFilesRecursive(currentNode);
+    } else {
+      files = (currentNode.children || []).filter(function(n) { return n.type === 'link'; });
+    }
+    
+    var filtered = files.filter(function(d) {
+      return !query || d.name.toLowerCase().indexOf(query) >= 0;
+    });
+    
+    if (filtered.length === 0) {
+      var cols = EDIT ? 3 : 2;
+      tbody.innerHTML = '<tr><td colspan="' + cols + '"><div style="padding:40px; text-align:center; color:var(--on-surface-variant)">Chưa có tài liệu nào</div></td></tr>';
+      return;
+    }
+    
+    tbody.innerHTML = filtered.map(function(d) {
+      var fileData = getFileIconClass(d.name, d.type);
+      var actCol = EDIT ? '<td class="action-col" onclick="event.stopPropagation()">' +
+          '<button class="action-btn material-symbols-rounded" onclick="openContextMenu(event, \'' + esc(d.id) + '\')">more_vert</button>' +
+        '</td>' : '';
+      return '<tr onclick="window.open(\'' + esc(d.url) + '\', \'_blank\')">' +
+        '<td>' +
+          '<div class="file-name-cell">' +
+            '<span class="file-icon-wrapper ' + esc(fileData.cls) + '">' +
+              '<span class="material-symbols-rounded">' + esc(fileData.icon) + '</span>' +
+            '</span>' +
+            '<span class="file-name">' + esc(d.name) + '</span>' +
+          '</div>' +
+        '</td>' +
+        '<td class="date-modified">' + esc(d.date) + '</td>' +
+        actCol +
+      '</tr>';
+    }).join('');
+  }
+
+  // Search input binding
+  var si = $('searchInp');
+  if (si) {
+    si.placeholder = "Tìm tài liệu...";
+    si.addEventListener('input', renderTable);
+  }
+
+  // Bottom Toast helper
+  function showBottomToast(msg) {
+    var bt = $('bottomToast');
+    var bText = $('bottomToastText');
+    if (!bt || !bText) return;
+    bText.textContent = msg;
+    bt.classList.add('show');
+    setTimeout(function() {
+      bt.classList.remove('show');
+    }, 4000);
+  }
+
+  // Save docs configuration
+  var saveT;
+  function saveDocs() {
+    if (!EDIT) return;
+    clearTimeout(saveT);
+    saveT = setTimeout(function() {
+      postJSON('/save-docs', DOC_TREE, 20000).then(function(j) {
+        toast(j.ok ? 'Đã lưu cấu trúc tài liệu ✓' : 'Lỗi lưu cấu trúc tài liệu', j.ok);
+      }).catch(function() {
+        toast('Lỗi kết nối khi lưu tài liệu', false);
+      });
+    }, 600);
+  }
+
+  // Context Menu handlers
+  window.openContextMenu = function(event, id) {
+    contextMenuSelectedId = id;
+    var menu = $('contextMenu');
+    if (!menu) return;
+    menu.style.top = (event.clientY + window.scrollY) + 'px';
+    menu.style.left = (event.clientX - 160 + window.scrollX) + 'px';
+    menu.classList.add('open');
+    event.stopPropagation();
+  };
+
+  window.editDoc = function() {
+    var doc = findFileById(DOC_TREE, contextMenuSelectedId);
+    if (!doc) return;
+    var titleInp = $('linkTitleInp');
+    var urlInp = $('linkUrlInp');
+    if (titleInp && urlInp) {
+      titleInp.value = doc.name;
+      urlInp.value = doc.url;
+    }
+    openModal('linkModal');
+    var saveBtn = document.querySelector('#linkModal .modal-foot .btn-primary');
+    if (saveBtn) {
+      saveBtn.textContent = 'Cập nhật';
+      saveBtn.setAttribute('onclick', 'updateDocInfo(\'' + esc(doc.id) + '\')');
+    }
+  };
+
+  window.updateDocInfo = function(id) {
+    var doc = findFileById(DOC_TREE, id);
+    if (!doc) return;
+    var titleInp = $('linkTitleInp');
+    var urlInp = $('linkUrlInp');
+    if (titleInp && urlInp) {
+      var name = titleInp.value.trim();
+      var url = urlInp.value.trim();
+      if (!name || !url) {
+        toast('Vui lòng điền đầy đủ thông tin', false);
+        return;
+      }
+      doc.name = name;
+      doc.url = url;
+      doc.date = 'Vừa xong';
+      closeModal('linkModal');
+      renderTable();
+      saveDocs();
+      showBottomToast('Cập nhật tài liệu thành công ✔');
+    }
+  };
+
+  window.openLink = function() {
+    var doc = findFileById(DOC_TREE, contextMenuSelectedId);
+    if (doc) window.open(doc.url, '_blank');
+  };
+
+  window.copyDocLink = function() {
+    var doc = findFileById(DOC_TREE, contextMenuSelectedId);
+    if (doc) {
+      navigator.clipboard.writeText(doc.url).then(function() {
+        toast('Đã sao chép link tài liệu vào Clipboard', true);
+      });
+    }
+  };
+
+  window.deleteDoc = function() {
+    var indexInfo = findFileParentAndIndex(DOC_TREE, contextMenuSelectedId);
+    if (indexInfo) {
+      if (confirm('Bạn có chắc chắn muốn xoá tài liệu này?')) {
+        var docName = indexInfo.parentList[indexInfo.index].name;
+        indexInfo.parentList.splice(indexInfo.index, 1);
+        renderFolders();
+        renderTable();
+        saveDocs();
+        showBottomToast('Đã xoá tài liệu: ' + docName);
+      }
+    }
+  };
+
+  // Collect flat folders for selects
+  function collectFoldersFlat(list, result) {
+    list.forEach(function(node) {
+      if (node.type === 'folder') {
+        result.push(node);
+        if (node.children) {
+          collectFoldersFlat(node.children, result);
+        }
+      }
+    });
+  }
+
+  function updateModalDropdowns() {
+    var linkFolderSel = $('linkFolderSel');
+    var uploadFolderSel = $('uploadFolderSel');
+    var folderParentSel = $('folderParentSel');
+    
+    var allFolders = [];
+    collectFoldersFlat(DOC_TREE, allFolders);
+    
+    var opts = allFolders.map(function(f) {
+      return '<option value="' + esc(f.id) + '">' + esc(f.name) + '</option>';
+    }).join('');
+    
+    if (linkFolderSel) linkFolderSel.innerHTML = opts;
+    if (uploadFolderSel) uploadFolderSel.innerHTML = opts;
+    if (folderParentSel) folderParentSel.innerHTML = '<option value="root">Thư mục gốc (Root)</option>' + opts;
+    
+    if (currentPath.length > 0) {
+      var currentFolderId = currentPath[currentPath.length - 1].id;
+      if (linkFolderSel) { linkFolderSel.value = currentFolderId; linkFolderSel.disabled = true; }
+      if (uploadFolderSel) { uploadFolderSel.value = currentFolderId; uploadFolderSel.disabled = true; }
+      if (folderParentSel) { folderParentSel.value = currentFolderId; folderParentSel.disabled = true; }
+    } else {
+      if (linkFolderSel) linkFolderSel.disabled = false;
+      if (uploadFolderSel) uploadFolderSel.disabled = false;
+      if (folderParentSel) { folderParentSel.disabled = false; folderParentSel.value = 'root'; }
+    }
+  }
+
+  // Modals management
+  window.openModal = function(id) {
+    var m = $(id);
+    if (!m) return;
+    m.classList.add('open');
+    
+    if (id === 'folderModal') {
+      var inp = $('folderNameInp');
+      if (inp) inp.value = '';
+      updateModalDropdowns();
+    } else if (id === 'linkModal') {
+      var titleInp = $('linkTitleInp');
+      var urlInp = $('linkUrlInp');
+      if (titleInp && urlInp) {
+        titleInp.value = '';
+        urlInp.value = '';
+      }
+      updateModalDropdowns();
+      var saveBtn = document.querySelector('#linkModal .modal-foot .btn-primary');
+      if (saveBtn) {
+        saveBtn.textContent = 'Lưu tài liệu';
+        saveBtn.setAttribute('onclick', 'addDriveLink()');
+      }
+    } else if (id === 'uploadModal') {
+      var fileInput = $('fileInput');
+      var progressWrap = $('progressWrap');
+      var uploadForm = $('uploadForm');
+      var uploadBtn = $('uploadBtn');
+      var dropzone = $('dropzone');
+      var foot = $('uploadModalFoot');
+      
+      if (fileInput) fileInput.value = '';
+      if (progressWrap) progressWrap.style.display = 'none';
+      if (uploadForm) uploadForm.style.display = 'none';
+      if (uploadBtn) { uploadBtn.disabled = true; uploadBtn.textContent = 'Bắt đầu tải lên'; }
+      if (dropzone) dropzone.style.display = 'block';
+      if (foot) foot.style.display = 'flex';
+      updateModalDropdowns();
+    }
+  };
+
+  window.closeModal = function(id) {
+    var m = $(id);
+    if (m) m.classList.remove('open');
+  };
+
+  window.selectColor = function(el) {
+    document.querySelectorAll('.color-opt').forEach(function(opt) {
+      opt.classList.remove('selected');
+    });
+    el.classList.add('selected');
+  };
+
+  window.createFolder = function() {
+    var inp = $('folderNameInp');
+    if (!inp) return;
+    var name = inp.value.trim();
+    if (!name) {
+      toast('Vui lòng nhập tên thư mục', false);
+      return;
+    }
+    
+    var selectedColorEl = document.querySelector('.color-opt.selected');
+    var color = selectedColorEl ? selectedColorEl.getAttribute('data-color') : 'blue';
+    
+    var newFolder = {
+      id: "f_" + Date.now(),
+      type: "folder",
+      name: name,
+      color: color,
+      children: []
+    };
+    
+    var parentFolderSel = $('folderParentSel');
+    var parentFolderId = parentFolderSel ? parentFolderSel.value : 'root';
+    
+    if (parentFolderId === 'root') {
+      DOC_TREE.push(newFolder);
+    } else {
+      var parentFolder = findFolderById(DOC_TREE, parentFolderId);
+      if (parentFolder) {
+        if (!parentFolder.children) parentFolder.children = [];
+        parentFolder.children.push(newFolder);
+      } else {
+        DOC_TREE.push(newFolder);
+      }
+    }
+    
+    closeModal('folderModal');
+    renderFolders();
+    saveDocs();
+    showBottomToast('Tạo thư mục "' + name + '" thành công ✔');
+  };
+
+  window.addDriveLink = function() {
+    var titleInp = $('linkTitleInp');
+    var urlInp = $('linkUrlInp');
+    if (!titleInp || !urlInp) return;
+    
+    var title = titleInp.value.trim();
+    var url = urlInp.value.trim();
+    
+    if (!title || !url) {
+      toast('Vui lòng nhập đầy đủ Tên tài liệu và Link Drive', false);
+      return;
+    }
+    
+    if (url.indexOf('http://') !== 0 && url.indexOf('https://') !== 0) {
+      toast('Đường dẫn phải bắt đầu bằng http:// hoặc https://', false);
+      return;
+    }
+    
+    var newDoc = {
+      id: "d_" + Date.now(),
+      type: "link",
+      name: title.indexOf('.url') >= 0 ? title : title + '.url',
+      date: 'Vừa xong',
+      url: url
+    };
+    
+    var folderSel = $('linkFolderSel');
+    var targetFolderId = folderSel ? folderSel.value : '';
+    var targetFolder = targetFolderId ? findFolderById(DOC_TREE, targetFolderId) : null;
+    
+    if (targetFolder) {
+      if (!targetFolder.children) targetFolder.children = [];
+      targetFolder.children.unshift(newDoc);
+    } else {
+      DOC_TREE.unshift(newDoc);
+    }
+    
+    closeModal('linkModal');
+    renderFolders();
+    renderTable();
+    saveDocs();
+    showBottomToast('Thêm link tài liệu thành công ✔');
+  };
+
+  // Drag and Drop & Upload
+  var selectFileObj = null;
+
+  window.handleFileSelect = function(event) {
+    if (event.target.files && event.target.files.length) {
+      handleFiles(event.target.files[0]);
+    }
+  };
+
+  function handleFiles(file) {
+    selectFileObj = file;
+    var dropzone = $('dropzone');
+    var uploadForm = $('uploadForm');
+    var btn = $('uploadBtn');
+    
+    if (dropzone) dropzone.style.display = 'none';
+    if (uploadForm) uploadForm.style.display = 'block';
+    
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Bắt đầu tải lên (' + (file.size / (1024 * 1024)).toFixed(2) + ' MB)';
+    }
+  }
+
+  // Setup drag drop events on load for dropzone
+  var dropzone = $('dropzone');
+  if (dropzone) {
+    dropzone.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      dropzone.classList.add('dragover');
+    });
+    dropzone.addEventListener('dragleave', function() {
+      dropzone.classList.remove('dragover');
+    });
+    dropzone.addEventListener('drop', function(e) {
+      e.preventDefault();
+      dropzone.classList.remove('dragover');
+      if (e.dataTransfer && e.dataTransfer.files.length) {
+        handleFiles(e.dataTransfer.files[0]);
+      }
+    });
+  }
+
+  // Real Upload logic via XMLHttpRequest
+  window.performRealUpload = function() {
+    if (!selectFileObj) return;
+    
+    var progressWrap = $('progressWrap');
+    var progressPercent = $('progressPercent');
+    var uploadFileName = $('uploadFileName');
+    var uploadPercentage = $('uploadPercentage');
+    var uploadForm = $('uploadForm');
+    var foot = $('uploadModalFoot');
+    
+    if (uploadForm) uploadForm.style.display = 'none';
+    if (foot) foot.style.display = 'none';
+    if (progressWrap) progressWrap.style.display = 'flex';
+    if (uploadFileName) uploadFileName.textContent = selectFileObj.name;
+    
+    var fd = new FormData();
+    fd.append('file', selectFileObj);
+    
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/upload-file', true);
+    
+    xhr.upload.onprogress = function(e) {
+      if (e.lengthComputable) {
+        var pct = Math.round((e.loaded / e.total) * 100);
+        if (progressPercent) progressPercent.style.width = pct + '%';
+        if (uploadPercentage) uploadPercentage.textContent = pct + '%';
+      }
+    };
+    
+    xhr.onload = function() {
+      if (xhr.status === 200) {
+        try {
+          var res = JSON.parse(xhr.responseText);
+          if (res.ok) {
+            var folderSel = $('uploadFolderSel');
+            var targetFolderId = folderSel ? folderSel.value : '';
+            var targetFolder = targetFolderId ? findFolderById(DOC_TREE, targetFolderId) : null;
+            
+            var newDoc = {
+              id: "d_" + Date.now(),
+              type: "link",
+              name: res.filename,
+              date: 'Vừa xong',
+              url: res.url
+            };
+            
+            if (targetFolder) {
+              if (!targetFolder.children) targetFolder.children = [];
+              targetFolder.children.unshift(newDoc);
+            } else {
+              DOC_TREE.unshift(newDoc);
+            }
+            
+            closeModal('uploadModal');
+            renderFolders();
+            renderTable();
+            saveDocs();
+            showBottomToast('Đã tải lên tệp: ' + res.filename + ' ✔');
+          } else {
+            toast('Lỗi tải lên: ' + (res.msg || 'Không rõ nguyên nhân'), false);
+            closeModal('uploadModal');
+          }
+        } catch(ex) {
+          toast('Lỗi phân tích phản hồi từ máy chủ', false);
+          closeModal('uploadModal');
+        }
+      } else if (xhr.status === 403) {
+        toast('Lỗi 403: Bạn không có quyền thực hiện thao tác này', false);
+        closeModal('uploadModal');
+      } else {
+        toast('Lỗi máy chủ: ' + xhr.status, false);
+        closeModal('uploadModal');
+      }
+      selectFileObj = null;
+    };
+    
+    xhr.onerror = function() {
+      toast('Lỗi kết nối mạng trong quá trình tải lên', false);
+      closeModal('uploadModal');
+      selectFileObj = null;
+    };
+    
+    xhr.send(fd);
+  };
+
+  // Close context menu on click outside
+  document.addEventListener('click', function(e) {
+    var menu = $('contextMenu');
+    if (menu && !e.target.closest('.action-btn')) {
+      menu.classList.remove('open');
+    }
+  });
+
+  // Initial renders
+  renderFolders();
+  renderTable();
+})();
+
 })();
