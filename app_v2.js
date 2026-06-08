@@ -159,6 +159,222 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   var DATA = readJSON('qaData') || { tasks:[], meta:{} };
   var TASKS = DATA.tasks || [];
   window.__jiraBase = (TASKS[0] && TASKS[0].jiraUrl ? TASKS[0].jiraUrl.replace(/\/browse\/.*$/, '') : '');
+
+  // --------- ADMIN DASHBOARD v2 (pills + member filter + 5-col table + KPI) ---------
+  if(DATA.meta && DATA.meta.isAdmin){
+    var custMap={}; (window.QA_CUSTOM_STATUSES||[]).forEach(function(p){ custMap[p[0]]=p[1]; });
+    var curPill='todo', curMember='all', curPage=1, PER_PAGE=5;
+    var COMMENTS={}, DETAIL={}, inflight={};
+
+    function badgeCls(v){ v=(v||'').toUpperCase();
+      if(v==='DONE') return 'b-done'; if(v==='IN PROGRESS') return 'b-checking';
+      if(v==='PENDING') return 'b-blocked'; if(v==='TO DO') return 'b-todo';
+      if(v==='CANCELLED') return 'b-critical'; return 'b-todo'; }
+
+    function pillMatch(t){
+      if(curPill==='todo') return t.jira==='TO DO' && !t.isNew && !t.overdue;
+      if(curPill==='progress') return (t.jira==='In Progress'||t.jira==='PENDING') && !t.stuck && !t.overdue;
+      if(curPill==='new') return t.isNew;
+      if(curPill==='stuck') return t.stuck;
+      if(curPill==='overdue') return t.overdue;
+      if(curPill==='done') return t.jira.toUpperCase()==='DONE';
+      return true;
+    }
+    function memberMatch(t){ return curMember==='all' || t.assignee.name===curMember; }
+    function searchMatch(t){
+      var q=(($('searchInp')||{}).value||'').toLowerCase();
+      return !q || (t.key+' '+t.summary).toLowerCase().indexOf(q)>=0;
+    }
+    function filtered(){ return TASKS.filter(function(t){ return pillMatch(t)&&memberMatch(t)&&searchMatch(t); }); }
+
+    function chipHTML(t){
+      if(!t.customs||!t.customs.length) return '';
+      return '<div class="cust-chips">'+t.customs.map(function(v){
+        return '<span class="cust-chip"><span class="material-symbols-rounded">circle</span>'
+          +esc(custMap[v]||v)+'</span>'; }).join('')+'</div>';
+    }
+
+    function renderRows(){
+      var all=filtered(), total=all.length;
+      var pages=Math.max(1,Math.ceil(total/PER_PAGE));
+      if(curPage>pages) curPage=pages; if(curPage<1) curPage=1;
+      var start=(curPage-1)*PER_PAGE, slice=all.slice(start, start+PER_PAGE);
+
+      var label={todo:'To Do Tasks',progress:'In Progress Tasks',new:'New Tasks',
+                 stuck:'Stuck Tasks',overdue:'Overdue Tasks',done:'Done Tasks'};
+      $('tableTitleText').innerHTML='<span class="material-symbols-rounded">assignment</span><span>'+(label[curPill]||'Tasks')+'</span>';
+
+      if(!total){
+        tbody.innerHTML='<tr><td colspan="5"><div class="empty-state"><span class="material-symbols-rounded">folder_off</span>Không tìm thấy task nào.</div></td></tr>';
+        $('pager').innerHTML=''; return;
+      }
+
+      var html=slice.map(function(t){
+        return '<tr data-key="'+esc(t.key)+'">'
+          +'<td><a class="cell-key" href="'+esc(t.jiraUrl)+'" target="_blank" onclick="event.stopPropagation()">'+esc(t.key)+'</a></td>'
+          +'<td><span class="cell-title">'+esc(t.summary)+'</span></td>'
+          +'<td><div class="cell-member"><span class="m-av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span>'
+          +'<span>'+esc(t.assignee.name)+'</span></div></td>'
+          +'<td><span class="badge '+badgeCls(t.jira)+'">'+esc(t.jira)+'</span>'+chipHTML(t)+'</td>'
+          +'<td>'+esc(t.dueDisp)+'</td></tr>';
+      }).join('');
+      for(var k=slice.length;k<PER_PAGE;k++){
+        html+='<tr class="pager-filler"><td>&nbsp;</td><td><span class="cell-title">&nbsp;</span></td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>';
+      }
+      tbody.innerHTML=html;
+
+      var ph='<span class="pager-summary">'+(start+1)+'–'+(start+slice.length)+' / '+total+' task · trang '+curPage+'/'+pages+'</span>'
+        +'<div class="pager-nav"><button class="pager-btn"'+(curPage<=1?' disabled':'')+' data-pg="-1"><span class="material-symbols-rounded mi-xs">chevron_left</span></button>';
+      for(var i=1;i<=pages;i++) ph+='<button class="pager-page'+(i===curPage?' active':'')+'" data-pg="'+i+'">'+i+'</button>';
+      ph+='<button class="pager-btn"'+(curPage>=pages?' disabled':'')+' data-pg="'+(pages+1)+'"><span class="material-symbols-rounded mi-xs">chevron_right</span></button></div>';
+      $('pager').innerHTML=ph;
+    }
+
+    function updateCounts(){
+      var counts={todo:0,progress:0,'new':0,stuck:0,overdue:0,done:0};
+      TASKS.forEach(function(t){
+        if(!memberMatch(t)||!searchMatch(t)) return;
+        if(t.isNew) counts['new']++;
+        else if(t.overdue) counts.overdue++;
+        else if(t.stuck) counts.stuck++;
+        else if(t.jira==='TO DO') counts.todo++;
+        else if(t.jira==='In Progress'||t.jira==='PENDING') counts.progress++;
+        else if(t.jira.toUpperCase()==='DONE') counts.done++;
+      });
+      ['todo','progress','new','stuck','overdue','done'].forEach(function(k){
+        var el=$('count-'+k); if(el) el.textContent=counts[k];
+      });
+    }
+
+    function updateKPIs(){
+      var active=TASKS.filter(function(t){ return memberMatch(t)&&t.jira.toUpperCase()!=='DONE'; });
+      var done=TASKS.filter(function(t){ return memberMatch(t)&&t.jira.toUpperCase()==='DONE'; });
+      var vel=(done.length/7+0.1).toFixed(1);
+      var ov=active.filter(function(t){ return t.overdue; }).length;
+      var v=$('kpiVelocity'); if(v) v.textContent=vel+' Tasks/Day';
+      var tt=$('kpiTotalTasks'); if(tt) tt.textContent=active.length+' Tasks';
+      var b=$('kpiBugs'); if(b) b.textContent=ov+' Open';
+    }
+
+    // Pill clicks
+    document.querySelectorAll('.pill-btn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        document.querySelectorAll('.pill-btn').forEach(function(b){ b.classList.remove('active'); });
+        btn.classList.add('active');
+        curPill=btn.getAttribute('data-pill'); curPage=1;
+        renderRows();
+      });
+    });
+
+    // Member dropdown
+    var mBtn=$('memberFilterBtn'), mDrop=$('memberDropdown');
+    if(mBtn&&mDrop){
+      mBtn.addEventListener('click', function(e){ e.stopPropagation(); mDrop.classList.toggle('open');
+        var n=$('notif'); if(n) n.classList.remove('open');
+        var p=$('pmenu'); if(p) p.classList.remove('open'); });
+      document.querySelectorAll('.member-opt').forEach(function(opt){
+        opt.addEventListener('click', function(){
+          document.querySelectorAll('.member-opt').forEach(function(o){ o.classList.remove('active'); });
+          opt.classList.add('active');
+          curMember=opt.getAttribute('data-member');
+          $('selectedMemberLabel').textContent=opt.textContent;
+          curPage=1; mDrop.classList.remove('open');
+          updateCounts(); renderRows(); updateKPIs();
+        });
+      });
+      document.addEventListener('click', function(e){
+        if(!e.target.closest('.member-filter-wrap')) mDrop.classList.remove('open');
+      });
+    }
+
+    // Search
+    var si=$('searchInp'); if(si) si.addEventListener('input', function(){ curPage=1; updateCounts(); renderRows(); updateKPIs(); });
+
+    // Pager clicks
+    $('pager').addEventListener('click', function(e){
+      var b=e.target.closest('[data-pg]'); if(!b) return;
+      var v=parseInt(b.getAttribute('data-pg'),10);
+      if(v===-1) curPage--; else if(v>curPage) curPage=v; else curPage=v;
+      renderRows();
+    });
+
+    // Row clicks -> drawer
+    tbody.addEventListener('click', function(e){
+      if(e.target.closest('.pager-filler')) return;
+      var tr=e.target.closest('tr[data-key]'); if(!tr) return;
+      var key=tr.getAttribute('data-key');
+      openDetail(key);
+    });
+
+    // Detail drawer
+    function openDetail(key){
+      var t=TASKS.filter(function(x){ return x.key===key; })[0]; if(!t) return;
+      renderDrawer(t);
+      $('drawerOv').classList.add('open'); $('drawer').classList.add('open');
+      if(COMMENTS[key]===undefined){
+        COMMENTS[key]=null;
+        getJSON('/issue-comments?key='+encodeURIComponent(key), 20000)
+          .then(function(j){ if(j&&j.ok&&j.detail){ COMMENTS[key]=j.detail.comments||[]; DETAIL[key]=j.detail; }
+            else COMMENTS[key]=COMMENTS[key]||[];
+            if($('drawer').classList.contains('open')) renderDrawer(TASKS.filter(function(x){return x.key===key;})[0]);
+          }).catch(function(){ COMMENTS[key]=COMMENTS[key]||[]; });
+      }
+    }
+    window.__openDetail = openDetail;
+    function closeDetail(){ $('drawerOv').classList.remove('open'); $('drawer').classList.remove('open'); }
+    function renderDrawer(t){
+      var chips=(t.customs&&t.customs.length)?t.customs.map(function(v){
+        return '<span class="cust-chip"><span class="material-symbols-rounded">circle</span>'+esc(custMap[v]||v)+'</span>';}).join('')
+        :'<span style="color:var(--on-surface-variant)">—</span>';
+      var flags='';
+      if(t.overdue) flags+='<span class="dt-flag od"><span class="material-symbols-rounded mi-xs">event_busy</span>Quá hạn</span>';
+      if(t.stuck) flags+='<span class="dt-flag st"><span class="material-symbols-rounded mi-xs">hourglass_bottom</span>Kẹt</span>';
+      if(!flags) flags='<span style="color:var(--on-surface-variant)">—</span>';
+      var list=COMMENTS[t.key]; var hist;
+      if(list===null||list===undefined) hist='<div class="cmt-empty">Đang tải…</div>';
+      else if(!list.length) hist='<div class="cmt-empty">Chưa có bình luận nào</div>';
+      else hist=list.map(function(c){ return '<div class="cmt-item"><span class="av '+avById(c.author)+'">'+esc(initOf(c.author))+'</span>'
+        +'<div class="cmt-main"><div class="cmt-meta"><b>'+esc(c.author)+'</b><span>'+esc((c.when||'').slice(0,16).replace('T',' '))+'</span></div>'
+        +'<div class="cmt-text">'+esc(c.body)+'</div></div></div>'; }).join('');
+      var desc=(DETAIL[t.key]&&DETAIL[t.key].description)?esc(DETAIL[t.key].description):esc(t.summary);
+      $('drawer').innerHTML='<div class="drawer-head"><a class="key" href="'+esc(t.jiraUrl)+'" target="_blank">'+esc(t.key)+'</a>'
+        +'<span class="badge '+badgeCls(t.jira)+'">'+esc(t.jira)+'</span>'
+        +'<button class="x material-symbols-rounded" data-act="drawer-close">close</button></div>'
+        +'<div class="drawer-body"><h2>'+esc(t.summary)+'</h2>'
+        +'<div class="dt-grid"><div class="lbl">Người xử lý</div><div class="val"><span class="assignee"><span class="av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span> '+esc(t.assignee.name)+'</span></div>'
+        +'<div class="lbl">Hạn chót</div><div class="val"><span class="due '+esc(t.dueCls)+'">'+esc(t.dueDisp)+'</span></div>'
+        +'<div class="lbl">Nhãn nội bộ</div><div class="val">'+chips+'</div>'
+        +'<div class="lbl">Cảnh báo</div><div class="val">'+flags+'</div></div>'
+        +'<div class="dt-sec-title">Mô tả</div><div class="dt-desc">'+desc+'</div>'
+        +'<div class="dt-cmts"><div class="dt-sec-title">Bình luận ('+(list&&list.length||0)+')</div>'
+        +'<div class="cmt-panel"><div class="cmt-history">'+hist+'</div>'
+        +'<div class="cmt-box"><textarea id="dtTa-'+esc(t.key)+'" placeholder="Viết bình luận..."></textarea>'
+        +'<div class="cmt-foot"><button class="lbtn primary" data-act="dt-send" data-key="'+esc(t.key)+'">Gửi</button></div></div></div></div></div>';
+    }
+    document.addEventListener('click', function(e){
+      var a=e.target.closest('[data-act]'); if(!a) return;
+      if(a.getAttribute('data-act')==='drawer-close') closeDetail();
+      else if(a.getAttribute('data-act')==='dt-send'){
+        var key=a.getAttribute('data-key');
+        var ta=$('dtTa-'+key); var v=(ta&&ta.value||'').trim();
+        if(!v){ toast('Chưa nhập bình luận', false); return; }
+        postJSON('/add-comment', {key:key,body:v}, 20000).then(function(j){
+          if(patToast(j)) return;
+          if(j.ok){ (COMMENTS[key]=COMMENTS[key]||[]).push({author:'Bạn',when:new Date().toISOString(),body:v});
+            renderDrawer(TASKS.filter(function(x){return x.key===key;})[0]); toast('Đã gửi comment ✓', true); }
+          else toast(j.msg||'Lỗi gửi comment', false);
+        }).catch(function(){ toast('Lỗi mạng', false); });
+      }
+    });
+    var dov=$('drawerOv'); if(dov) dov.addEventListener('click', closeDetail);
+    document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeDetail(); });
+
+    // Initial render
+    updateCounts(); renderRows(); updateKPIs();
+    return; // <-- skip QA member code below
+  }
+  // --------- END ADMIN DASHBOARD ---------
+
   var custMap={}; (window.QA_CUSTOM_STATUSES||[]).forEach(function(p){ custMap[p[0]]=p[1]; });
   var COMMENTS={};        // key -> [{author,when,body}] (lazy)
   var DETAIL={};          // key -> {description}
