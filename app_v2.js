@@ -679,7 +679,11 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   function rmCust(key, val){ var t=taskByKey(key); if(t) setCustom(t, key, val); }
   document.addEventListener('click', function(e){
     if(smenu && smenu.classList.contains('open') && !e.target.closest('#smenu') && !e.target.closest('[data-act="smenu"]')) closeSmenu(); });
-  window.addEventListener('scroll', function(){ if(smenu && smenu.classList.contains('open')) closeSmenu(); }, true);
+  window.addEventListener('scroll', function(e){
+    if(!(smenu && smenu.classList.contains('open'))) return;
+    if(e.target && e.target.nodeType===1 && (e.target===smenu || e.target.closest && e.target.closest('#smenu'))) return; // cuộn trong menu → giữ nguyên
+    closeSmenu();
+  }, true);
   document.addEventListener('keydown', function(e){ if(e.key==='Escape'){ closeSmenu(); closeDetail(); } });
 
   setFilter('all');
