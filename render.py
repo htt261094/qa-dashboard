@@ -657,6 +657,8 @@ def _render_drive_card(has_drive, auth_enabled):
         state = ('<div class="set-state set-none">⚠ Chưa kết nối Drive. Bug log sync sẽ báo '
                  '"chưa kết nối Drive".</div>')
         btns = '<a href="/drive/connect" class="set-btn">Kết nối Drive</a>'
+    # Lưu ý: account chooser luôn hiện (prompt=select_account, auth.py) — chọn ĐÚNG tài
+    # khoản @baokim.vn, KHÔNG dùng Gmail cá nhân (sẽ bị domain gate từ chối).
     return (
         '<div class="set-card">'
         '<h2>🔗 Kết nối Google Drive (Bug Log)</h2>'
@@ -664,22 +666,25 @@ def _render_drive_card(has_drive, auth_enabled):
         '<p class="set-note">Cấp quyền <b>chỉ đọc</b> (<code>drive.readonly</code>) bằng tài khoản admin '
         'để background sync tải file <code>.xlsx</code> bug log. Token được mã hoá (AES) trước khi lưu, '
         'không bao giờ lưu dạng thô và không ghi/sửa được file trên Drive.</p>'
+        '<p class="set-note">⚠ Khi Google hỏi, hãy <b>chọn tài khoản <code>@baokim.vn</code></b> '
+        '(không phải Gmail cá nhân) — tài khoản ngoài domain sẽ bị từ chối.</p>'
         f'<div class="set-form">{btns}</div>'
         '</div>'
     )
 
 
-def render_settings_page(has_pat, user=None, has_drive=False, auth_enabled=False):
+def render_settings_page(has_pat, user=None, has_drive=False, auth_enabled=False, activities=None):
     is_admin = bool(user and len(user) > 1 and user[1])
     status_line = ('<div class="set-state set-ok">✓ Bạn đã lưu PAT. Thao tác đổi status/comment sẽ ghi đúng tên bạn trên Jira.</div>'
                    if has_pat else
                    '<div class="set-state set-none">⚠ Bạn chưa lưu PAT. Hiện thao tác (nếu có) sẽ mang tên tài khoản chung.</div>')
     jira_base = esc(JIRA_URL)
     inner = (
-        render_nav('settings', user) +
-        '<header><h1>⚙ Cài đặt — Personal Access Token (PAT)</h1>'
-        '<div class="meta">PAT giúp dashboard thao tác Jira <strong>nhân danh chính bạn</strong>. '
-        'Mã được mã hoá (AES) trước khi lưu, không bao giờ lưu dạng thô.</div></header>'
+        '<div class="page-head"><div>'
+        '<h2 class="page-title">⚙ Cài đặt — Personal Access Token (PAT)</h2>'
+        '<div class="page-sub">PAT giúp dashboard thao tác Jira <strong>nhân danh chính bạn</strong>. '
+        'Mã được mã hoá (AES) trước khi lưu, không bao giờ lưu dạng thô.</div>'
+        '</div></div>'
         f'<div class="set-wrap">{status_line}'
         '<div class="set-card">'
         '<h2>1. Tạo PAT trên Jira</h2>'
@@ -702,7 +707,7 @@ def render_settings_page(has_pat, user=None, has_drive=False, auth_enabled=False
         + (_render_drive_card(has_drive, auth_enabled) if is_admin else '')
         + '</div>'
     )
-    return _document(inner)
+    return _document_v2(inner, 'settings', user, activities or [], title='Cài đặt — QA Dashboard')
 
 
 

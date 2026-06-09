@@ -145,7 +145,9 @@ def drive_login_url(redirect_uri, state):
         'scope': 'openid email ' + DRIVE_SCOPE,
         'state': state,
         'access_type': 'offline',   # bắt buộc để Google trả refresh_token
-        'prompt': 'consent',        # ép hỏi lại consent -> luôn có refresh_token (kể cả đã cấp trước)
+        # select_account -> luôn hiện màn CHỌN tài khoản (không tự nhảy account default);
+        # consent -> ép hỏi lại consent => luôn có refresh_token (kể cả đã cấp trước)
+        'prompt': 'select_account consent',
     }
     if ALLOWED_DOMAIN:
         params['hd'] = ALLOWED_DOMAIN

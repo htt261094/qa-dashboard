@@ -82,6 +82,34 @@ function applyTheme(t){ document.documentElement.setAttribute('data-theme', t);
 function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov) ov.classList.add('open');
   toast(j.msg || 'Cần PAT để thao tác Jira', false); return true; } return false; }
 
+// ---------- trang /settings ĐẦY ĐỦ (render_settings_page) — khác modal ở trên (IDs riêng) ----------
+(function(){
+  var input=$('patInput'); if(!input) return;   // chỉ chạy trên trang /settings
+  var saveBtn=$('patSave'), showBtn=$('patShow'), delBtn=$('patDelete');
+  if(saveBtn) saveBtn.addEventListener('click', function(){
+    var pat=(input.value||'').trim(); if(!pat){ toast('Chưa nhập PAT', false); return; }
+    saveBtn.disabled=true;
+    postJSON('/save-pat', { pat:pat }, 20000).then(function(j){
+      saveBtn.disabled=false; toast(j.msg || (j.ok?'Đã lưu PAT':'Lỗi lưu PAT'), j.ok);
+      if(j.ok){ input.value=''; setTimeout(function(){ location.reload(); }, 1500); }
+    }).catch(function(){ saveBtn.disabled=false; toast('Lỗi mạng khi lưu PAT', false); }); });
+  if(showBtn) showBtn.addEventListener('click', function(){
+    input.type = input.type==='password' ? 'text' : 'password'; });
+  if(delBtn) delBtn.addEventListener('click', function(){
+    if(!confirm('Xoá PAT đã lưu? Sau đó thao tác Jira sẽ không còn ghi tên bạn.')) return;
+    fetch('/delete-pat', { method:'POST' }).then(function(r){ return r.json(); })
+      .then(function(j){ toast(j.ok?'Đã xoá PAT':'Lỗi xoá', j.ok);
+        if(j.ok) setTimeout(function(){ location.reload(); }, 1200); })
+      .catch(function(){ toast('Lỗi mạng', false); }); });
+  var driveDc=$('driveDisconnect');
+  if(driveDc) driveDc.addEventListener('click', function(){
+    if(!confirm('Ngắt kết nối Drive? Background sync bug log sẽ ngừng đọc file cho tới khi kết nối lại.')) return;
+    fetch('/disconnect-drive', { method:'POST' }).then(function(r){ return r.json(); })
+      .then(function(j){ toast(j.ok?'Đã ngắt kết nối Drive':'Lỗi ngắt kết nối', j.ok);
+        if(j.ok) setTimeout(function(){ location.reload(); }, 1200); })
+      .catch(function(){ toast('Lỗi mạng', false); }); });
+})();
+
 // ---------- notifications bell ----------
 (function(){
   var NOTIFS = (readJSON('qaNotif') || []).slice();

@@ -949,3 +949,24 @@ html[data-theme="dark"] .bottom-toast {
 .bl-jira-wrap .unlink{opacity:.55;font-size:16px;cursor:pointer;color:var(--on-surface-variant);border-radius:50%}
 .bl-jira-wrap .unlink:hover{opacity:1;color:var(--error);background:var(--error-bg)}
 .bl-nolink{font-size:13px;color:var(--on-surface-variant);font-style:italic;display:inline-flex;align-items:center;gap:6px}
+
+/* ===== Settings page (PAT + Drive) — ported to v2 shell ===== */
+.page-sub{font-size:13px;color:var(--on-surface-variant);margin-top:4px}
+.set-wrap{max-width:720px;margin:0 auto}
+.set-state{padding:10px 14px;border-radius:8px;font-size:13px;font-weight:600;margin-bottom:16px}
+.set-state.set-ok{background:var(--success-bg);color:var(--success-on)}
+.set-state.set-none{background:var(--warning-bg);color:var(--warning-on)}
+.set-card{background:var(--card);border:1px solid var(--divider);border-radius:10px;padding:18px 20px;margin-bottom:16px}
+.set-card h2{font-size:14px;color:var(--on-surface);margin:0 0 8px}
+.set-card h2+h2,.set-steps+h2{margin-top:20px}
+.set-steps{margin:0 0 4px;padding-left:20px;font-size:13px;color:var(--on-surface-variant);line-height:1.7}
+.set-form{display:flex;gap:8px;margin:8px 0;align-items:center;flex-wrap:wrap}
+.set-input{flex:1;min-width:200px;padding:8px 12px;border:1px solid var(--outline-variant);border-radius:6px;font-size:13px;background:var(--surface);color:var(--on-surface)}
+.set-input:focus{outline:none;border-color:var(--primary)}
+.set-btn{padding:8px 16px;border:none;border-radius:6px;background:var(--primary);color:var(--on-primary);font-size:13px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center}
+.set-btn:hover{background:var(--primary-strong)}
+.set-btn.ghost{background:var(--surface-container);color:var(--on-surface-variant)}
+.set-btn:disabled{opacity:.5;cursor:default}
+.set-link-del{background:none;border:none;color:var(--error);font-size:12px;cursor:pointer;padding:4px 0;text-decoration:underline}
+.set-note{font-size:12px;color:var(--on-surface-variant);margin:10px 0 0}
+.set-note code{background:var(--surface-container);padding:1px 4px;border-radius:3px}
