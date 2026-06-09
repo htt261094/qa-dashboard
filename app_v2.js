@@ -87,6 +87,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   var NOTIFS = (readJSON('qaNotif') || []).slice();
   var notif=$('notif'), bell=$('bellBtn'), list=$('notifList'), dot=$('bellDot');
   if(!notif||!bell||!list) return;
+  var BASE_TITLE=(document.title||'').replace(/^\(\d+\)\s*/, '');   // tên tab gốc, bỏ prefix cũ nếu có
   var filter='all';
   var localRead={};   // id đã dismiss tại máy này phiên này -> giữ "đã đọc" kể cả khi poll trả về trước lúc Jira property kịp sync
   var seenIds={};     // mọi id từng thấy -> phát hiện mục MỚI giữa 2 lần poll để toast
@@ -134,6 +135,8 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     var unreadCount = NOTIFS.filter(function(n){ return n.is_unread; }).length;
     if(dot){ if(unreadCount){ dot.style.display='flex'; dot.textContent=unreadCount>99?'99+':unreadCount; }
              else dot.style.display='none'; }
+    // Số noti chưa đọc lên title tab browser: "(3) QA Workspace — ..."
+    document.title = unreadCount ? '('+(unreadCount>99?'99+':unreadCount)+') '+BASE_TITLE : BASE_TITLE;
   }
   function markRead(ids){ var set={}; ids.forEach(function(i){ set[i]=1; localRead[i]=1; });
     NOTIFS.forEach(function(n){ if(set[n.id]) n.is_unread=false; }); render(); }
