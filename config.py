@@ -21,6 +21,8 @@ STATE_FILE = SCRIPT_DIR / '.last_seen.json'
 PIC_FILE = SCRIPT_DIR / '.pic_config.json'
 DOCS_FILE = SCRIPT_DIR / '.docs_config.json'
 ROADMAP_FILE = SCRIPT_DIR / '.roadmap_config.json'
+DRIVE_TOKEN_FILE = SCRIPT_DIR / '.drive_token.json'      # cache refresh token (mã hoá) fallback
+BUG_LOG_SOURCE_FILE = SCRIPT_DIR / '.bug_log_source.json'  # cache file Drive nguồn bug log
 
 # ----- Domain constants -----
 STUCK_DAYS = 5   # task In Progress/PENDING không đổi >= 5 ngày = "kẹt"

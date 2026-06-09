@@ -26,12 +26,17 @@ from config import (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, SESSION_SECRET,
 # ----- constants -----
 SESSION_COOKIE = 'qa_session'
 STATE_COOKIE = 'qa_oauth_state'
+DRIVE_STATE_COOKIE = 'qa_drive_state'   # state riêng cho luồng "Kết nối Drive" (#52)
 SESSION_TTL = 12 * 3600          # 12h đăng nhập rồi phải login lại
 STATE_TTL = 600                  # state CSRF sống 10 phút
 
 _AUTH_EP = 'https://accounts.google.com/o/oauth2/v2/auth'
 _TOKEN_EP = 'https://oauth2.googleapis.com/token'
 _USERINFO_EP = 'https://www.googleapis.com/oauth2/v2/userinfo'
+
+# Scope chỉ-đọc Drive cho luồng "Kết nối Drive" (issue #52). drive.readonly = đọc file,
+# KHÔNG sửa được -> giữ permission file nguyên trạng, không lộ data ra ngoài.
+DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.readonly'
 
 _SECRET = (SESSION_SECRET or '').encode('utf-8')
 
@@ -125,6 +130,81 @@ def exchange_code(code, redirect_uri):
         return info.json()
     except requests.RequestException:
         raise RuntimeError('Google OAuth network error')
+
+
+# ----- Drive OAuth (admin-only, TÁCH khỏi login chung — issue #52) -----
+# Login chung dùng access_type=online + prompt=select_account (KHÔNG trả refresh_token).
+# Luồng này xin scope drive.readonly + offline + consent để Google trả refresh_token một
+# lần cho admin -> background thread (#54) tự refresh ra access_token đọc file .xlsx bug log.
+def drive_login_url(redirect_uri, state):
+    """URL Google để admin cấp quyền Drive (offline -> trả refresh_token)."""
+    params = {
+        'client_id': GOOGLE_CLIENT_ID,
+        'redirect_uri': redirect_uri,
+        'response_type': 'code',
+        'scope': 'openid email ' + DRIVE_SCOPE,
+        'state': state,
+        'access_type': 'offline',   # bắt buộc để Google trả refresh_token
+        'prompt': 'consent',        # ép hỏi lại consent -> luôn có refresh_token (kể cả đã cấp trước)
+    }
+    if ALLOWED_DOMAIN:
+        params['hd'] = ALLOWED_DOMAIN
+    return _AUTH_EP + '?' + urlencode(params)
+
+
+def exchange_code_tokens(code, redirect_uri):
+    """Đổi authorization code -> (userinfo dict, refresh_token | None).
+
+    Giống exchange_code nhưng GIỮ LẠI refresh_token (login chung vứt đi). Dùng cho
+    luồng Drive. Raise RuntimeError nếu lỗi. KHÔNG log token."""
+    try:
+        tok = requests.post(_TOKEN_EP, data={
+            'code': code,
+            'client_id': GOOGLE_CLIENT_ID,
+            'client_secret': GOOGLE_CLIENT_SECRET,
+            'redirect_uri': redirect_uri,
+            'grant_type': 'authorization_code',
+        }, timeout=15)
+        if tok.status_code != 200:
+            raise RuntimeError('token exchange failed')
+        body = tok.json()
+        access = body.get('access_token')
+        if not access:
+            raise RuntimeError('no access_token')
+        refresh = body.get('refresh_token')  # chỉ có khi access_type=offline + consent
+        info = requests.get(_USERINFO_EP,
+                            headers={'Authorization': f'Bearer {access}'}, timeout=15)
+        if info.status_code != 200:
+            raise RuntimeError('userinfo failed')
+        return info.json(), refresh
+    except requests.RequestException:
+        raise RuntimeError('Google OAuth network error')
+
+
+def refresh_access_token(refresh_token):
+    """refresh_token -> (access_token: str, expires_in: int). Raise RuntimeError nếu lỗi.
+
+    KHÔNG log token; redact refresh_token khỏi mọi error message."""
+    if not refresh_token:
+        raise RuntimeError('thiếu refresh_token')
+    try:
+        r = requests.post(_TOKEN_EP, data={
+            'client_id': GOOGLE_CLIENT_ID,
+            'client_secret': GOOGLE_CLIENT_SECRET,
+            'refresh_token': refresh_token,
+            'grant_type': 'refresh_token',
+        }, timeout=15)
+        if r.status_code != 200:
+            # 400 invalid_grant = token bị revoke/đổi mật khẩu -> báo mềm, không lộ token
+            raise RuntimeError(f'refresh access_token thất bại (HTTP {r.status_code})')
+        body = r.json()
+        access = body.get('access_token')
+        if not access:
+            raise RuntimeError('không nhận được access_token')
+        return access, int(body.get('expires_in', 3600))
+    except requests.RequestException as e:
+        msg = str(e).replace(refresh_token, '<REDACTED>')
+        raise RuntimeError(f'lỗi mạng khi refresh token: {msg}')
 
 
 def email_allowed(userinfo):
