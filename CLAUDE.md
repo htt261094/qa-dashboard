@@ -284,6 +284,14 @@ Hiền THƯỜNG là reporter trong các task QA team được giao — vì cô 
 - **Routes**: POST `/upload-file` (lưu vào `uploads/`), GET `/uploads/<filename>` (serve). Node link trỏ `/uploads/...`. Edit actions vẫn gate `editable=_is_admin()`.
 - **⚠ Giới hạn**: thư mục uploads **hardcode path macOS** `/Users/thanhht/qa-dashboard/uploads` trong qa_dashboard.py (2 chỗ: serve + save) — chỉ chạy đúng trên Mac host. Chạy nơi khác phải sửa. File upload KHÔNG sync chéo máy (chỉ ở host), KHÔNG trong git (`uploads/` đã gitignore).
 
+### 24. Notification real-time qua short-poll JSON (2026-06-09, issue #40)
+- **Bối cảnh / quyết định gốc**: notification cũ chỉ cập nhật khi reload trang (F5/auto-reload). User chốt hướng **short-poll JSON** thay vì SSE — vì SSE buộc chuyển `ThreadingHTTPServer` (giữ kết nối lâu sẽ block server single-thread) kéo theo phải xử lý race ghi `.last_seen.json` (Known Limitations + Decision #13). Short-poll giữ nguyên `TCPServer` single-thread, zero dep, không đụng kiến trúc nền. SUPERSEDES mô hình "chỉ cập nhật khi reload" cho riêng notification.
+- **Endpoint** GET `/activity-feed` (qa_dashboard, cạnh `/issue-comments`) → `{ok, activities}` = `self._bell_activities()` (CÙNG nguồn chuông mọi tab, đã gắn `is_unread` theo dismissed người đăng nhập). Gated authed + domain_ok như mọi GET. Mỗi poll = 3 Jira call (feed changelog + dismissed property + custom bundle), chạy song song.
+- **Client** (app_v2.js, bell controller `#notif`): `setInterval(poll, 60s)`. `poll()` bỏ qua khi `document.hidden` (tab ẩn → đỡ tải Jira) + poll ngay khi tab visible lại (`visibilitychange`). `applyFeed()` thay `NOTIFS` bằng list mới rồi `render()` (cập nhật badge chuông + danh sách), **KHÔNG reload trang** (đỡ phá expand/pagination/drawer). Id chưa từng thấy (`seenIds`) + còn unread → toast "🔔 N thông báo mới".
+- **Local-read thắng**: `localRead{}` ghi id vừa dismiss tại máy (trong `markRead`) → poll trả về trước lúc Jira property `qa-dashboard-read` kịp sync vẫn giữ "đã đọc", tránh mục nhảy lại unread. Dismiss vẫn đồng bộ chéo máy như cũ (POST `/dismiss`).
+- **Auto-reload 15p**: chỉ tồn tại ở UI cũ `app.js` (topnav, dead code Decision #19); UI v2 (`app_v2.js`) chưa từng có → không cần gỡ gì. User chốt KHÔNG full-page reload ở v2, chỉ poll notif (data bảng/KPI vẫn chỉ tươi khi F5 thủ công — chấp nhận được).
+- **Giới hạn**: trễ tối đa ~60s (không phải tức thì như SSE). ~60 poll/giờ/tab khi đang xem (thấp hơn nhiều khi tab ẩn). Chỉ notification real-time; data bảng/workload/KPI KHÔNG tự cập nhật (F5 thủ công).
+
 ## Issue Tracking & Branch Workflow (QUAN TRỌNG cho Claude Code)
 
 **Quy ước user (áp dụng MẶC ĐỊNH, không hỏi lại):**
@@ -335,6 +343,7 @@ User có strict OPSEC discipline. KHÔNG được:
 - ✅ Custom status overlay (8 nhãn, nhiều nhãn/task, sync Jira property) — `/set-custom-status` (Decision #21)
 - ✅ Tạo QA sub-task dưới Task-PTSP từ modal (`/create-subtask`, auto-fill `[QA]` + Leader Hiền) (Decision #22)
 - ✅ Tài liệu v2: upload file thật (`/upload-file`, serve `/uploads/`) (Decision #23)
+- ✅ Notification real-time: short-poll `/activity-feed` mỗi 60s (bỏ qua khi tab ẩn), cập nhật chuông + toast, KHÔNG reload (Decision #24, issue #40)
 - ✅ New task highlighting (diff vs `.last_seen.json`)
 - ✅ Hyperlink to Jira (`{JIRA_URL}/browse/{key}`)
 - ✅ UTF-8 Vietnamese rendering

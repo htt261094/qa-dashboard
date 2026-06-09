@@ -88,6 +88,8 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   var notif=$('notif'), bell=$('bellBtn'), list=$('notifList'), dot=$('bellDot');
   if(!notif||!bell||!list) return;
   var filter='all';
+  var localRead={};   // id đã dismiss tại máy này phiên này -> giữ "đã đọc" kể cả khi poll trả về trước lúc Jira property kịp sync
+  var seenIds={};     // mọi id từng thấy -> phát hiện mục MỚI giữa 2 lần poll để toast
   var KIND_IC={created:'fiber_new', comment:'chat_bubble', status:'swap_horiz', assignee:'person_add',
                duedate:'event', priority:'bolt', summary:'edit', custom_status:'sell'};
   function kindCls(n){ if(n.mention) return 'k-mention'; if(n.kind==='status') return 'k-status';
@@ -133,7 +135,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     if(dot){ if(unreadCount){ dot.style.display='flex'; dot.textContent=unreadCount>99?'99+':unreadCount; }
              else dot.style.display='none'; }
   }
-  function markRead(ids){ var set={}; ids.forEach(function(i){ set[i]=1; });
+  function markRead(ids){ var set={}; ids.forEach(function(i){ set[i]=1; localRead[i]=1; });
     NOTIFS.forEach(function(n){ if(set[n.id]) n.is_unread=false; }); render(); }
   bell.addEventListener('click', function(e){ e.stopPropagation(); notif.classList.toggle('open');
     var m=$('pmenu'); if(m) m.classList.remove('open'); });
@@ -161,6 +163,30 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     if(window.__openDetail) window.__openDetail(key);   // dashboard -> drawer
     else if(window.__jiraBase) window.open(window.__jiraBase+'/browse/'+key, '_blank');
     else toast('Đã đọc thông báo '+key, true); });
+
+  // --------- poll real-time (Decision #24): cập nhật chuông + toast, KHÔNG reload trang ---------
+  var POLL_MS=60000;
+  NOTIFS.forEach(function(n){ seenIds[n.id]=1; });   // baseline embed lúc load -> không toast giả lần poll đầu
+  function applyFeed(acts){
+    if(!Array.isArray(acts)) return;
+    var freshUnread=0;
+    acts.forEach(function(n){
+      if(localRead[n.id]) n.is_unread=false;          // dismiss local thắng (Jira property có thể chưa kịp sync)
+      if(!seenIds[n.id]){ seenIds[n.id]=1; if(n.is_unread) freshUnread++; }
+    });
+    NOTIFS = acts;
+    render();
+    if(freshUnread>0) toast('🔔 '+freshUnread+' thông báo mới', true);
+  }
+  function poll(){
+    if(document.hidden) return;                        // tab ẩn -> bỏ qua, đỡ tải Jira
+    getJSON('/activity-feed', 20000).then(function(j){
+      if(j && j.ok) applyFeed(j.activities);
+    }).catch(function(){});                             // lỗi mạng/timeout -> im lặng, thử lại lần sau
+  }
+  setInterval(poll, POLL_MS);
+  document.addEventListener('visibilitychange', function(){ if(!document.hidden) poll(); });
+
   render();
 })();
 
