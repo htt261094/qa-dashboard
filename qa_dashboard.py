@@ -115,6 +115,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
         admin-email-không-trong-USERS -> SELF_USER (default thanhht1)."""
         return username_from_email(self._user_email()) or username_from_email(ADMIN_EMAIL) or SELF_USER
 
+    def _bell_activities(self):
+        """Activities cho chuông notif — TÍNH GIỐNG HỆT ở mọi tab để bell đồng nhất.
+        Scope = đúng như dashboard `/`: admin/local -> cả team (None), QA -> chính họ.
+        Gồm cả custom-status events (cust_act) + cờ is_unread theo dismissed của người đăng nhập.
+        Tách khỏi data trang (mỗi tab vẫn tự fetch data riêng theo scope của nó)."""
+        email = self._user_email()
+        scope = None if self._is_admin() else username_from_email(email)
+        res = run_parallel({
+            'feed': lambda: fetch_activity_feed(days=ACTIVITY_DAYS, scope_user=scope),
+            'dismissed': lambda: load_dismissed(email),
+            'custom': lambda: load_bundle(scope, ACTIVITY_DAYS),
+        })
+        dismissed = res['dismissed']
+        _overlay, cust_act = res['custom']
+        merged = sorted(res['feed'] + cust_act, key=lambda a: a.get('when') or '', reverse=True)
+        for a in merged:
+            a['is_unread'] = a['id'] not in dismissed
+        return merged
+
     def _forbidden(self):
         # Trang 403 tối giản — KHÔNG lộ domain/điều kiện được phép (giấu thông tin).
         self.send_response(403)
@@ -227,23 +246,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if not self._is_admin():
                 self._redirect('/')
                 return
-            email = self._user_email()
             scope = self._self_username()
             try:
+                # data trang = task của chính admin (scope self); chuông notif = _bell_activities()
+                # (đồng nhất mọi tab). overlay nhãn custom là scope-independent -> lấy từ bundle(self).
                 res = run_parallel({
                     'data': lambda: fetch_all(scope),
-                    'feed': lambda: fetch_activity_feed(days=ACTIVITY_DAYS, scope_user=scope),
-                    'dismissed': lambda: load_dismissed(email),
                     'custom': lambda: load_bundle(scope, ACTIVITY_DAYS),
+                    'bell': self._bell_activities,
                 })
-                data, feed, dismissed = res['data'], res['feed'], res['dismissed']
-                overlay, cust_act = res['custom']
+                data = res['data']
+                overlay, _cust_act = res['custom']
                 new_keys, _first_run = _build_view(data, scope)
-                merged = sorted(feed + cust_act, key=lambda a: a.get('when') or '', reverse=True)
-                for a in merged:
-                    a['is_unread'] = a['id'] not in dismissed
                 # UI hệt QA member (render_qa_v2), chỉ highlight tab "Việc của tôi" ở sidebar
-                html_out = render_qa_v2(data, new_keys, merged, overlay,
+                html_out = render_qa_v2(data, new_keys, res['bell'], overlay,
                                         self._user_ctx(), nav_active='mywork')
             except RuntimeError as e:
                 html_out = render_error_page(str(e))
@@ -251,40 +267,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
 
         if self.path in ('/docs', '/docs.html'):
-            # tài liệu training: load song song tài liệu và thông báo
+            # tài liệu training: load song song tài liệu và chuông notif (đồng nhất mọi tab)
             try:
-                email = self._user_email()
-                uname = username_from_email(email)
-                res = run_parallel({
-                    'docs': load_docs,
-                    'feed': lambda: fetch_activity_feed(days=ACTIVITY_DAYS, scope_user=uname),
-                    'dismissed': lambda: load_dismissed(email),
-                })
-                feed = res['feed']
-                dismissed = res['dismissed']
-                for a in feed:
-                    a['is_unread'] = a['id'] not in dismissed
+                res = run_parallel({'docs': load_docs, 'bell': self._bell_activities})
                 self._html(render_docs_page(res['docs'], editable=self._is_admin(),
-                                            user=self._user_ctx(), activities=feed))
+                                            user=self._user_ctx(), activities=res['bell']))
             except RuntimeError as e:
                 self._html(render_error_page(str(e)))
             return
         if self.path in ('/roadmap', '/roadmap.html'):
-            # roadmap team (UI v2): roadmap + feed chuông (watcher-scope theo người) song song
+            # roadmap team (UI v2): roadmap + chuông notif (đồng nhất mọi tab) song song
             try:
-                email = self._user_email()
-                uname = username_from_email(email)
-                res = run_parallel({
-                    'roadmap': load_roadmap,
-                    'feed': lambda: fetch_activity_feed(days=ACTIVITY_DAYS, scope_user=uname),
-                    'dismissed': lambda: load_dismissed(email),
-                })
-                feed = res['feed']
-                dismissed = res['dismissed']
-                for a in feed:
-                    a['is_unread'] = a['id'] not in dismissed
+                res = run_parallel({'roadmap': load_roadmap, 'bell': self._bell_activities})
                 self._html(render_roadmap_v2(res['roadmap'], editable=self._is_admin(),
-                                             user=self._user_ctx(), activities=feed))
+                                             user=self._user_ctx(), activities=res['bell']))
             except RuntimeError as e:
                 self._html(render_error_page(str(e)))
             return
@@ -363,7 +359,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             data, feed, dismissed = res['data'], res['feed'], res['dismissed']
             overlay, cust_act = res['custom']
             new_keys, first_run = _build_view(data, scope)
-            # gộp custom-status events vào feed Jira, sort mới->cũ
+            # gộp custom-status events vào feed Jira, sort mới->cũ.
+            # CHÚ Ý: phải GIỐNG _bell_activities() (nguồn chuông cho /my-work,/docs,/roadmap)
+            # để notif đồng nhất mọi tab — `/` đã canonical nên tự tính tại đây (đỡ fetch 2 lần).
             merged = sorted(feed + cust_act, key=lambda a: a.get('when') or '', reverse=True)
             for a in merged:
                 a['is_unread'] = a['id'] not in dismissed
