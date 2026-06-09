@@ -1571,6 +1571,7 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
                 'project': b.get('project', ''),
                 'month': month,
                 'qa': b.get('qa_pic', ''),
+                'dev': b.get('dev_pic', ''),
                 'created': (b.get('created', '') or '')[:10],
                 'task': link.get('task', ''),
             })
@@ -1637,9 +1638,11 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
         '<div class="bl-count" id="blCount"></div></div>'
         '<div style="overflow-x:auto"><table class="bl-table"><thead><tr>'
         f'{th_check}'
-        '<th style="width:120px">ID</th><th>Tên Bug / Test Case</th>'
-        '<th style="width:120px">Module</th><th style="width:130px">Mức độ</th>'
-        '<th style="width:150px">Trạng thái</th><th style="width:160px">Liên kết Task</th>'
+        '<th style="width:110px">ID</th><th style="width:140px">Module</th>'
+        '<th>Mô tả bug</th><th style="width:110px">Ngày</th>'
+        '<th style="width:140px">Trạng thái</th>'
+        '<th style="width:120px">Tester</th><th style="width:130px">Dev in charge</th>'
+        '<th style="width:160px">Liên kết Task</th>'
         '</tr></thead><tbody id="blRows"></tbody></table></div>'
         '<div class="pager" id="blPager"></div></div>'
         + (_bug_log_source_modals() if is_admin else '')
