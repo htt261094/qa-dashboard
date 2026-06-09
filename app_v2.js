@@ -1643,7 +1643,10 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   var parent = { key:'', summary:'' };   // Task-PTSP đã chọn
   var leader = { name:'', display:'' };  // user đã chọn (optional)
 
-  function open(){ ov.classList.add('open'); var p=$('subParentInp'); if(p) setTimeout(function(){ p.focus(); }, 60); }
+  function open(){ ov.classList.add('open');
+    // Auto-fill Leader mặc định = Hiền (hiennt19) nếu chưa chọn
+    if(!leader.name){ leaderTA.set({name:'hiennt19', display:'Hiền'}); }
+    var p=$('subParentInp'); if(p) setTimeout(function(){ p.focus(); }, 60); }
   function close(){ ov.classList.remove('open'); }
   function debounce(fn, ms){ var t; return function(){ var a=arguments, self=this;
     clearTimeout(t); t=setTimeout(function(){ fn.apply(self, a); }, ms||260); }; }
@@ -1687,12 +1690,20 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     res.addEventListener('mousedown', function(e){ var el=e.target.closest('.ta-opt'); if(el) pick(+el.getAttribute('data-i')); });
     inp.addEventListener('blur', function(){ setTimeout(hide, 150); });  // click ra ngoài -> đóng (mousedown pick chạy trước)
     function pick(i){ var o=opts[i]; if(!o) return; onPick(o); showChip(fmt(o)); hide(); }
-    return { reset:function(){ chip.style.display='none'; chip.innerHTML=''; inp.style.display=''; inp.value=''; hide(); } };
+    return {
+      reset:function(){ chip.style.display='none'; chip.innerHTML=''; inp.style.display=''; inp.value=''; hide(); },
+      // set giá trị bằng tay (auto-fill): hiện chip + chạy onPick như vừa chọn
+      set:function(o){ if(!o){ onPick(null); return; } onPick(o); showChip(fmt(o)); }
+    };
   }
 
   var parentTA = wireTA('subParentInp','subParentRes','subParentChip','/search-parents?q=',
     function(o){ return '<b>'+esc(o.key)+'</b>'+esc(o.summary||''); },
-    function(o){ parent = o ? {key:o.key, summary:o.summary||''} : {key:'',summary:''}; });
+    function(o){ parent = o ? {key:o.key, summary:o.summary||''} : {key:'',summary:''};
+      // Auto-fill tiêu đề: [QA] <title Task-PTSP> (tránh nhân đôi [QA] nếu cha đã có)
+      var s=$('subSummary');
+      if(s){ var t=(parent.summary||'').trim();
+        s.value = !parent.key ? '' : (/^\[QA\]/i.test(t) ? t : ('[QA] '+t)); } });
   var leaderTA = wireTA('subLeaderInp','subLeaderRes','subLeaderChip','/search-people?q=',
     function(o){ return '<b>'+esc(o.display||o.name)+'</b><small>'+esc(o.name)+'</small>'; },
     function(o){ leader = o ? {name:o.name, display:o.display||o.name} : {name:'',display:''}; });
