@@ -298,6 +298,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except RuntimeError:
                 self._json(400, b'{"ok":false,"msg":"loi"}')
             return
+        if path == '/activity-feed':
+            # JSON feed cho chuông notif — client poll định kỳ để cập nhật real-time,
+            # KHÔNG reload trang (Decision #24). Cùng nguồn _bell_activities() nên đồng nhất
+            # mọi tab + đã gắn is_unread theo dismissed của người đăng nhập.
+            try:
+                acts = self._bell_activities()
+                self._json(200, json.dumps({'ok': True, 'activities': acts}).encode('utf-8'))
+            except RuntimeError:
+                self._json(400, b'{"ok":false}')
+            return
         if path == '/has-pat':
             # FE check trước khi mở form tạo sub-task: chưa có PAT -> mở luôn modal Cài đặt PAT.
             # Lỗi Jira -> bỏ qua (ok=false) để FE vẫn mở form, backend /create-subtask tự chặn.
