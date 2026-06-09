@@ -230,8 +230,8 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
           +'<td><div class="cell-member"><span class="m-av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span>'
           +'<span>'+esc(t.assignee.name)+'</span></div></td>'
           +'<td><span class="badge '+badgeCls(t.jira)+'">'+esc(t.jira)+'</span>'+chipHTML(t)+'</td>'
-          +'<td><span class="due '+esc(t.dueCls)+'">'+esc(t.dueDisp)+'</span></td>'
-          +'<td>'+esc(t.updatedDisp)+'</td></tr>';
+          +'<td class="cell-date"><span class="due '+esc(t.dueCls)+'">'+esc(t.dueDisp)+'</span></td>'
+          +'<td class="cell-date">'+esc(t.updatedDisp)+'</td></tr>';
       }).join('');
       for(var k=slice.length;k<PER_PAGE;k++){
         html+='<tr class="pager-filler"><td>&nbsp;</td><td><span class="cell-title">&nbsp;</span></td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>';
