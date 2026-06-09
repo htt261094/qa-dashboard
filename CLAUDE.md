@@ -243,6 +243,16 @@ Hiền THƯỜNG là reporter trong các task QA team được giao — vì cô 
 - **Nav**: tab "Việc của tôi" thêm vào `render_sidebar_v2` (sidebar v2) **và** `render_nav` (topnav cũ — admin `/`, `/docs` vẫn dùng), CHỈ hiện khi `is_admin`. Active key = `mywork`.
 - **Giới hạn**: scope theo `SELF_USER` config nên nếu admin đổi người thì phải sửa `.env`.
 
+### 18. Drawer detail dùng chung ở shell + notification mở detail mọi tab (2026-06-09)
+- **Bối cảnh**: drawer detail (panel chi tiết task + comment) cũ nằm TRONG closure `#rows` (app_v2.js), nên CHỈ có ở trang có bảng task (Dashboard, Việc của tôi). Bấm notification ở Roadmap/Tài liệu → `window.__openDetail` undefined → chỉ toast/nhảy Jira, KHÔNG mở được detail tại chỗ. User muốn mở drawer ngay ở mọi tab cho tiện.
+- **DOM drawer chuyển lên shell** `_document_v2` (render.py): `#drawerOv` + `#drawer` giờ ở shell → MỌI trang v2 có sẵn. Bỏ DOM trùng khỏi `render_admin_v2` + `render_qa_v2` (giữ `#smenu` — status menu vẫn riêng của trang bảng). Tránh duplicate ID.
+- **2 tầng drawer** (app_v2.js):
+  - Dashboard / Việc của tôi: drawer "đầy đủ" trong closure `#rows` (có nhãn nội bộ + cờ Overdue/Kẹt lấy từ TASKS). Set `window.__openDetail` trước.
+  - **Module fallback dùng chung** (đặt SAU closure `#rows`): guard `#drawer` tồn tại **và** `window.__openDetail` CHƯA set → chỉ chạy ở Roadmap/Tài liệu. Nhận `key` → fetch `/issue-comments` → `synth()` dựng task tối giản (key/status/assignee/hạn/mô tả/comment + gửi comment) → render. Đóng bằng ×/click nền/Esc. KHÔNG đụng trang có bảng (đã return sớm) nên không double-bind `dt-send`.
+- **`fetch_issue_detail` (jira_api) trả thêm `status`/`assignee`/`duedate`** — để dựng được drawer cho task KHÔNG nằm trong bucket nào (vd CANCELLED: không thuộc `active` vì statusCategory=Done, không thuộc `done_week` vì chỉ bắt CHANGED TO "DONE"). Trước đó `openDetail` gặp task ngoài bucket → `taskByKey` undefined → bấm noti CANCELLED không mở gì (bug đã fix: cache vào `EXTRA{}` + synthTask trong cả 2 closure `#rows`).
+- **`window.__jiraBase` nhúng ở shell** `_document_v2` (từ `JIRA_URL`) cho MỌI trang v2 — trước chỉ set trong closure `#rows` từ `TASKS[0].jiraUrl`, nên Roadmap/Tài liệu thiếu → click noti chết. Closure `#rows` khi TASKS rỗng giờ fallback về global thay vì ép `''`.
+- **Bảng admin `/` (render_admin_v2) tách cột Date → Due Date + Updated**, sort theo Updated giảm dần (mới nhất trước). **New Tasks & TO DO: cột Updated hiển thị Created Date** (`upd_src = i_created if (isNew or st=='TO DO') else i_updated`, cắt `[:10]`). app_v2.js admin branch: `filtered()` thêm `.sort` theo `updated`, row thêm cell, filler/colspan 5→6.
+
 ## OPSEC Requirements (NON-NEGOTIABLE)
 
 User có strict OPSEC discipline. KHÔNG được:

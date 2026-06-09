@@ -1220,7 +1220,9 @@ def _document_v2(content_inner, active, user, activities, title='QA Suite'):
 {_settings_modal_v2()}
 {_subtask_modal_v2()}
 <div class="toast" id="toast"></div>
+<div class="drawer-ov" id="drawerOv"></div><aside class="drawer" id="drawer"></aside>
 {_json_script('qaNotif', activities)}
+<script>window.__jiraBase={json.dumps(JIRA_URL)};</script>
 <script>{load_js_v2()}</script>
 </body></html>"""
 
@@ -1251,14 +1253,19 @@ def render_admin_v2(data, new_keys, activities, cmap, user):
         overdue = days_overdue(iss) is not None
         stuck = is_stuck(iss)
         customs = values_of((cmap or {}).get(key))
+        is_new = key in new_keys
+        # New Tasks & TO DO: cột "Updated" hiển thị Created Date; còn lại = Updated thật.
+        upd_src = i_created(iss) if (is_new or st == 'TO DO') else i_updated(iss)
+        upd_date = (upd_src or '')[:10]
         tasks.append({
             'key': key, 'summary': i_summary(iss), 'jira': st,
             'customs': customs, 'canCustom': st in ('TO DO', 'In Progress'),
             'assignee': {'name': aname, 'init': init, 'cls': cls},
             'due': i_duedate(iss) or '', 'dueDisp': i_duedate(iss) or 'Chưa đặt hạn',
             'dueCls': 'overdue' if overdue else '',
+            'updated': upd_date, 'updatedDisp': upd_date or '—',
             'overdue': overdue, 'stuck': stuck,
-            'isNew': key in new_keys,
+            'isNew': is_new,
             'jiraUrl': f'{JIRA_URL}/browse/{key}',
         })
 
@@ -1272,12 +1279,15 @@ def render_admin_v2(data, new_keys, activities, cmap, user):
         a = i_assignee(iss)
         aname = i_assignee_name(iss)
         init, cls = _avatar(a, aname)
+        upd_date = (i_updated(iss) or '')[:10]
         tasks.append({
             'key': key, 'summary': i_summary(iss), 'jira': st,
             'customs': [], 'canCustom': False,
             'assignee': {'name': aname, 'init': init, 'cls': cls},
             'due': i_duedate(iss) or '', 'dueDisp': i_duedate(iss) or '',
-            'dueCls': '', 'overdue': False, 'stuck': False,
+            'dueCls': '',
+            'updated': upd_date, 'updatedDisp': upd_date or '—',
+            'overdue': False, 'stuck': False,
             'isNew': key in new_keys,
             'jiraUrl': f'{JIRA_URL}/browse/{key}',
         })
@@ -1342,7 +1352,7 @@ def render_admin_v2(data, new_keys, activities, cmap, user):
         '<div style="overflow-x:auto"><table id="taskTable"><thead><tr>'
         '<th style="width:140px">Task ID</th><th>Title</th>'
         '<th style="width:180px">Member</th><th style="width:170px">Status</th>'
-        '<th style="width:130px">Date</th>'
+        '<th style="width:120px">Due Date</th><th style="width:120px">Updated</th>'
         '</tr></thead><tbody id="rows"></tbody></table></div>'
         '<div class="pager" id="pager"></div></div>'
         # KPI cards
@@ -1365,9 +1375,8 @@ def render_admin_v2(data, new_keys, activities, cmap, user):
         '<div class="kpi-value" id="kpiBugs">0</div>'
         '<div class="kpi-trend down"><span class="material-symbols-rounded">warning</span>'
         '<span>need attention</span></div></div></div></div>'
-        # Status menu + Drawer
+        # Status menu (drawer DOM nằm ở shell _document_v2 -> mọi trang dùng chung)
         '<div class="smenu" id="smenu"></div>'
-        '<div class="drawer-ov" id="drawerOv"></div><aside class="drawer" id="drawer"></aside>'
         + _json_script('qaData', {'tasks': tasks, 'meta': meta})
         + f'<script>window.QA_CUSTOM_STATUSES={json.dumps(CUSTOM_STATUSES, ensure_ascii=False)};</script>'
     )
@@ -1444,7 +1453,6 @@ def render_qa_v2(data, new_keys, activities, cmap, user, nav_active='dashboard')
         '<div class="page-head"><div class="page-title">Tổng quan — Việc của tôi</div></div>'
         + tabs + kpis + table
         + '<div class="smenu" id="smenu"></div>'
-        + '<div class="drawer-ov" id="drawerOv"></div><aside class="drawer" id="drawer"></aside>'
         + _json_script('qaData', {'tasks': tasks, 'meta': meta})
         + f'<script>window.QA_CUSTOM_STATUSES={json.dumps(CUSTOM_STATUSES, ensure_ascii=False)};</script>'
     )

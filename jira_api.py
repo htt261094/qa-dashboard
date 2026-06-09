@@ -259,12 +259,16 @@ def search_people(query, limit=15):
 
 
 def fetch_issue_detail(key):
-    """Chi tiết 1 issue cho drawer/comment panel: {key, summary, description, comments:[...]}.
+    """Chi tiết 1 issue cho drawer/comment panel:
+    {key, summary, description, status, assignee, duedate, comments:[...]}.
+    status/assignee/duedate để drawer dựng được CẢ task không nằm trong bucket (vd CANCELLED).
     1 call read-only bằng PAT chung. comments mới->cũ, body rút gọn ~600 ký tự."""
-    data = _jira_request(f'key = {key}', 1, fields='summary,description,comment')
+    data = _jira_request(f'key = {key}', 1,
+                         fields='summary,description,comment,status,assignee,duedate')
     issues = data.get('issues') or []
     if not issues:
-        return {'key': key, 'summary': '', 'description': '', 'comments': []}
+        return {'key': key, 'summary': '', 'description': '', 'status': '',
+                'assignee': '', 'duedate': '', 'comments': []}
     f = issues[0].get('fields', {})
     comments = []
     for c in ((f.get('comment') or {}).get('comments') or []):
@@ -272,8 +276,13 @@ def fetch_issue_detail(key):
                          'when': c.get('created'),
                          'body': _comment_snippet(c.get('body'), 600)})
     comments.reverse()  # mới nhất lên đầu
+    st = (f.get('status') or {}).get('name') or ''
+    asg = f.get('assignee') or {}
     return {'key': key, 'summary': f.get('summary') or '',
             'description': _comment_snippet(f.get('description'), 1200),
+            'status': st,
+            'assignee': asg.get('displayName') or asg.get('name') or '',
+            'duedate': f.get('duedate') or '',
             'comments': comments}
 
 
