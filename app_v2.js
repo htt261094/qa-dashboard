@@ -1907,7 +1907,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
         +'<td><span class="bl-id">'+esc(b.id)+'</span></td>'
         +'<td>'+esc(b.module)+'</td>'
         +'<td><b>'+esc(b.summary)+'</b></td>'
-        +'<td>'+esc(b.created||'—')+'</td>'
+        +'<td style="white-space:nowrap">'+esc(b.created||'—')+'</td>'
         +'<td>'+stCell(b.status)+'</td>'
         +'<td>'+esc(b.qa||'—')+'</td>'
         +'<td>'+esc(b.dev||'—')+'</td>'
@@ -1936,7 +1936,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   function selCount(){ return Object.keys(sel).filter(function(k){return sel[k];}).length; }
   function updateLinkBtn(){ var btn=$('blLinkBtn'); if(!btn) return;
     var n=selCount(); $('blSelCount').textContent = n?('('+n+')'):'';
-    btn.disabled = !(n>0 && taskSel); }
+    btn.disabled = !(n>0); }
 
   // ----- events: tabs -----
   tabs.addEventListener('click', function(e){ var t=e.target.closest('.bl-tab'); if(!t) return;
@@ -2046,7 +2046,8 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     var lbtn=$('blLinkBtn');
     lbtn.addEventListener('click', function(){
       var keys=Object.keys(sel).filter(function(k){return sel[k];});
-      if(!keys.length || !taskSel) return;
+      if(!keys.length) return;
+      if(!taskSel) { toast('Vui lòng tìm và chọn Task-PTSP ở ô bên trái để liên kết', false); return; }
       doLink(keys, taskSel);
     });
   }
@@ -2064,7 +2065,85 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     }).catch(function(){ toast('Lỗi mạng khi liên kết', false); });
   }
 
-  renderTabs(); render();
+  // ===== Metric Table =====
+  var metricMonthSel = $('blMetricMonth'), metricHead = $('blMetricHead'), metricRows = $('blMetricRows');
+  
+  function renderMetric() {
+    if(!metricMonthSel || !metricHead || !metricRows) return;
+    var selectedMonth = metricMonthSel.value;
+    if(!selectedMonth) {
+      metricHead.innerHTML = '';
+      metricRows.innerHTML = '<tr><td style="text-align:center;color:var(--on-surface-variant);padding:30px">Không có dữ liệu</td></tr>';
+      return;
+    }
+    
+    // Lấy bugs của tháng
+    var mBugs = BUGS.filter(function(b){ return b.month === selectedMonth; });
+    
+    // Tập hợp dev và project
+    var devs = {}; // dev -> { proj -> count }
+    var projs = {}; // proj -> true
+    
+    mBugs.forEach(function(b) {
+      var d = (b.dev || 'Chưa gán').trim();
+      var p = (b.project || 'Khác').trim();
+      if(!devs[d]) devs[d] = {};
+      if(!devs[d][p]) devs[d][p] = 0;
+      devs[d][p]++;
+      projs[p] = true;
+    });
+    
+    var projList = Object.keys(projs).sort();
+    
+    // Header
+    var ths = '<th>Developer</th>';
+    projList.forEach(function(p) { ths += '<th>' + esc(p) + '</th>'; });
+    ths += '<th>Tổng cộng</th>';
+    metricHead.innerHTML = ths;
+    
+    // Rows
+    var devList = Object.keys(devs).sort();
+    if(devList.length === 0) {
+      metricRows.innerHTML = '<tr><td colspan="' + (projList.length + 2) + '" style="text-align:center;color:var(--on-surface-variant);padding:30px">Không có dữ liệu trong tháng này</td></tr>';
+      return;
+    }
+    
+    var html = devList.map(function(d) {
+      var row = '<tr><td>' + esc(d) + '</td>';
+      var total = 0;
+      projList.forEach(function(p) {
+        var count = devs[d][p] || 0;
+        total += count;
+        row += '<td>' + (count > 0 ? count : '') + '</td>';
+      });
+      row += '<td class="col-total">' + total + '</td></tr>';
+      return row;
+    }).join('');
+    
+    metricRows.innerHTML = html;
+  }
+  
+  if(metricMonthSel) {
+    if(MONTHS.length > 0) {
+      metricMonthSel.innerHTML = MONTHS.map(function(m){
+        return '<option value="' + esc(m) + '">' + esc(m) + '</option>';
+      }).join('');
+      metricMonthSel.value = curMonth;
+    } else {
+      metricMonthSel.innerHTML = '<option value="">Chưa có dữ liệu</option>';
+    }
+    metricMonthSel.addEventListener('change', renderMetric);
+  }
+
+  tabs.addEventListener('click', function(e){
+    var t=e.target.closest('.bl-tab'); if(!t) return;
+    if(metricMonthSel && metricMonthSel.value !== curMonth) {
+      metricMonthSel.value = curMonth;
+      renderMetric();
+    }
+  });
+
+  renderTabs(); render(); renderMetric();
 })();
 
 })();

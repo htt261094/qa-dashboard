@@ -1639,12 +1639,20 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
         '<div style="overflow-x:auto"><table class="bl-table"><thead><tr>'
         f'{th_check}'
         '<th style="width:110px">ID</th><th style="width:140px">Module</th>'
-        '<th>Mô tả bug</th><th style="width:110px">Ngày</th>'
+        '<th>Mô tả bug</th><th style="width:110px;white-space:nowrap">Ngày</th>'
         '<th style="width:140px">Trạng thái</th>'
         '<th style="width:120px">Tester</th><th style="width:130px">Dev in charge</th>'
         '<th style="width:160px">Liên kết Task</th>'
         '</tr></thead><tbody id="blRows"></tbody></table></div>'
         '<div class="pager" id="blPager"></div></div>'
+        # metric table
+        '<div class="card metric-card">'
+        '<div class="metric-header">'
+        '<div class="table-title"><span>Metric đo bug của Dev theo dự án (Tháng)</span></div>'
+        '<div class="metric-filter"><span class="material-symbols-rounded mi-sm">calendar_month</span> <select id="blMetricMonth"></select></div>'
+        '</div>'
+        '<div style="overflow-x:auto"><table class="bl-table metric-table"><thead><tr id="blMetricHead"></tr></thead><tbody id="blMetricRows"></tbody></table></div>'
+        '</div>'
         + (_bug_log_source_modals() if is_admin else '')
         + _json_script('bugLogData', {
             'bugs': bugs, 'months': month_list, 'editable': bool(editable),
