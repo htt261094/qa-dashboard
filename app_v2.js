@@ -1905,14 +1905,16 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       var chk = EDIT ? '<td><input type="checkbox" class="bl-check bl-row-chk" data-k="'+esc(b.key)+'"'+(sel[b.key]?' checked':'')+'></td>' : '';
       return '<tr>'+chk
         +'<td><span class="bl-id">'+esc(b.id)+'</span></td>'
-        +'<td><b>'+esc(b.summary)+'</b></td>'
         +'<td>'+esc(b.module)+'</td>'
-        +'<td><span class="bl-badge '+sevCls(b.severity)+'">'+esc(b.severity||'—')+'</span></td>'
+        +'<td><b>'+esc(b.summary)+'</b></td>'
+        +'<td>'+esc(b.created||'—')+'</td>'
         +'<td>'+stCell(b.status)+'</td>'
+        +'<td>'+esc(b.qa||'—')+'</td>'
+        +'<td>'+esc(b.dev||'—')+'</td>'
         +'<td>'+taskCell(b)+'</td></tr>';
     }).join('');
     if(!total){
-      var cols = EDIT?7:6;
+      var cols = EDIT?9:8;
       html = '<tr><td colspan="'+cols+'" style="text-align:center;color:var(--on-surface-variant);padding:30px">Không có bug nào trong tháng này.</td></tr>';
     }
     rows.innerHTML = html;
