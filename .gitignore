@@ -8,6 +8,7 @@
 .crypto_key
 .drive_token.json
 .bug_log_source.json
+.bug_log.json
 
 # Python
 __pycache__/
