@@ -11,11 +11,11 @@ Custom HTML dashboard cho team QA Bảo Kim, pull data live từ Jira qua REST A
 ## Tech Stack
 
 - Python 3.8+ (walrus operator dùng được)
-- Only external dep: `requests`
+- External deps: `requests` + `cryptography` (Fernet — mã hoá PAT cá nhân at-rest, thêm 2026-06-08, xem Decision #20). KHÔNG còn "chỉ 1 dep". Vẫn giữ nguyên tắc tối thiểu — KHÔNG thêm Flask/web-framework.
 - Local HTTP server: `http.server` stdlib (KHÔNG Flask — quyết định giữ deps tối thiểu)
 - Server-side render HTML với string templates
-- **Vanilla JS inline** cho phần interactive (chart hover %, pagination 5/trang). OK dùng JS thoải mái — chỉ KHÔNG dùng framework (React/Vue/Svelte). Inline `<script>` trong `render_page`, không cần file .js riêng.
-- State persistence: 1 file JSON local (`.last_seen.json`)
+- **Vanilla JS, KHÔNG framework** (React/Vue/Svelte). JS/CSS tách thành file riêng đọc per-render: `app.js`/`styles.css` (UI cũ topnav) + `app_v2.js`/`styles_v2.css` (UI Stitch sidebar — xem Decision #19). `load_js*()`/`load_css*()` inline vào `<script>`/`<style>` lúc render (sửa F5 thấy ngay, output tự chứa).
+- State persistence: file JSON local (`.last_seen.json` cho NEW badge) + **Jira user property làm kho sync chéo máy** (roadmap/docs/dismiss/PAT/custom-status — xem Decision #14, #20, #21)
 
 ## Architecture
 
@@ -253,6 +253,58 @@ Hiền THƯỜNG là reporter trong các task QA team được giao — vì cô 
 - **`window.__jiraBase` nhúng ở shell** `_document_v2` (từ `JIRA_URL`) cho MỌI trang v2 — trước chỉ set trong closure `#rows` từ `TASKS[0].jiraUrl`, nên Roadmap/Tài liệu thiếu → click noti chết. Closure `#rows` khi TASKS rỗng giờ fallback về global thay vì ép `''`.
 - **Bảng admin `/` (render_admin_v2) tách cột Date → Due Date + Updated**, sort theo Updated giảm dần (mới nhất trước). **New Tasks & TO DO: cột Updated hiển thị Created Date** (`upd_src = i_created if (isNew or st=='TO DO') else i_updated`, cắt `[:10]`). app_v2.js admin branch: `filtered()` thêm `.sort` theo `updated`, row thêm cell, filler/colspan 5→6.
 
+### 19. UI v2 "Stitch" — sidebar Material 3 thay topnav (2026-06-08)
+- **Bối cảnh / quyết định gốc**: redesign toàn app sang layout sidebar Material 3 (xem memory `stitch-ui-migration`). UI cũ (topnav `render_nav` + `render_page`/`render_personal`) **vẫn còn trong code** nhưng các route chính (`/`, `/my-work`, `/roadmap`, `/docs`) đã render bằng nhánh v2. KHÔNG dùng framework — vẫn vanilla JS + string template.
+- **File tách đôi**: UI cũ = `app.js` + `styles.css`; UI v2 = `app_v2.js` (~1760 dòng) + `styles_v2.css` (~900 dòng). `load_js_v2()`/`load_css_v2()` (render.py) đọc per-render. Dùng **Material Symbols** (icon font) cho sidebar/topbar.
+- **Shell chung v2** = `_document_v2(content_inner, active, user, activities, title)`: gắn `render_sidebar_v2` (nav: Dashboard · Việc của tôi[admin] · Roadmap · Tài liệu + profile chip + menu Cài đặt PAT/Đăng xuất) + `render_topbar_v2` (chuông notification) + DOM drawer dùng chung (`#drawerOv`/`#drawer`, Decision #18) + nhúng `window.__jiraBase`. Active tab qua param `active` (`dashboard`/`mywork`/`roadmap`/`docs`).
+- **Trang v2**: `render_admin_v2` (dashboard team — bảng + tabs + KPI + workload), `render_qa_v2` (lens cá nhân QA/`my-work` — Decision #17), `render_roadmap_v2`, `render_docs_page` (đã port v2). `render_403`/`render_error_page` dùng shell phù hợp.
+- **Giới hạn**: 2 bộ JS/CSS song song (cũ + v2) — sửa UI phải biết route nào dùng bộ nào. `render_page`/`render_personal`/`render_nav` (topnav) phần lớn là **dead code** sau khi route chính chuyển v2, GIỮ lại tham chiếu, KHÔNG xoá vội.
+
+### 20. PAT cá nhân + ghi Jira đúng tên người (attribution) (2026-06-08)
+- **Bối cảnh / vì sao**: app dùng **1 PAT chung** (Decision #14b) → mọi thao tác ghi (đổi status, comment) lên Jira đều mang tên chủ PAT, sai attribution. Muốn QA tự đổi status/comment mà Jira ghi ĐÚNG TÊN họ → mỗi QA dán **PAT cá nhân**.
+- **`pat_store.py`**: lưu `{email: enc_pat}` vào Jira user property `qa-dashboard-pat`. Trước khi lưu **verify PAT thuộc đúng người đăng nhập** (`verify_pat` gọi `/myself`, so username với local-part email) — chặn QA-A dán nhầm PAT QA-B (attribution ngược). KHÔNG cache local plaintext.
+- **`crypto_util.py`** (dep mới `cryptography`): mã hoá at-rest bằng **Fernet** (AES-128-CBC + HMAC). Khoá derive từ `SESSION_SECRET` qua scrypt; local dev (không secret) → sinh & lưu `.crypto_key` (gitignore). **Chống rò rỉ file at-rest, KHÔNG chống server bị chiếm** (khoá phải nằm nơi app đọc được) — ranh giới chấp nhận được.
+- **`jira_write.py`**: ghi Jira bằng PAT cá nhân TRUYỀN VÀO (KHÔNG dùng `_SESSION`/PAT chung). `get_transitions`/`do_transition`/`add_comment`. PAT redact mọi lỗi.
+- **Routes**: GET `/settings` (`render_settings_page`, form dán PAT) + `/has-pat`; POST `/save-pat` (verify+mã hoá), `/delete-pat`. Thao tác ghi: POST `/jira-transitions` (CHỈ trả transition QA này đổi được theo workflow+PAT) → `/do-transition`. `_handle_jira_write`: **không có PAT → từ chối** (`code:no_pat`, UI nhắc vào Cài đặt) để KHÔNG ghi nhầm tên chung.
+
+### 21. Custom status overlay — nhãn tình trạng thật (local) (2026-06-08)
+- **Bối cảnh**: status Jira nghèo (TO DO/In Progress/PENDING/DONE/CANCELLED), không nói được task đang "Chờ BA confirm" hay "Dev fix bug". Thêm **lớp nhãn PHỦ local**, KHÔNG đụng status Jira thật.
+- **`custom_status.py`**: lưu Jira property `qa-dashboard-custom-status` = `{status:{KEY:{v:[labels],by,at}}, activity:[...]}`. **Mỗi task gắn NHIỀU nhãn** (`v` là list; migration-safe: string cũ đọc thành list 1 phần tử). 8 nhãn định sẵn (`CUSTOM_STATUSES`: Dev fix bug, Chờ BA confirm, …). Cache local `.custom_status.json` fallback.
+- Mỗi lần đổi nhãn → ghi 1 **sự kiện vào activity** (cap 200, prune 14 ngày) → gộp vào block "Hoạt động" để admin thấy ai vừa đổi gì. `load_bundle(scope, days)` trả `(overlay, events)`; `/` merge events này với feed Jira.
+- **Route**: POST `/set-custom-status`. Render: data-* trên row + drawer.
+
+### 22. Tạo QA sub-task dưới Task-PTSP — ngay trên dashboard (2026-06-08)
+- **Bối cảnh**: QA hay tạo sub-task `[QA] ...` dưới task `Task-PTSP` của dev. Làm thẳng trên dashboard (modal) thay vì mở Jira.
+- **`jira_write.create_subtask`** dùng PAT cá nhân. Config field ids (`config.py`): `SUBTASK_TYPE_ID=10003`, `TASK_PTSP_TYPE_ID=10103`, `START_DATE_FIELD=customfield_10208` (required, default hôm nay), `LEADER_FIELD=customfield_10606` (user-picker, optional). **`probe_subtask.py`** = script chẩn đoán read-only (chạy ở nơi tới được Jira) để biết field nào bị mất pre-fill khi tạo qua REST.
+- **Modal auto-fill**: Summary prefix `[QA] `, Leader mặc định `hiennt19` (Hiền). Parent picker = type-ahead tìm Task-PTSP.
+- **Routes**: POST `/create-subtask`; GET `/search-parents` (tìm Task-PTSP), `/search-people` (type-ahead field Leader, PAT chung read-only). Tạo xong reload để thấy task mới.
+
+### 23. Tài liệu v2 — upload file thật + serve local (2026-06-08)
+- **Bối cảnh**: `/docs` cũ chỉ index link Google Drive (Decision #11). Thêm **upload file thật** lưu trên host.
+- **Routes**: POST `/upload-file` (lưu vào `uploads/`), GET `/uploads/<filename>` (serve). Node link trỏ `/uploads/...`. Edit actions vẫn gate `editable=_is_admin()`.
+- **⚠ Giới hạn**: thư mục uploads **hardcode path macOS** `/Users/thanhht/qa-dashboard/uploads` trong qa_dashboard.py (2 chỗ: serve + save) — chỉ chạy đúng trên Mac host. Chạy nơi khác phải sửa. File upload KHÔNG sync chéo máy (chỉ ở host), KHÔNG trong git (`uploads/` đã gitignore).
+
+## Issue Tracking & Branch Workflow (QUAN TRỌNG cho Claude Code)
+
+**Quy ước user (áp dụng MẶC ĐỊNH, không hỏi lại):**
+- Mỗi GitHub issue tạo ra ĐỀU đi kèm **1 branch chuẩn bị sẵn** (trỏ từ `main`, đã push origin), tên branch có **hậu tố `-<số issue>`** (vd `fix/uploads-hardcode-path-37`).
+- Khi user nói **"làm issue #N"** → `git checkout` branch tương ứng (tìm bằng `git branch -a --list "*-N"`) rồi BẮT ĐẦU code ngay. KHÔNG tạo branch mới, KHÔNG hỏi lại.
+- Nếu issue chưa có branch sẵn → tạo `git branch <fix|feat>/<slug>-N main` trước rồi checkout.
+- Khi tạo issue mới: tạo branch kèm + push origin + comment tên branch vào issue (để truy vết).
+- Tuân thủ [git workflow] (luôn làm trên branch riêng theo vấn đề, KHÔNG commit thẳng `main`).
+
+**Issue đang mở + branch chuẩn bị sẵn (2026-06-09):**
+
+| Issue | Nội dung | Branch |
+|---|---|---|
+| #37 (bug) | Path uploads hardcode macOS — chặn upload trên máy không phải Mac host (Decision #23) | `fix/uploads-hardcode-path-37` |
+| #38 (enh) | Pagination cap cứng (300/50/100) — mất task ngầm khi team mở rộng | `feat/pagination-cap-warning-38` |
+| #39 (enh) | Workload matrix giả định 3 status active — status mới rơi bucket fallback | `feat/workload-dynamic-status-39` |
+| #14 (feat) | Auto-launch browser khi chạy script | (chưa tạo branch) |
+| #19 (feat) | Email digest mode cho daily standup | (chưa tạo branch) |
+
+> Cập nhật bảng này khi issue đóng/mở mới. Nguồn chính vẫn là `gh issue list`.
+
 ## OPSEC Requirements (NON-NEGOTIABLE)
 
 User có strict OPSEC discipline. KHÔNG được:
@@ -278,6 +330,11 @@ User có strict OPSEC discipline. KHÔNG được:
 - ✅ Filter theo người (assignee/reporter/cả hai) — client-side, pager-aware, nhớ qua localStorage
 - ✅ Lens cá nhân cho QA non-admin (`/` khi `is_admin=False`): bỏ widget so-sánh-người, 3 block ưu tiên + Đang làm / TO DO / Done + activity, mọi block paginate 5 (Decision #16)
 - ✅ Tab "Việc của tôi" (`/my-work`, admin-only): lens cá nhân của admin scope theo `SELF_USER`, UI hệt QA member (`render_qa_v2`) (Decision #17)
+- ✅ UI v2 "Stitch" sidebar Material 3 (`app_v2.js`/`styles_v2.css`, shell `_document_v2`) cho các route chính (Decision #19)
+- ✅ PAT cá nhân + ghi Jira đúng tên người: `/settings` lưu PAT mã hoá, đổi status (`/do-transition`) + comment bằng PAT cá nhân (Decision #20)
+- ✅ Custom status overlay (8 nhãn, nhiều nhãn/task, sync Jira property) — `/set-custom-status` (Decision #21)
+- ✅ Tạo QA sub-task dưới Task-PTSP từ modal (`/create-subtask`, auto-fill `[QA]` + Leader Hiền) (Decision #22)
+- ✅ Tài liệu v2: upload file thật (`/upload-file`, serve `/uploads/`) (Decision #23)
 - ✅ New task highlighting (diff vs `.last_seen.json`)
 - ✅ Hyperlink to Jira (`{JIRA_URL}/browse/{key}`)
 - ✅ UTF-8 Vietnamese rendering
@@ -363,31 +420,38 @@ qa-dashboard/
 ├── README.md          ← hướng dẫn cho user (không phải Claude Code)
 ├── start.sh           ← launcher macOS/Linux (check python/.env/requests → mở browser → run)
 ├── start.bat          ← launcher Windows (tương tự, double-click chạy được)
-├── preview.html       ← mockup tĩnh để xem UI (KHÔNG có backend — save PIC sẽ fail, by design)
+├── gen_preview.py     ← sinh preview.html TĨNH (render thật + mock fetch) để check UI offline, KHÔNG cần Jira/server
+├── preview*.html      ← mockup tĩnh do gen_preview.py sinh (gitignore)
+├── probe_subtask.py   ← script chẩn đoán read-only field createmeta sub-task (chạy ở nơi tới được Jira)
 │
-│   ── Python modules (layer: config → issues → {jira_api,state,pic} → render → entry) ──
-├── qa_dashboard.py    ← ENTRY POINT: HTTP Handler (do_GET/do_POST) + main(). Mỏng.
-├── config.py          ← env load, paths, JIRA_URL/PAT/USERS/PORT, DEFAULT_DISPLAY_NAMES, STUCK_DAYS, display_name/actor_name
+│   ── Python modules (layer: config → issues → {jira_api,state,pic} → {crypto_util,custom_status,pat_store,jira_write,render} → entry) ──
+├── qa_dashboard.py    ← ENTRY POINT: HTTP Handler (do_GET/do_POST, ~18 route) + main(). Mỏng.
+├── config.py          ← env load, paths, JIRA_URL/PAT/USERS/PORT, ADMIN_EMAIL/SELF_USER/ALLOWED_DOMAIN, GOOGLE_*/SESSION_SECRET/AUTH_ENABLED, SUBTASK/TASK_PTSP/START_DATE/LEADER field ids, STUCK_DAYS, display_name/actor_name/username_from_email
 ├── issues.py          ← accessor i_* + helper (parse_date, days_*, is_stuck, esc, status_class, issue_link)
-├── jira_api.py        ← gọi Jira REST (jira_search/count, fetch_change_authors, fetch_all). PAT redact ở đây.
-├── state.py           ← snapshot/activities, load/save .last_seen.json, compute_activities
+├── jira_api.py        ← gọi Jira REST bằng PAT chung (_SESSION keep-alive): jira_search/count, fetch_all, fetch_activity_feed, fetch_issue_detail, load/save_property, verify_pat, run_parallel. PAT redact ở đây.
+├── auth.py            ← Google OAuth login + session cookie HMAC (Decision #15)
+├── crypto_util.py     ← Fernet mã hoá PAT cá nhân at-rest, khoá từ SESSION_SECRET/.crypto_key (Decision #20)
+├── pat_store.py       ← lưu PAT cá nhân {email:enc} vào Jira property, verify đúng chủ (Decision #20)
+├── jira_write.py      ← ghi Jira bằng PAT cá nhân: transitions/comment/create_subtask (Decision #20, #22)
+├── custom_status.py   ← nhãn tình trạng overlay (Jira property + activity events) (Decision #21)
+├── state.py           ← snapshot NEW badge, load/save .last_seen.json (compute_activities phần lớn dead)
 ├── pic.py             ← PIC_DEFAULT + load/save .pic_config.json
-├── docs.py            ← Tài liệu training: cây folder+link, load/save .docs_config.json, valid_tree
-├── roadmap.py         ← Roadmap team: giai đoạn›mục›sub-task, due_alerts, load/save .roadmap_config.json
-├── roadmap.py         ← Roadmap team: giai đoạn+mục, load/save .roadmap_config.json, valid_roadmap
-├── render.py          ← toàn bộ render_* + load_css/load_js. render_page (dashboard `/`), shell chung _document() + render_nav()
-├── styles.css         ← toàn bộ CSS; load_css() đọc per-render, inline vào <style>
-├── app.js             ← toàn bộ JS; load_js() đọc per-render, inline vào <script>
+├── docs.py            ← Tài liệu: cây folder+link, load/save .docs_config.json (sync Jira property), valid_tree
+├── roadmap.py         ← Roadmap team: giai đoạn›mục›sub-task, due_alerts, load/save .roadmap_config.json (sync Jira property)
+├── render.py          ← toàn bộ render_*. UI cũ: render_page/render_personal/render_nav/_document. UI v2 (Decision #19): render_sidebar_v2/topbar_v2/_document_v2/render_admin_v2/render_qa_v2/render_roadmap_v2/render_docs_page/render_settings_page. load_css(_v2)/load_js(_v2)
+├── styles.css / app.js        ← UI cũ (topnav), đọc per-render
+├── styles_v2.css / app_v2.js  ← UI v2 (Stitch sidebar), đọc per-render (Decision #19)
 ├── .env.example       ← template
-├── .env               ← (KHÔNG có trong git) PAT + config thật
-├── .gitignore         ← phải có .env, .last_seen.json, .pic_config.json, .docs_config.json
-├── .last_seen.json    ← auto-generated, state tracking
-└── .docs_config.json  ← (KHÔNG có trong git) cây tài liệu training
+├── .env               ← (KHÔNG có trong git) PAT + config thật + GOOGLE_*/SESSION_SECRET
+├── .gitignore         ← .env, .last_seen.json, .pic/.docs/.roadmap/.custom_status_config.json, .crypto_key, preview*.html, uploads/
+├── .last_seen.json    ← auto-generated, NEW-badge baseline
+├── uploads/           ← (KHÔNG git, hardcode path macOS) file upload từ /docs (Decision #23)
+└── .docs_config.json  ← (KHÔNG có trong git) cây tài liệu
 ```
 
 ## Coding Conventions
 
-- **Đã tách module (2026-06-04)** vì vượt 1000 dòng. Layer rõ ràng, KHÔNG vòng lặp import: `config` (không phụ thuộc ai) → `issues` → `jira_api`/`state`/`pic` → `render` → `qa_dashboard` (entry). Thêm logic mới thì đặt đúng layer, đừng nhét hết vào entry.
+- **Đã tách module (2026-06-04)** vì vượt 1000 dòng. Layer rõ ràng, KHÔNG vòng lặp import: `config` (không phụ thuộc ai) → `issues` → `jira_api`/`state`/`pic` → `{crypto_util,custom_status,pat_store,jira_write,docs,roadmap,auth}` → `render` → `qa_dashboard` (entry). Thêm logic mới thì đặt đúng layer, đừng nhét hết vào entry.
 - Import kiểu `from X import (tên cụ thể)` (không `import *`) để rõ phụ thuộc
 - Entry vẫn là `qa_dashboard.py` (start.sh/.bat không đổi). Chạy `python qa_dashboard.py` → tự thêm script dir vào sys.path nên import sibling chạy được
 - Section comments: `# ===== SECTION NAME =====`
@@ -401,3 +465,4 @@ qa-dashboard/
 ## Last Updated
 
 2026-06-04 — Initial handoff từ chat session sang Claude Code.
+2026-06-09 — Đồng bộ lại với code: thêm Decision #19–#23 (UI v2 Stitch sidebar, PAT cá nhân + ghi Jira đúng tên, custom status overlay, tạo sub-task, upload file docs), cập nhật Tech Stack (+`cryptography`), File Map (crypto_util/pat_store/jira_write/custom_status/auth/gen_preview/probe_subtask/app_v2/styles_v2), Current State.
