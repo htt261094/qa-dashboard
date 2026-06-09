@@ -26,7 +26,7 @@ from pic import save_pic
 from docs import load_docs, save_docs, valid_tree
 from roadmap import load_roadmap, save_roadmap, valid_roadmap
 from pat_store import save_user_pat, has_pat, delete_user_pat, load_user_pat
-from custom_status import (load_bundle, set_custom_status, is_valid)
+from custom_status import (load_bundle, set_custom_status, is_valid, values_of)
 from jira_write import get_transitions, do_transition, add_comment, create_subtask
 from render import (render_page, render_qa_v2, render_docs_page,
                     render_roadmap_v2, render_settings_page, render_error_page, render_403)
@@ -115,24 +115,44 @@ class Handler(http.server.BaseHTTPRequestHandler):
         admin-email-không-trong-USERS -> SELF_USER (default thanhht1)."""
         return username_from_email(self._user_email()) or username_from_email(ADMIN_EMAIL) or SELF_USER
 
-    def _bell_activities(self):
+    def _bell_activities(self, with_patch=False):
         """Activities cho chuông notif — TÍNH GIỐNG HỆT ở mọi tab để bell đồng nhất.
         Scope = đúng như dashboard `/`: admin/local -> cả team (None), QA -> chính họ.
         Gồm cả custom-status events (cust_act) + cờ is_unread theo dismissed của người đăng nhập.
-        Tách khỏi data trang (mỗi tab vẫn tự fetch data riêng theo scope của nó)."""
+        Tách khỏi data trang (mỗi tab vẫn tự fetch data riêng theo scope của nó).
+
+        with_patch=True -> trả (merged, tasks) với tasks={key:{status?,customs}} để client
+        vá status + nhãn nội bộ real-time qua poll (Decision #24), KHÔNG reload. status lấy
+        từ chính feed (issue đổi trong window), customs từ overlay -> gần như zero extra call."""
         email = self._user_email()
         scope = None if self._is_admin() else username_from_email(email)
         res = run_parallel({
-            'feed': lambda: fetch_activity_feed(days=ACTIVITY_DAYS, scope_user=scope),
+            'feed': lambda: fetch_activity_feed(days=ACTIVITY_DAYS, scope_user=scope,
+                                                with_status=with_patch),
             'dismissed': lambda: load_dismissed(email),
             'custom': lambda: load_bundle(scope, ACTIVITY_DAYS),
         })
         dismissed = res['dismissed']
-        _overlay, cust_act = res['custom']
-        merged = sorted(res['feed'] + cust_act, key=lambda a: a.get('when') or '', reverse=True)
+        overlay, cust_act = res['custom']
+        feed = res['feed']
+        statuses = {}
+        if with_patch:
+            feed, statuses = feed
+        merged = sorted(feed + cust_act, key=lambda a: a.get('when') or '', reverse=True)
         for a in merged:
             a['is_unread'] = a['id'] not in dismissed
-        return merged
+        if not with_patch:
+            return merged
+        # patch cho từng task có khả năng vừa đổi: status (từ feed) hoặc nhãn custom (overlay/cust_act).
+        # customs LUÔN gửi list (kể cả [] khi gỡ hết nhãn) -> client xoá chip cũ chính xác.
+        keys = set(statuses) | set(overlay) | {a.get('key') for a in cust_act if a.get('key')}
+        tasks = {}
+        for k in keys:
+            entry = {'customs': values_of(overlay.get(k))}
+            if statuses.get(k):
+                entry['status'] = statuses[k]
+            tasks[k] = entry
+        return merged, tasks
 
     def _forbidden(self):
         # Trang 403 tối giản — KHÔNG lộ domain/điều kiện được phép (giấu thông tin).
@@ -303,8 +323,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # KHÔNG reload trang (Decision #24). Cùng nguồn _bell_activities() nên đồng nhất
             # mọi tab + đã gắn is_unread theo dismissed của người đăng nhập.
             try:
-                acts = self._bell_activities()
-                self._json(200, json.dumps({'ok': True, 'activities': acts}).encode('utf-8'))
+                acts, tasks = self._bell_activities(with_patch=True)
+                self._json(200, json.dumps(
+                    {'ok': True, 'activities': acts, 'tasks': tasks}).encode('utf-8'))
             except RuntimeError:
                 self._json(400, b'{"ok":false}')
             return

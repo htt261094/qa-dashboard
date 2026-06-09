@@ -98,7 +98,7 @@ def _comment_snippet(body, n=140):
     return s if len(s) <= n else s[:n].rstrip() + '…'
 
 
-def fetch_activity_feed(days=7, cap=300, max_issues=120, scope_user=None):
+def fetch_activity_feed(days=7, cap=300, max_issues=120, scope_user=None, with_status=False):
     """Reconstruct activity từ Jira changelog/comment trong `days` ngày gần nhất.
 
     Nguồn = Jira (source of truth), KHÔNG phụ thuộc .last_seen.json → máy nào mở cũng
@@ -107,11 +107,16 @@ def fetch_activity_feed(days=7, cap=300, max_issues=120, scope_user=None):
 
     scope_user=None -> toàn team; 'quangbm' -> chỉ activity liên quan user đó (QA thường).
     Cache TTL 2 phút (call nặng nhất vì expand=changelog).
+
+    with_status=True -> trả (acts, {key: status_name}) lấy từ CHÍNH issue đã fetch (zero
+    extra call) để client vá status real-time (Decision #24). Default False giữ tương thích.
     """
+    # Cache độc lập với with_status (luôn lưu tuple (acts, statuses)) -> bell embed (no patch)
+    # và poll (patch) DÙNG CHUNG 1 lần fetch changelog (call nặng nhất), không gọi đôi.
     cache_key = f'activity:{days}:{scope_user}'
     cached, hit = _cache_get(cache_key)
     if hit:
-        return cached
+        return cached if with_status else cached[0]
     if scope_user is not None and scope_user not in USERS:
         raise ValueError('unknown scope_user')
     start = datetime.now() - timedelta(days=days)
@@ -139,10 +144,12 @@ def fetch_activity_feed(days=7, cap=300, max_issues=120, scope_user=None):
             raise
         issues = _run(fallback)  # PAT không query được watcher người khác -> dùng assignee/reporter
     acts = []
+    statuses = {}
     for iss in issues:
         key = iss['key']
         f = iss.get('fields', {})
         summary = f.get('summary') or ''
+        statuses[key] = (f.get('status') or {}).get('name') or ''
         cr = parse_date(f.get('created'))
         if cr and cr >= start:
             # Task tạo kèm assignee -> Jira KHÔNG ghi changelog 'assignee' (set lúc tạo, không phải đổi).
@@ -199,9 +206,9 @@ def fetch_activity_feed(days=7, cap=300, max_issues=120, scope_user=None):
                          'when': c.get('created'), 'comment_delta': 1,
                          'mention': mention, 'body': _comment_snippet(raw)})
     acts.sort(key=lambda a: a.get('when') or '', reverse=True)
-    result = acts[:cap]
+    result = (acts[:cap], statuses)        # luôn cache tuple; non-patch caller lấy result[0]
     _cache_set(cache_key, result)
-    return result
+    return result if with_status else result[0]
 
 
 def _ptsp_index():

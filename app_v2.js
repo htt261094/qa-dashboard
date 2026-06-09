@@ -181,7 +181,10 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   function poll(){
     if(document.hidden) return;                        // tab ẩn -> bỏ qua, đỡ tải Jira
     getJSON('/activity-feed', 20000).then(function(j){
-      if(j && j.ok) applyFeed(j.activities);
+      if(j && j.ok){ applyFeed(j.activities);
+        // Vá status Jira + nhãn nội bộ vào bảng/drawer (Decision #24), KHÔNG reload trang.
+        if(window.__applyTaskPatch && j.tasks) window.__applyTaskPatch(j.tasks);
+      }
     }).catch(function(){});                             // lỗi mạng/timeout -> im lặng, thử lại lần sau
   }
   setInterval(poll, POLL_MS);
@@ -423,6 +426,25 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     });
     var dov=$('drawerOv'); if(dov) dov.addEventListener('click', closeDetail);
     document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeDetail(); });
+
+    // Vá real-time từ poll (Decision #24): cập nhật status Jira + nhãn nội bộ vào TASKS rồi
+    // re-render bảng/KPI/drawer, KHÔNG reload. Chỉ render lại khi có gì THỰC SỰ đổi (tránh
+    // flicker + nuốt comment đang gõ mỗi 60s).
+    window.__applyTaskPatch=function(map){
+      var changed=false;
+      TASKS.forEach(function(t){ var p=map[t.key]; if(!p) return;
+        if(p.status && p.status!==t.jira){ t.jira=p.status; changed=true; }
+        if(p.customs){ var a=(t.customs||[]).join(','), b=p.customs.join(',');
+          if(a!==b){ t.customs=p.customs; changed=true; } }
+      });
+      if(!changed) return;
+      updateCounts(); renderRows(); updateKPIs();
+      var dEl=$('drawer');
+      if(dEl && dEl.classList.contains('open')){
+        var ka=dEl.querySelector('.key'); var ok=ka&&ka.textContent;
+        if(ok && map[ok]){ var tt=taskByKey(ok); if(tt) renderDrawer(tt); }
+      }
+    };
 
     // Initial render
     updateCounts(); renderRows(); updateKPIs();
@@ -711,6 +733,24 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     closeSmenu();
   }, true);
   document.addEventListener('keydown', function(e){ if(e.key==='Escape'){ closeSmenu(); closeDetail(); } });
+
+  // Vá real-time từ poll (Decision #24): cập nhật status Jira + nhãn nội bộ vào bảng/drawer,
+  // KHÔNG reload. Chỉ render lại khi THỰC SỰ đổi (tránh flicker + nuốt comment đang gõ).
+  window.__applyTaskPatch=function(map){
+    var changed=false;
+    TASKS.forEach(function(t){ var p=map[t.key]; if(!p) return;
+      if(p.status && p.status!==t.jira){ t.jira=p.status; changed=true; }
+      if(p.customs){ var a=(t.customs||[]).join(','), b=p.customs.join(',');
+        if(a!==b){ t.customs=p.customs; changed=true; } }
+    });
+    if(!changed) return;
+    renderRows();
+    var dEl=$('drawer');
+    if(dEl && dEl.classList.contains('open')){
+      var ka=dEl.querySelector('.key'); var ok=ka&&ka.textContent;
+      if(ok && map[ok]){ var tt=taskByKey(ok); if(tt) renderDrawer(tt); }
+    }
+  };
 
   setFilter('all');
 })();
