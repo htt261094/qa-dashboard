@@ -542,6 +542,7 @@ tbody tr:not(.pager-filler):hover{background:var(--surface-low)}
   overflow:hidden;text-overflow:ellipsis;max-width:420px}
 .cell-title-sub{font-size:12px;font-weight:400;color:var(--on-surface-variant);display:block;margin-top:1px}
 .cell-member{display:flex;align-items:center;gap:8px;white-space:nowrap}
+.cell-date{white-space:nowrap}
 .cell-member .m-av{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;
   justify-content:center;font-size:10px;font-weight:600;color:#fff;overflow:hidden}
 
