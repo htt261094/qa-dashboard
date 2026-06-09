@@ -1823,4 +1823,162 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   });
 })();
 
+// ================= BUG LOG (guard #bugLogData) =================
+(function(){
+  var DATA = readJSON('bugLogData'); if(!DATA) return;
+  var BUGS = DATA.bugs||[], MONTHS = DATA.months||[], EDIT = !!DATA.editable;
+  var base = window.__jiraBase || '';
+  var curMonth = MONTHS.length ? MONTHS[0] : '';
+  var page = 1, PER = 15;
+  var sel = {};            // bugKey -> true (test case đang tick)
+  var taskSel = '';        // task key đã chọn ở ô tìm
+  var tabs=$('blTabs'), rows=$('blRows'), pager=$('blPager'), cnt=$('blCount');
+
+  // ----- map mức độ / trạng thái -> class + nhãn -----
+  function sevCls(s){ var t=(s||'').toLowerCase();
+    if(/nghi[êe]m|critical|blocker/.test(t)) return 'sev-crit';
+    if(/cao|high|major/.test(t)) return 'sev-high';
+    if(/th[ấa]p|low|minor|trivial/.test(t)) return 'sev-low';
+    return 'sev-med'; }
+  var ST = { 'New':['st-open','Mới'], 'Fixing':['st-fixing','Đang fix'],
+    'Fixed':['st-fixed','Đã fix (chờ retest)'], 'Reopen':['st-reopen','Reopen'],
+    'Rejected':['st-rejected','Bị từ chối'], 'Closed':['st-closed','Đã đóng'] };
+  function stCell(s){ var m=ST[s]||['st-default', s||'—'];
+    return '<span class="st-badge '+m[0]+'">'+esc(m[1])+'</span>'; }
+
+  function taskCell(b){
+    if(b.task){
+      // × để NGOÀI <a> (nếu nằm trong sẽ đi theo href + bị bắt nhầm). Cả 2 trong 1 wrapper.
+      var unlink = EDIT ? '<span class="unlink material-symbols-rounded mi-xs" data-unlink="'+esc(b.key)+'" title="Gỡ liên kết">close</span>' : '';
+      return '<span class="bl-jira-wrap"><a class="bl-jira" href="'+esc(base)+'/browse/'+esc(b.task)+'" target="_blank" rel="noopener">🔗 '+esc(b.task)+'</a>'+unlink+'</span>';
+    }
+    return '<span class="bl-nolink">⛓️‍💥 Chưa liên kết</span>';
+  }
+
+  function monthBugs(){ return BUGS.filter(function(b){ return b.month===curMonth; }); }
+
+  function renderTabs(){
+    if(!MONTHS.length){ tabs.innerHTML='<span class="bl-count">Chưa có dữ liệu — bấm Đồng bộ ngay.</span>'; return; }
+    tabs.innerHTML = MONTHS.map(function(m){
+      var n = BUGS.filter(function(b){return b.month===m;}).length;
+      return '<button class="bl-tab'+(m===curMonth?' active':'')+'" data-m="'+esc(m)+'">'
+        +'<span class="material-symbols-rounded">calendar_month</span> '+esc(m)+' ('+n+')</button>';
+    }).join('');
+  }
+
+  function render(){
+    var list = monthBugs();
+    var total = list.length, pages = Math.max(1, Math.ceil(total/PER));
+    if(page>pages) page=pages;
+    var start=(page-1)*PER, slice=list.slice(start, start+PER);
+    var chkHead = EDIT;
+    var html = slice.map(function(b){
+      var chk = EDIT ? '<td><input type="checkbox" class="bl-check bl-row-chk" data-k="'+esc(b.key)+'"'+(sel[b.key]?' checked':'')+'></td>' : '';
+      return '<tr>'+chk
+        +'<td><span class="bl-id">'+esc(b.id)+'</span></td>'
+        +'<td><b>'+esc(b.summary)+'</b></td>'
+        +'<td>'+esc(b.module)+'</td>'
+        +'<td><span class="bl-badge '+sevCls(b.severity)+'">'+esc(b.severity||'—')+'</span></td>'
+        +'<td>'+stCell(b.status)+'</td>'
+        +'<td>'+taskCell(b)+'</td></tr>';
+    }).join('');
+    if(!total){
+      var cols = EDIT?7:6;
+      html = '<tr><td colspan="'+cols+'" style="text-align:center;color:var(--on-surface-variant);padding:30px">Không có bug nào trong tháng này.</td></tr>';
+    }
+    rows.innerHTML = html;
+    cnt.textContent = 'Hiển thị '+slice.length+' / '+total+' bản ghi';
+    // pager
+    if(pages>1){
+      var ph='<span class="pager-summary">trang '+page+'/'+pages+'</span><div class="pager-nav">'
+        +'<button class="pager-btn" '+(page<=1?'disabled':'')+' data-pg="'+(page-1)+'"><span class="material-symbols-rounded mi-xs">chevron_left</span></button>';
+      for(var i=1;i<=pages;i++) ph+='<button class="pager-page'+(i===page?' active':'')+'" data-pg="'+i+'">'+i+'</button>';
+      ph+='<button class="pager-btn" '+(page>=pages?'disabled':'')+' data-pg="'+(page+1)+'"><span class="material-symbols-rounded mi-xs">chevron_right</span></button></div>';
+      pager.innerHTML=ph;
+    } else pager.innerHTML='';
+    syncCheckAll();
+    updateLinkBtn();
+  }
+
+  function syncCheckAll(){ var all=$('blCheckAll'); if(!all) return;
+    var list=monthBugs(); all.checked = list.length>0 && list.every(function(b){return sel[b.key];}); }
+  function selCount(){ return Object.keys(sel).filter(function(k){return sel[k];}).length; }
+  function updateLinkBtn(){ var btn=$('blLinkBtn'); if(!btn) return;
+    var n=selCount(); $('blSelCount').textContent = n?('('+n+')'):'';
+    btn.disabled = !(n>0 && taskSel); }
+
+  // ----- events: tabs -----
+  tabs.addEventListener('click', function(e){ var t=e.target.closest('.bl-tab'); if(!t) return;
+    curMonth=t.getAttribute('data-m'); page=1; renderTabs(); render(); });
+  // ----- events: pager -----
+  pager.addEventListener('click', function(e){ var b=e.target.closest('[data-pg]'); if(!b||b.disabled) return;
+    page=parseInt(b.getAttribute('data-pg'),10)||1; render(); });
+  // ----- events: tick + unlink (delegate trên tbody) -----
+  rows.addEventListener('click', function(e){
+    var u=e.target.closest('[data-unlink]');
+    if(u){ e.preventDefault(); doLink([u.getAttribute('data-unlink')], ''); return; }
+    var c=e.target.closest('.bl-row-chk');
+    if(c){ var k=c.getAttribute('data-k'); if(c.checked) sel[k]=true; else delete sel[k]; syncCheckAll(); updateLinkBtn(); }
+  });
+
+  // ----- sync now (admin) -----
+  var syncBtn=$('blSyncBtn');
+  if(syncBtn) syncBtn.addEventListener('click', function(){
+    syncBtn.disabled=true; toast('Đang đồng bộ từ Drive…', true);
+    postJSON('/sync-bug-log', {}, 60000).then(function(j){
+      syncBtn.disabled=false;
+      if(j && j.ok){ toast('Đồng bộ xong ✓ — đang tải lại', true); setTimeout(function(){ location.reload(); }, 900); }
+      else toast((j&&j.errors&&j.errors[0])||'Đồng bộ lỗi', false);
+    }).catch(function(){ syncBtn.disabled=false; toast('Lỗi mạng khi đồng bộ', false); });
+  });
+
+  // ----- editable: check-all + link bar typeahead -----
+  if(EDIT){
+    var all=$('blCheckAll');
+    if(all) all.addEventListener('change', function(){
+      monthBugs().forEach(function(b){ if(all.checked) sel[b.key]=true; else delete sel[b.key]; });
+      render(); });
+
+    var inp=$('blTaskInp'), res=$('blTaskRes'), taT;
+    inp.addEventListener('input', function(){ taskSel=''; updateLinkBtn();
+      var q=inp.value.trim(); clearTimeout(taT);
+      if(q.length<2){ res.classList.remove('open'); return; }
+      taT=setTimeout(function(){
+        getJSON('/search-parents?q='+encodeURIComponent(q), 15000).then(function(j){
+          var rs=(j&&j.results)||[];
+          if(!rs.length){ res.innerHTML='<div class="opt">Không tìm thấy task.</div>'; res.classList.add('open'); return; }
+          res.innerHTML = rs.map(function(r){
+            return '<div class="opt" data-k="'+esc(r.key)+'"><b>'+esc(r.key)+'</b> — '+esc(r.summary)+'</div>'; }).join('');
+          res.classList.add('open');
+        }).catch(function(){ res.classList.remove('open'); });
+      }, 250);
+    });
+    res.addEventListener('click', function(e){ var o=e.target.closest('.opt[data-k]'); if(!o) return;
+      taskSel=o.getAttribute('data-k'); inp.value=taskSel; res.classList.remove('open'); updateLinkBtn(); });
+    document.addEventListener('click', function(e){ if(!e.target.closest('#blTaskTA')) res.classList.remove('open'); });
+
+    var lbtn=$('blLinkBtn');
+    lbtn.addEventListener('click', function(){
+      var keys=Object.keys(sel).filter(function(k){return sel[k];});
+      if(!keys.length || !taskSel) return;
+      doLink(keys, taskSel);
+    });
+  }
+
+  function doLink(keys, task){
+    postJSON('/link-task', { keys: keys, task: task }, 20000).then(function(j){
+      if(j && j.ok && j.links){
+        var m=j.links;
+        BUGS.forEach(function(b){ if(m.hasOwnProperty(b.key)) b.task = m[b.key]||''; });
+        if(task){ keys.forEach(function(k){ delete sel[k]; }); taskSel=''; var inp=$('blTaskInp'); if(inp) inp.value='';
+          toast('Đã liên kết '+keys.length+' mục với '+task+' ✓', true); }
+        else toast('Đã gỡ liên kết ✓', true);
+        renderTabs(); render();
+      } else toast('Lỗi lưu liên kết', false);
+    }).catch(function(){ toast('Lỗi mạng khi liên kết', false); });
+  }
+
+  renderTabs(); render();
+})();
+
 })();

@@ -895,3 +895,57 @@ html[data-theme="dark"] .bottom-toast {
 }
 
 
+
+/* ===== Bug Log (#55) — bảng bug/test-case + link Jira task ===== */
+.bl-sub{font-size:14px;color:var(--on-surface-variant);margin-top:4px;display:flex;align-items:center;gap:7px}
+.bl-dot{width:8px;height:8px;border-radius:50%;background:var(--success);display:inline-block}
+.bl-source{display:flex;align-items:center;gap:14px;padding:16px 18px;margin-bottom:20px;border-left:4px solid var(--primary)}
+.bl-source .ic{width:44px;height:44px;border-radius:var(--r-md);background:var(--primary);color:var(--on-primary);display:flex;align-items:center;justify-content:center}
+.bl-source .lbl{font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--on-surface-variant)}
+.bl-source .fname{font-size:14px;color:var(--on-surface);margin-top:3px}
+.bl-source .fname b{color:var(--primary)}
+/* tab tháng */
+.bl-tabs{display:flex;gap:24px;border-bottom:1px solid var(--outline-variant);margin-bottom:20px;flex-wrap:wrap}
+.bl-tab{display:inline-flex;align-items:center;gap:7px;padding:0 2px 12px;font-size:15px;font-weight:600;color:var(--on-surface-variant);background:none;border:none;border-bottom:2px solid transparent;cursor:pointer;margin-bottom:-1px}
+.bl-tab .material-symbols-rounded{font-size:19px}
+.bl-tab.active{color:var(--primary);border-bottom-color:var(--primary)}
+/* link-to-task bar */
+.bl-linkbar{display:flex;align-items:center;gap:8px;background:var(--surface-low);border:1px solid var(--outline-variant);border-radius:var(--r-lg);padding:6px 6px 6px 14px;margin-bottom:20px}
+.bl-ta{flex:1;position:relative;display:flex;align-items:center;gap:9px;color:var(--on-surface-variant)}
+.bl-ta input{flex:1;border:none;background:none;font-family:inherit;font-size:14px;color:var(--on-surface);outline:none}
+.bl-ta-res{position:absolute;top:calc(100% + 6px);left:0;right:0;background:var(--card);border:1px solid var(--outline-variant);border-radius:var(--r-md);box-shadow:var(--shadow);z-index:30;max-height:280px;overflow:auto;display:none}
+.bl-ta-res.open{display:block}
+.bl-ta-res .opt{padding:9px 13px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--divider)}
+.bl-ta-res .opt:hover{background:var(--surface-low)}
+.bl-ta-res .opt b{color:var(--primary);font-family:'JetBrains Mono',monospace}
+.bl-linkbtn{display:inline-flex;align-items:center;gap:7px;padding:10px 18px;border:none;border-radius:var(--r-md);background:var(--warning);color:var(--warning-on);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap}
+.bl-linkbtn:disabled{opacity:.45;cursor:not-allowed}
+/* table */
+.bl-table td,.bl-table th{padding:13px 16px}
+.bl-table tbody td{font-size:14px;vertical-align:middle}
+.bl-check{width:16px;height:16px;accent-color:var(--primary);cursor:pointer}
+.bl-id{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--primary);font-weight:600}
+.bl-count{font-size:13px;color:var(--on-surface-variant)}
+/* badges mức độ */
+.bl-badge{display:inline-block;padding:4px 10px;border-radius:var(--r-sm);font-size:11px;font-weight:700;letter-spacing:.02em;white-space:nowrap}
+.sev-crit{background:var(--error);color:#fff}
+.sev-high{background:var(--primary);color:var(--on-primary)}
+.sev-med{background:var(--surface-container);color:var(--on-surface-variant)}
+.sev-low{background:var(--warning-bg);color:var(--warning-on)}
+/* badges trạng thái lifecycle */
+.st-badge{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:14px;font-size:13px;font-weight:600}
+.st-badge::before{content:'';width:7px;height:7px;border-radius:50%;background:currentColor}
+.st-open{background:var(--error-bg);color:var(--error)}
+.st-fixing{background:var(--primary-tint);color:var(--primary)}
+.st-fixed{background:var(--success-bg);color:var(--success-on)}
+.st-reopen{background:var(--warning-bg);color:var(--warning-on)}
+.st-rejected{background:var(--surface-container);color:var(--on-surface-variant)}
+.st-closed{background:var(--success-bg);color:var(--success-on)}
+.st-default{background:var(--surface-container);color:var(--on-surface-variant)}
+/* cột link task */
+.bl-jira{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--primary);text-decoration:none;display:inline-flex;align-items:center;gap:5px;padding:5px 11px;background:var(--primary-tint);border-radius:var(--r-md);font-weight:600}
+.bl-jira:hover{background:var(--primary-strong);color:var(--on-primary)}
+.bl-jira-wrap{display:inline-flex;align-items:center;gap:5px}
+.bl-jira-wrap .unlink{opacity:.55;font-size:16px;cursor:pointer;color:var(--on-surface-variant);border-radius:50%}
+.bl-jira-wrap .unlink:hover{opacity:1;color:var(--error);background:var(--error-bg)}
+.bl-nolink{font-size:13px;color:var(--on-surface-variant);font-style:italic;display:inline-flex;align-items:center;gap:6px}
