@@ -258,17 +258,41 @@ def search_people(query, limit=15):
     return out
 
 
+def _devs_in_charge(parent_key):
+    """Dev phụ trách = assignee của CÁC sub-task dưới Task-PTSP cha, LOẠI người trong QA list.
+    QA task của ta là 1 sub-task của parent này; các sub-task khác do dev làm. Trả list tên
+    hiển thị (dedupe, giữ thứ tự). 1 call search. Lỗi -> [] (đừng làm hỏng cả drawer)."""
+    if not parent_key:
+        return []
+    try:
+        subs = _jira_request(f'parent = {parent_key}', 50, fields='assignee').get('issues', [])
+    except RuntimeError:
+        return []
+    devs, seen = [], set()
+    for it in subs:
+        asg = (it.get('fields') or {}).get('assignee') or {}
+        name = asg.get('name') or ''
+        if not name or name in USERS:        # rỗng hoặc là QA -> bỏ
+            continue
+        disp = asg.get('displayName') or name
+        if disp not in seen:
+            seen.add(disp)
+            devs.append(disp)
+    return devs
+
+
 def fetch_issue_detail(key):
     """Chi tiết 1 issue cho drawer/comment panel:
-    {key, summary, description, status, assignee, duedate, comments:[...]}.
+    {key, summary, description, status, assignee, duedate, updated, devs, comments:[...]}.
     status/assignee/duedate để drawer dựng được CẢ task không nằm trong bucket (vd CANCELLED).
-    1 call read-only bằng PAT chung. comments mới->cũ, body rút gọn ~600 ký tự."""
+    updated = ngày update; devs = dev phụ trách (assignee non-QA của sub-task anh em dưới
+    Task-PTSP cha). 1 call read-only + (nếu có parent) 1 call lấy dev. comments mới->cũ."""
     data = _jira_request(f'key = {key}', 1,
-                         fields='summary,description,comment,status,assignee,duedate')
+                         fields='summary,description,comment,status,assignee,duedate,updated,parent')
     issues = data.get('issues') or []
     if not issues:
         return {'key': key, 'summary': '', 'description': '', 'status': '',
-                'assignee': '', 'duedate': '', 'comments': []}
+                'assignee': '', 'duedate': '', 'updated': '', 'devs': [], 'comments': []}
     f = issues[0].get('fields', {})
     comments = []
     for c in ((f.get('comment') or {}).get('comments') or []):
@@ -278,11 +302,14 @@ def fetch_issue_detail(key):
     comments.reverse()  # mới nhất lên đầu
     st = (f.get('status') or {}).get('name') or ''
     asg = f.get('assignee') or {}
+    parent_key = (f.get('parent') or {}).get('key') or ''
     return {'key': key, 'summary': f.get('summary') or '',
             'description': _comment_snippet(f.get('description'), 1200),
             'status': st,
             'assignee': asg.get('displayName') or asg.get('name') or '',
             'duedate': f.get('duedate') or '',
+            'updated': (f.get('updated') or '')[:10],
+            'devs': _devs_in_charge(parent_key),
             'comments': comments}
 
 
