@@ -1855,6 +1855,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
 (function(){
   var DATA = readJSON('bugLogData'); if(!DATA) return;
   var BUGS = DATA.bugs||[], MONTHS = DATA.months||[], EDIT = !!DATA.editable;
+  var SOURCES = DATA.sources||[];    // [{id,label}] file Drive nguồn đã cấu hình
   var base = window.__jiraBase || '';
   var curMonth = MONTHS.length ? MONTHS[0] : '';
   var page = 1, PER = 15;
@@ -1886,7 +1887,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   function monthBugs(){ return BUGS.filter(function(b){ return b.month===curMonth; }); }
 
   function renderTabs(){
-    if(!MONTHS.length){ tabs.innerHTML='<span class="bl-count">Chưa có dữ liệu — bấm Đồng bộ ngay.</span>'; return; }
+    if(!MONTHS.length){ tabs.innerHTML='<span class="bl-count">Chưa có dữ liệu — bấm ✎ trên thẻ nguồn để dán link file.</span>'; return; }
     tabs.innerHTML = MONTHS.map(function(m){
       var n = BUGS.filter(function(b){return b.month===m;}).length;
       return '<button class="bl-tab'+(m===curMonth?' active':'')+'" data-m="'+esc(m)+'">'
@@ -1949,16 +1950,71 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     if(c){ var k=c.getAttribute('data-k'); if(c.checked) sel[k]=true; else delete sel[k]; syncCheckAll(); updateLinkBtn(); }
   });
 
-  // ----- sync now (admin) -----
-  var syncBtn=$('blSyncBtn');
-  if(syncBtn) syncBtn.addEventListener('click', function(){
-    syncBtn.disabled=true; toast('Đang đồng bộ từ Drive…', true);
-    postJSON('/sync-bug-log', {}, 60000).then(function(j){
-      syncBtn.disabled=false;
-      if(j && j.ok){ toast('Đồng bộ xong ✓ — đang tải lại', true); setTimeout(function(){ location.reload(); }, 900); }
-      else toast((j&&j.errors&&j.errors[0])||'Đồng bộ lỗi', false);
-    }).catch(function(){ syncBtn.disabled=false; toast('Lỗi mạng khi đồng bộ', false); });
-  });
+  // ----- quản lý link Drive nguồn (admin): ✎ đổi link 1 file + modal CRUD list -----
+  function driveLink(id){ return id ? ('https://drive.google.com/file/d/'+id+'/view') : ''; }
+  function saveSources(list, btn){
+    // list = [{link, label}]; server rút file id + scan ngay. Lưu xong reload để thấy data.
+    if(btn) btn.disabled=true;
+    toast('Đang lưu & đồng bộ từ Drive…', true);
+    postJSON('/save-bug-log-sources', { sources:list }, 90000).then(function(j){
+      if(btn) btn.disabled=false;
+      if(j && j.ok){ toast('Đã lưu & đồng bộ ✓ — đang tải lại', true); setTimeout(function(){ location.reload(); }, 900); }
+      else toast((j&&(j.err||(j.errors&&j.errors[0])))||'Lưu/đồng bộ lỗi', false);
+    }).catch(function(){ if(btn) btn.disabled=false; toast('Lỗi mạng khi lưu', false); });
+  }
+
+  // ✎ đổi link 1 file bug (single) — sửa SOURCES[0], thêm nếu chưa có; giữ nguyên file khác
+  (function(){
+    var ov=$('blEditOv'), inp=$('blEditInp'); if(!ov) return;
+    function open(){ inp.value = SOURCES.length ? driveLink(SOURCES[0].id) : ''; ov.classList.add('open'); inp.focus(); }
+    function close(){ ov.classList.remove('open'); }
+    var b=$('blEditLinkBtn'); if(b) b.addEventListener('click', open);
+    var c=$('blEditClose'); if(c) c.addEventListener('click', close);
+    var cc=$('blEditCancel'); if(cc) cc.addEventListener('click', close);
+    ov.addEventListener('click', function(e){ if(e.target===ov) close(); });
+    var sv=$('blEditSave'); if(sv) sv.addEventListener('click', function(){
+      var link=(inp.value||'').trim(); if(!link){ toast('Chưa dán link', false); return; }
+      var list=[{ link:link, label: SOURCES.length ? (SOURCES[0].label||'') : '' }];
+      for(var i=1;i<SOURCES.length;i++) list.push({ link:driveLink(SOURCES[i].id), label:SOURCES[i].label||'' });
+      saveSources(list, sv);
+    });
+  })();
+
+  // "Quản lý link drive" — modal CRUD list link
+  (function(){
+    var ov=$('blSrcOv'), listEl=$('blSrcList'); if(!ov) return;
+    function rowHtml(label, link){
+      return '<div class="bl-src-row">'
+        +'<input type="text" class="bl-src-label" placeholder="Nhãn (tuỳ chọn)" value="'+esc(label||'')+'">'
+        +'<input type="text" class="bl-src-link" placeholder="Link Google Drive" value="'+esc(link||'')+'">'
+        +'<button type="button" class="del material-symbols-rounded mi-sm" title="Xoá">delete</button></div>';
+    }
+    function renderList(){
+      if(!SOURCES.length){ listEl.innerHTML='<div class="bl-src-empty">Chưa có link nào — bấm “Thêm link”.</div>'; return; }
+      listEl.innerHTML = SOURCES.map(function(s){ return rowHtml(s.label, driveLink(s.id)); }).join('');
+    }
+    function open(){ renderList(); ov.classList.add('open'); }
+    function close(){ ov.classList.remove('open'); }
+    var b=$('blManageBtn'); if(b) b.addEventListener('click', open);
+    var c=$('blSrcClose'); if(c) c.addEventListener('click', close);
+    var cc=$('blSrcCancel'); if(cc) cc.addEventListener('click', close);
+    ov.addEventListener('click', function(e){ if(e.target===ov) close(); });
+    var add=$('blSrcAdd'); if(add) add.addEventListener('click', function(){
+      var empty=listEl.querySelector('.bl-src-empty'); if(empty) listEl.innerHTML='';
+      listEl.insertAdjacentHTML('beforeend', rowHtml('', '')); });
+    listEl.addEventListener('click', function(e){ var d=e.target.closest('.del'); if(!d) return;
+      var row=d.closest('.bl-src-row'); if(row) row.remove();
+      if(!listEl.querySelector('.bl-src-row')) listEl.innerHTML='<div class="bl-src-empty">Chưa có link nào — bấm “Thêm link”.</div>'; });
+    var sv=$('blSrcSave'); if(sv) sv.addEventListener('click', function(){
+      var list=[];
+      listEl.querySelectorAll('.bl-src-row').forEach(function(row){
+        var link=(row.querySelector('.bl-src-link').value||'').trim();
+        var label=(row.querySelector('.bl-src-label').value||'').trim();
+        if(link) list.push({ link:link, label:label });   // bỏ dòng trống
+      });
+      saveSources(list, sv);
+    });
+  })();
 
   // ----- editable: check-all + link bar typeahead -----
   if(EDIT){

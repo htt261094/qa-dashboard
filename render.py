@@ -1538,7 +1538,7 @@ def render_roadmap_v2(data, editable=True, user=None, activities=None):
 
 
 # ===== Bug Log v2 (issue #55) — bug từ Excel/Drive + link ngược Jira task =====
-def render_bug_log_v2(data, links, editable=True, user=None, activities=None):
+def render_bug_log_v2(data, links, editable=True, user=None, activities=None, sources=None):
     """Tab Bug Log: bảng bug/test-case (nguồn = cache bug_log_store), tab theo THÁNG
     (mỗi sheet Excel = 1 tháng — Decision #54), cột "Liên kết Task" = link app-side
     do user tự gán (task_link), KHÔNG từ Excel. Toàn bộ bảng render client-side bởi
@@ -1591,11 +1591,14 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None):
     else:
         src_line = '<b>Chưa kết nối nguồn Drive nào.</b> Vào Cài đặt để kết nối Google Drive.'
 
-    sync_btn = ('<button class="btn btn-primary" id="blSyncBtn">'
-                '<span class="material-symbols-rounded mi-sm">sync</span> Đồng bộ ngay</button>'
-                if is_admin else '')
-    drive_btn = ('<a class="btn btn-ghost" href="/settings"><span class="material-symbols-rounded mi-sm">link</span> '
-                 'Quản lý Drive Link</a>') if is_admin else ''
+    # "Đồng bộ ngay" đã bỏ (user 2026-06-09): paste link ở ✎ source card -> tự sync.
+    # "Quản lý link drive" = modal CRUD list link đã add.
+    drive_btn = ('<button class="btn btn-ghost" id="blManageBtn">'
+                 '<span class="material-symbols-rounded mi-sm">link</span> '
+                 'Quản lý link drive</button>') if is_admin else ''
+    # ✎ trên source card: đổi link file bug -> hệ thống đi theo link load data (single).
+    edit_link_btn = ('<button class="bl-src-edit material-symbols-rounded" id="blEditLinkBtn" '
+                     'title="Đổi link file bug">edit</button>') if is_admin else ''
 
     # link-to-task bar (chỉ khi editable: cho tick + tạo link)
     linkbar = ''
@@ -1618,12 +1621,12 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None):
         '<h2 class="page-title">Quản lý Bug &amp; Test Case</h2>'
         f'<div class="bl-sub"><span class="bl-dot"></span> Đã đồng bộ: {esc(synced_disp)}</div>'
         '</div><div style="display:flex;gap:10px;align-items:center">'
-        f'{drive_btn}{sync_btn}</div></div>'
-        # source card
+        f'{drive_btn}</div></div>'
+        # source card (✎ = đổi link file bug, tự sync sau khi lưu)
         '<div class="card bl-source">'
         '<span class="ic material-symbols-rounded">table_view</span>'
-        '<div><div class="lbl">NGUỒN DỮ LIỆU: GOOGLE DRIVE</div>'
-        f'<div class="fname">{src_line}</div></div></div>'
+        '<div class="bl-src-info"><div class="lbl">NGUỒN DỮ LIỆU: GOOGLE DRIVE</div>'
+        f'<div class="fname">{src_line}</div></div>{edit_link_btn}</div>'
         # tab tháng
         '<div class="bl-tabs" id="blTabs"></div>'
         + linkbar
@@ -1639,13 +1642,53 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None):
         '<th style="width:150px">Trạng thái</th><th style="width:160px">Liên kết Task</th>'
         '</tr></thead><tbody id="blRows"></tbody></table></div>'
         '<div class="pager" id="blPager"></div></div>'
+        + (_bug_log_source_modals() if is_admin else '')
         + _json_script('bugLogData', {
             'bugs': bugs, 'months': month_list, 'editable': bool(editable),
             'syncedAt': synced_disp,
+            'sources': [{'id': s.get('id', ''), 'label': s.get('label', '')}
+                        for s in (sources or []) if s.get('id')],
         })
     )
     return _document_v2(content, 'buglog', user, activities or [],
                         title='QA Workspace — Bug Log')
+
+
+def _bug_log_source_modals():
+    """2 modal admin của Bug Log:
+    - #blEditOv: đổi link 1 file bug (paste link Drive) — ✎ trên source card.
+    - #blSrcOv : quản lý list link Drive đã add (thêm/sửa/xoá) — nút "Quản lý link drive".
+    Cả hai POST /save-bug-log-sources (full list) -> server rút file id + scan ngay."""
+    return (
+        # ----- đổi link 1 file (single) -----
+        '<div class="overlay" id="blEditOv"><div class="modal">'
+        '<div class="modal-head"><span class="material-symbols-rounded">edit</span>'
+        '<h3>Đổi link file bug</h3>'
+        '<button type="button" class="x material-symbols-rounded" id="blEditClose">close</button></div>'
+        '<div class="modal-body"><p class="modal-note">Dán link Google Drive của file bug log. '
+        'Hệ thống sẽ đi theo link để đọc dữ liệu. Lưu xong sẽ đồng bộ ngay.</p>'
+        '<div class="mfield"><label>Link Google Drive</label>'
+        '<input type="text" id="blEditInp" placeholder="https://drive.google.com/file/d/.../view" '
+        'autocomplete="off" spellcheck="false"></div></div>'
+        '<div class="modal-foot">'
+        '<button type="button" class="btn btn-ghost" id="blEditCancel">Huỷ</button>'
+        '<button type="button" class="btn btn-primary" id="blEditSave">Lưu &amp; đồng bộ</button>'
+        '</div></div></div>'
+        # ----- quản lý list link -----
+        '<div class="overlay" id="blSrcOv"><div class="modal" style="width:620px">'
+        '<div class="modal-head"><span class="material-symbols-rounded">link</span>'
+        '<h3>Quản lý link drive</h3>'
+        '<button type="button" class="x material-symbols-rounded" id="blSrcClose">close</button></div>'
+        '<div class="modal-body"><p class="modal-note">Danh sách file Drive nguồn đã thêm. '
+        'Sửa/xoá/thêm link rồi bấm Lưu — hệ thống sẽ đồng bộ ngay.</p>'
+        '<div id="blSrcList" class="bl-src-list"></div>'
+        '<button type="button" class="btn btn-ghost" id="blSrcAdd" style="align-self:flex-start">'
+        '<span class="material-symbols-rounded mi-sm">add</span> Thêm link</button></div>'
+        '<div class="modal-foot">'
+        '<button type="button" class="btn btn-ghost" id="blSrcCancel">Huỷ</button>'
+        '<button type="button" class="btn btn-primary" id="blSrcSave">Lưu &amp; đồng bộ</button>'
+        '</div></div></div>'
+    )
 
 
 def render_roadmap_alerts(roadmap_data):
