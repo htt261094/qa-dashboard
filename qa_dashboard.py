@@ -423,7 +423,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             try:
                 hd = has_drive_token() if self._is_admin() else False
                 self._html(render_settings_page(has_pat(self._user_email()), user=self._user_ctx(),
-                                                 has_drive=hd, auth_enabled=AUTH_ENABLED))
+                                                 has_drive=hd, auth_enabled=AUTH_ENABLED,
+                                                 activities=self._bell_activities()))
             except RuntimeError as e:
                 self._html(render_error_page(str(e)))
             return
