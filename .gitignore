@@ -6,6 +6,8 @@
 .roadmap_config.json
 .custom_status.json
 .crypto_key
+.drive_token.json
+.bug_log_source.json
 
 # Python
 __pycache__/

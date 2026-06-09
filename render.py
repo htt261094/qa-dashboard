@@ -641,7 +641,36 @@ def _document(inner):
 
 
 # ===== Settings page (/settings): nhập PAT cá nhân để thao tác Jira ghi đúng tên mình =====
-def render_settings_page(has_pat, user=None):
+def _render_drive_card(has_drive, auth_enabled):
+    """Card 'Kết nối Drive' (admin-only) — lấy refresh_token đọc file bug log (#52)."""
+    if not auth_enabled:
+        return ('<div class="set-card">'
+                '<h2>🔗 Kết nối Google Drive (Bug Log)</h2>'
+                '<div class="set-state set-none">⚠ Chưa bật Google OAuth (GOOGLE_CLIENT_ID/SECRET) '
+                'nên không kết nối Drive được. Đây là chế độ local dev.</div></div>')
+    if has_drive:
+        state = ('<div class="set-state set-ok">✓ Đã kết nối Drive. Background sync đọc file bug log '
+                 'bằng quyền admin (chỉ đọc).</div>')
+        btns = ('<a href="/drive/connect" class="set-btn">Kết nối lại</a>'
+                '<button type="button" id="driveDisconnect" class="set-link-del">Ngắt kết nối Drive</button>')
+    else:
+        state = ('<div class="set-state set-none">⚠ Chưa kết nối Drive. Bug log sync sẽ báo '
+                 '"chưa kết nối Drive".</div>')
+        btns = '<a href="/drive/connect" class="set-btn">Kết nối Drive</a>'
+    return (
+        '<div class="set-card">'
+        '<h2>🔗 Kết nối Google Drive (Bug Log)</h2>'
+        f'{state}'
+        '<p class="set-note">Cấp quyền <b>chỉ đọc</b> (<code>drive.readonly</code>) bằng tài khoản admin '
+        'để background sync tải file <code>.xlsx</code> bug log. Token được mã hoá (AES) trước khi lưu, '
+        'không bao giờ lưu dạng thô và không ghi/sửa được file trên Drive.</p>'
+        f'<div class="set-form">{btns}</div>'
+        '</div>'
+    )
+
+
+def render_settings_page(has_pat, user=None, has_drive=False, auth_enabled=False):
+    is_admin = bool(user and len(user) > 1 and user[1])
     status_line = ('<div class="set-state set-ok">✓ Bạn đã lưu PAT. Thao tác đổi status/comment sẽ ghi đúng tên bạn trên Jira.</div>'
                    if has_pat else
                    '<div class="set-state set-none">⚠ Bạn chưa lưu PAT. Hiện thao tác (nếu có) sẽ mang tên tài khoản chung.</div>')
@@ -669,7 +698,9 @@ def render_settings_page(has_pat, user=None):
         + ('<button type="button" id="patDelete" class="set-link-del">Xoá PAT đã lưu</button>' if has_pat else '')
         + '<p class="set-note">⚠ Token được verify thuộc đúng tài khoản của bạn (gọi <code>/myself</code>) trước khi lưu. '
         'PAT của người khác sẽ bị từ chối.</p>'
-        '</div></div>'
+        '</div>'
+        + (_render_drive_card(has_drive, auth_enabled) if is_admin else '')
+        + '</div>'
     )
     return _document(inner)
 

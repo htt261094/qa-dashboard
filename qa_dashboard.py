@@ -15,9 +15,11 @@ from urllib.parse import urlparse, parse_qs
 
 from config import (JIRA_URL, USERS, PORT, STATE_FILE, ADMIN_EMAIL, ALLOWED_DOMAIN,
                     AUTH_ENABLED, SELF_USER, display_name, username_from_email)
-from auth import (SESSION_COOKIE, STATE_COOKIE, SESSION_TTL, STATE_TTL,
+from auth import (SESSION_COOKIE, STATE_COOKIE, DRIVE_STATE_COOKIE, SESSION_TTL, STATE_TTL,
                   login_url, exchange_code, email_allowed, email_from_session,
-                  make_session_token, make_state_token, state_valid)
+                  make_session_token, make_state_token, state_valid,
+                  drive_login_url, exchange_code_tokens)
+from drive_token import save_refresh_token, has_drive_token, delete_drive_token
 from jira_api import (fetch_all, fetch_activity_feed, load_dismissed,
                       dismiss_activities, run_parallel, fetch_issue_detail,
                       search_parent_ptsp, search_people)
@@ -208,6 +210,43 @@ class Handler(http.server.BaseHTTPRequestHandler):
         secure = self._base_url().startswith('https')
         self._redirect('/login', [self._set_cookie(SESSION_COOKIE, '', 0, secure)])
 
+    # ----- Drive connect (admin-only, tách khỏi login chung — issue #52) -----
+    def _do_drive_connect(self):
+        if not self._is_admin():
+            self._forbidden()
+            return
+        state = make_state_token()
+        secure = self._base_url().startswith('https')
+        url = drive_login_url(self._base_url() + '/oauth/drive-callback', state)
+        self._redirect(url, [self._set_cookie(DRIVE_STATE_COOKIE, state, STATE_TTL, secure)])
+
+    def _do_drive_callback(self):
+        if not self._is_admin():
+            self._forbidden()
+            return
+        q = parse_qs(urlparse(self.path).query)
+        code = (q.get('code') or [''])[0]
+        state = (q.get('state') or [''])[0]
+        if not code or not state or state != self._cookie(DRIVE_STATE_COOKIE) or not state_valid(state):
+            self._forbidden()
+            return
+        secure = self._base_url().startswith('https')
+        clear = self._set_cookie(DRIVE_STATE_COOKIE, '', 0, secure)
+        try:
+            info, refresh = exchange_code_tokens(code, self._base_url() + '/oauth/drive-callback')
+        except RuntimeError as e:
+            self._html(render_error_page(str(e)))
+            return
+        ok, _email = email_allowed(info)  # token phải của tài khoản đúng domain
+        if not ok:
+            self._forbidden()
+            return
+        save_ok, _msg = save_refresh_token(refresh)
+        if not save_ok:
+            self._html(render_error_page(_msg))
+            return
+        self._redirect('/settings', [clear])
+
     def do_GET(self):
         path = urlparse(self.path).path
         if path == '/login':
@@ -224,6 +263,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         if not self._domain_ok():
             self._forbidden()
+            return
+        # ----- Drive connect (admin-only) — sau gate authed/domain -----
+        if path == '/drive/connect':
+            self._do_drive_connect()
+            return
+        if path == '/oauth/drive-callback':
+            self._do_drive_callback()
             return
         if path.startswith('/uploads/'):
             import os
@@ -359,7 +405,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if self.path in ('/settings', '/settings.html'):
             # Cài đặt PAT cá nhân (mã hoá khi lưu) — thao tác Jira ghi đúng tên người dùng
             try:
-                self._html(render_settings_page(has_pat(self._user_email()), user=self._user_ctx()))
+                hd = has_drive_token() if self._is_admin() else False
+                self._html(render_settings_page(has_pat(self._user_email()), user=self._user_ctx(),
+                                                 has_drive=hd, auth_enabled=AUTH_ENABLED))
             except RuntimeError as e:
                 self._html(render_error_page(str(e)))
             return
@@ -533,6 +581,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if self.path == '/delete-pat':
             try:
                 ok = delete_user_pat(self._user_email())
+            except (RuntimeError, OSError):
+                ok = False
+            self._json(200 if ok else 400, b'{"ok":true}' if ok else b'{"ok":false}')
+            return
+        if self.path == '/disconnect-drive':
+            if not self._is_admin():
+                self._json(403, b'{"ok":false,"err":"forbidden"}')
+                return
+            try:
+                ok = delete_drive_token()
             except (RuntimeError, OSError):
                 ok = False
             self._json(200 if ok else 400, b'{"ok":true}' if ok else b'{"ok":false}')

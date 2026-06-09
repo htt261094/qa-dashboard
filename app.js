@@ -1077,6 +1077,14 @@ document.addEventListener('keydown', function(e){
         if (j.ok) setTimeout(function(){ location.reload(); }, 1200); })
       .catch(function(){ showToast('Lỗi mạng', false); });
   });
+  var driveDc = document.getElementById('driveDisconnect');
+  if (driveDc) driveDc.addEventListener('click', function(){
+    if (!confirm('Ngắt kết nối Drive? Background sync bug log sẽ ngừng đọc file cho tới khi kết nối lại.')) return;
+    fetch('/disconnect-drive', { method:'POST' }).then(function(r){ return r.json(); })
+      .then(function(j){ showToast(j.ok ? 'Đã ngắt kết nối Drive' : 'Lỗi ngắt kết nối', j.ok);
+        if (j.ok) setTimeout(function(){ location.reload(); }, 1200); })
+      .catch(function(){ showToast('Lỗi mạng', false); });
+  });
 })();
 
 // Read-only (không phải owner qua Cloudflare Access): khoá contenteditable trong roadmap/tài liệu.
