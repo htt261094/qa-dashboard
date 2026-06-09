@@ -97,7 +97,7 @@ def file_metadata(file_id):
     một số loại file; dựa modifiedTime là đủ."""
     def go(token):
         r = _drive_get(_DRIVE_FILES + file_id,
-                       {'fields': 'modifiedTime,md5Checksum', 'supportsAllDrives': 'true'},
+                       {'fields': 'name,modifiedTime,md5Checksum', 'supportsAllDrives': 'true'},
                        token)
         return r.json()
     return _with_token_retry(go)
@@ -299,6 +299,121 @@ def parse_xlsx(data):
         return out
 
 
+# ===== Normalize (issue #53) — header→field mapping + gộp status + khoá diff =====
+#
+# Đầu vào = rows thô từ parse_xlsx (dict keyed theo TÊN header gốc + `_sheet`).
+# Đầu ra  = {bugs:[...], unmapped:[...]} (xem docstring normalize).
+#
+# Nguyên tắc:
+#   - Map theo TÊN header (chuẩn hoá lower+trim), KHÔNG theo index → chống schema drift.
+#   - Gộp 3 cột status (Status tổng / Test status / Dev status) → 1 lifecycle.
+#   - Khoá diff = {project}#{month}#{bug_no}; month = tên sheet (STT restart mỗi tháng).
+#   - Thiếu/trùng bug_no → đẩy vào `unmapped`, KHÔNG vào diff (best-effort tới khi STT kỷ luật).
+
+def _norm_header(h):
+    """Chuẩn hoá tên header để map defensive: trim + gộp khoảng trắng + lower."""
+    return re.sub(r'\s+', ' ', str(h or '').strip()).lower()
+
+
+# normalized header -> field. Cột KHÔNG có ở đây (Urgent, Bug, Bug (T), Team Dev,
+# Bug (D), PIC cũ (Dev)) bị bỏ qua. 3 cột status xử lý riêng ở _lifecycle_status.
+_FIELD_MAP = {
+    'stt': 'bug_no',
+    'chức năng': 'feature',
+    'mô tả bug': 'summary',
+    'ảnh': 'screenshot_urls',
+    'severity': 'severity',
+    'kết quả mong muốn': 'expected',
+    'ngày': 'created',
+    'thời gian xử lý bug': 'handle_time',
+    'pic (test)': 'qa_pic',
+    'pic (dev)': 'dev_pic',
+    'note': 'note',
+}
+
+
+def _lifecycle_status(total, test, dev):
+    """Gộp 3 status → 1 vòng đời (New→Fixing→Fixed→Closed, nhánh Reopen/Rejected).
+
+    Status tổng = MASTER (QA chốt). Test status chỉ fallback khi Status tổng trống.
+    Dev status tô chi tiết (Rejected/Fixed/Fixing) khi Status tổng còn New. Ưu tiên trên→dưới."""
+    total = (total or '').strip()
+    if not total:
+        total = (test or '').strip()   # Test status fallback khi Status tổng trống
+    t = total.lower()
+    d = (dev or '').strip().lower()
+    if t == 'closed':
+        return 'Closed'                # QA chốt — thắng cả Rejected
+    if t == 'reopen':
+        return 'Reopen'
+    if t == 'new' and d == 'rejected':
+        return 'Rejected'              # dev reject, QA chưa finalize
+    if d == 'fixed':
+        return 'Fixed'                 # chờ QA retest
+    if d == 'fixing':
+        return 'Fixing'
+    return 'New'
+
+
+def project_from_filename(filename):
+    """Tên file Drive -> mã project (vd 'Logbug_DA6_2026.xlsx' -> 'DA6').
+
+    Bỏ đuôi + tiền tố 'Logbug'/'Bug log', lấy token mã dự án (chữ+số) đầu tiên."""
+    base = re.sub(r'\.[^.]+$', '', filename or '').strip()
+    base = re.sub(r'^(log\s*bug|bug\s*log)[\s_-]*', '', base, flags=re.IGNORECASE)
+    m = re.search(r'[A-Za-z]+\d+[A-Za-z0-9]*', base)
+    if m:
+        return m.group(0).upper()
+    parts = re.split(r'[\s_-]+', base)
+    return (parts[0] if parts else base).strip().upper()
+
+
+def normalize(rows, project=''):
+    """rows thô (parse_xlsx) -> {bugs:[...], unmapped:[...]}.
+
+    bug = {bug_no, month, project, feature, summary, status, severity, qa_pic, dev_pic,
+           screenshot_urls, created, note, expected, handle_time}.
+    - status = _lifecycle_status (gộp 3 cột).
+    - month  = tên sheet (rec['_sheet']); created đã là 'YYYY-MM-DD' từ parse.
+    - Khoá diff = {project}#{month}#{bug_no}. Thiếu bug_no -> unmapped (reason 'no_stt');
+      trùng khoá -> MỌI dòng cùng khoá vào unmapped (reason 'dup_stt') vì không phân biệt được.
+    `project` nên do caller suy từ tên file (project_from_filename)."""
+    project = (project or '').strip()
+    parsed = []
+    for rec in rows:
+        month = str(rec.get('_sheet', '')).strip()
+        nrec = {_norm_header(k): v for k, v in rec.items() if k != '_sheet'}
+
+        bug = {'month': month, 'project': project}
+        for nh, field in _FIELD_MAP.items():
+            bug[field] = nrec.get(nh, [] if field == 'screenshot_urls' else '')
+        if not isinstance(bug['screenshot_urls'], list):
+            bug['screenshot_urls'] = []
+
+        bug['status'] = _lifecycle_status(
+            nrec.get('status', ''), nrec.get('test status', ''), nrec.get('dev status', ''))
+
+        bug['bug_no'] = str(bug.get('bug_no', '')).strip()
+        bug['key'] = f"{project}#{month}#{bug['bug_no']}" if bug['bug_no'] else ''
+        parsed.append(bug)
+
+    # đếm khoá để bắt trùng (chỉ tính dòng CÓ bug_no)
+    key_count = {}
+    for b in parsed:
+        if b['key']:
+            key_count[b['key']] = key_count.get(b['key'], 0) + 1
+
+    bugs, unmapped = [], []
+    for b in parsed:
+        if not b['bug_no']:
+            unmapped.append({**b, 'reason': 'no_stt'})
+        elif key_count[b['key']] > 1:
+            unmapped.append({**b, 'reason': 'dup_stt'})
+        else:
+            bugs.append(b)
+    return {'bugs': bugs, 'unmapped': unmapped}
+
+
 # ===== Entry =====
 def _resolve_file_id(file_id):
     if file_id:
@@ -320,6 +435,7 @@ def fetch_rows(file_id=None):
     rows = parse_xlsx(data)
     meta = {
         'fileId': fid,
+        'name': meta.get('name', ''),
         'modifiedTime': meta.get('modifiedTime', ''),
         'md5Checksum': meta.get('md5Checksum', ''),
     }
