@@ -20,6 +20,7 @@ from auth import (SESSION_COOKIE, STATE_COOKIE, DRIVE_STATE_COOKIE, SESSION_TTL,
                   make_session_token, make_state_token, state_valid,
                   drive_login_url, exchange_code_tokens)
 from drive_token import save_refresh_token, has_drive_token, delete_drive_token
+from bug_log_store import scan as bug_log_scan, start_scheduler as start_bug_log_scheduler
 from jira_api import (fetch_all, fetch_activity_feed, load_dismissed,
                       dismiss_activities, run_parallel, fetch_issue_detail,
                       search_parent_ptsp, search_people)
@@ -595,6 +596,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 ok = False
             self._json(200 if ok else 400, b'{"ok":true}' if ok else b'{"ok":false}')
             return
+        if self.path == '/sync-bug-log':
+            # Trigger thủ công: chạy scan() bug log ngay (admin-only).
+            if not self._is_admin():
+                self._json(403, b'{"ok":false,"err":"forbidden"}')
+                return
+            try:
+                res = bug_log_scan()
+            except Exception:   # noqa: BLE001 — scan đã redact token; chặn mọi lỗi lạ
+                res = {'ok': False, 'errors': ['Lỗi không xác định khi scan.']}
+            self._json(200 if res.get('ok') else 400,
+                       json.dumps(res, ensure_ascii=False).encode('utf-8'))
+            return
         if self.path == '/set-custom-status':
             # QA toggle nhãn nội bộ cho task (chọn nhiều). Author = người đăng nhập (không cần PAT).
             values = None
@@ -776,6 +789,8 @@ def main():
     print(f"  Dashboard: http://localhost:{PORT}/")
     print(f"  State:     {STATE_FILE.name}")
     print("  Ctrl+C để stop\n")
+
+    start_bug_log_scheduler()   # daemon thread poll Drive 10p (no-op nếu chưa kết nối Drive)
 
     try:
         with socketserver.TCPServer(("127.0.0.1", PORT), Handler) as server:
