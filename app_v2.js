@@ -169,7 +169,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   var tbody=$('rows'); if(!tbody) return;
   var DATA = readJSON('qaData') || { tasks:[], meta:{} };
   var TASKS = DATA.tasks || [];
-  window.__jiraBase = (TASKS[0] && TASKS[0].jiraUrl ? TASKS[0].jiraUrl.replace(/\/browse\/.*$/, '') : '');
+  window.__jiraBase = (TASKS[0] && TASKS[0].jiraUrl ? TASKS[0].jiraUrl.replace(/\/browse\/.*$/, '') : (window.__jiraBase||''));
 
   // --------- ADMIN DASHBOARD v2 (pills + member filter + 5-col table + KPI) ---------
   if(DATA.meta && DATA.meta.isAdmin){
@@ -196,7 +196,10 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       var q=(($('searchInp')||{}).value||'').toLowerCase();
       return !q || (t.key+' '+t.summary).toLowerCase().indexOf(q)>=0;
     }
-    function filtered(){ return TASKS.filter(function(t){ return pillMatch(t)&&memberMatch(t)&&searchMatch(t); }); }
+    function filtered(){
+      return TASKS.filter(function(t){ return pillMatch(t)&&memberMatch(t)&&searchMatch(t); })
+        .sort(function(a,b){ return (b.updated||'')<(a.updated||'')?-1:((b.updated||'')>(a.updated||'')?1:0); });
+    }
 
     function chipHTML(t){
       if(!t.customs||!t.customs.length) return '';
@@ -216,7 +219,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       $('tableTitleText').innerHTML='<span class="material-symbols-rounded">assignment</span><span>'+(label[curPill]||'Tasks')+'</span>';
 
       if(!total){
-        tbody.innerHTML='<tr><td colspan="5"><div class="empty-state"><span class="material-symbols-rounded">folder_off</span>Không tìm thấy task nào.</div></td></tr>';
+        tbody.innerHTML='<tr><td colspan="6"><div class="empty-state"><span class="material-symbols-rounded">folder_off</span>Không tìm thấy task nào.</div></td></tr>';
         $('pager').innerHTML=''; return;
       }
 
@@ -227,10 +230,11 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
           +'<td><div class="cell-member"><span class="m-av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span>'
           +'<span>'+esc(t.assignee.name)+'</span></div></td>'
           +'<td><span class="badge '+badgeCls(t.jira)+'">'+esc(t.jira)+'</span>'+chipHTML(t)+'</td>'
-          +'<td>'+esc(t.dueDisp)+'</td></tr>';
+          +'<td><span class="due '+esc(t.dueCls)+'">'+esc(t.dueDisp)+'</span></td>'
+          +'<td>'+esc(t.updatedDisp)+'</td></tr>';
       }).join('');
       for(var k=slice.length;k<PER_PAGE;k++){
-        html+='<tr class="pager-filler"><td>&nbsp;</td><td><span class="cell-title">&nbsp;</span></td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>';
+        html+='<tr class="pager-filler"><td>&nbsp;</td><td><span class="cell-title">&nbsp;</span></td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>';
       }
       tbody.innerHTML=html;
 
@@ -317,16 +321,29 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     });
 
     // Detail drawer
+    var EXTRA={};   // task không nằm trong bucket (vd CANCELLED) -> dựng từ /issue-comments
+    function taskByKey(k){ return TASKS.filter(function(x){ return x.key===k; })[0] || EXTRA[k]; }
+    function synthTask(key, d){
+      return { key:key, summary:d.summary||key, jira:d.status||'',
+        customs:[], canCustom:false,
+        assignee:{ name:d.assignee||'—', init:initOf(d.assignee||'?'), cls:avById(d.assignee||'?') },
+        due:d.duedate||'', dueDisp:d.duedate||'Chưa đặt hạn', dueCls:'',
+        overdue:false, stuck:false, isNew:false,
+        jiraUrl:(window.__jiraBase||'')+'/browse/'+key };
+    }
     function openDetail(key){
-      var t=TASKS.filter(function(x){ return x.key===key; })[0]; if(!t) return;
-      renderDrawer(t);
+      var t=taskByKey(key);
       $('drawerOv').classList.add('open'); $('drawer').classList.add('open');
+      if(t) renderDrawer(t);
+      else $('drawer').innerHTML='<div class="drawer-body"><div class="cmt-empty">Đang tải…</div></div>';
       if(COMMENTS[key]===undefined){
         COMMENTS[key]=null;
         getJSON('/issue-comments?key='+encodeURIComponent(key), 20000)
-          .then(function(j){ if(j&&j.ok&&j.detail){ COMMENTS[key]=j.detail.comments||[]; DETAIL[key]=j.detail; }
+          .then(function(j){ if(j&&j.ok&&j.detail){ COMMENTS[key]=j.detail.comments||[]; DETAIL[key]=j.detail;
+              if(!taskByKey(key)) EXTRA[key]=synthTask(key, j.detail); }
             else COMMENTS[key]=COMMENTS[key]||[];
-            if($('drawer').classList.contains('open')) renderDrawer(TASKS.filter(function(x){return x.key===key;})[0]);
+            var tt=taskByKey(key);
+            if(tt && $('drawer').classList.contains('open')) renderDrawer(tt);
           }).catch(function(){ COMMENTS[key]=COMMENTS[key]||[]; });
       }
     }
@@ -371,7 +388,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
         postJSON('/add-comment', {key:key,body:v}, 20000).then(function(j){
           if(patToast(j)) return;
           if(j.ok){ (COMMENTS[key]=COMMENTS[key]||[]).push({author:'Bạn',when:new Date().toISOString(),body:v});
-            renderDrawer(TASKS.filter(function(x){return x.key===key;})[0]); toast('Đã gửi comment ✓', true); }
+            renderDrawer(taskByKey(key)); toast('Đã gửi comment ✓', true); }
           else toast(j.msg||'Lỗi gửi comment', false);
         }).catch(function(){ toast('Lỗi mạng', false); });
       }
@@ -396,7 +413,16 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     if(v==='DONE') return 'b-done'; if(v==='CANCELLED') return 'b-critical';
     if(v==='IN PROGRESS') return 'b-checking'; if(v==='PENDING') return 'b-blocked';
     if(v==='TO DO') return 'b-todo'; return 'b-todo'; }
-  function taskByKey(k){ return TASKS.filter(function(t){ return t.key===k; })[0]; }
+  var EXTRA={};   // task ngoài bucket (vd CANCELLED) -> dựng từ /issue-comments
+  function taskByKey(k){ return TASKS.filter(function(t){ return t.key===k; })[0] || EXTRA[k]; }
+  function synthTask(key, d){
+    return { key:key, summary:d.summary||key, jira:d.status||'',
+      customs:[], canCustom:false,
+      assignee:{ name:d.assignee||'—', init:initOf(d.assignee||'?'), cls:avById(d.assignee||'?') },
+      due:d.duedate||'', dueDisp:d.duedate||'Chưa đặt hạn', dueCls:'',
+      overdue:false, stuck:false, isNew:false,
+      jiraUrl:(window.__jiraBase||'')+'/browse/'+key };
+  }
   function matchFilter(t,f){ if(f==='overdue') return t.overdue; if(f==='stuck') return t.stuck;
     if(f==='dueweek') return !!t.dueWeek; return true; }
   function visibleTasks(){
@@ -488,7 +514,8 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
 
   // ----- comment panel -----
   function fetchComments(key){ return getJSON('/issue-comments?key='+encodeURIComponent(key), 20000)
-    .then(function(j){ if(j&&j.ok&&j.detail){ COMMENTS[key]=j.detail.comments||[]; DETAIL[key]=j.detail; }
+    .then(function(j){ if(j&&j.ok&&j.detail){ COMMENTS[key]=j.detail.comments||[]; DETAIL[key]=j.detail;
+        if(!taskByKey(key)) EXTRA[key]=synthTask(key, j.detail); }
       else COMMENTS[key]=COMMENTS[key]||[]; })
     .catch(function(){ COMMENTS[key]=COMMENTS[key]||[]; }); }
   function toggleCmt(key){
@@ -514,11 +541,13 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   }
 
   // ----- detail drawer -----
-  function openDetail(key){ var t=taskByKey(key); if(!t) return;
-    renderDrawer(t);
+  function openDetail(key){ var t=taskByKey(key);
     $('drawerOv').classList.add('open'); $('drawer').classList.add('open');
+    if(t) renderDrawer(t);
+    else $('drawer').innerHTML='<div class="drawer-body"><div class="cmt-empty">Đang tải…</div></div>';
     if(COMMENTS[key]===undefined){ COMMENTS[key]=null; fetchComments(key).then(function(){
-      if($('drawer').classList.contains('open')) renderDrawer(taskByKey(key)); }); } }
+      var tt=taskByKey(key);
+      if(tt && $('drawer').classList.contains('open')) renderDrawer(tt); }); } }
   window.__openDetail = openDetail;
   function closeDetail(){ $('drawerOv').classList.remove('open'); $('drawer').classList.remove('open'); }
   function renderDrawer(t){
@@ -650,6 +679,74 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   document.addEventListener('keydown', function(e){ if(e.key==='Escape'){ closeSmenu(); closeDetail(); } });
 
   setFilter('all');
+})();
+
+// ============== SHARED DRAWER (trang KHÔNG có bảng task: roadmap, docs) ==============
+// Dashboard / Việc của tôi tự lo drawer trong closure #rows (có nhãn nội bộ + cờ Overdue/Kẹt).
+// Module này chỉ kích hoạt khi trang có #drawer nhưng CHƯA có __openDetail -> bấm noti mở
+// detail ngay tại chỗ (fetch từ /issue-comments), thay vì nhảy sang Jira.
+(function(){
+  var drawer=$('drawer'); if(!drawer) return;
+  if(window.__openDetail) return;          // trang task đã có drawer "đầy đủ" riêng
+  var ov=$('drawerOv');
+  var COMMENTS={}, DETAIL={}, CUR={};       // key -> comments / detail / task obj
+  function jiraCls(v){ v=(v||'').toUpperCase();
+    if(v==='DONE') return 'b-done'; if(v==='CANCELLED') return 'b-critical';
+    if(v==='IN PROGRESS') return 'b-checking'; if(v==='PENDING') return 'b-blocked';
+    if(v==='TO DO') return 'b-todo'; return 'b-todo'; }
+  function synth(key, d){
+    return { key:key, summary:d.summary||key, jira:d.status||'',
+      assignee:{ name:d.assignee||'—', init:initOf(d.assignee||'?'), cls:avById(d.assignee||'?') },
+      dueDisp:d.duedate||'Chưa đặt hạn',
+      jiraUrl:(window.__jiraBase||'')+'/browse/'+key };
+  }
+  function renderDrawer(t){
+    var list=COMMENTS[t.key], hist;
+    if(list==null) hist='<div class="cmt-empty">Đang tải…</div>';
+    else if(!list.length) hist='<div class="cmt-empty">Chưa có bình luận nào</div>';
+    else hist=list.map(function(c){ return '<div class="cmt-item"><span class="av '+avById(c.author)+'">'+esc(initOf(c.author))+'</span>'
+      +'<div class="cmt-main"><div class="cmt-meta"><b>'+esc(c.author)+'</b><span>'+esc((c.when||'').slice(0,16).replace('T',' '))+'</span></div>'
+      +'<div class="cmt-text">'+esc(c.body)+'</div></div></div>'; }).join('');
+    var desc=(DETAIL[t.key]&&DETAIL[t.key].description)?esc(DETAIL[t.key].description):esc(t.summary);
+    drawer.innerHTML='<div class="drawer-head"><a class="key" href="'+esc(t.jiraUrl)+'" target="_blank">'+esc(t.key)+'</a>'
+      +'<span class="badge '+jiraCls(t.jira)+'">'+esc(t.jira)+'</span>'
+      +'<button class="x material-symbols-rounded" data-act="drawer-close">close</button></div>'
+      +'<div class="drawer-body"><h2>'+esc(t.summary)+'</h2>'
+      +'<div class="dt-grid"><div class="lbl">Người xử lý</div><div class="val"><span class="assignee"><span class="av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span> '+esc(t.assignee.name)+'</span></div>'
+      +'<div class="lbl">Hạn chót</div><div class="val"><span class="due">'+esc(t.dueDisp)+'</span></div></div>'
+      +'<div class="dt-sec-title">Mô tả</div><div class="dt-desc">'+desc+'</div>'
+      +'<div class="dt-cmts"><div class="dt-sec-title">Bình luận ('+(list&&list.length||0)+')</div>'
+      +'<div class="cmt-panel"><div class="cmt-history">'+hist+'</div>'
+      +'<div class="cmt-box"><textarea id="dtTa-'+esc(t.key)+'" placeholder="Viết bình luận..."></textarea>'
+      +'<div class="cmt-foot"><button class="lbtn primary" data-act="dt-send" data-key="'+esc(t.key)+'">Gửi</button></div></div></div></div></div>';
+  }
+  function openDetail(key){
+    ov.classList.add('open'); drawer.classList.add('open');
+    if(CUR[key]) renderDrawer(CUR[key]);
+    else drawer.innerHTML='<div class="drawer-body"><div class="cmt-empty">Đang tải…</div></div>';
+    if(COMMENTS[key]===undefined){ COMMENTS[key]=null;
+      getJSON('/issue-comments?key='+encodeURIComponent(key), 20000).then(function(j){
+        if(j&&j.ok&&j.detail){ COMMENTS[key]=j.detail.comments||[]; DETAIL[key]=j.detail; CUR[key]=synth(key,j.detail); }
+        else COMMENTS[key]=COMMENTS[key]||[];
+        if(CUR[key] && drawer.classList.contains('open')) renderDrawer(CUR[key]);
+      }).catch(function(){ COMMENTS[key]=COMMENTS[key]||[]; });
+    }
+  }
+  window.__openDetail=openDetail;
+  function closeDetail(){ ov.classList.remove('open'); drawer.classList.remove('open'); }
+  if(ov) ov.addEventListener('click', closeDetail);
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeDetail(); });
+  document.addEventListener('click', function(e){
+    var a=e.target.closest('[data-act]'); if(!a) return;
+    var act=a.getAttribute('data-act');
+    if(act==='drawer-close') closeDetail();
+    else if(act==='dt-send'){ var key=a.getAttribute('data-key');
+      var ta=$('dtTa-'+key), v=(ta&&ta.value||'').trim(); if(!v){ toast('Chưa nhập bình luận', false); return; }
+      postJSON('/add-comment', { key:key, body:v }, 20000).then(function(j){ if(patToast(j)) return;
+        if(j.ok){ (COMMENTS[key]=COMMENTS[key]||[]).push({author:'Bạn', when:new Date().toISOString(), body:v});
+          if(CUR[key]) renderDrawer(CUR[key]); toast('Đã gửi comment ✓', true); }
+        else toast(j.msg||'Lỗi gửi comment', false); }).catch(function(){ toast('Lỗi mạng', false); }); }
+  });
 })();
 
 // ================= ROADMAP (guard #rmList2) =================
