@@ -1235,6 +1235,7 @@ def render_admin_v2(data, new_keys, activities, cmap, user):
     active = data['active']
     done = data['done_week']
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_str = today.strftime('%Y-%m-%d')
     new_keys = new_keys or set()
 
     tasks = []
@@ -1253,7 +1254,10 @@ def render_admin_v2(data, new_keys, activities, cmap, user):
         overdue = days_overdue(iss) is not None
         stuck = is_stuck(iss)
         customs = values_of((cmap or {}).get(key))
-        is_new = key in new_keys
+        # "New" = task tạo TRONG NGÀY (created == hôm nay), giữ nguyên cả ngày, reset sang
+        # ngày mới. ĐỘC LẬP status -> task sang In Progress/Done vẫn nằm trong list New
+        # tới hết ngày (thay cho snapshot-diff new_keys vốn mất sau 1 lần refresh).
+        is_new = (i_created(iss) or '')[:10] == today_str
         # New Tasks & TO DO: cột "Updated" hiển thị Created Date; còn lại = Updated thật.
         upd_src = i_created(iss) if (is_new or st == 'TO DO') else i_updated(iss)
         upd_date = (upd_src or '')[:10]
@@ -1288,7 +1292,7 @@ def render_admin_v2(data, new_keys, activities, cmap, user):
             'dueCls': '',
             'updated': upd_date, 'updatedDisp': upd_date or '—',
             'overdue': False, 'stuck': False,
-            'isNew': key in new_keys,
+            'isNew': (i_created(iss) or '')[:10] == today_str,
             'jiraUrl': f'{JIRA_URL}/browse/{key}',
         })
 
