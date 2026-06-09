@@ -22,6 +22,7 @@ from auth import (SESSION_COOKIE, STATE_COOKIE, DRIVE_STATE_COOKIE, SESSION_TTL,
 from drive_token import save_refresh_token, has_drive_token, delete_drive_token
 from bug_log_store import (scan as bug_log_scan, start_scheduler as start_bug_log_scheduler,
                            load_bug_log)
+from bug_log_source import load_sources, save_sources, extract_file_id, MAX_SOURCES
 from task_link import load_links, set_task_links
 from jira_api import (fetch_all, fetch_activity_feed, load_dismissed,
                       dismiss_activities, run_parallel, fetch_issue_detail,
@@ -359,10 +360,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # + chuông notif. Không gọi Jira search (cache đọc local/property) -> nhẹ.
             try:
                 res = run_parallel({'bug': load_bug_log, 'links': load_links,
-                                    'bell': self._bell_activities})
+                                    'sources': load_sources, 'bell': self._bell_activities})
                 self._html(render_bug_log_v2(res['bug'], res['links'],
                                              editable=self._is_admin(),
-                                             user=self._user_ctx(), activities=res['bell']))
+                                             user=self._user_ctx(), activities=res['bell'],
+                                             sources=res['sources']))
             except RuntimeError as e:
                 self._html(render_error_page(str(e)))
             return
@@ -623,6 +625,57 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 res = {'ok': False, 'errors': ['Lỗi không xác định khi scan.']}
             self._json(200 if res.get('ok') else 400,
                        json.dumps(res, ensure_ascii=False).encode('utf-8'))
+            return
+        if self.path == '/save-bug-log-sources':
+            # Lưu list file Drive nguồn (paste link -> rút id) rồi scan ngay (admin-only).
+            # Body: {sources:[{link|id, label}]}. Server rút file id, validate, save_sources,
+            # rồi chạy scan() để đọc data luôn (user chốt "tự sync ngay sau khi lưu").
+            if not self._is_admin():
+                self._json(403, b'{"ok":false,"err":"forbidden"}')
+                return
+            out = None
+            err = ''
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                if 0 < length <= 100_000:
+                    payload = json.loads(self.rfile.read(length).decode('utf-8'))
+                    raw = payload.get('sources') if isinstance(payload, dict) else None
+                    if isinstance(raw, list) and len(raw) <= MAX_SOURCES:
+                        clean = []
+                        bad = False
+                        for it in raw:
+                            if not isinstance(it, dict):
+                                bad = True
+                                break
+                            fid = extract_file_id(str(it.get('link') or it.get('id') or ''))
+                            if not fid:
+                                bad = True
+                                break
+                            label = it.get('label', '')
+                            clean.append({'id': fid, 'label': label if isinstance(label, str) else ''})
+                        if bad:
+                            err = 'Có link Drive không hợp lệ — kiểm tra lại.'
+                        elif save_sources(clean):
+                            out = clean
+                        else:
+                            err = 'Không lưu được nguồn (Jira property lỗi).'
+                    else:
+                        err = 'Danh sách nguồn không hợp lệ.'
+                else:
+                    err = 'Payload rỗng hoặc quá lớn.'
+            except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
+                out = None
+                err = 'Lỗi xử lý dữ liệu.'
+            if out is None:
+                self._json(400, json.dumps({'ok': False, 'err': err or 'Lỗi'}).encode('utf-8'))
+                return
+            # Lưu xong -> scan ngay để đọc data (không đợi scheduler 10p).
+            try:
+                res = bug_log_scan()
+            except Exception:   # noqa: BLE001 — scan đã redact token
+                res = {'ok': False, 'errors': ['Lỗi không xác định khi scan.']}
+            res['saved'] = len(out)
+            self._json(200, json.dumps(res, ensure_ascii=False).encode('utf-8'))
             return
         if self.path == '/link-task':
             # Liên kết / gỡ link list test-case (bug key) <-> 1 Jira task (#55). Admin-only

@@ -904,6 +904,21 @@ html[data-theme="dark"] .bottom-toast {
 .bl-source .lbl{font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--on-surface-variant)}
 .bl-source .fname{font-size:14px;color:var(--on-surface);margin-top:3px}
 .bl-source .fname b{color:var(--primary)}
+.bl-source .bl-src-info{flex:1}
+.bl-src-edit{border:none;background:var(--surface-low);color:var(--on-surface-variant);cursor:pointer;
+  width:38px;height:38px;border-radius:var(--r-md);font-size:20px;display:flex;align-items:center;justify-content:center}
+.bl-src-edit:hover{background:var(--primary-tint);color:var(--primary)}
+/* quản lý list link drive (modal) */
+.bl-src-list{display:flex;flex-direction:column;gap:10px}
+.bl-src-row{display:flex;gap:8px;align-items:center}
+.bl-src-row input{flex:1;padding:9px 11px;border:1px solid var(--outline-variant);border-radius:var(--r-md);
+  font-size:13px;background:var(--surface);color:var(--on-surface)}
+.bl-src-row input.bl-src-label{flex:0 0 150px}
+.bl-src-row input:focus{outline:none;border-color:var(--primary);background:var(--card)}
+.bl-src-row .del{cursor:pointer;color:var(--outline);background:none;border:none;width:34px;height:34px;
+  border-radius:var(--r-md);display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+.bl-src-row .del:hover{background:var(--error-bg);color:var(--error)}
+.bl-src-empty{font-size:13px;color:var(--on-surface-variant);font-style:italic;padding:6px 0}
 /* tab tháng */
 .bl-tabs{display:flex;gap:24px;border-bottom:1px solid var(--outline-variant);margin-bottom:20px;flex-wrap:wrap}
 .bl-tab{display:inline-flex;align-items:center;gap:7px;padding:0 2px 12px;font-size:15px;font-weight:600;color:var(--on-surface-variant);background:none;border:none;border-bottom:2px solid transparent;cursor:pointer;margin-bottom:-1px}
