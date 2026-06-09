@@ -20,7 +20,9 @@ from auth import (SESSION_COOKIE, STATE_COOKIE, DRIVE_STATE_COOKIE, SESSION_TTL,
                   make_session_token, make_state_token, state_valid,
                   drive_login_url, exchange_code_tokens)
 from drive_token import save_refresh_token, has_drive_token, delete_drive_token
-from bug_log_store import scan as bug_log_scan, start_scheduler as start_bug_log_scheduler
+from bug_log_store import (scan as bug_log_scan, start_scheduler as start_bug_log_scheduler,
+                           load_bug_log)
+from task_link import load_links, set_task_links
 from jira_api import (fetch_all, fetch_activity_feed, load_dismissed,
                       dismiss_activities, run_parallel, fetch_issue_detail,
                       search_parent_ptsp, search_people)
@@ -32,7 +34,8 @@ from pat_store import save_user_pat, has_pat, delete_user_pat, load_user_pat
 from custom_status import (load_bundle, set_custom_status, is_valid, values_of)
 from jira_write import get_transitions, do_transition, add_comment, create_subtask
 from render import (render_page, render_qa_v2, render_docs_page,
-                    render_roadmap_v2, render_settings_page, render_error_page, render_403)
+                    render_roadmap_v2, render_bug_log_v2,
+                    render_settings_page, render_error_page, render_403)
 
 ACTIVITY_DAYS = 7  # cửa sổ activity feed kéo từ Jira changelog
 
@@ -351,6 +354,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except RuntimeError as e:
                 self._html(render_error_page(str(e)))
             return
+        if self.path in ('/bug-log', '/bug-log.html'):
+            # Bug Log (#55): bug từ Excel/Drive (cache bug_log_store) + link app-side (task_link)
+            # + chuông notif. Không gọi Jira search (cache đọc local/property) -> nhẹ.
+            try:
+                res = run_parallel({'bug': load_bug_log, 'links': load_links,
+                                    'bell': self._bell_activities})
+                self._html(render_bug_log_v2(res['bug'], res['links'],
+                                             editable=self._is_admin(),
+                                             user=self._user_ctx(), activities=res['bell']))
+            except RuntimeError as e:
+                self._html(render_error_page(str(e)))
+            return
         if path == '/issue-comments':
             # JSON chi tiết 1 issue (drawer + comment panel lazy-load). Read-only PAT chung.
             q = parse_qs(urlparse(self.path).query)
@@ -607,6 +622,30 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 res = {'ok': False, 'errors': ['Lỗi không xác định khi scan.']}
             self._json(200 if res.get('ok') else 400,
                        json.dumps(res, ensure_ascii=False).encode('utf-8'))
+            return
+        if self.path == '/link-task':
+            # Liên kết / gỡ link list test-case (bug key) <-> 1 Jira task (#55). Admin-only
+            # (khớp editable=_is_admin ở render). Lưu app-side, không ghi Jira.
+            if not self._is_admin():
+                self._json(403, b'{"ok":false,"err":"forbidden"}')
+                return
+            out = None
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                if 0 < length <= 50_000:
+                    payload = json.loads(self.rfile.read(length).decode('utf-8'))
+                    if isinstance(payload, dict):
+                        keys = payload.get('keys')
+                        task = payload.get('task', '')
+                        if (isinstance(keys, list) and all(isinstance(x, str) for x in keys)
+                                and isinstance(task, str)):
+                            out = set_task_links(self._user_email(), keys[:500], task)
+            except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
+                out = None
+            if out is not None:
+                self._json(200, json.dumps({'ok': True, 'links': out}).encode('utf-8'))
+            else:
+                self._json(400, b'{"ok":false}')
             return
         if self.path == '/set-custom-status':
             # QA toggle nhãn nội bộ cho task (chọn nhiều). Author = người đăng nhập (không cần PAT).

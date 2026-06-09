@@ -1123,6 +1123,7 @@ def render_sidebar_v2(active, user):
     if is_admin:
         nav += lnk('/my-work', 'mywork', 'person', 'Việc của tôi')
     nav += lnk('/roadmap', 'roadmap', 'map', 'Roadmap')
+    nav += lnk('/bug-log', 'buglog', 'bug_report', 'Bug Log')
     nav += lnk('/docs', 'docs', 'description', 'Tài liệu')
 
     uname = username_from_email(email) if (email and '@' in email) else None
@@ -1529,6 +1530,117 @@ def render_roadmap_v2(data, editable=True, user=None, activities=None):
         + _json_script('rmMeta', rm_meta)
     )
     return _document_v2(content, 'roadmap', user, activities or [], title='Roadmap QA Team')
+
+
+# ===== Bug Log v2 (issue #55) — bug từ Excel/Drive + link ngược Jira task =====
+def render_bug_log_v2(data, links, editable=True, user=None, activities=None):
+    """Tab Bug Log: bảng bug/test-case (nguồn = cache bug_log_store), tab theo THÁNG
+    (mỗi sheet Excel = 1 tháng — Decision #54), cột "Liên kết Task" = link app-side
+    do user tự gán (task_link), KHÔNG từ Excel. Toàn bộ bảng render client-side bởi
+    controller `#bugLogData` trong app_v2.js (tab/tick/link/pager).
+
+    `data`  = bug_log_store.load_bug_log() = {files:{fid:{project,bugs:{key:bug},...}}, synced_at}
+    `links` = task_link.load_links()       = {bugKey: {task,by,at}}
+    """
+    data = data or {}
+    links = links or {}
+    files = data.get('files', {}) or {}
+
+    bugs = []
+    months = set()
+    sources = []
+    for fid, f in files.items():
+        sources.append({'name': f.get('name', '') or '(không tên)',
+                        'project': f.get('project', ''), 'count': f.get('count', 0)})
+        for key, b in (f.get('bugs', {}) or {}).items():
+            month = b.get('month', '') or ''
+            months.add(month)
+            link = links.get(key) or {}
+            bugs.append({
+                'key': key,
+                'id': f"{b.get('project', '')}-{b.get('bug_no', '')}".strip('-'),
+                'summary': b.get('summary', ''),
+                'module': b.get('feature', ''),
+                'severity': b.get('severity', ''),
+                'status': b.get('status', ''),
+                'project': b.get('project', ''),
+                'month': month,
+                'qa': b.get('qa_pic', ''),
+                'created': (b.get('created', '') or '')[:10],
+                'task': link.get('task', ''),
+            })
+    # tháng mới nhất trước (chuỗi 'YYYY-MM' hoặc tên sheet -> sort desc theo chuỗi)
+    month_list = sorted((m for m in months if m), reverse=True)
+
+    synced = data.get('synced_at', '') or ''
+    synced_disp = synced.replace('T', ' ')[:16] if synced else 'chưa đồng bộ'
+    is_admin = bool(user[1]) if (user and len(user) > 1) else True
+
+    # source card: gộp các file Drive nguồn
+    if sources:
+        src_names = ' · '.join(esc(s['name']) for s in sources[:4])
+        if len(sources) > 4:
+            src_names += f' +{len(sources) - 4}'
+        total_bugs = len(bugs)
+        src_line = f'<b>{src_names}</b> — {total_bugs} bản ghi'
+    else:
+        src_line = '<b>Chưa kết nối nguồn Drive nào.</b> Vào Cài đặt để kết nối Google Drive.'
+
+    sync_btn = ('<button class="btn btn-primary" id="blSyncBtn">'
+                '<span class="material-symbols-rounded mi-sm">sync</span> Đồng bộ ngay</button>'
+                if is_admin else '')
+    drive_btn = ('<a class="btn btn-ghost" href="/settings"><span class="material-symbols-rounded mi-sm">link</span> '
+                 'Quản lý Drive Link</a>') if is_admin else ''
+
+    # link-to-task bar (chỉ khi editable: cho tick + tạo link)
+    linkbar = ''
+    if editable:
+        linkbar = (
+            '<div class="bl-linkbar">'
+            '<div class="bl-ta" id="blTaskTA">'
+            '<span class="material-symbols-rounded mi-sm">add_link</span>'
+            '<input type="text" id="blTaskInp" placeholder="Tìm task để liên kết (đã tick ở cột trái)…" autocomplete="off" spellcheck="false">'
+            '<div class="bl-ta-res" id="blTaskRes"></div></div>'
+            '<button class="bl-linkbtn" id="blLinkBtn" disabled>'
+            '<span class="material-symbols-rounded mi-sm">link</span> Liên kết với Task '
+            '<span id="blSelCount"></span></button>'
+            '</div>'
+        )
+
+    th_check = '<th style="width:40px"><input type="checkbox" class="bl-check" id="blCheckAll"></th>' if editable else ''
+    content = (
+        '<div class="page-head"><div>'
+        '<h2 class="page-title">Quản lý Bug &amp; Test Case</h2>'
+        f'<div class="bl-sub"><span class="bl-dot"></span> Đã đồng bộ: {esc(synced_disp)}</div>'
+        '</div><div style="display:flex;gap:10px;align-items:center">'
+        f'{drive_btn}{sync_btn}</div></div>'
+        # source card
+        '<div class="card bl-source">'
+        '<span class="ic material-symbols-rounded">table_view</span>'
+        '<div><div class="lbl">NGUỒN DỮ LIỆU: GOOGLE DRIVE</div>'
+        f'<div class="fname">{src_line}</div></div></div>'
+        # tab tháng
+        '<div class="bl-tabs" id="blTabs"></div>'
+        + linkbar
+        # table
+        + '<div class="card"><div class="table-header"><div class="table-title">'
+        '<span class="material-symbols-rounded">bug_report</span>'
+        '<span>Danh sách Bug / Test Case</span></div>'
+        '<div class="bl-count" id="blCount"></div></div>'
+        '<div style="overflow-x:auto"><table class="bl-table"><thead><tr>'
+        f'{th_check}'
+        '<th style="width:120px">ID</th><th>Tên Bug / Test Case</th>'
+        '<th style="width:120px">Module</th><th style="width:130px">Mức độ</th>'
+        '<th style="width:150px">Trạng thái</th><th style="width:160px">Liên kết Task</th>'
+        '</tr></thead><tbody id="blRows"></tbody></table></div>'
+        '<div class="pager" id="blPager"></div></div>'
+        + _json_script('bugLogData', {
+            'bugs': bugs, 'months': month_list, 'editable': bool(editable),
+            'syncedAt': synced_disp,
+        })
+    )
+    return _document_v2(content, 'buglog', user, activities or [],
+                        title='QA Workspace — Bug Log')
 
 
 def render_roadmap_alerts(roadmap_data):
