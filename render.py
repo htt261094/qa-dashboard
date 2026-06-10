@@ -19,6 +19,7 @@ from roadmap import (RM_STATUSES, RM_PEOPLE, load_roadmap, due_alerts,
                      task_done, task_started, plan_done, derive_plan_status)
 from custom_status import CUSTOM_STATUSES, label_of, values_of
 from task_link import tasks_of
+from bug_log_store import POLL_SECONDS as BUG_LOG_POLL_SECONDS
 
 
 def load_css():
@@ -1587,6 +1588,7 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
 
     synced = data.get('synced_at', '') or ''
     synced_disp = synced.replace('T', ' ')[:16] if synced else 'chưa đồng bộ'
+    poll_min = max(1, BUG_LOG_POLL_SECONDS // 60)
 
     # source card: gộp các file Drive nguồn
     if src_files:
@@ -1633,6 +1635,9 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
         '<div class="page-head"><div>'
         '<h2 class="page-title">Bug Management</h2>'
         f'<div class="bl-sub"><span class="bl-dot"></span> Đã đồng bộ: {esc(synced_disp)}</div>'
+        f'<div class="bl-next" id="blNextSync" data-synced="{esc(synced)}" data-interval="{BUG_LOG_POLL_SECONDS}">'
+        f'<span class="material-symbols-rounded mi-sm">autorenew</span> '
+        f'Tự đồng bộ lại toàn bộ file mỗi {poll_min} phút</div>'
         '</div><div style="display:flex;gap:10px;align-items:center">'
         f'{sync_btn}{drive_btn}</div></div>'
         # source card (✎ = đổi link file bug, tự sync sau khi lưu)

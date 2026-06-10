@@ -904,8 +904,10 @@ html[data-theme="dark"] .bottom-toast {
 
 
 /* ===== Bug Log (#55) — bảng bug/test-case + link Jira task ===== */
-.bl-sub{font-size:14px;color:var(--on-surface-variant);margin-top:4px;display:flex;align-items:center;gap:7px}
+.bl-sub{font-size:14px;color:var(--on-surface-variant);margin-top:6px;display:flex;align-items:center;gap:7px}
 .bl-dot{width:8px;height:8px;border-radius:50%;background:var(--success);display:inline-block}
+.bl-next{font-size:12.5px;color:var(--on-surface-variant);opacity:.78;margin-top:5px;display:flex;align-items:center;gap:6px}
+.bl-next .mi-sm{font-size:16px}
 .bl-source{display:flex;align-items:center;gap:14px;padding:16px 18px;margin-bottom:20px;border-left:4px solid var(--primary)}
 .bl-source .ic{width:44px;height:44px;border-radius:var(--r-md);background:var(--primary);color:var(--on-primary);display:flex;align-items:center;justify-content:center}
 .bl-source .lbl{font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--on-surface-variant)}

@@ -307,9 +307,13 @@ def scan():
         if new_events:
             data['activity'] = _prune_activity(new_events + activity)
             result['changed'] = len(new_events)
+        # synced_at = mốc "vừa quét xong" — cập nhật MỖI lần scan chạy trót lọt (kể cả
+        # khi không file nào đổi, Tầng-1 skip hết) để UI "Đã đồng bộ" luôn tươi sau khi
+        # bấm nút / auto-sync. Luôn ghi cache local (rẻ, nguồn render). CHỈ sync property
+        # lên Jira khi có thay đổi thật (tránh ghi property mỗi 10p chỉ vì đổi timestamp).
+        data['synced_at'] = _now_iso()
+        _write_cache(data)
         if dirty or new_events:
-            data['synced_at'] = _now_iso()
-            _write_cache(data)              # local full luôn ghi trước (nguồn render)
             if not _sync_property(data):
                 result['errors'].append('Không sync được lên Jira (giữ cache local).')
         result['synced_at'] = data.get('synced_at', '')

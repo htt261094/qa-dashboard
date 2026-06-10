@@ -2115,6 +2115,26 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     });
   })();
 
+  // Đếm ngược "lần đồng bộ tự động kế tiếp" — next = synced_at + interval. Hết giờ thì
+  // hiện "sắp tới…" (scheduler chạy nền, trang sẽ tươi ở lần F5/đồng bộ sau).
+  (function(){
+    var el=$('blNextSync'); if(!el) return;
+    var iso=el.getAttribute('data-synced')||'';
+    var interval=parseInt(el.getAttribute('data-interval')||'0',10)||0;
+    var mins=Math.max(1, Math.round(interval/60));
+    var t0=iso?Date.parse(iso):NaN;
+    if(!interval || isNaN(t0)) return;
+    function tick(){
+      var left=Math.round((t0+interval*1000-Date.now())/1000);
+      var tail;
+      if(left<=0) tail='lần tới: sắp tới…';
+      else if(left>=60) tail='lần tới sau ~'+Math.ceil(left/60)+' phút';
+      else tail='lần tới sau '+left+' giây';
+      el.lastChild.nodeValue=' Tự đồng bộ lại toàn bộ file mỗi '+mins+' phút · '+tail;
+    }
+    tick(); setInterval(tick, 1000);
+  })();
+
   // ✎ trên thẻ nguồn = PICKER: chọn 1 file Drive đã thêm để xem riêng data của file đó.
   // activeFid lưu localStorage (sống qua reload). '' = xem tất cả.
   (function(){
