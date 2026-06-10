@@ -1009,6 +1009,29 @@ html[data-theme="dark"] .metric-table th { background: var(--surface-highest); }
 .metric-table .col-total { font-weight: 700; color: #0052cc; }
 html[data-theme="dark"] .metric-table .col-total { color: #85b8ff; }
 
+/* reopen metric (issue #69) */
+.bl-reopen-kpi { padding: 18px 20px 6px; font-size: 14px; color: var(--on-surface-variant); }
+.bl-reopen-kpi .rk-pct { font-size: 28px; font-weight: 800; color: #d92d20; margin-right: 4px; }
+html[data-theme="dark"] .bl-reopen-kpi .rk-pct { color: #ff7b72; }
+.bl-reopen-kpi .rk-sub { color: var(--on-surface-variant); font-size: 13px; }
+.bl-reopen-note { padding: 8px 20px 16px; font-size: 12px; color: var(--on-surface-variant); opacity: 0.85; }
+.metric-table tr.rk-total td { font-weight: 700; border-top: 2px solid var(--outline-variant); background: var(--surface-low); }
+/* dev row click-to-expand */
+.metric-table tr.rk-row { cursor: pointer; }
+.metric-table tr.rk-row:hover td { background: var(--surface-low); }
+.metric-table tr.rk-row.open td { background: var(--surface-low); }
+.rk-caret { font-size: 18px; vertical-align: -4px; margin-right: 4px; color: var(--on-surface-variant); }
+.metric-table tr.rk-detail td { padding: 0 20px 14px; background: var(--surface-low); }
+.rk-detail-box { border-left: 3px solid var(--primary); padding: 10px 14px; background: var(--card); border-radius: var(--r-md); }
+.rk-detail-hd { font-size: 12px; font-weight: 700; color: var(--on-surface-variant); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.3px; }
+.rk-bug { display: flex; align-items: baseline; gap: 10px; padding: 6px 0; border-top: 1px solid var(--outline-variant); }
+.rk-bug:first-of-type { border-top: 0; }
+.rk-bug-id { font-weight: 700; color: #0052cc; flex: 0 0 auto; min-width: 70px; }
+html[data-theme="dark"] .rk-bug-id { color: #85b8ff; }
+.rk-bug-sum { flex: 1 1 auto; color: var(--on-surface); }
+.rk-bug-n { flex: 0 0 auto; font-size: 12px; font-weight: 600; color: #d92d20; white-space: nowrap; }
+html[data-theme="dark"] .rk-bug-n { color: #ff7b72; }
+
 /* ===== Global search dropdown (topbar quick-search toàn Jira) ===== */
 .gsearch-dd{position:absolute;top:calc(100% + 6px);left:0;right:0;background:var(--card);
   border:1px solid var(--outline-variant);border-radius:var(--r-lg);box-shadow:var(--shadow);

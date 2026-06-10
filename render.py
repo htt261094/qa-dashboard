@@ -1550,6 +1550,7 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
     data = data or {}
     links = links or {}
     files = data.get('files', {}) or {}
+    reopen = data.get('reopen', {}) or {}
 
     bugs = []
     months = set()
@@ -1652,10 +1653,21 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
         '</div>'
         '<div style="overflow-x:auto"><table class="bl-table metric-table"><thead><tr id="blMetricHead"></tr></thead><tbody id="blMetricRows"></tbody></table></div>'
         '</div>'
+        # reopen metric card — chất lượng fix của dev (Decision: issue #69)
+        '<div class="card metric-card">'
+        '<div class="metric-header">'
+        '<div class="table-title"><span>Tỷ lệ Reopen — chất lượng fix của dev (Tháng)</span></div>'
+        '<div class="metric-filter"><span class="material-symbols-rounded mi-sm">calendar_month</span> <select id="blReopenMonth"></select></div>'
+        '</div>'
+        '<div class="bl-reopen-kpi" id="blReopenKpi"></div>'
+        '<div style="overflow-x:auto"><table class="bl-table metric-table"><thead><tr id="blReopenHead"></tr></thead><tbody id="blReopenRows"></tbody></table></div>'
+        '<div class="bl-reopen-note">Số tích luỹ từ khi bật theo dõi; reopen trước đó không có lịch sử. '
+        'Round-trip Fixed→Reopen→Fixed gọn trong 10 phút có thể bị sót.</div>'
+        '</div>'
         + (_bug_log_source_modals() if editable else '')
         + _json_script('bugLogData', {
             'bugs': bugs, 'months': month_list, 'editable': bool(editable),
-            'syncedAt': synced_disp,
+            'syncedAt': synced_disp, 'reopen': reopen,
             'sources': [{'id': s.get('id', ''), 'label': s.get('label', '')}
                         for s in (sources or []) if s.get('id')],
         })

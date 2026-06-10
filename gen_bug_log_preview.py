@@ -17,24 +17,24 @@ os.environ.setdefault('JIRA_PAT', 'preview-fake')
 from render import render_bug_log_v2  # noqa: E402
 
 
-def _bug(project, month, no, feature, summary, severity, status, qa, created):
+def _bug(project, month, no, feature, summary, severity, status, qa, created, dev=''):
     return {'project': project, 'bug_no': no, 'month': month, 'feature': feature,
             'summary': summary, 'severity': severity, 'status': status,
-            'qa_pic': qa, 'created': created}
+            'qa_pic': qa, 'dev_pic': dev, 'created': created}
 
 
 def fake_data():
     def k(p, m, n):
         return f"{p}#{m}#{n}"
     bugs6 = {
-        k('DA6', '2026-06', '23'): _bug('DA6', '2026-06', '23', 'Checkout', 'Lỗi crash khi thanh toán bằng VNPay', 'Nghiêm trọng', 'New', 'Nhung', '2026-06-08'),
-        k('DA6', '2026-06', '08'): _bug('DA6', '2026-06', '08', 'Profile', 'Icon hiển thị sai ở trang Profile', 'Thấp', 'Fixed', 'Thơ', '2026-06-07'),
-        k('DA6', '2026-06', '24'): _bug('DA6', '2026-06', '24', 'Wallet', 'Số dư ví không refresh sau khi nạp', 'Cao', 'Fixing', 'Nhung', '2026-06-06'),
-        k('DA6', '2026-06', '25'): _bug('DA6', '2026-06', '25', 'Auth', 'Validation form đăng ký', 'Trung bình', 'Reopen', 'Quang', '2026-06-05'),
+        k('DA6', '2026-06', '23'): _bug('DA6', '2026-06', '23', 'Checkout', 'Lỗi crash khi thanh toán bằng VNPay', 'Nghiêm trọng', 'New', 'Nhung', '2026-06-08', dev='Hùng'),
+        k('DA6', '2026-06', '08'): _bug('DA6', '2026-06', '08', 'Profile', 'Icon hiển thị sai ở trang Profile', 'Thấp', 'Fixed', 'Thơ', '2026-06-07', dev='Hùng'),
+        k('DA6', '2026-06', '24'): _bug('DA6', '2026-06', '24', 'Wallet', 'Số dư ví không refresh sau khi nạp', 'Cao', 'Fixing', 'Nhung', '2026-06-06', dev='Sơn'),
+        k('DA6', '2026-06', '25'): _bug('DA6', '2026-06', '25', 'Auth', 'Validation form đăng ký', 'Trung bình', 'Reopen', 'Quang', '2026-06-05', dev='Sơn'),
     }
     bugs5 = {
-        k('DA6', '2026-05', '11'): _bug('DA6', '2026-05', '11', 'Đối soát', 'File đối soát thiếu cột phí', 'Trung bình', 'Closed', 'Phương', '2026-05-20'),
-        k('DA6', '2026-05', '12'): _bug('DA6', '2026-05', '12', 'ICCP', 'Sai mã phản hồi khi timeout', 'Cao', 'Rejected', 'Quang', '2026-05-18'),
+        k('DA6', '2026-05', '11'): _bug('DA6', '2026-05', '11', 'Đối soát', 'File đối soát thiếu cột phí', 'Trung bình', 'Closed', 'Phương', '2026-05-20', dev='Hùng'),
+        k('DA6', '2026-05', '12'): _bug('DA6', '2026-05', '12', 'ICCP', 'Sai mã phản hồi khi timeout', 'Cao', 'Rejected', 'Quang', '2026-05-18', dev='Sơn'),
     }
     bugs = {}
     bugs.update(bugs6)
@@ -42,6 +42,12 @@ def fake_data():
     return {
         'files': {'1x7v9kL0': {'name': 'QA_Reporting_Master_File_2024.xlsx',
                                'project': 'DA6', 'count': len(bugs), 'bugs': bugs}},
+        # reopen tích luỹ mock (issue #69): Sơn fix ẩu — bug #25 bật 2 lần (fix 3 lần), #24 bật 1 (fix 2)
+        'reopen': {
+            k('DA6', '2026-06', '25'): {'count': 2, 'fix': 3, 'dev': 'Sơn', 'project': 'DA6', 'month': '2026-06', 'last': '2026-06-09T10:00:00'},
+            k('DA6', '2026-06', '24'): {'count': 1, 'fix': 2, 'dev': 'Sơn', 'project': 'DA6', 'month': '2026-06', 'last': '2026-06-08T10:00:00'},
+            k('DA6', '2026-06', '08'): {'count': 1, 'fix': 2, 'dev': 'Hùng', 'project': 'DA6', 'month': '2026-06', 'last': '2026-06-07T10:00:00'},
+        },
         'synced_at': '2026-06-09T21:30:00',
     }
 
