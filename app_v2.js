@@ -1940,6 +1940,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   var DATA = readJSON('bugLogData'); if(!DATA) return;
   var BUGS = DATA.bugs||[], MONTHS = DATA.months||[], EDIT = !!DATA.editable;
   var SOURCES = DATA.sources||[];    // [{id,label}] file Drive nguồn đã cấu hình
+  var REOPEN = DATA.reopen||{};      // {bugKey:{count,dev,project,month,last}} reopen tích luỹ
   var base = window.__jiraBase || '';
   var curMonth = MONTHS.length ? MONTHS[0] : '';
   var page = 1, PER = 15;
@@ -2209,6 +2210,99 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     metricRows.innerHTML = html;
   }
   
+  // ----- Reopen metric (issue #69): % bug bị reopen + số lần fix theo dev + drill-down -----
+  var reopenMonthSel = $('blReopenMonth'), reopenKpi = $('blReopenKpi'),
+      reopenHead = $('blReopenHead'), reopenRows = $('blReopenRows');
+  var reopenExpanded = {};   // dev -> đang xổ chi tiết hay không
+
+  function reopenPct(n, d){ if(d <= 0) return null; var p = n / d * 100; return (p % 1 === 0 ? p.toFixed(0) : p.toFixed(1)); }
+  function fixOf(r){ return (r && r.fix != null) ? (+r.fix || 0) : ((+(r && r.count) || 0) + 1); }  // migration: entry cũ thiếu fix -> reopen+1
+
+  function renderReopen() {
+    if(!reopenMonthSel || !reopenHead || !reopenRows) return;
+    var selectedMonth = reopenMonthSel.value;
+    if(!selectedMonth) {
+      if(reopenKpi) reopenKpi.innerHTML = '';
+      reopenHead.innerHTML = '';
+      reopenRows.innerHTML = '<tr><td style="text-align:center;color:var(--on-surface-variant);padding:30px">Không có dữ liệu</td></tr>';
+      return;
+    }
+    // bug của tháng theo dev (mẫu số tỷ lệ) + tra bug theo key
+    var mBugs = BUGS.filter(function(b){ return b.month === selectedMonth; });
+    var bugsPerDev = {}, totalBugs = mBugs.length, bugByKey = {};
+    mBugs.forEach(function(b){
+      var d = (b.dev || 'Chưa gán').trim();
+      bugsPerDev[d] = (bugsPerDev[d] || 0) + 1;
+      if(b.key) bugByKey[b.key] = b;
+    });
+    // reopen của tháng: distinct bug + tổng lần fix, theo dev; gom chi tiết per-dev cho drill-down
+    var distinctPerDev = {}, fixPerDev = {}, detailPerDev = {}, distinctTotal = 0;
+    Object.keys(REOPEN).forEach(function(key){
+      var r = REOPEN[key] || {}; var cnt = +r.count || 0; if(cnt <= 0) return;
+      var b = bugByKey[key];
+      var month = b ? b.month : (r.month || '');
+      if(month !== selectedMonth) return;
+      var dev = ((b ? b.dev : r.dev) || 'Chưa gán').trim();
+      var fx = fixOf(r);
+      distinctPerDev[dev] = (distinctPerDev[dev] || 0) + 1;
+      fixPerDev[dev] = (fixPerDev[dev] || 0) + fx;
+      distinctTotal++;
+      (detailPerDev[dev] = detailPerDev[dev] || []).push({
+        id: b ? b.id : key, summary: b ? b.summary : '', reopen: cnt, fix: fx
+      });
+    });
+    // KPI headline
+    if(reopenKpi) {
+      var hp = reopenPct(distinctTotal, totalBugs);
+      reopenKpi.innerHTML = hp === null
+        ? '<span class="rk-sub">Không có bug trong tháng này.</span>'
+        : '<span class="rk-pct">' + hp + '%</span> bug bị reopen';
+    }
+    reopenHead.innerHTML = '<th>Developer</th><th>Bug bị reopen</th>'
+      + '<th>Tổng số lần fix bug</th><th>Tỷ lệ reopen</th>';
+    var devList = Object.keys(distinctPerDev).sort(function(a,b){
+      return distinctPerDev[b] - distinctPerDev[a];
+    });
+    if(devList.length === 0) {
+      reopenRows.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--on-surface-variant);padding:30px">Chưa ghi nhận reopen nào trong tháng này 🎉</td></tr>';
+      return;
+    }
+    function rateCell(nb, denom){
+      var r = reopenPct(nb, denom);
+      return r === null ? '—' : r + '%';
+    }
+    function detailRow(dev){
+      var items = (detailPerDev[dev] || []).slice().sort(function(a,b){ return b.reopen - a.reopen; });
+      var li = items.map(function(it){
+        return '<div class="rk-bug"><span class="rk-bug-id">' + esc(it.id) + '</span>'
+          + '<span class="rk-bug-sum">' + esc(it.summary || '(không mô tả)') + '</span>'
+          + '<span class="rk-bug-n">' + it.reopen + ' lần reopen · ' + it.fix + ' lần fix</span></div>';
+      }).join('');
+      return '<tr class="rk-detail"><td colspan="4"><div class="rk-detail-box">'
+        + '<div class="rk-detail-hd">Chi tiết bug bị reopen của ' + esc(dev) + '</div>' + li
+        + '</div></td></tr>';
+    }
+    var body = devList.map(function(d){
+      var nb = distinctPerDev[d], fx = fixPerDev[d], denom = bugsPerDev[d] || 0;
+      var open = !!reopenExpanded[d];
+      var row = '<tr class="rk-row' + (open ? ' open' : '') + '" data-dev="' + esc(d) + '">'
+        + '<td><span class="rk-caret material-symbols-rounded">' + (open ? 'expand_more' : 'chevron_right') + '</span>' + esc(d) + '</td>'
+        + '<td>' + nb + '</td><td>' + fx + '</td>'
+        + '<td class="col-total">' + rateCell(nb, denom) + '</td></tr>';
+      if(open) row += detailRow(d);
+      return row;
+    }).join('');
+    reopenRows.innerHTML = body;
+  }
+
+  // bấm dòng dev -> xổ/đóng chi tiết
+  if(reopenRows) reopenRows.addEventListener('click', function(e){
+    var tr = e.target.closest('.rk-row'); if(!tr) return;
+    var dev = tr.getAttribute('data-dev'); if(!dev) return;
+    reopenExpanded[dev] = !reopenExpanded[dev];
+    renderReopen();
+  });
+
   if(metricMonthSel) {
     if(MONTHS.length > 0) {
       metricMonthSel.innerHTML = MONTHS.map(function(m){
@@ -2221,15 +2315,31 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     metricMonthSel.addEventListener('change', renderMetric);
   }
 
+  if(reopenMonthSel) {
+    if(MONTHS.length > 0) {
+      reopenMonthSel.innerHTML = MONTHS.map(function(m){
+        return '<option value="' + esc(m) + '">' + esc(m) + '</option>';
+      }).join('');
+      reopenMonthSel.value = curMonth;
+    } else {
+      reopenMonthSel.innerHTML = '<option value="">Chưa có dữ liệu</option>';
+    }
+    reopenMonthSel.addEventListener('change', renderReopen);
+  }
+
   tabs.addEventListener('click', function(e){
     var t=e.target.closest('.bl-tab'); if(!t) return;
     if(metricMonthSel && metricMonthSel.value !== curMonth) {
       metricMonthSel.value = curMonth;
       renderMetric();
     }
+    if(reopenMonthSel && reopenMonthSel.value !== curMonth) {
+      reopenMonthSel.value = curMonth;
+      renderReopen();
+    }
   });
 
-  renderTabs(); render(); renderMetric();
+  renderTabs(); render(); renderMetric(); renderReopen();
 })();
 
 })();

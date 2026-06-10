@@ -50,7 +50,7 @@ def _now_iso():
 
 # ===== Lưu trữ (cache local full + Jira property full/nhẹ) =====
 def _empty():
-    return {'files': {}, 'activity': [], 'synced_at': ''}
+    return {'files': {}, 'activity': [], 'reopen': {}, 'synced_at': ''}
 
 
 def _read_cache():
@@ -84,6 +84,7 @@ def _light(data):
     for fid, f in data.get('files', {}).items():
         files[fid] = {k: v for k, v in f.items() if k != 'bugs'}
     return {'files': files, 'activity': data.get('activity', []),
+            'reopen': data.get('reopen', {}),
             'synced_at': data.get('synced_at', ''), 'light': True}
 
 
@@ -184,6 +185,49 @@ def _diff_events(prev_bugs, cur_bugs):
     return events
 
 
+# ===== Đếm vòng đời reopen/fix tích luỹ (theo transition status giữa 2 snapshot) =====
+def _count_reopens(reopen_map, prev_bugs, cur_bugs):
+    """Cập nhật counter reopen + số lần fix cho mỗi bug, theo transition status.
+
+    Entry `reopen_map[key]` = {count(reopen), fix, last, dev, project, month}. CHỈ tạo
+    entry khi bug bị reopen (tập bug 'có vấn đề' — giữ map nhỏ, an toàn property ~32KB).
+
+    - prev.status != 'Reopen' & cur.status == 'Reopen' → reopen +1. Tạo entry nếu chưa có,
+      khởi tạo `fix=1` (lần fix TRƯỚC khi bị dội đầu tiên — reopen tất phải có 1 fix trước đó).
+    - prev.status != 'Fixed' & cur.status == 'Fixed' & key ĐÃ trong map → fix +1 (lần fix lại
+      sau khi bị dội). Bug chưa từng reopen không tính (không nằm trong bảng reopen).
+    - Chỉ xét key có ở CẢ prev và cur (key mới đã ở Reopen/Fixed = trước khi bật tracking →
+      bỏ, không quan sát được transition). Trả số hit để caller set dirty."""
+    hits = 0
+    for key, cur in cur_bugs.items():
+        prev = prev_bugs.get(key)
+        if prev is None:
+            continue
+        ps = prev.get('status') or ''
+        cs = cur.get('status') or ''
+
+        def _touch(ent):
+            ent['last'] = _now_iso()
+            ent['dev'] = cur.get('dev_pic', '') or ''
+            ent['project'] = cur.get('project', '') or ''
+            ent['month'] = cur.get('month', '') or ''
+
+        if ps != 'Reopen' and cs == 'Reopen':
+            ent = reopen_map.get(key)
+            if ent is None:
+                ent = {'count': 0, 'fix': 1}   # fix gốc (trước khi bị dội)
+                reopen_map[key] = ent
+            ent['count'] = int(ent.get('count', 0)) + 1
+            _touch(ent)
+            hits += 1
+        elif ps != 'Fixed' and cs == 'Fixed' and key in reopen_map:
+            ent = reopen_map[key]
+            ent['fix'] = int(ent.get('fix', 1)) + 1
+            _touch(ent)
+            hits += 1
+    return hits
+
+
 def _prune_activity(activity):
     cutoff = (datetime.now() - timedelta(days=_ACT_PRUNE_DAYS)).isoformat()
     return [a for a in activity if a.get('when', '') >= cutoff][:_ACT_CAP]
@@ -218,6 +262,7 @@ def scan():
         data = _load_data()
         files = data.setdefault('files', {})
         activity = data.setdefault('activity', [])
+        reopen = data.setdefault('reopen', {})
         new_events = []
         dirty = False
 
@@ -243,6 +288,8 @@ def scan():
             norm = normalize(rows, project=project)
             cur_bugs = {b['key']: b for b in norm['bugs'] if b.get('key')}
             new_events.extend(_diff_events(prev.get('bugs', {}), cur_bugs))
+            if _count_reopens(reopen, prev.get('bugs', {}), cur_bugs):
+                dirty = True
             files[fid] = {
                 'modifiedTime': meta.get('modifiedTime', ''),
                 'md5Checksum': meta.get('md5Checksum', ''),
