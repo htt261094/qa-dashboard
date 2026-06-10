@@ -53,7 +53,7 @@ def fake_data():
 
 
 def fake_links():
-    return {'DA6#2026-06#08': {'task': 'DA61H26-8812', 'by': 'tholt', 'at': '2026-06-09'}}
+    return {'DA6#2026-06#08': {'tasks': ['DA61H26-8812', 'PSIT1H26-2717'], 'by': 'tholt', 'at': '2026-06-09'}}
 
 
 # mock fetch: /search-parents trả task giả; /link-task echo lại; /sync-bug-log ok; còn lại ok
@@ -66,7 +66,15 @@ _MOCK = """<script>(function(){
         {key:'DA61H26-9015',summary:'[DEV] Cổng thanh toán VNPay',project:'DA6'},
         {key:'PSIT1H26-2717',summary:'[DEV] Đăng ký tài khoản',project:'PSIT1'}]};
     } else if(url.indexOf('/link-task')>=0){
-      var b=JSON.parse(opts.body||'{}'),m={};(b.keys||[]).forEach(function(k){m[k]=b.task||'';});
+      var b=JSON.parse(opts.body||'{}'),m={};
+      window.__plinks=window.__plinks||{'DA6#2026-06#08':['DA61H26-8812']};
+      (b.keys||[]).forEach(function(k){
+        var cur=(window.__plinks[k]||[]).slice();
+        if(b.op==='remove') cur=cur.filter(function(t){return t!==b.task;});
+        else if(b.op==='clear') cur=[];
+        else if(b.task && cur.indexOf(b.task)<0) cur.push(b.task);
+        window.__plinks[k]=cur; m[k]=cur;
+      });
       data={ok:true,links:m};
     } else if(url.indexOf('/sync-bug-log')>=0){ data={ok:true,synced_at:'now',count:6,changed:0}; }
     else if(url.indexOf('/activity-feed')>=0){ data={ok:true,activities:[],tasks:{}}; }

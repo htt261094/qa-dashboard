@@ -18,6 +18,7 @@ from docs import load_docs
 from roadmap import (RM_STATUSES, RM_PEOPLE, load_roadmap, due_alerts,
                      task_done, task_started, plan_done, derive_plan_status)
 from custom_status import CUSTOM_STATUSES, label_of, values_of
+from task_link import tasks_of
 
 
 def load_css():
@@ -1578,7 +1579,7 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
                 'qa': b.get('qa_pic', ''),
                 'dev': b.get('dev_pic', ''),
                 'created': (b.get('created', '') or '')[:10],
-                'task': link.get('task', ''),
+                'tasks': tasks_of(link),
             })
     # tháng mới nhất trước (chuỗi 'YYYY-MM' hoặc tên sheet -> sort desc theo chuỗi)
     month_list = sorted((m for m in months if m), reverse=True)
@@ -1635,7 +1636,7 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
         '<div class="card bl-source">'
         '<span class="ic material-symbols-rounded">table_view</span>'
         '<div class="bl-src-info"><div class="lbl">NGUỒN DỮ LIỆU: GOOGLE DRIVE</div>'
-        f'<div class="fname">{src_line}</div>'
+        f'<div class="fname" id="blSrcLine">{src_line}</div>'
         '<span class="bl-active-file" id="blActiveFile" style="display:none"></span></div>'
         f'{edit_link_btn}</div>'
         # tab tháng

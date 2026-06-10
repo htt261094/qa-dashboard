@@ -23,7 +23,7 @@ from drive_token import save_refresh_token, has_drive_token, delete_drive_token
 from bug_log_store import (scan as bug_log_scan, start_scheduler as start_bug_log_scheduler,
                            load_bug_log)
 from bug_log_source import load_sources, save_sources, extract_file_id, MAX_SOURCES
-from task_link import load_links, set_task_links
+from task_link import load_links, set_task_links, tasks_of
 from jira_api import (fetch_all, fetch_activity_feed, load_dismissed,
                       dismiss_activities, run_parallel, fetch_issue_detail,
                       search_parent_ptsp, search_people, search_qa_tasks, global_search)
@@ -130,7 +130,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             links = load_links()
         except Exception:
             return []
-        bug_keys = [bk for bk, v in links.items() if (v or {}).get('task') == task_key]
+        bug_keys = [bk for bk, v in links.items() if task_key in tasks_of(v)]
         if not bug_keys:
             return []
         try:
@@ -745,9 +745,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     if isinstance(payload, dict):
                         keys = payload.get('keys')
                         task = payload.get('task', '')
+                        op = payload.get('op', 'add')
                         if (isinstance(keys, list) and all(isinstance(x, str) for x in keys)
-                                and isinstance(task, str)):
-                            out = set_task_links(self._user_email(), keys[:500], task)
+                                and isinstance(task, str) and op in ('add', 'remove', 'clear')):
+                            out = set_task_links(self._user_email(), keys[:500], task, op)
             except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
                 out = None
             if out is not None:
