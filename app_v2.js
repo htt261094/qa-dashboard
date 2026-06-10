@@ -2596,6 +2596,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
             metricCharts.style.width = origWidth;
 
             var imgData = canvas.toDataURL('image/png');
+            window.__lastExportedImage = imgData;
             var pdf = new window.jspdf.jsPDF('l', 'mm', 'a4');
             var pdfWidth = pdf.internal.pageSize.getWidth();
             var pdfHeight = pdf.internal.pageSize.getHeight();

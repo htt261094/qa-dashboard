@@ -76,6 +76,10 @@ async def main():
             month_val = await page.locator('#blMetricMonth').input_value()
             
             print("Đang gửi báo cáo qua Email...")
+            
+            from email.utils import make_msgid
+            import base64
+            
             msg = EmailMessage()
             msg['Subject'] = f"Báo cáo Bug Metric (Tháng {month_val})"
             msg['From'] = SMTP_USER
@@ -88,9 +92,29 @@ async def main():
                 f"Huỳnh Tuấn Thành"
             )
             
+            image_cid = make_msgid()
+            msg.add_alternative(f"""\
+            <html>
+              <body style="font-family: sans-serif; line-height: 1.5; color: #333;">
+                <p>Kính gửi anh Phương,</p>
+                <p>Em xin gửi biểu đồ và file đính kèm báo cáo Bug Metric tháng {month_val} từ hệ thống QA Workspace.</p>
+                <p><img src="cid:{image_cid[1:-1]}" alt="Bug Metric Chart" style="max-width: 1000px; width: 100%; border: 1px solid #ddd; border-radius: 8px;"></p>
+                <p>Trân trọng,<br>Huỳnh Tuấn Thành</p>
+              </body>
+            </html>
+            """, subtype='html')
+            
+            # Trích xuất ảnh Base64 từ JS (vừa được gen ra cùng lúc với lúc export PDF)
+            img_b64 = await page.evaluate("window.__lastExportedImage")
+            if img_b64 and ',' in img_b64:
+                b64_data = img_b64.split(',')[1]
+                img_bytes = base64.b64decode(b64_data)
+                # Đính kèm ảnh inline vào phần HTML
+                msg.get_payload()[1].add_related(img_bytes, 'image', 'png', cid=image_cid)
+            
+            # Đính kèm thêm file PDF
             with open(file_path, 'rb') as f:
                 pdf_data = f.read()
-                
             msg.add_attachment(pdf_data, maintype='application', subtype='pdf', filename=file_name)
             
             with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
