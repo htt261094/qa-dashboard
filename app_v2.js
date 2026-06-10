@@ -2325,15 +2325,16 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     }).catch(function(){ toast('Lỗi mạng khi liên kết', false); });
   }
 
-  // ===== Metric Table =====
-  var metricMonthSel = $('blMetricMonth'), metricHead = $('blMetricHead'), metricRows = $('blMetricRows');
+  // ===== Metric Stacked Bar Chart =====
+  var metricMonthSel = $('blMetricMonth'), metricCharts = $('blMetricCharts');
+  
+  var PIE_COLORS = ['#4c9aff', '#36b37e', '#ffab00', '#ff5630', '#6554c0', '#00b8d9', '#ff7452', '#57d9a3', '#8777d9', '#ff8b00', '#2684ff', '#172b4d'];
   
   function renderMetric() {
-    if(!metricMonthSel || !metricHead || !metricRows) return;
+    if(!metricMonthSel || !metricCharts) return;
     var selectedMonth = metricMonthSel.value;
     if(!selectedMonth) {
-      metricHead.innerHTML = '';
-      metricRows.innerHTML = '<tr><td style="text-align:center;color:var(--on-surface-variant);padding:30px">Không có dữ liệu</td></tr>';
+      metricCharts.innerHTML = '<div style="color:var(--on-surface-variant); width:100%; text-align:center;">Không có dữ liệu</div>';
       return;
     }
     
@@ -2341,46 +2342,91 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     var mBugs = BUGS.filter(function(b){ return getCreatedMonthYear(b.created) === selectedMonth; });
     
     // Tập hợp dev và project
-    var devs = {}; // dev -> { proj -> count }
-    var projs = {}; // proj -> true
+    var devs = {}; // dev -> { total: number, projs: { proj -> count } }
+    var projSet = {};
     
     mBugs.forEach(function(b) {
       var d = (b.dev || 'Chưa gán').trim();
       var p = (b.project || 'Khác').trim();
-      if(!devs[d]) devs[d] = {};
-      if(!devs[d][p]) devs[d][p] = 0;
-      devs[d][p]++;
-      projs[p] = true;
+      if(!devs[d]) devs[d] = { total: 0, projs: {} };
+      if(!devs[d].projs[p]) devs[d].projs[p] = 0;
+      devs[d].projs[p]++;
+      devs[d].total++;
+      projSet[p] = true;
     });
     
-    var projList = Object.keys(projs).sort();
+    var devList = Object.keys(devs).sort(function(a,b){ return devs[b].total - devs[a].total; });
+    var projList = Object.keys(projSet).sort();
     
-    // Header
-    var ths = '<th>Developer</th>';
-    projList.forEach(function(p) { ths += '<th>' + esc(p) + '</th>'; });
-    ths += '<th>Tổng cộng</th>';
-    metricHead.innerHTML = ths;
-    
-    // Rows
-    var devList = Object.keys(devs).sort();
     if(devList.length === 0) {
-      metricRows.innerHTML = '<tr><td colspan="' + (projList.length + 2) + '" style="text-align:center;color:var(--on-surface-variant);padding:30px">Không có dữ liệu trong tháng này</td></tr>';
+      metricCharts.innerHTML = '<div style="color:var(--on-surface-variant); width:100%; text-align:center;">Không có dữ liệu trong tháng này</div>';
       return;
     }
     
-    var html = devList.map(function(d) {
-      var row = '<tr><td>' + esc(d) + '</td>';
-      var total = 0;
-      projList.forEach(function(p) {
-        var count = devs[d][p] || 0;
-        total += count;
-        row += '<td>' + (count > 0 ? count : '') + '</td>';
-      });
-      row += '<td class="col-total">' + total + '</td></tr>';
-      return row;
-    }).join('');
+    var maxTotal = 0;
+    devList.forEach(function(d){ if(devs[d].total > maxTotal) maxTotal = devs[d].total; });
+    var yMax = Math.max(5, Math.ceil(maxTotal / 5) * 5);
     
-    metricRows.innerHTML = html;
+    var steps = 5;
+    var chartHeight = 260;
+    var ticksHtml = '';
+    var gridHtml = '';
+    for(var i=0; i<=steps; i++) {
+      var val = Math.round((yMax / steps) * i);
+      var bottomPct = (i / steps) * 100;
+      ticksHtml += '<div style="position:absolute; bottom:'+bottomPct+'%; right:8px; transform:translateY(50%); font-size:11px; color:var(--on-surface-variant);">'+val+'</div>';
+      if(i > 0) {
+        gridHtml += '<div style="position:absolute; bottom:'+bottomPct+'%; left:0; right:0; height:1px; background:var(--outline-variant); z-index:0;"></div>';
+      }
+    }
+    
+    var barsHtml = '';
+    devList.forEach(function(d) {
+      var dData = devs[d];
+      var segmentsHtml = '';
+      
+      projList.forEach(function(p, idx) {
+        var count = dData.projs[p];
+        if(count) {
+          var pct = (count / yMax) * 100;
+          var color = PIE_COLORS[idx % PIE_COLORS.length];
+          // segments stack upwards, so prepend
+          segmentsHtml = '<div style="width:100%; height:'+pct+'%; background:'+color+'; display:flex; align-items:center; justify-content:center; color:#fff; font-size:11px; font-weight:600; overflow:hidden;" title="'+esc(p)+': '+count+'">' + (pct > 6 ? count : '') + '</div>' + segmentsHtml;
+        }
+      });
+      
+      barsHtml += '<div style="display:flex; flex-direction:column; align-items:center; width:48px; margin:0 12px; z-index:1;">' +
+        '<div style="font-size:12.5px; font-weight:700; color:var(--on-surface); margin-bottom:6px;">'+dData.total+'</div>' +
+        '<div style="width:100%; height:'+chartHeight+'px; display:flex; flex-direction:column; justify-content:flex-end; border-radius:4px 4px 0 0; overflow:hidden;">' + segmentsHtml + '</div>' +
+        '<div style="font-size:12px; margin-top:10px; text-align:center; word-break:break-word; color:var(--on-surface-variant); width:64px; line-height:1.3;">'+esc(d)+'</div>' +
+        '</div>';
+    });
+    
+    var legendHtml = '';
+    projList.forEach(function(p, idx) {
+      var color = PIE_COLORS[idx % PIE_COLORS.length];
+      legendHtml += '<div style="display:flex; align-items:center; margin-right:16px; margin-bottom:8px; font-size:13.5px;">' +
+        '<span style="display:inline-block; width:14px; height:14px; background:'+color+'; border-radius:3px; margin-right:6px;"></span>' +
+        '<span style="color:var(--on-surface);">'+esc(p)+'</span>' +
+        '</div>';
+    });
+    
+    var html = '<div style="width:100%; display:flex; flex-direction:column; padding: 10px 0;">' +
+      '<div style="display:flex; justify-content:center; flex-wrap:wrap; margin-bottom:24px;">' + legendHtml + '</div>' +
+      '<div style="display:flex; align-items:flex-start;">' +
+        // Y-axis labels
+        '<div style="position:relative; height:'+chartHeight+'px; width:40px; flex-shrink:0;">' +
+          ticksHtml + 
+        '</div>' +
+        // Chart Area
+        '<div style="position:relative; flex:1; height:'+(chartHeight+50)+'px; display:flex; align-items:flex-start; overflow-x:auto; border-bottom:1px solid var(--outline-variant);">' +
+          gridHtml +
+          '<div style="display:flex; height:'+(chartHeight+40)+'px; padding-top:0;">' + barsHtml + '</div>' +
+        '</div>' +
+      '</div>' +
+      '</div>';
+    
+    metricCharts.innerHTML = html;
   }
   
   // ----- Reopen metric (issue #69): % bug bị reopen + số lần fix theo dev + drill-down -----
