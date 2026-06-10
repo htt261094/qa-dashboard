@@ -21,7 +21,23 @@ async def main():
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
+        context = await browser.new_context()
+
+        # Bypass đăng nhập (nếu AUTH_ENABLED = True) bằng cách tự sinh session cookie
+        from config import AUTH_ENABLED
+        if AUTH_ENABLED:
+            from config import ADMIN_EMAIL, SELF_USER, ALLOWED_DOMAIN
+            from auth import make_session_token, SESSION_COOKIE
+            email = ADMIN_EMAIL or f"{SELF_USER}@{ALLOWED_DOMAIN or 'test.com'}"
+            token = make_session_token(email)
+            await context.add_cookies([{
+                'name': SESSION_COOKIE,
+                'value': token,
+                'domain': 'localhost',
+                'path': '/'
+            }])
+
+        page = await context.new_page()
 
         try:
             await page.goto(url, wait_until='networkidle')
