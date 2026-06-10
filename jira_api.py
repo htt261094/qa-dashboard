@@ -301,6 +301,49 @@ def search_people(query, limit=15):
     return out
 
 
+def global_search(query, limit=20):
+    """Quick-search TOÀN Jira cho thanh search topbar (gần như search top-nav Jira).
+    Khớp theo key, theo SỐ (vd '5125' -> DA61H26-5125, DA51H26-5125...) hoặc text trong
+    summary — dùng Jira issue picker (autocomplete native, 1 call) lấy danh sách key, rồi
+    1 call `key in (...)` lấy status/assignee/type cho dropdown. Read-only PAT chung.
+    Trả [{key, summary, status, assignee, type, project, url}] theo thứ tự picker (match tốt nhất trước)."""
+    q = (query or '').strip()
+    if len(q) < 2:
+        return []
+    keys = []
+    try:
+        r = _SESSION.get(f"{JIRA_URL}/rest/api/2/issue/picker", headers=_auth_headers(),
+                         params={'query': q, 'currentJQL': '', 'showSubTasks': 'true',
+                                 'showSubTaskParent': 'true'}, timeout=15)
+        r.raise_for_status()
+        for sec in (r.json().get('sections') or []):
+            for it in (sec.get('issues') or []):
+                k = it.get('key')
+                if k and k not in keys:
+                    keys.append(k)
+    except requests.RequestException as e:
+        raise RuntimeError(f"Network error: {str(e).replace(PAT, '<REDACTED>')}")
+    if not keys:
+        return []
+    keys = keys[:limit]
+    order = {k: n for n, k in enumerate(keys)}
+    jql = f"key in ({','.join(keys)})"
+    issues = _jira_request(jql, limit,
+                           fields='summary,status,assignee,issuetype,project').get('issues', [])
+    rows = []
+    for i in issues:
+        f = i.get('fields', {}) or {}
+        asg = f.get('assignee') or {}
+        rows.append({'key': i['key'], 'summary': f.get('summary') or '',
+                     'status': (f.get('status') or {}).get('name') or '',
+                     'assignee': asg.get('displayName') or asg.get('name') or '',
+                     'type': (f.get('issuetype') or {}).get('name') or '',
+                     'project': (f.get('project') or {}).get('key') or '',
+                     'url': f"{JIRA_URL}/browse/{i['key']}"})
+    rows.sort(key=lambda row: order.get(row['key'], 999))
+    return rows
+
+
 def _devs_in_charge(parent_key):
     """Dev phụ trách = assignee của CÁC sub-task dưới Task-PTSP cha, LOẠI người trong QA list.
     QA task của ta là 1 sub-task của parent này; các sub-task khác do dev làm. Trả list tên

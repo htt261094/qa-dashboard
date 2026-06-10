@@ -26,7 +26,7 @@ from bug_log_source import load_sources, save_sources, extract_file_id, MAX_SOUR
 from task_link import load_links, set_task_links
 from jira_api import (fetch_all, fetch_activity_feed, load_dismissed,
                       dismiss_activities, run_parallel, fetch_issue_detail,
-                      search_parent_ptsp, search_people, search_qa_tasks)
+                      search_parent_ptsp, search_people, search_qa_tasks, global_search)
 from state import load_snapshots, save_snapshots, build_snapshot
 from pic import save_pic
 from docs import load_docs, save_docs, valid_tree
@@ -457,6 +457,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
             try:
                 self._json(200, json.dumps(
                     {'ok': True, 'results': search_qa_tasks(q)}).encode('utf-8'))
+            except RuntimeError:
+                self._json(400, b'{"ok":false}')
+            return
+        if path == '/global-search':
+            # Quick-search toàn Jira cho thanh search topbar (key / số / text summary).
+            # Read-only PAT chung. Mở task ra drawer qua /issue-comments khi click.
+            q = (parse_qs(urlparse(self.path).query).get('q') or [''])[0]
+            try:
+                self._json(200, json.dumps(
+                    {'ok': True, 'results': global_search(q)}).encode('utf-8'))
             except RuntimeError:
                 self._json(400, b'{"ok":false}')
             return
