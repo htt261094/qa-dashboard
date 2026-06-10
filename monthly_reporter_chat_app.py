@@ -93,7 +93,7 @@ async def main():
             
             # Danh sách email được phép xem file
             viewer_emails = [
-                os.environ.get('RECEIVER_EMAIL', ''),
+                os.environ.get('RECEIVER_EMAIL', 'phuongnm@baokim.vn'),
                 os.environ.get('JIRA_ADMIN_EMAIL', 'thanhht1@baokim.vn')
             ]
             
