@@ -32,12 +32,29 @@ URL = f"http://localhost:{JIRA_PORT}/bug-log"
 SPACE_ID = os.environ.get('GOOGLE_CHAT_SPACE_ID')
 SERVICE_ACCOUNT_FILE = 'gcp-service-account.json'
 
+from auth import make_session_token
+
 async def main():
     print(f"Truy cập vào {URL} ...")
     
+    # Tạo cookie phiên đăng nhập cho bot (bypass login)
+    # Lấy email từ env, nếu không có thì mặc định admin
+    admin_email = os.environ.get('JIRA_ADMIN_EMAIL', 'admin@baokim.vn')
+    session_token = make_session_token(admin_email)
+    
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
+        context = await browser.new_context()
+        
+        # Inject cookie vào context
+        await context.add_cookies([{
+            'name': 'qa_session',
+            'value': session_token,
+            'domain': 'localhost',
+            'path': '/'
+        }])
+        
+        page = await context.new_page()
         
         try:
             await page.goto(URL)
@@ -63,58 +80,77 @@ async def main():
 
             month_val = await page.locator('#blMetricMonth').input_value()
             
-            print("Đang tải file lên Google Chat...")
-            
-            # Khởi tạo Google Chat API Client
-            SCOPES = ['https://www.googleapis.com/auth/chat.bot']
+            # Khởi tạo Google Chat API Client và Drive API Client
+            SCOPES = [
+                'https://www.googleapis.com/auth/chat.bot',
+                'https://www.googleapis.com/auth/drive.file'
+            ]
             credentials = service_account.Credentials.from_service_account_file(
                 SERVICE_ACCOUNT_FILE, scopes=SCOPES
             )
             chat = build('chat', 'v1', credentials=credentials)
+            drive = build('drive', 'v3', credentials=credentials)
+            
+            # Danh sách email được phép xem file
+            viewer_emails = [
+                os.environ.get('RECEIVER_EMAIL', 'cto@baokim.vn'),
+                os.environ.get('JIRA_ADMIN_EMAIL', 'thanhht1@baokim.vn')
+            ]
             
             # Trích xuất ảnh Base64 từ JS
             img_b64 = await page.evaluate("window.__lastExportedImage")
-            attachment_img = None
+            img_link = None
             if img_b64 and ',' in img_b64:
                 b64_data = img_b64.split(',')[1]
                 img_bytes = base64.b64decode(b64_data)
                 img_stream = io.BytesIO(img_bytes)
                 
-                media_img = MediaIoBaseUpload(img_stream, mimetype='image/png')
-                print("Đang upload Ảnh biểu đồ...")
-                attachment_img = chat.media().upload(
-                    parent=SPACE_ID,
-                    media_body=media_img
+                print("Đang upload Ảnh biểu đồ lên Google Drive...")
+                media_img = MediaIoBaseUpload(img_stream, mimetype='image/png', resumable=True)
+                img_file = drive.files().create(
+                    body={'name': f'Bug_Metric_{month_val}.png'},
+                    media_body=media_img,
+                    fields='id, webViewLink'
                 ).execute()
+                
+                for email in viewer_emails:
+                    drive.permissions().create(
+                        fileId=img_file.get('id'),
+                        body={'type': 'user', 'role': 'reader', 'emailAddress': email},
+                        sendNotificationEmail=False
+                    ).execute()
+                img_link = img_file.get('webViewLink')
 
             # Upload PDF file
-            print("Đang upload file PDF...")
-            media_pdf = MediaFileUpload(file_path, mimetype='application/pdf')
-            attachment_pdf = chat.media().upload(
-                parent=SPACE_ID,
-                media_body=media_pdf
+            print("Đang upload file PDF lên Google Drive...")
+            media_pdf = MediaFileUpload(file_path, mimetype='application/pdf', resumable=True)
+            pdf_file = drive.files().create(
+                body={'name': f'Bug_Metric_{month_val}.pdf'},
+                media_body=media_pdf,
+                fields='id, webViewLink'
             ).execute()
+            
+            for email in viewer_emails:
+                drive.permissions().create(
+                    fileId=pdf_file.get('id'),
+                    body={'type': 'user', 'role': 'reader', 'emailAddress': email},
+                    sendNotificationEmail=False
+                ).execute()
+            pdf_link = pdf_file.get('webViewLink')
 
-            print("Đang gửi tin nhắn...")
+            print("Đang gửi tin nhắn Google Chat...")
+            
+            text_content = f"Kính gửi anh Phương,\n\nĐây là báo cáo Bug Metric tháng {month_val} từ hệ thống QA Workspace.\n\n"
+            if img_link:
+                text_content += f"📊 *Ảnh biểu đồ*: {img_link}\n"
+            if pdf_link:
+                text_content += f"📄 *File PDF*: {pdf_link}\n\n"
+            text_content += "Trân trọng,\nHuỳnh Tuấn Thành\n\n_(Lưu ý: File đã được cấp quyền truy cập an toàn cho email của anh)_"
+
             # Tạo tin nhắn đính kèm file
             message_body = {
-                'text': f"Kính gửi anh Phương,\n\nĐây là báo cáo Bug Metric tháng {month_val} từ hệ thống QA Workspace.\n\nTrân trọng,\nHuỳnh Tuấn Thành",
-                'attachment': []
+                'text': text_content
             }
-            
-            if attachment_img:
-                message_body['attachment'].append({
-                    'attachmentDataRef': {
-                        'resourceName': attachment_img['attachmentDataRef']['resourceName']
-                    }
-                })
-                
-            if attachment_pdf:
-                message_body['attachment'].append({
-                    'attachmentDataRef': {
-                        'resourceName': attachment_pdf['attachmentDataRef']['resourceName']
-                    }
-                })
 
             # Gửi tin nhắn
             chat.spaces().messages().create(
