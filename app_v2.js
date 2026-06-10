@@ -2568,7 +2568,20 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
         btnExportMetricChart.disabled = true;
 
         function doExport() {
+          var titleText = 'Số lượng bug theo từng dev (tháng ' + (metricMonthSel.value || '') + ')';
+          var titleEl = document.createElement('div');
+          titleEl.style.fontSize = '24px';
+          titleEl.style.fontWeight = 'bold';
+          titleEl.style.color = getComputedStyle(document.body).getPropertyValue('--on-surface') || '#000000';
+          titleEl.style.textAlign = 'center';
+          titleEl.style.width = '100%';
+          titleEl.style.marginBottom = '20px';
+          titleEl.textContent = titleText;
+          
+          metricCharts.insertBefore(titleEl, metricCharts.firstChild);
+
           html2canvas(metricCharts, { scale: 2, backgroundColor: getComputedStyle(document.body).getPropertyValue('--surface') || '#ffffff' }).then(function(canvas) {
+            titleEl.remove();
             var imgData = canvas.toDataURL('image/png');
             var pdf = new window.jspdf.jsPDF('l', 'mm', 'a4');
             var pdfWidth = pdf.internal.pageSize.getWidth();
@@ -2578,16 +2591,12 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
             var imgWidth = pdfWidth - margin * 2;
             var imgHeight = (imgProps.height * imgWidth) / imgProps.width;
             
-            if (imgHeight > pdfHeight - margin * 2 - 20) {
-               imgHeight = pdfHeight - margin * 2 - 20;
+            if (imgHeight > pdfHeight - margin * 2) {
+               imgHeight = pdfHeight - margin * 2;
                imgWidth = (imgProps.width * imgHeight) / imgProps.height;
             }
-
-            var title = 'Số lượng bug theo từng dev (tháng ' + (metricMonthSel.value || '') + ')';
-            pdf.setFontSize(16);
-            pdf.text(title, margin, margin + 5);
             
-            pdf.addImage(imgData, 'PNG', margin + (pdfWidth - margin*2 - imgWidth)/2, margin + 15, imgWidth, imgHeight);
+            pdf.addImage(imgData, 'PNG', margin + (pdfWidth - margin*2 - imgWidth)/2, margin + 5, imgWidth, imgHeight);
             pdf.save('Bug_Metric_' + (metricMonthSel.value || 'chart') + '.pdf');
             
             btnExportMetricChart.innerHTML = origText;
