@@ -26,7 +26,7 @@ from bug_log_source import load_sources, save_sources, extract_file_id, MAX_SOUR
 from task_link import load_links, set_task_links
 from jira_api import (fetch_all, fetch_activity_feed, load_dismissed,
                       dismiss_activities, run_parallel, fetch_issue_detail,
-                      search_parent_ptsp, search_people)
+                      search_parent_ptsp, search_people, search_qa_tasks)
 from state import load_snapshots, save_snapshots, build_snapshot
 from pic import save_pic
 from docs import load_docs, save_docs, valid_tree
@@ -121,6 +121,39 @@ class Handler(http.server.BaseHTTPRequestHandler):
         """Jira username của chính người đăng nhập (cho tab My work). Local dev /
         admin-email-không-trong-USERS -> SELF_USER (default thanhht1)."""
         return username_from_email(self._user_email()) or username_from_email(ADMIN_EMAIL) or SELF_USER
+
+    def _bugs_for_task(self, task_key):
+        """Chiều ngược của task_link: list bug ĐÃ LINK tới `task_key`, cho drawer detail.
+        Nguồn = load_links() (bugKey->task) ∩ load_bug_log() (chi tiết bug). Đọc cache
+        local/property -> nhẹ. Lỗi -> [] (drawer vẫn mở bình thường, chỉ thiếu mục bug)."""
+        try:
+            links = load_links()
+        except Exception:
+            return []
+        bug_keys = [bk for bk, v in links.items() if (v or {}).get('task') == task_key]
+        if not bug_keys:
+            return []
+        try:
+            files = (load_bug_log() or {}).get('files', {}) or {}
+        except Exception:
+            return []
+        idx = {}
+        for f in files.values():
+            for k, b in (f.get('bugs', {}) or {}).items():
+                idx[k] = b
+        out = []
+        for bk in bug_keys:
+            b = idx.get(bk)
+            if not b:
+                continue
+            out.append({
+                'id': f"{b.get('project', '')}-{b.get('bug_no', '')}".strip('-'),
+                'summary': b.get('summary', ''),
+                'severity': b.get('severity', ''),
+                'status': b.get('status', ''),
+                'module': b.get('feature', ''),
+            })
+        return out
 
     def _bell_activities(self, with_patch=False):
         """Activities cho chuông notif — TÍNH GIỐNG HỆT ở mọi tab để bell đồng nhất.
@@ -379,7 +412,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._json(400, b'{"ok":false,"msg":"key"}')
                 return
             try:
-                detail = fetch_issue_detail(key)
+                # Jira detail + bug đã link tới task (chiều ngược task_link) song song.
+                res = run_parallel({'detail': lambda: fetch_issue_detail(key),
+                                    'bugs': lambda: self._bugs_for_task(key)})
+                detail = res['detail']
+                detail['bugs'] = res['bugs']
                 self._json(200, json.dumps({'ok': True, 'detail': detail}).encode('utf-8'))
             except RuntimeError:
                 self._json(400, b'{"ok":false,"msg":"loi"}')
@@ -410,6 +447,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
             try:
                 self._json(200, json.dumps(
                     {'ok': True, 'results': search_parent_ptsp(q)}).encode('utf-8'))
+            except RuntimeError:
+                self._json(400, b'{"ok":false}')
+            return
+        if path == '/search-tasks':
+            # type-ahead task của QA team cho Bug Log linkbar (link bug -> task QA đang làm,
+            # KHÔNG phải Task-PTSP của dev). Read-only PAT chung.
+            q = (parse_qs(urlparse(self.path).query).get('q') or [''])[0]
+            try:
+                self._json(200, json.dumps(
+                    {'ok': True, 'results': search_qa_tasks(q)}).encode('utf-8'))
             except RuntimeError:
                 self._json(400, b'{"ok":false}')
             return

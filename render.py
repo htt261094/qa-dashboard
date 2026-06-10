@@ -1128,7 +1128,7 @@ def render_sidebar_v2(active, user):
     if is_admin:
         nav += lnk('/my-work', 'mywork', 'person', 'Việc của tôi')
     nav += lnk('/roadmap', 'roadmap', 'map', 'Roadmap')
-    nav += lnk('/bug-log', 'buglog', 'bug_report', 'Bug Log')
+    nav += lnk('/bug-log', 'buglog', 'bug_report', 'Bugs')
     nav += lnk('/docs', 'docs', 'description', 'Tài liệu')
 
     uname = username_from_email(email) if (email and '@' in email) else None
@@ -1618,7 +1618,7 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
     th_check = '<th style="width:40px"><input type="checkbox" class="bl-check" id="blCheckAll"></th>' if editable else ''
     content = (
         '<div class="page-head"><div>'
-        '<h2 class="page-title">Quản lý Bug &amp; Test Case</h2>'
+        '<h2 class="page-title">Bug Management</h2>'
         f'<div class="bl-sub"><span class="bl-dot"></span> Đã đồng bộ: {esc(synced_disp)}</div>'
         '</div><div style="display:flex;gap:10px;align-items:center">'
         f'{drive_btn}</div></div>'

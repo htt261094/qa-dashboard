@@ -243,6 +243,42 @@ def search_parent_ptsp(query, limit=20):
     return out
 
 
+def _qa_task_index():
+    """Toàn bộ task assignee là QA team (key+summary+project+assignee+status), cache TTL 2 phút.
+    Cho ô tìm task ở Bug Log: QA muốn link bug tới CHÍNH task QA đang làm (KHÔNG phải Task-PTSP
+    của dev). 1 call/2p; lọc substring in-memory như _ptsp_index. ORDER BY updated DESC."""
+    cached, hit = _cache_get('qa_task_index')
+    if hit:
+        return cached
+    jql = f"assignee in ({','.join(USERS)}) ORDER BY updated DESC"
+    issues = _jira_request(jql, 1000, fields='summary,project,assignee,status').get('issues', [])
+    idx = []
+    for i in issues:
+        f = i.get('fields', {}) or {}
+        asg = f.get('assignee') or {}
+        idx.append({'key': i['key'], 'summary': f.get('summary') or '',
+                    'project': (f.get('project') or {}).get('key') or '',
+                    'assignee': asg.get('displayName') or asg.get('name') or '',
+                    'status': (f.get('status') or {}).get('name') or ''})
+    _cache_set('qa_task_index', idx)
+    return idx
+
+
+def search_qa_tasks(query, limit=20):
+    """Tìm task của QA team để link bug (Bug Log linkbar). Khớp substring trên key HOẶC summary
+    (case-insensitive). Trả [{key, summary, project, assignee, status}]."""
+    q = (query or '').strip().lower()
+    if len(q) < 2:
+        return []
+    out = []
+    for it in _qa_task_index():
+        if q in it['key'].lower() or q in it['summary'].lower():
+            out.append(it)
+            if len(out) >= limit:
+                break
+    return out
+
+
 def search_people(query, limit=15):
     """Tìm user Jira theo username/tên hiển thị (dropdown Leader). Read-only, PAT chung.
     Trả [{name, display}] (chỉ user active)."""
