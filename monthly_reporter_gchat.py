@@ -16,7 +16,7 @@ async def main():
         print("Lỗi: Chưa cấu hình GOOGLE_CHAT_WEBHOOK_URL trong file .env")
         sys.exit(1)
 
-    url = f"http://localhost:{JIRA_PORT}/"
+    url = f"http://localhost:{JIRA_PORT}/bug-log"
     print(f"Truy cập vào {url} ...")
 
     async with async_playwright() as p:
