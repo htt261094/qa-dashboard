@@ -374,7 +374,7 @@ def fetch_issue_detail(key):
     updated = ngày update; devs = dev phụ trách (assignee non-QA của sub-task anh em dưới
     Task-PTSP cha). 1 call read-only + (nếu có parent) 1 call lấy dev. comments mới->cũ."""
     data = _jira_request(f'key = {key}', 1,
-                         fields='summary,description,comment,status,assignee,duedate,updated,parent')
+                         fields='summary,description,comment,status,assignee,duedate,updated,parent,created')
     issues = data.get('issues') or []
     if not issues:
         return {'key': key, 'summary': '', 'description': '', 'status': '',
@@ -395,6 +395,7 @@ def fetch_issue_detail(key):
             'assignee': asg.get('displayName') or asg.get('name') or '',
             'duedate': f.get('duedate') or '',
             'updated': (f.get('updated') or '')[:10],
+            'created': (f.get('created') or '')[:10],
             'devs': _devs_in_charge(parent_key),
             'comments': comments}
 
