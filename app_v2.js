@@ -2558,6 +2558,72 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       metricMonthSel.innerHTML = '<option value="">Chưa có dữ liệu</option>';
     }
     metricMonthSel.addEventListener('change', renderMetric);
+    var btnExportMetricChart = $('btnExportMetricChart');
+    if (btnExportMetricChart) {
+      btnExportMetricChart.addEventListener('click', function() {
+        if(!metricCharts || !metricCharts.innerHTML || metricCharts.innerHTML.indexOf('Không có dữ liệu') >= 0) {
+          toast('Không có dữ liệu để export', false);
+          return;
+        }
+        var origText = btnExportMetricChart.innerHTML;
+        btnExportMetricChart.innerHTML = '<span class="material-symbols-rounded mi-sm">sync</span> Đang xuất...';
+        btnExportMetricChart.disabled = true;
+
+        function doExport() {
+          html2canvas(metricCharts, { scale: 2, backgroundColor: getComputedStyle(document.body).getPropertyValue('--surface') || '#ffffff' }).then(function(canvas) {
+            var imgData = canvas.toDataURL('image/png');
+            var pdf = new window.jspdf.jsPDF('l', 'mm', 'a4');
+            var pdfWidth = pdf.internal.pageSize.getWidth();
+            var pdfHeight = pdf.internal.pageSize.getHeight();
+            var imgProps = pdf.getImageProperties(imgData);
+            var margin = 10;
+            var imgWidth = pdfWidth - margin * 2;
+            var imgHeight = (imgProps.height * imgWidth) / imgProps.width;
+            
+            if (imgHeight > pdfHeight - margin * 2 - 20) {
+               imgHeight = pdfHeight - margin * 2 - 20;
+               imgWidth = (imgProps.width * imgHeight) / imgProps.height;
+            }
+
+            var title = 'Metric do bug cua Dev theo du an - Thang ' + (metricMonthSel.value || '');
+            pdf.setFontSize(16);
+            pdf.text(title, margin, margin + 5);
+            
+            pdf.addImage(imgData, 'PNG', margin + (pdfWidth - margin*2 - imgWidth)/2, margin + 15, imgWidth, imgHeight);
+            pdf.save('Bug_Metric_' + (metricMonthSel.value || 'chart') + '.pdf');
+            
+            btnExportMetricChart.innerHTML = origText;
+            btnExportMetricChart.disabled = false;
+            toast('Export PDF thành công ✓', true);
+          }).catch(function(err) {
+            btnExportMetricChart.innerHTML = origText;
+            btnExportMetricChart.disabled = false;
+            toast('Lỗi export PDF', false);
+            console.error(err);
+          });
+        }
+
+        if(!window.html2canvas || !window.jspdf) {
+          var p1 = new Promise(function(resolve, reject) {
+            var s = document.createElement('script');
+            s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+            s.onload = resolve; s.onerror = reject; document.head.appendChild(s);
+          });
+          var p2 = new Promise(function(resolve, reject) {
+            var s = document.createElement('script');
+            s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+            s.onload = resolve; s.onerror = reject; document.head.appendChild(s);
+          });
+          Promise.all([p1, p2]).then(doExport).catch(function() {
+            btnExportMetricChart.innerHTML = origText;
+            btnExportMetricChart.disabled = false;
+            toast('Lỗi tải thư viện PDF', false);
+          });
+        } else {
+          doExport();
+        }
+      });
+    }
   }
 
   if(reopenMonthSel) {
