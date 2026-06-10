@@ -372,10 +372,11 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
           +'<span>'+esc(t.assignee.name)+'</span></div></td>'
           +'<td><span class="badge '+badgeCls(t.jira)+'">'+esc(t.jira)+'</span>'+chipHTML(t)+'</td>'
           +'<td class="cell-date"><span class="due '+esc(t.dueCls)+'">'+esc(t.dueDisp)+'</span></td>'
+          +'<td class="cell-date">'+esc(t.createdDisp)+'</td>'
           +'<td class="cell-date">'+esc(t.updatedDisp)+'</td></tr>';
       }).join('');
       for(var k=slice.length;k<PER_PAGE;k++){
-        html+='<tr class="pager-filler"><td>&nbsp;</td><td><span class="cell-title">&nbsp;</span></td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>';
+        html+='<tr class="pager-filler"><td>&nbsp;</td><td><span class="cell-title">&nbsp;</span></td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>';
       }
       tbody.innerHTML=html;
 
@@ -469,6 +470,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
         customs:[], canCustom:false,
         assignee:{ name:d.assignee||'—', init:initOf(d.assignee||'?'), cls:avById(d.assignee||'?') },
         due:d.duedate||'', dueDisp:d.duedate||'Chưa đặt hạn', dueCls:'',
+        created:d.created||'', createdDisp:d.created||'—',
         overdue:false, stuck:false, isNew:false,
         jiraUrl:(window.__jiraBase||'')+'/browse/'+key };
     }
@@ -510,6 +512,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
         +'<button class="x material-symbols-rounded" data-act="drawer-close">close</button></div>'
         +'<div class="drawer-body"><h2>'+esc(t.summary)+'</h2>'
         +'<div class="dt-grid"><div class="lbl">Người xử lý</div><div class="val"><span class="assignee"><span class="av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span> '+esc(t.assignee.name)+'</span></div>'
+        +'<div class="lbl">Ngày tạo</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].created)?esc(DETAIL[t.key].created):esc(t.createdDisp||'—'))+'</div>'
         +'<div class="lbl">Hạn chót</div><div class="val"><span class="due '+esc(t.dueCls)+'">'+esc(t.dueDisp)+'</span></div>'
         +'<div class="lbl">Cập nhật</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].updated)?esc(DETAIL[t.key].updated):'—')+'</div>'
         +'<div class="lbl">Dev phụ trách</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].devs&&DETAIL[t.key].devs.length)?DETAIL[t.key].devs.map(esc).join(', '):'—')+'</div>'
@@ -583,6 +586,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       customs:[], canCustom:false,
       assignee:{ name:d.assignee||'—', init:initOf(d.assignee||'?'), cls:avById(d.assignee||'?') },
       due:d.duedate||'', dueDisp:d.duedate||'Chưa đặt hạn', dueCls:'',
+      created:d.created||'', createdDisp:d.created||'—',
       overdue:false, stuck:false, isNew:false,
       jiraUrl:(window.__jiraBase||'')+'/browse/'+key };
   }
@@ -610,6 +614,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       +'<td class="status-cell"><div class="stat-wrap"><span class="badge '+jiraCls(t.jira)+'">'+esc(t.jira)+'</span>'
       +'<button class="caret material-symbols-rounded mi-sm" data-act="smenu" data-key="'+esc(t.key)+'">expand_more</button></div>'+chipHTML(t)+'</td>'
       +'<td><span class="assignee"><span class="av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span> '+esc(t.assignee.name)+'</span></td>'
+      +'<td class="cell-date">'+esc(t.createdDisp)+'</td>'
       +'<td><span class="due '+esc(t.dueCls)+'">'+esc(t.dueDisp)+'</span></td>'
       +'<td><button class="act-btn'+(openCmt[t.key]?' on':'')+'" data-act="cmt" data-key="'+esc(t.key)+'" title="Bình luận">'
       +'<span class="material-symbols-rounded mi-sm">chat_bubble_outline</span>'+cnt+'</button></td>'
@@ -623,7 +628,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     else hist=list.map(function(c){ return '<div class="cmt-item"><span class="av '+avById(c.author)+'">'+esc(initOf(c.author))+'</span>'
       +'<div class="cmt-main"><div class="cmt-meta"><b>'+esc(c.author)+'</b><span>'+esc((c.when||'').slice(0,16).replace('T',' '))+'</span></div>'
       +'<div class="cmt-text">'+esc(c.body)+'</div></div></div>'; }).join('');
-    return '<tr class="cmt-row"><td colspan="6"><div class="cmt-panel">'
+    return '<tr class="cmt-row"><td colspan="7"><div class="cmt-panel">'
       +'<div class="cmt-history">'+hist+'</div>'
       +'<div class="cmt-box"><textarea id="cmtTa-'+esc(key)+'" placeholder="Viết bình luận của bạn..."></textarea>'
       +'<div class="cmt-foot">'
@@ -633,7 +638,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   }
   function renderRows(){
     var all=visibleTasks();
-    if(!all.length){ tbody.innerHTML='<tr><td colspan="6"><div class="empty">Không có task nào 🎉</div></td></tr>';
+    if(!all.length){ tbody.innerHTML='<tr><td colspan="7"><div class="empty">Không có task nào 🎉</div></td></tr>';
       $('pager').innerHTML=''; return; }
     var pages=Math.max(1, Math.ceil(all.length/PER_PAGE));
     if(curPage>pages) curPage=pages; if(curPage<1) curPage=1;
@@ -733,6 +738,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       +'<button class="x material-symbols-rounded" data-act="drawer-close">close</button></div>'
       +'<div class="drawer-body"><h2>'+esc(t.summary)+'</h2>'
       +'<div class="dt-grid"><div class="lbl">Người xử lý</div><div class="val"><span class="assignee"><span class="av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span> '+esc(t.assignee.name)+'</span></div>'
+      +'<div class="lbl">Ngày tạo</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].created)?esc(DETAIL[t.key].created):esc(t.createdDisp||'—'))+'</div>'
       +'<div class="lbl">Hạn chót</div><div class="val"><span class="due '+esc(t.dueCls)+'">'+esc(t.dueDisp)+'</span></div>'
       +'<div class="lbl">Cập nhật</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].updated)?esc(DETAIL[t.key].updated):'—')+'</div>'
       +'<div class="lbl">Dev phụ trách</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].devs&&DETAIL[t.key].devs.length)?DETAIL[t.key].devs.map(esc).join(', '):'—')+'</div>'
@@ -901,6 +907,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       +'<button class="x material-symbols-rounded" data-act="drawer-close">close</button></div>'
       +'<div class="drawer-body"><h2>'+esc(t.summary)+'</h2>'
       +'<div class="dt-grid"><div class="lbl">Người xử lý</div><div class="val"><span class="assignee"><span class="av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span> '+esc(t.assignee.name)+'</span></div>'
+      +'<div class="lbl">Ngày tạo</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].created)?esc(DETAIL[t.key].created):'—')+'</div>'
       +'<div class="lbl">Hạn chót</div><div class="val"><span class="due">'+esc(t.dueDisp)+'</span></div>'
       +'<div class="lbl">Cập nhật</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].updated)?esc(DETAIL[t.key].updated):'—')+'</div>'
       +'<div class="lbl">Dev phụ trách</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].devs&&DETAIL[t.key].devs.length)?DETAIL[t.key].devs.map(esc).join(', '):'—')+'</div></div>'

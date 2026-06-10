@@ -1305,6 +1305,7 @@ def render_admin_v2(data, new_keys, activities, cmap, user):
             'due': i_duedate(iss) or '', 'dueDisp': i_duedate(iss) or 'Chưa đặt hạn',
             'dueCls': 'overdue' if overdue else '',
             'updated': upd_date, 'updatedDisp': upd_date or '—',
+            'created': (i_created(iss) or '')[:10], 'createdDisp': (i_created(iss) or '')[:10] or '—',
             'overdue': overdue, 'stuck': stuck,
             'isNew': is_new,
             'jiraUrl': f'{JIRA_URL}/browse/{key}',
@@ -1328,6 +1329,7 @@ def render_admin_v2(data, new_keys, activities, cmap, user):
             'due': i_duedate(iss) or '', 'dueDisp': i_duedate(iss) or '',
             'dueCls': '',
             'updated': upd_date, 'updatedDisp': upd_date or '—',
+            'created': (i_created(iss) or '')[:10], 'createdDisp': (i_created(iss) or '')[:10] or '—',
             'overdue': False, 'stuck': False,
             'isNew': (i_created(iss) or '')[:10] == today_str,
             'jiraUrl': f'{JIRA_URL}/browse/{key}',
@@ -1393,7 +1395,7 @@ def render_admin_v2(data, new_keys, activities, cmap, user):
         '<div style="overflow-x:auto"><table id="taskTable"><thead><tr>'
         '<th style="width:140px">Task ID</th><th>Title</th>'
         '<th style="width:180px">Member</th><th style="width:170px">Status</th>'
-        '<th style="width:120px">Due Date</th><th style="width:120px">Updated</th>'
+        '<th style="width:120px">Due Date</th><th style="width:120px">Ngày tạo</th><th style="width:120px">Updated</th>'
         '</tr></thead><tbody id="rows"></tbody></table></div>'
         '<div class="pager" id="pager"></div></div>'
         # KPI cards
@@ -1460,6 +1462,7 @@ def render_qa_v2(data, new_keys, activities, cmap, user, nav_active='dashboard')
             'assignee': {'name': aname, 'init': init, 'cls': cls},
             'due': i_duedate(iss) or '', 'dueDisp': i_duedate(iss) or 'Chưa đặt hạn',
             'dueCls': duecls, 'overdue': overdue, 'stuck': stuck, 'dueWeek': dueweek,
+            'created': (i_created(iss) or '')[:10], 'createdDisp': (i_created(iss) or '')[:10] or '—',
             'isNew': iss['key'] in new_keys,
             'jiraUrl': f'{JIRA_URL}/browse/{iss["key"]}',
         })
@@ -1485,7 +1488,7 @@ def render_qa_v2(data, new_keys, activities, cmap, user, nav_active='dashboard')
     table = (
         '<div class="card"><table><thead><tr>'
         '<th style="width:90px">ID</th><th>Tiêu đề</th><th style="width:160px">Trạng thái</th>'
-        '<th style="width:150px">Người xử lý</th><th style="width:130px">Hạn chót</th>'
+        '<th style="width:150px">Người xử lý</th><th style="width:110px">Ngày tạo</th><th style="width:130px">Hạn chót</th>'
         '<th style="width:70px">Thao tác</th>'
         '</tr></thead><tbody id="rows"></tbody></table></div>'
         '<div class="pager" id="pager"></div>'
