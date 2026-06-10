@@ -1553,10 +1553,10 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
 
     bugs = []
     months = set()
-    sources = []
+    src_files = []   # file Drive đã scan (name/project/count) — cho source card; KHÁC `sources` param
     for fid, f in files.items():
-        sources.append({'name': f.get('name', '') or '(không tên)',
-                        'project': f.get('project', ''), 'count': f.get('count', 0)})
+        src_files.append({'name': f.get('name', '') or '(không tên)',
+                          'project': f.get('project', ''), 'count': f.get('count', 0)})
         for key, b in (f.get('bugs', {}) or {}).items():
             month = b.get('month', '') or ''
             months.add(month)
@@ -1580,13 +1580,12 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
 
     synced = data.get('synced_at', '') or ''
     synced_disp = synced.replace('T', ' ')[:16] if synced else 'chưa đồng bộ'
-    is_admin = bool(user[1]) if (user and len(user) > 1) else True
 
     # source card: gộp các file Drive nguồn
-    if sources:
-        src_names = ' · '.join(esc(s['name']) for s in sources[:4])
-        if len(sources) > 4:
-            src_names += f' +{len(sources) - 4}'
+    if src_files:
+        src_names = ' · '.join(esc(s['name']) for s in src_files[:4])
+        if len(src_files) > 4:
+            src_names += f' +{len(src_files) - 4}'
         total_bugs = len(bugs)
         src_line = f'<b>{src_names}</b> — {total_bugs} bản ghi'
     else:
@@ -1596,10 +1595,10 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
     # "Quản lý link drive" = modal CRUD list link đã add.
     drive_btn = ('<button class="btn btn-ghost" id="blManageBtn">'
                  '<span class="material-symbols-rounded mi-sm">link</span> '
-                 'Quản lý link drive</button>') if is_admin else ''
+                 'Quản lý link drive</button>') if editable else ''
     # ✎ trên source card: đổi link file bug -> hệ thống đi theo link load data (single).
     edit_link_btn = ('<button class="bl-src-edit material-symbols-rounded" id="blEditLinkBtn" '
-                     'title="Đổi link file bug">edit</button>') if is_admin else ''
+                     'title="Đổi link file bug">edit</button>') if editable else ''
 
     # link-to-task bar (chỉ khi editable: cho tick + tạo link)
     linkbar = ''
@@ -1653,7 +1652,7 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
         '</div>'
         '<div style="overflow-x:auto"><table class="bl-table metric-table"><thead><tr id="blMetricHead"></tr></thead><tbody id="blMetricRows"></tbody></table></div>'
         '</div>'
-        + (_bug_log_source_modals() if is_admin else '')
+        + (_bug_log_source_modals() if editable else '')
         + _json_script('bugLogData', {
             'bugs': bugs, 'months': month_list, 'editable': bool(editable),
             'syncedAt': synced_disp,
