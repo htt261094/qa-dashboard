@@ -2196,6 +2196,9 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
 
     var inp=$('blTaskInp'), res=$('blTaskRes'), chips=$('blTaskChips'), taT;
 
+    // guard: nếu markup link bar chưa có (vd server chưa restart sau khi đổi render.py)
+    // thì bỏ qua phần typeahead — KHÔNG để throw làm chết cả controller (mất bảng/tab).
+    if(inp && res && chips){
     // vẽ lại các chip task đã chọn (đứng trước input trong cùng field)
     function renderChips(){
       chips.querySelectorAll('.bl-ta-chip').forEach(function(c){ c.remove(); });
@@ -2236,9 +2239,10 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     chips.addEventListener('click', function(e){ var x=e.target.closest('[data-rm]'); if(!x) return;
       rmTask(x.getAttribute('data-rm')); });
     document.addEventListener('click', function(e){ if(!e.target.closest('#blTaskTA')) res.classList.remove('open'); });
+    }  // end guard typeahead
 
     var lbtn=$('blLinkBtn');
-    lbtn.addEventListener('click', function(){
+    if(lbtn) lbtn.addEventListener('click', function(){
       var keys=Object.keys(sel).filter(function(k){return sel[k];});
       if(!keys.length) return;
       if(!taskSel.length) { toast('Vui lòng tìm và chọn task ở ô bên trái để liên kết', false); return; }
