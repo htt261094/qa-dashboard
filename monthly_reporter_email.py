@@ -1,7 +1,8 @@
 import os
 import sys
 import asyncio
-import requests
+import smtplib
+from email.message import EmailMessage
 from dotenv import load_dotenv
 from playwright.async_api import async_playwright
 
@@ -9,11 +10,15 @@ from playwright.async_api import async_playwright
 load_dotenv()
 
 JIRA_PORT = os.environ.get('JIRA_PORT', '8080')
-WEBHOOK_URL = os.environ.get('GOOGLE_CHAT_WEBHOOK_URL', '')
+SMTP_HOST = os.environ.get('SMTP_HOST', 'smtp.gmail.com')
+SMTP_PORT = int(os.environ.get('SMTP_PORT', '587'))
+SMTP_USER = os.environ.get('SMTP_USER', '')
+SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD', '')
+RECEIVER_EMAIL = os.environ.get('RECEIVER_EMAIL', '')
 
 async def main():
-    if not WEBHOOK_URL:
-        print("Lỗi: Chưa cấu hình GOOGLE_CHAT_WEBHOOK_URL trong file .env")
+    if not SMTP_USER or not SMTP_PASSWORD or not RECEIVER_EMAIL:
+        print("Lỗi: Chưa cấu hình đủ thông tin Email (SMTP_USER, SMTP_PASSWORD, RECEIVER_EMAIL) trong file .env")
         sys.exit(1)
 
     url = f"http://localhost:{JIRA_PORT}/bug-log"
@@ -45,7 +50,7 @@ async def main():
             # Chờ bảng biểu đồ Metric xuất hiện
             await page.wait_for_selector('#blMetricCharts', timeout=15000)
             
-            # Kiểm tra xem có nút Export không (nếu không có data, nút này vẫn render nhưng ta check theo logic)
+            # Kiểm tra xem có nút Export không
             export_btn = page.locator('#btnExportMetricChart')
             if await export_btn.count() == 0:
                 print("Không tìm thấy nút Export, có thể chưa có dữ liệu trong tháng.")
@@ -68,30 +73,35 @@ async def main():
             await download.save_as(file_path)
             print(f"Đã lưu báo cáo PDF tại: {file_path}")
 
-            # Lưu ý quan trọng: Webhook Google Chat KHÔNG hỗ trợ đính kèm trực tiếp file (chỉ hỗ trợ Text/Card).
-            # Do đó chúng ta bắn thông báo về Chat, và file thực tế được lưu trên ổ cứng Server (hoặc có thể setup gửi qua Email nếu muốn đính kèm).
             month_val = await page.locator('#blMetricMonth').input_value()
             
-            message_text = (
-                f"📊 *Báo cáo Bug Metric (Tháng {month_val})*\n"
-                f"✅ File PDF biểu đồ đã được tự động xuất.\n\n"
-                f"📄 *Đường dẫn file trên server*: `{file_path}`\n"
-                f"🔗 *Xem trực tiếp tại Dashboard*: {url}\n\n"
-                f"_Đây là tin nhắn tự động hàng tháng từ QA Dashboard Bot._"
+            print("Đang gửi báo cáo qua Email...")
+            msg = EmailMessage()
+            msg['Subject'] = f"Báo cáo Bug Metric (Tháng {month_val})"
+            msg['From'] = SMTP_USER
+            msg['To'] = RECEIVER_EMAIL
+            
+            msg.set_content(
+                f"Kính gửi anh Phương,\n\n"
+                f"Em xin gửi file đính kèm báo cáo Bug Metric tháng {month_val} từ hệ thống QA Workspace.\n\n"
+                f"Trân trọng,\n"
+                f"Huỳnh Tuấn Thành"
             )
             
-            print("Đang gửi thông báo lên Google Chat...")
-            resp = requests.post(
-                WEBHOOK_URL,
-                json={"text": message_text}
-            )
-            if resp.status_code == 200:
-                print("✅ Gửi thông báo Google Chat thành công!")
-            else:
-                print(f"❌ Lỗi khi gửi webhook: {resp.status_code} - {resp.text}")
+            with open(file_path, 'rb') as f:
+                pdf_data = f.read()
+                
+            msg.add_attachment(pdf_data, maintype='application', subtype='pdf', filename=file_name)
+            
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+                server.starttls()
+                server.login(SMTP_USER, SMTP_PASSWORD)
+                server.send_message(msg)
+                
+            print("✅ Gửi email báo cáo thành công!")
 
         except Exception as e:
-            print(f"Lỗi trong quá trình Auto Export: {e}")
+            print(f"Lỗi trong quá trình Auto Export/Send Email: {e}")
         finally:
             await browser.close()
 

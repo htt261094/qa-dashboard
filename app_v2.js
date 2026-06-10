@@ -2580,8 +2580,21 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
           
           metricCharts.insertBefore(titleEl, metricCharts.firstChild);
 
+          // Xử lý để html2canvas không bị cắt phần scroll
+          var innerScroll = metricCharts.querySelector('div[style*="overflow-x:auto"]') || metricCharts.querySelector('div[style*="overflow-x: auto"]');
+          var origInnerOverflow = '';
+          if (innerScroll) {
+             origInnerOverflow = innerScroll.style.overflowX;
+             innerScroll.style.overflowX = 'visible';
+          }
+          var origWidth = metricCharts.style.width;
+          metricCharts.style.width = Math.max(metricCharts.scrollWidth, 1200) + 'px';
+
           html2canvas(metricCharts, { scale: 2, backgroundColor: getComputedStyle(document.body).getPropertyValue('--surface') || '#ffffff' }).then(function(canvas) {
             titleEl.remove();
+            if (innerScroll) innerScroll.style.overflowX = origInnerOverflow;
+            metricCharts.style.width = origWidth;
+
             var imgData = canvas.toDataURL('image/png');
             var pdf = new window.jspdf.jsPDF('l', 'mm', 'a4');
             var pdfWidth = pdf.internal.pageSize.getWidth();
@@ -2596,13 +2609,19 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
                imgWidth = (imgProps.width * imgHeight) / imgProps.height;
             }
             
-            pdf.addImage(imgData, 'PNG', margin + (pdfWidth - margin*2 - imgWidth)/2, margin + 5, imgWidth, imgHeight);
+            // Căn giữa canvas trong PDF
+            var xPos = margin + (pdfWidth - margin * 2 - imgWidth) / 2;
+            var yPos = margin + (pdfHeight - margin * 2 - imgHeight) / 2;
+            pdf.addImage(imgData, 'PNG', xPos, yPos, imgWidth, imgHeight);
             pdf.save('Bug_Metric_' + (metricMonthSel.value || 'chart') + '.pdf');
             
             btnExportMetricChart.innerHTML = origText;
             btnExportMetricChart.disabled = false;
             toast('Export PDF thành công ✓', true);
           }).catch(function(err) {
+            titleEl.remove();
+            if (innerScroll) innerScroll.style.overflowX = origInnerOverflow;
+            metricCharts.style.width = origWidth;
             btnExportMetricChart.innerHTML = origText;
             btnExportMetricChart.disabled = false;
             toast('Lỗi export PDF', false);
