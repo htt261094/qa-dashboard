@@ -2,9 +2,23 @@ import os
 import sys
 import asyncio
 import smtplib
+import datetime
+import argparse
 from email.message import EmailMessage
 from dotenv import load_dotenv
 from playwright.async_api import async_playwright
+
+# Xử lý tham số dòng lệnh
+parser = argparse.ArgumentParser()
+parser.add_argument('--cron', action='store_true', help='Chỉ chạy nếu hôm nay là ngày cuối tháng')
+args = parser.parse_args()
+
+if args.cron:
+    today = datetime.date.today()
+    tomorrow = today + datetime.timedelta(days=1)
+    if tomorrow.day != 1:
+        print("Hôm nay không phải ngày cuối tháng. Bỏ qua chạy cron.")
+        sys.exit(0)
 
 # Đọc file .env
 load_dotenv()
