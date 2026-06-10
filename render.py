@@ -1596,7 +1596,11 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
     else:
         src_line = '<b>Chưa kết nối nguồn Drive nào.</b> Vào Cài đặt để kết nối Google Drive.'
 
-    # "Đồng bộ ngay" đã bỏ (user 2026-06-09): paste link ở ✎ source card -> tự sync.
+    # "Đồng bộ ngay" (thêm lại 2026-06-10): F5 chỉ render cache, không kéo Drive ->
+    # nút này POST /sync-bug-log chạy scan() ngay rồi reload. Admin-only (endpoint gate).
+    sync_btn = ('<button class="btn btn-ghost" id="blSyncBtn" title="Đọc lại data mới từ Drive ngay">'
+                '<span class="material-symbols-rounded mi-sm">sync</span> '
+                'Đồng bộ ngay</button>') if is_admin else ''
     # "Quản lý link drive" = modal CRUD list link đã add.
     drive_btn = ('<button class="btn btn-ghost" id="blManageBtn">'
                  '<span class="material-symbols-rounded mi-sm">link</span> '
@@ -1626,7 +1630,7 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
         '<h2 class="page-title">Bug Management</h2>'
         f'<div class="bl-sub"><span class="bl-dot"></span> Đã đồng bộ: {esc(synced_disp)}</div>'
         '</div><div style="display:flex;gap:10px;align-items:center">'
-        f'{drive_btn}</div></div>'
+        f'{sync_btn}{drive_btn}</div></div>'
         # source card (✎ = đổi link file bug, tự sync sau khi lưu)
         '<div class="card bl-source">'
         '<span class="ic material-symbols-rounded">table_view</span>'
