@@ -1956,7 +1956,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   var curMonth = MONTHS.length ? MONTHS[0] : '';
   var page = 1, PER = 15;
   var sel = {};            // bugKey -> true (test case đang tick)
-  var taskSel = '';        // task key đã chọn ở ô tìm
+  var taskSel = [];        // các task key đã chọn ở ô tìm (multi-select chip)
   var tabs=$('blTabs'), rows=$('blRows'), pager=$('blPager'), cnt=$('blCount');
 
   // ----- map mức độ / trạng thái -> class + nhãn -----
@@ -2072,7 +2072,8 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   function selCount(){ return Object.keys(sel).filter(function(k){return sel[k];}).length; }
   function updateLinkBtn(){ var btn=$('blLinkBtn'); if(!btn) return;
     var n=selCount(); $('blSelCount').textContent = n?('('+n+')'):'';
-    btn.disabled = !(n>0); }
+    // cần: có test case tick (n>0) VÀ có ít nhất 1 task đã chọn
+    btn.disabled = !(n>0 && taskSel.length>0); }
 
   // ----- events: tabs -----
   tabs.addEventListener('click', function(e){ var t=e.target.closest('.bl-tab'); if(!t) return;
@@ -2193,14 +2194,30 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       monthBugs().forEach(function(b){ if(all.checked) sel[b.key]=true; else delete sel[b.key]; });
       render(); });
 
-    var inp=$('blTaskInp'), res=$('blTaskRes'), taT;
-    inp.addEventListener('input', function(){ taskSel=''; updateLinkBtn();
+    var inp=$('blTaskInp'), res=$('blTaskRes'), chips=$('blTaskChips'), taT;
+
+    // vẽ lại các chip task đã chọn (đứng trước input trong cùng field)
+    function renderChips(){
+      chips.querySelectorAll('.bl-ta-chip').forEach(function(c){ c.remove(); });
+      taskSel.forEach(function(k){
+        var el=document.createElement('span'); el.className='bl-ta-chip';
+        el.innerHTML='<b>'+esc(k)+'</b><span class="x material-symbols-rounded mi-sm" data-rm="'+esc(k)+'">close</span>';
+        chips.insertBefore(el, inp);
+      });
+    }
+    function addTask(k){ if(k && taskSel.indexOf(k)<0){ taskSel.push(k); renderChips(); }
+      inp.value=''; res.classList.remove('open'); updateLinkBtn(); inp.focus(); }
+    function rmTask(k){ taskSel=taskSel.filter(function(t){return t!==k;}); renderChips(); updateLinkBtn(); }
+
+    inp.addEventListener('input', function(){
       var q=inp.value.trim(); clearTimeout(taT);
       if(q.length<2){ res.classList.remove('open'); return; }
       taT=setTimeout(function(){
         getJSON('/search-tasks?q='+encodeURIComponent(q), 15000).then(function(j){
           var rs=(j&&j.results)||[];
-          if(!rs.length){ res.innerHTML='<div class="opt">Không tìm thấy task.</div>'; res.classList.add('open'); return; }
+          // bỏ task đã chọn khỏi gợi ý
+          rs=rs.filter(function(r){ return taskSel.indexOf(r.key)<0; });
+          if(!rs.length){ res.innerHTML='<div class="opt">Không có task phù hợp.</div>'; res.classList.add('open'); return; }
           res.innerHTML = rs.map(function(r){
             var meta=[r.assignee, r.status].filter(Boolean).map(esc).join(' · ');
             return '<div class="opt" data-k="'+esc(r.key)+'"><b>'+esc(r.key)+'</b> — '+esc(r.summary)
@@ -2209,28 +2226,39 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
         }).catch(function(){ res.classList.remove('open'); });
       }, 250);
     });
+    // Backspace ở ô rỗng = gỡ chip cuối
+    inp.addEventListener('keydown', function(e){
+      if(e.key==='Backspace' && !inp.value && taskSel.length){ rmTask(taskSel[taskSel.length-1]); }
+    });
     res.addEventListener('click', function(e){ var o=e.target.closest('.opt[data-k]'); if(!o) return;
-      taskSel=o.getAttribute('data-k'); inp.value=taskSel; res.classList.remove('open'); updateLinkBtn(); });
+      addTask(o.getAttribute('data-k')); });
+    // ✕ trên chip = bỏ task khỏi danh sách đang chọn
+    chips.addEventListener('click', function(e){ var x=e.target.closest('[data-rm]'); if(!x) return;
+      rmTask(x.getAttribute('data-rm')); });
     document.addEventListener('click', function(e){ if(!e.target.closest('#blTaskTA')) res.classList.remove('open'); });
 
     var lbtn=$('blLinkBtn');
     lbtn.addEventListener('click', function(){
       var keys=Object.keys(sel).filter(function(k){return sel[k];});
       if(!keys.length) return;
-      if(!taskSel) { toast('Vui lòng tìm và chọn task ở ô bên trái để liên kết', false); return; }
-      doLink(keys, taskSel);
+      if(!taskSel.length) { toast('Vui lòng tìm và chọn task ở ô bên trái để liên kết', false); return; }
+      doLink(keys, taskSel.slice());
     });
   }
 
-  // op: 'add' (thêm task vào bug), 'remove' (gỡ 1 task khỏi bug), 'clear' (gỡ hết)
+  // op: 'add' (thêm task(s) vào bug), 'remove' (gỡ 1 task khỏi bug), 'clear' (gỡ hết)
+  // task: str (1 task — vd unlink) hoặc list[str] (multi-select link bar)
   function doLink(keys, task, op){
     op = op || 'add';
+    var tList = Array.isArray(task) ? task : [task];
     postJSON('/link-task', { keys: keys, task: task, op: op }, 20000).then(function(j){
       if(j && j.ok && j.links){
         var m=j.links;   // {bugKey: [tasks...]} trạng thái mới
         BUGS.forEach(function(b){ if(m.hasOwnProperty(b.key)) b.tasks = m[b.key]||[]; });
-        if(op==='add'){ keys.forEach(function(k){ delete sel[k]; }); taskSel=''; var inp=$('blTaskInp'); if(inp) inp.value='';
-          toast('Đã liên kết '+keys.length+' mục với '+task+' ✓', true); }
+        if(op==='add'){ keys.forEach(function(k){ delete sel[k]; });
+          taskSel=[]; var inp=$('blTaskInp'), ch=$('blTaskChips');
+          if(inp) inp.value=''; if(ch) ch.querySelectorAll('.bl-ta-chip').forEach(function(c){ c.remove(); });
+          toast('Đã liên kết '+keys.length+' mục với '+tList.join(', ')+' ✓', true); }
         else toast('Đã gỡ liên kết ✓', true);
         renderTabs(); render();
       } else toast('Lỗi lưu liên kết', false);
