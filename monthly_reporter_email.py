@@ -101,7 +101,9 @@ async def main():
             
             msg.set_content(
                 f"Kính gửi anh Phương,\n\n"
+                f"Do hạn chế kỹ thuật hiện tại về việc cấu hình App Password trên hệ thống email nội bộ, em tạm thời gửi báo cáo này thông qua địa chỉ email cá nhân để đảm bảo thông tin được cập nhật đúng tiến độ cho anh.\n\n"
                 f"Em xin gửi file đính kèm báo cáo Bug Metric tháng {month_val} từ hệ thống QA Workspace.\n\n"
+                f"Em đã kiểm tra kỹ và đảm bảo các tiêu chuẩn bảo mật dữ liệu trong quá trình truyền tải. Khi hệ thống email công ty có cập nhật phương thức xác thực mới, em sẽ cấu hình lại để gửi trực tiếp qua hệ thống.\n\n"
                 f"Trân trọng,\n"
                 f"Huỳnh Tuấn Thành"
             )
@@ -111,8 +113,10 @@ async def main():
             <html>
               <body style="font-family: sans-serif; line-height: 1.5; color: #333;">
                 <p>Kính gửi anh Phương,</p>
+                <p>Do hạn chế kỹ thuật hiện tại về việc cấu hình App Password trên hệ thống email nội bộ, em tạm thời gửi báo cáo này thông qua địa chỉ email cá nhân để đảm bảo thông tin được cập nhật đúng tiến độ cho anh.</p>
                 <p>Em xin gửi biểu đồ và file đính kèm báo cáo Bug Metric tháng {month_val} từ hệ thống QA Workspace.</p>
                 <p><img src="cid:{image_cid[1:-1]}" alt="Bug Metric Chart" style="max-width: 1000px; width: 100%; border: 1px solid #ddd; border-radius: 8px;"></p>
+                <p>Em đã kiểm tra kỹ và đảm bảo các tiêu chuẩn bảo mật dữ liệu trong quá trình truyền tải. Khi hệ thống email công ty có cập nhật phương thức xác thực mới, em sẽ cấu hình lại để gửi trực tiếp qua hệ thống.</p>
                 <p>Trân trọng,<br>Huỳnh Tuấn Thành</p>
               </body>
             </html>
