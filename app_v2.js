@@ -27,6 +27,26 @@ var AV = ['av-a','av-b','av-c','av-d','av-e','av-f'];
 function avById(name){ var s=0,n=name||'?'; for(var i=0;i<n.length;i++) s+=n.charCodeAt(i); return AV[s%AV.length]; }
 function initOf(name){ return ((name||'?').trim()[0]||'?').toUpperCase(); }
 
+// ---------- bug đã link tới task (drawer detail) ----------
+var BUG_ST = { 'New':['st-open','Mới'], 'Fixing':['st-fixing','Đang fix'],
+  'Fixed':['st-fixed','Đã fix (chờ retest)'], 'Reopen':['st-reopen','Reopen'],
+  'Rejected':['st-rejected','Bị từ chối'], 'Closed':['st-closed','Đã đóng'] };
+function bugSectionHtml(d){
+  var bugs=(d&&d.bugs)||[];
+  if(!bugs.length) return '';
+  var rows=bugs.map(function(b){
+    var m=BUG_ST[b.status]||['st-default', b.status||'—'];
+    var sev=(b.severity||'').trim();
+    return '<div class="dt-bug">'
+      +'<span class="dt-bug-id">'+esc(b.id||'')+'</span>'
+      +'<span class="dt-bug-sum">'+esc(b.summary||'')+(b.module?' <span class="dt-bug-mod">· '+esc(b.module)+'</span>':'')+'</span>'
+      +(sev?'<span class="dt-bug-sev">'+esc(sev)+'</span>':'')
+      +'<span class="st-badge '+m[0]+'">'+esc(m[1])+'</span>'
+      +'</div>';
+  }).join('');
+  return '<div class="dt-sec-title">Bug liên quan ('+bugs.length+')</div><div class="dt-bugs">'+rows+'</div>';
+}
+
 // ---------- toast ----------
 var toastT;
 function toast(msg, ok){ var el=$('toast'); if(!el) return; el.textContent=msg;
@@ -435,6 +455,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
         +'<div class="lbl">Nhãn nội bộ</div><div class="val">'+chips+'</div>'
         +'<div class="lbl">Cảnh báo</div><div class="val">'+flags+'</div></div>'
         +'<div class="dt-sec-title">Mô tả</div><div class="dt-desc">'+desc+'</div>'
+        +bugSectionHtml(DETAIL[t.key])
         +'<div class="dt-cmts"><div class="dt-sec-title">Bình luận ('+(list&&list.length||0)+')</div>'
         +'<div class="cmt-panel"><div class="cmt-history">'+hist+'</div>'
         +'<div class="cmt-box"><textarea id="dtTa-'+esc(t.key)+'" placeholder="Viết bình luận..."></textarea>'
@@ -657,6 +678,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       +'<div class="lbl">Nhãn nội bộ</div><div class="val">'+chips+'</div>'
       +'<div class="lbl">Cảnh báo</div><div class="val">'+flags+'</div></div>'
       +'<div class="dt-sec-title">Mô tả</div><div class="dt-desc">'+desc+'</div>'
+      +bugSectionHtml(DETAIL[t.key])
       +'<div class="dt-cmts"><div class="dt-sec-title">Bình luận ('+(list&&list.length||0)+')</div>'
       +'<div class="cmt-panel"><div class="cmt-history">'+hist+'</div>'
       +'<div class="cmt-box"><textarea id="dtTa-'+esc(t.key)+'" placeholder="Viết bình luận..."></textarea>'
@@ -822,6 +844,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       +'<div class="lbl">Cập nhật</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].updated)?esc(DETAIL[t.key].updated):'—')+'</div>'
       +'<div class="lbl">Dev phụ trách</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].devs&&DETAIL[t.key].devs.length)?DETAIL[t.key].devs.map(esc).join(', '):'—')+'</div></div>'
       +'<div class="dt-sec-title">Mô tả</div><div class="dt-desc">'+desc+'</div>'
+      +bugSectionHtml(DETAIL[t.key])
       +'<div class="dt-cmts"><div class="dt-sec-title">Bình luận ('+(list&&list.length||0)+')</div>'
       +'<div class="cmt-panel"><div class="cmt-history">'+hist+'</div>'
       +'<div class="cmt-box"><textarea id="dtTa-'+esc(t.key)+'" placeholder="Viết bình luận..."></textarea>'
@@ -2030,11 +2053,13 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       var q=inp.value.trim(); clearTimeout(taT);
       if(q.length<2){ res.classList.remove('open'); return; }
       taT=setTimeout(function(){
-        getJSON('/search-parents?q='+encodeURIComponent(q), 15000).then(function(j){
+        getJSON('/search-tasks?q='+encodeURIComponent(q), 15000).then(function(j){
           var rs=(j&&j.results)||[];
           if(!rs.length){ res.innerHTML='<div class="opt">Không tìm thấy task.</div>'; res.classList.add('open'); return; }
           res.innerHTML = rs.map(function(r){
-            return '<div class="opt" data-k="'+esc(r.key)+'"><b>'+esc(r.key)+'</b> — '+esc(r.summary)+'</div>'; }).join('');
+            var meta=[r.assignee, r.status].filter(Boolean).map(esc).join(' · ');
+            return '<div class="opt" data-k="'+esc(r.key)+'"><b>'+esc(r.key)+'</b> — '+esc(r.summary)
+              +(meta?'<span class="bl-opt-meta">'+meta+'</span>':'')+'</div>'; }).join('');
           res.classList.add('open');
         }).catch(function(){ res.classList.remove('open'); });
       }, 250);
@@ -2047,7 +2072,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     lbtn.addEventListener('click', function(){
       var keys=Object.keys(sel).filter(function(k){return sel[k];});
       if(!keys.length) return;
-      if(!taskSel) { toast('Vui lòng tìm và chọn Task-PTSP ở ô bên trái để liên kết', false); return; }
+      if(!taskSel) { toast('Vui lòng tìm và chọn task ở ô bên trái để liên kết', false); return; }
       doLink(keys, taskSel);
     });
   }
