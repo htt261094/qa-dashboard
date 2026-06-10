@@ -70,6 +70,67 @@ function applyTheme(t){ document.documentElement.setAttribute('data-theme', t);
     if(!e.target.closest('#pmenu') && !e.target.closest('#profileBtn')) menu.classList.remove('open'); });
 })();
 
+// ---------- global search topbar (quick-search toàn Jira) ----------
+// Gõ key / số (5125 -> DA61H26-5125) / text summary -> dropdown -> click mở drawer tại chỗ.
+// Chạy mọi trang v2. KHÔNG đụng filter bảng local (vẫn bind input riêng ở từng closure).
+(function(){
+  var inp=$('searchInp'); if(!inp) return;
+  var box=inp.closest('.search') || inp.parentNode;
+  if(box && getComputedStyle(box).position==='static') box.style.position='relative';
+  var dd=document.createElement('div'); dd.className='gsearch-dd'; dd.style.display='none';
+  box.appendChild(dd);
+  var ST={ 'TO DO':'st-open','In Progress':'st-fixing','PENDING':'st-default',
+           'DONE':'st-fixed','CANCELLED':'st-closed' };
+  var seq=0, lastQ='', curRows=[], active=-1;
+
+  function hide(){ dd.style.display='none'; active=-1; }
+  function open(){ if(dd.firstChild) dd.style.display='block'; }
+  function rowHtml(r, i){
+    var cls=ST[r.status]||'st-default';
+    return '<div class="gs-item'+(i===active?' active':'')+'" data-key="'+esc(r.key)+'" data-i="'+i+'">'
+      +'<span class="gs-key">'+esc(r.key)+'</span>'
+      +'<span class="gs-sum">'+esc(r.summary||'')+'</span>'
+      +(r.status?'<span class="st-badge '+cls+'">'+esc(r.status)+'</span>':'')
+      +'</div>';
+  }
+  function render(){
+    if(!curRows.length){ dd.innerHTML='<div class="gs-empty">Không tìm thấy task</div>'; open(); return; }
+    dd.innerHTML=curRows.map(rowHtml).join('');
+    open();
+  }
+  function pick(key){ hide(); inp.blur();
+    if(window.__openDetail){ window.__openDetail(key); }
+    else { window.open((window.__jiraBase||'')+'/browse/'+encodeURIComponent(key), '_blank'); }
+  }
+  function run(q){
+    var my=++seq; lastQ=q;
+    dd.innerHTML='<div class="gs-empty">Đang tìm…</div>'; open();
+    getJSON('/global-search?q='+encodeURIComponent(q), 15000).then(function(j){
+      if(my!==seq) return;                 // kết quả cũ -> bỏ
+      curRows=(j&&j.ok&&j.results)||[]; active=-1; render();
+    }).catch(function(){ if(my!==seq) return; curRows=[]; dd.innerHTML='<div class="gs-empty">Lỗi tìm kiếm</div>'; open(); });
+  }
+  var deb;
+  inp.addEventListener('input', function(){
+    var q=(inp.value||'').trim();
+    clearTimeout(deb);
+    if(q.length<2){ seq++; hide(); return; }
+    deb=setTimeout(function(){ run(q); }, 300);
+  });
+  inp.addEventListener('keydown', function(e){
+    if(dd.style.display==='none') return;
+    if(e.key==='ArrowDown'){ e.preventDefault(); active=Math.min(active+1, curRows.length-1); render(); }
+    else if(e.key==='ArrowUp'){ e.preventDefault(); active=Math.max(active-1, -1); render(); }
+    else if(e.key==='Enter'){ if(active>=0&&curRows[active]){ e.preventDefault(); pick(curRows[active].key); } }
+    else if(e.key==='Escape'){ hide(); }
+  });
+  inp.addEventListener('focus', function(){ if(curRows.length && (inp.value||'').trim().length>=2) open(); });
+  dd.addEventListener('mousedown', function(e){    // mousedown để chạy trước blur
+    var it=e.target.closest('.gs-item'); if(it){ e.preventDefault(); pick(it.getAttribute('data-key')); } });
+  document.addEventListener('click', function(e){
+    if(!e.target.closest('.search')) hide(); });
+})();
+
 // ---------- settings PAT modal ----------
 (function(){
   var ov=$('setOverlay'); if(!ov) return;

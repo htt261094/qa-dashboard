@@ -1008,3 +1008,15 @@ html[data-theme="dark"] .metric-table th { background: var(--surface-highest); }
 .metric-table td { padding: 12px 20px; }
 .metric-table .col-total { font-weight: 700; color: #0052cc; }
 html[data-theme="dark"] .metric-table .col-total { color: #85b8ff; }
+
+/* ===== Global search dropdown (topbar quick-search toàn Jira) ===== */
+.gsearch-dd{position:absolute;top:calc(100% + 6px);left:0;right:0;background:var(--card);
+  border:1px solid var(--outline-variant);border-radius:var(--r-lg);box-shadow:var(--shadow);
+  z-index:50;max-height:420px;overflow-y:auto;overscroll-behavior:contain;padding:6px}
+.gs-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--r-md);
+  cursor:pointer;font-size:13px}
+.gs-item:hover,.gs-item.active{background:var(--surface-container)}
+.gs-key{font-weight:700;color:var(--primary);white-space:nowrap;font-size:12px}
+.gs-sum{flex:1;color:var(--on-surface);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gs-item .st-badge{padding:2px 8px;font-size:11px;flex-shrink:0}
+.gs-empty{padding:14px 12px;text-align:center;color:var(--on-surface-variant);font-size:13px}
