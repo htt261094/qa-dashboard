@@ -361,8 +361,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             try:
                 res = run_parallel({'bug': load_bug_log, 'links': load_links,
                                     'sources': load_sources, 'bell': self._bell_activities})
+                # Bug Log mở cho MỌI QA (kể cả non-admin): liên kết Task + quản lý link
+                # drive nguồn. editable=True cho mọi user đã authed (route đã gate authed).
                 self._html(render_bug_log_v2(res['bug'], res['links'],
-                                             editable=self._is_admin(),
+                                             editable=True,
                                              user=self._user_ctx(), activities=res['bell'],
                                              sources=res['sources']))
             except RuntimeError as e:
@@ -627,12 +629,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                        json.dumps(res, ensure_ascii=False).encode('utf-8'))
             return
         if self.path == '/save-bug-log-sources':
-            # Lưu list file Drive nguồn (paste link -> rút id) rồi scan ngay (admin-only).
+            # Lưu list file Drive nguồn (paste link -> rút id) rồi scan ngay.
             # Body: {sources:[{link|id, label}]}. Server rút file id, validate, save_sources,
             # rồi chạy scan() để đọc data luôn (user chốt "tự sync ngay sau khi lưu").
-            if not self._is_admin():
-                self._json(403, b'{"ok":false,"err":"forbidden"}')
-                return
+            # MỌI QA authed được sửa nguồn (do_POST đã gate authed) — user chốt mở toàn quyền.
             out = None
             err = ''
             try:
@@ -678,11 +678,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._json(200, json.dumps(res, ensure_ascii=False).encode('utf-8'))
             return
         if self.path == '/link-task':
-            # Liên kết / gỡ link list test-case (bug key) <-> 1 Jira task (#55). Admin-only
-            # (khớp editable=_is_admin ở render). Lưu app-side, không ghi Jira.
-            if not self._is_admin():
-                self._json(403, b'{"ok":false,"err":"forbidden"}')
-                return
+            # Liên kết / gỡ link list test-case (bug key) <-> 1 Jira task (#55).
+            # Mở cho MỌI QA authed (khớp editable=True ở render). Lưu app-side, không ghi Jira.
             out = None
             try:
                 length = int(self.headers.get('Content-Length', 0))
