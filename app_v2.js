@@ -2346,12 +2346,18 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     var projSet = {};
     
     mBugs.forEach(function(b) {
-      var d = (b.dev || 'Chưa gán').trim();
+      var devStr = (b.dev || 'Chưa gán').trim();
+      var devList = devStr.split(/[,;+&]/).map(function(s){ return s.trim(); }).filter(Boolean);
+      if(devList.length === 0) devList = ['Chưa gán'];
+      var fraction = 1 / devList.length;
       var p = (b.project || 'Khác').trim();
-      if(!devs[d]) devs[d] = { total: 0, projs: {} };
-      if(!devs[d].projs[p]) devs[d].projs[p] = 0;
-      devs[d].projs[p]++;
-      devs[d].total++;
+      
+      devList.forEach(function(d){
+        if(!devs[d]) devs[d] = { total: 0, projs: {} };
+        if(!devs[d].projs[p]) devs[d].projs[p] = 0;
+        devs[d].projs[p] += fraction;
+        devs[d].total += fraction;
+      });
       projSet[p] = true;
     });
     
@@ -2390,13 +2396,15 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
         if(count) {
           var pct = (count / yMax) * 100;
           var color = PIE_COLORS[idx % PIE_COLORS.length];
+          var displayCount = +(count.toFixed(2));
           // segments stack upwards, so prepend
-          segmentsHtml = '<div style="width:100%; height:'+pct+'%; background:'+color+'; display:flex; align-items:center; justify-content:center; color:#fff; font-size:11px; font-weight:600; overflow:hidden;" title="'+esc(p)+': '+count+'">' + (pct > 6 ? count : '') + '</div>' + segmentsHtml;
+          segmentsHtml = '<div style="width:100%; height:'+pct+'%; background:'+color+'; display:flex; align-items:center; justify-content:center; color:#fff; font-size:11px; font-weight:600; overflow:hidden;" title="'+esc(p)+': '+displayCount+'">' + (pct > 6 ? displayCount : '') + '</div>' + segmentsHtml;
         }
       });
       
+      var displayTotal = +(dData.total.toFixed(2));
       barsHtml += '<div style="display:flex; flex-direction:column; align-items:center; width:48px; margin:0 12px; z-index:1;">' +
-        '<div style="font-size:12.5px; font-weight:700; color:var(--on-surface); margin-bottom:6px;">'+dData.total+'</div>' +
+        '<div style="font-size:12.5px; font-weight:700; color:var(--on-surface); margin-bottom:6px;">'+displayTotal+'</div>' +
         '<div style="width:100%; height:'+chartHeight+'px; display:flex; flex-direction:column; justify-content:flex-end; border-radius:4px 4px 0 0; overflow:hidden;">' + segmentsHtml + '</div>' +
         '<div style="font-size:12px; margin-top:10px; text-align:center; word-break:break-word; color:var(--on-surface-variant); width:64px; line-height:1.3;">'+esc(d)+'</div>' +
         '</div>';
@@ -2450,8 +2458,13 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     var mBugs = BUGS.filter(function(b){ return getCreatedMonthYear(b.created) === selectedMonth; });
     var bugsPerDev = {}, totalBugs = mBugs.length, bugByKey = {};
     mBugs.forEach(function(b){
-      var d = (b.dev || 'Chưa gán').trim();
-      bugsPerDev[d] = (bugsPerDev[d] || 0) + 1;
+      var devStr = (b.dev || 'Chưa gán').trim();
+      var devList = devStr.split(/[,;+&]/).map(function(s){ return s.trim(); }).filter(Boolean);
+      if(devList.length === 0) devList = ['Chưa gán'];
+      var fraction = 1 / devList.length;
+      devList.forEach(function(d){
+        bugsPerDev[d] = (bugsPerDev[d] || 0) + fraction;
+      });
       if(b.key) bugByKey[b.key] = b;
     });
     // reopen của tháng: distinct bug + tổng lần fix, theo dev; gom chi tiết per-dev cho drill-down
@@ -2465,13 +2478,20 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
         var fm = p.length >= 2 ? (p[1] + '/' + p[0]) : rm;
         if(fm !== selectedMonth) return;
       }
-      var dev = ((b ? b.dev : r.dev) || 'Chưa gán').trim();
+      var devStr = ((b ? b.dev : r.dev) || 'Chưa gán').trim();
       var fx = fixOf(r);
-      distinctPerDev[dev] = (distinctPerDev[dev] || 0) + 1;
-      fixPerDev[dev] = (fixPerDev[dev] || 0) + fx;
+      
+      var devList = devStr.split(/[,;+&]/).map(function(s){ return s.trim(); }).filter(Boolean);
+      if(devList.length === 0) devList = ['Chưa gán'];
+      var fraction = 1 / devList.length;
       distinctTotal++;
-      (detailPerDev[dev] = detailPerDev[dev] || []).push({
-        id: b ? b.id : key, summary: b ? b.summary : '', reopen: cnt, fix: fx
+      
+      devList.forEach(function(d){
+        distinctPerDev[d] = (distinctPerDev[d] || 0) + fraction;
+        fixPerDev[d] = (fixPerDev[d] || 0) + (fx * fraction);
+        (detailPerDev[d] = detailPerDev[d] || []).push({
+          id: b ? b.id : key, summary: b ? b.summary : '', reopen: cnt * fraction, fix: fx * fraction
+        });
       });
     });
     // KPI headline
@@ -2497,9 +2517,11 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     function detailRow(dev){
       var items = (detailPerDev[dev] || []).slice().sort(function(a,b){ return b.reopen - a.reopen; });
       var li = items.map(function(it){
+        var reopenDisp = +(it.reopen.toFixed(2));
+        var fixDisp = +(it.fix.toFixed(2));
         return '<div class="rk-bug"><span class="rk-bug-id">' + esc(it.id) + '</span>'
           + '<span class="rk-bug-sum">' + esc(it.summary || '(không mô tả)') + '</span>'
-          + '<span class="rk-bug-n">' + it.reopen + ' lần reopen · ' + it.fix + ' lần fix</span></div>';
+          + '<span class="rk-bug-n">' + reopenDisp + ' lần reopen · ' + fixDisp + ' lần fix</span></div>';
       }).join('');
       return '<tr class="rk-detail"><td colspan="4"><div class="rk-detail-box">'
         + '<div class="rk-detail-hd">Chi tiết bug bị reopen của ' + esc(dev) + '</div>' + li
@@ -2510,7 +2532,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       var open = !!reopenExpanded[d];
       var row = '<tr class="rk-row' + (open ? ' open' : '') + '" data-dev="' + esc(d) + '">'
         + '<td><span class="rk-caret material-symbols-rounded">' + (open ? 'expand_more' : 'chevron_right') + '</span>' + esc(d) + '</td>'
-        + '<td>' + nb + '</td><td>' + fx + '</td>'
+        + '<td>' + +(nb.toFixed(2)) + '</td><td>' + +(fx.toFixed(2)) + '</td>'
         + '<td class="col-total">' + rateCell(nb, denom) + '</td></tr>';
       if(open) row += detailRow(d);
       return row;
