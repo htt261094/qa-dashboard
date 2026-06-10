@@ -93,7 +93,7 @@ async def main():
             
             # Danh sách email được phép xem file
             viewer_emails = [
-                os.environ.get('RECEIVER_EMAIL', 'cto@baokim.vn'),
+                os.environ.get('RECEIVER_EMAIL', ''),
                 os.environ.get('JIRA_ADMIN_EMAIL', 'thanhht1@baokim.vn')
             ]
             
@@ -108,34 +108,52 @@ async def main():
                 print("Đang upload Ảnh biểu đồ lên Google Drive...")
                 media_img = MediaIoBaseUpload(img_stream, mimetype='image/png', resumable=True)
                 img_file = drive.files().create(
-                    body={'name': f'Bug_Metric_{month_val}.png'},
+                    body={
+                        'name': f'Bug_Metric_{month_val}.png',
+                        'parents': ['0AOuFd9ZsWbmkUk9PVA']
+                    },
                     media_body=media_img,
-                    fields='id, webViewLink'
+                    fields='id, webViewLink',
+                    supportsAllDrives=True
                 ).execute()
                 
                 for email in viewer_emails:
-                    drive.permissions().create(
-                        fileId=img_file.get('id'),
-                        body={'type': 'user', 'role': 'reader', 'emailAddress': email},
-                        sendNotificationEmail=False
-                    ).execute()
+                    if email:
+                        try:
+                            drive.permissions().create(
+                                fileId=img_file.get('id'),
+                                body={'type': 'user', 'role': 'reader', 'emailAddress': email},
+                                sendNotificationEmail=False,
+                                supportsAllDrives=True
+                            ).execute()
+                        except Exception as e:
+                            print(f"Bỏ qua cấp quyền cho {email} (có thể đã là thành viên thư mục): {e}")
                 img_link = img_file.get('webViewLink')
 
             # Upload PDF file
             print("Đang upload file PDF lên Google Drive...")
             media_pdf = MediaFileUpload(file_path, mimetype='application/pdf', resumable=True)
             pdf_file = drive.files().create(
-                body={'name': f'Bug_Metric_{month_val}.pdf'},
+                body={
+                    'name': f'Bug_Metric_{month_val}.pdf',
+                    'parents': ['0AOuFd9ZsWbmkUk9PVA']
+                },
                 media_body=media_pdf,
-                fields='id, webViewLink'
+                fields='id, webViewLink',
+                supportsAllDrives=True
             ).execute()
             
             for email in viewer_emails:
-                drive.permissions().create(
-                    fileId=pdf_file.get('id'),
-                    body={'type': 'user', 'role': 'reader', 'emailAddress': email},
-                    sendNotificationEmail=False
-                ).execute()
+                if email:
+                    try:
+                        drive.permissions().create(
+                            fileId=pdf_file.get('id'),
+                            body={'type': 'user', 'role': 'reader', 'emailAddress': email},
+                            sendNotificationEmail=False,
+                            supportsAllDrives=True
+                        ).execute()
+                    except Exception as e:
+                        print(f"Bỏ qua cấp quyền cho {email} (có thể đã là thành viên thư mục): {e}")
             pdf_link = pdf_file.get('webViewLink')
 
             print("Đang gửi tin nhắn Google Chat...")
