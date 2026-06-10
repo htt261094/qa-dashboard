@@ -2413,8 +2413,10 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     Object.keys(REOPEN).forEach(function(key){
       var r = REOPEN[key] || {}; var cnt = +r.count || 0; if(cnt <= 0) return;
       var b = bugByKey[key];
-      var month = b ? b.month : (r.month || '');
-      if(month !== selectedMonth) return;
+      var rawMonth = b ? b.month : (r.month || '');
+      var p = (rawMonth || '').split('-');
+      var formattedMonth = p.length >= 2 ? (p[1] + '/' + p[0]) : rawMonth;
+      if(formattedMonth !== selectedMonth) return;
       var dev = ((b ? b.dev : r.dev) || 'Chưa gán').trim();
       var fx = fixOf(r);
       distinctPerDev[dev] = (distinctPerDev[dev] || 0) + 1;
