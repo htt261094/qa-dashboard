@@ -1664,16 +1664,20 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
         '<th style="width:160px">Liên kết Task</th>'
         '</tr></thead><tbody id="blRows"></tbody></table></div>'
         '<div class="pager" id="blPager"></div></div>'
-        # metric table
-        '<div class="card metric-card">'
+        # metric cards container
+        '<div class="metrics-row" style="display: flex; gap: 24px; align-items: flex-start; margin-top: 24px; flex-wrap: wrap;">'
+        
+        # metric card 1 (Pie charts)
+        '<div class="card metric-card" style="flex: 1; min-width: 400px; margin-top: 0;">'
         '<div class="metric-header">'
         '<div class="table-title"><span>Metric đo bug của Dev theo dự án (Tháng)</span></div>'
         '<div class="metric-filter"><span class="material-symbols-rounded mi-sm">calendar_month</span> <select id="blMetricMonth"></select></div>'
         '</div>'
-        '<div style="overflow-x:auto"><table class="bl-table metric-table"><thead><tr id="blMetricHead"></tr></thead><tbody id="blMetricRows"></tbody></table></div>'
+        '<div id="blMetricCharts" style="padding: 20px; display: flex; gap: 24px; flex-wrap: wrap; justify-content: center;"></div>'
         '</div>'
+        
         # reopen metric card — chất lượng fix của dev (Decision: issue #69)
-        '<div class="card metric-card">'
+        '<div class="card metric-card" style="flex: 1; min-width: 400px; margin-top: 0;">'
         '<div class="metric-header">'
         '<div class="table-title"><span>Tỷ lệ Reopen — chất lượng fix của dev (Tháng)</span></div>'
         '<div class="metric-filter"><span class="material-symbols-rounded mi-sm">calendar_month</span> <select id="blReopenMonth"></select></div>'
@@ -1683,6 +1687,8 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
         '<div class="bl-reopen-note">Số tích luỹ từ khi bật theo dõi; reopen trước đó không có lịch sử. '
         'Round-trip Fixed→Reopen→Fixed gọn trong 10 phút có thể bị sót.</div>'
         '</div>'
+
+        '</div>' # end metrics-row
         + (_bug_log_source_modals() if editable else '')
         + _json_script('bugLogData', {
             'bugs': bugs, 'months': month_list, 'editable': bool(editable),
