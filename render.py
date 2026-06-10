@@ -1553,6 +1553,7 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
     """
     data = data or {}
     links = links or {}
+    is_admin = user[1] if (user and len(user) > 1) else True
     files = data.get('files', {}) or {}
     reopen = data.get('reopen', {}) or {}
 
