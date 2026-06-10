@@ -1128,7 +1128,7 @@ def render_sidebar_v2(active, user):
     if is_admin:
         nav += lnk('/my-work', 'mywork', 'person', 'Việc của tôi')
     nav += lnk('/roadmap', 'roadmap', 'map', 'Roadmap')
-    nav += lnk('/bug-log', 'buglog', 'bug_report', 'Bug Log')
+    nav += lnk('/bug-log', 'buglog', 'bug_report', 'Bugs')
     nav += lnk('/docs', 'docs', 'description', 'Tài liệu')
 
     uname = username_from_email(email) if (email and '@' in email) else None
@@ -1305,6 +1305,7 @@ def render_admin_v2(data, new_keys, activities, cmap, user):
             'due': i_duedate(iss) or '', 'dueDisp': i_duedate(iss) or 'Chưa đặt hạn',
             'dueCls': 'overdue' if overdue else '',
             'updated': upd_date, 'updatedDisp': upd_date or '—',
+            'created': (i_created(iss) or '')[:10], 'createdDisp': (i_created(iss) or '')[:10] or '—',
             'overdue': overdue, 'stuck': stuck,
             'isNew': is_new,
             'jiraUrl': f'{JIRA_URL}/browse/{key}',
@@ -1328,6 +1329,7 @@ def render_admin_v2(data, new_keys, activities, cmap, user):
             'due': i_duedate(iss) or '', 'dueDisp': i_duedate(iss) or '',
             'dueCls': '',
             'updated': upd_date, 'updatedDisp': upd_date or '—',
+            'created': (i_created(iss) or '')[:10], 'createdDisp': (i_created(iss) or '')[:10] or '—',
             'overdue': False, 'stuck': False,
             'isNew': (i_created(iss) or '')[:10] == today_str,
             'jiraUrl': f'{JIRA_URL}/browse/{key}',
@@ -1393,7 +1395,7 @@ def render_admin_v2(data, new_keys, activities, cmap, user):
         '<div style="overflow-x:auto"><table id="taskTable"><thead><tr>'
         '<th style="width:140px">Task ID</th><th>Title</th>'
         '<th style="width:180px">Member</th><th style="width:170px">Status</th>'
-        '<th style="width:120px">Due Date</th><th style="width:120px">Updated</th>'
+        '<th style="width:120px">Due Date</th><th style="width:120px">Ngày tạo</th><th style="width:120px">Updated</th>'
         '</tr></thead><tbody id="rows"></tbody></table></div>'
         '<div class="pager" id="pager"></div></div>'
         # KPI cards
@@ -1460,6 +1462,7 @@ def render_qa_v2(data, new_keys, activities, cmap, user, nav_active='dashboard')
             'assignee': {'name': aname, 'init': init, 'cls': cls},
             'due': i_duedate(iss) or '', 'dueDisp': i_duedate(iss) or 'Chưa đặt hạn',
             'dueCls': duecls, 'overdue': overdue, 'stuck': stuck, 'dueWeek': dueweek,
+            'created': (i_created(iss) or '')[:10], 'createdDisp': (i_created(iss) or '')[:10] or '—',
             'isNew': iss['key'] in new_keys,
             'jiraUrl': f'{JIRA_URL}/browse/{iss["key"]}',
         })
@@ -1485,7 +1488,7 @@ def render_qa_v2(data, new_keys, activities, cmap, user, nav_active='dashboard')
     table = (
         '<div class="card"><table><thead><tr>'
         '<th style="width:90px">ID</th><th>Tiêu đề</th><th style="width:160px">Trạng thái</th>'
-        '<th style="width:150px">Người xử lý</th><th style="width:130px">Hạn chót</th>'
+        '<th style="width:150px">Người xử lý</th><th style="width:110px">Ngày tạo</th><th style="width:130px">Hạn chót</th>'
         '<th style="width:70px">Thao tác</th>'
         '</tr></thead><tbody id="rows"></tbody></table></div>'
         '<div class="pager" id="pager"></div>'
@@ -1550,19 +1553,21 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
     data = data or {}
     links = links or {}
     files = data.get('files', {}) or {}
+    reopen = data.get('reopen', {}) or {}
 
     bugs = []
     months = set()
-    sources = []
+    src_files = []   # file Drive đã scan (name/project/count) — cho source card; KHÁC `sources` param
     for fid, f in files.items():
-        sources.append({'name': f.get('name', '') or '(không tên)',
-                        'project': f.get('project', ''), 'count': f.get('count', 0)})
+        src_files.append({'name': f.get('name', '') or '(không tên)',
+                          'project': f.get('project', ''), 'count': f.get('count', 0)})
         for key, b in (f.get('bugs', {}) or {}).items():
             month = b.get('month', '') or ''
             months.add(month)
             link = links.get(key) or {}
             bugs.append({
                 'key': key,
+                'fid': fid,
                 'id': f"{b.get('project', '')}-{b.get('bug_no', '')}".strip('-'),
                 'summary': b.get('summary', ''),
                 'module': b.get('feature', ''),
@@ -1580,13 +1585,12 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
 
     synced = data.get('synced_at', '') or ''
     synced_disp = synced.replace('T', ' ')[:16] if synced else 'chưa đồng bộ'
-    is_admin = bool(user[1]) if (user and len(user) > 1) else True
 
     # source card: gộp các file Drive nguồn
-    if sources:
-        src_names = ' · '.join(esc(s['name']) for s in sources[:4])
-        if len(sources) > 4:
-            src_names += f' +{len(sources) - 4}'
+    if src_files:
+        src_names = ' · '.join(esc(s['name']) for s in src_files[:4])
+        if len(src_files) > 4:
+            src_names += f' +{len(src_files) - 4}'
         total_bugs = len(bugs)
         src_line = f'<b>{src_names}</b> — {total_bugs} bản ghi'
     else:
@@ -1600,10 +1604,10 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
     # "Quản lý link drive" = modal CRUD list link đã add.
     drive_btn = ('<button class="btn btn-ghost" id="blManageBtn">'
                  '<span class="material-symbols-rounded mi-sm">link</span> '
-                 'Quản lý link drive</button>') if is_admin else ''
+                 'Quản lý link drive</button>') if editable else ''
     # ✎ trên source card: đổi link file bug -> hệ thống đi theo link load data (single).
     edit_link_btn = ('<button class="bl-src-edit material-symbols-rounded" id="blEditLinkBtn" '
-                     'title="Đổi link file bug">edit</button>') if is_admin else ''
+                     'title="Chọn file bug để xem">folder_open</button>') if editable else ''
 
     # link-to-task bar (chỉ khi editable: cho tick + tạo link)
     linkbar = ''
@@ -1623,7 +1627,7 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
     th_check = '<th style="width:40px"><input type="checkbox" class="bl-check" id="blCheckAll"></th>' if editable else ''
     content = (
         '<div class="page-head"><div>'
-        '<h2 class="page-title">Quản lý Bug &amp; Test Case</h2>'
+        '<h2 class="page-title">Bug Management</h2>'
         f'<div class="bl-sub"><span class="bl-dot"></span> Đã đồng bộ: {esc(synced_disp)}</div>'
         '</div><div style="display:flex;gap:10px;align-items:center">'
         f'{sync_btn}{drive_btn}</div></div>'
@@ -1631,7 +1635,9 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
         '<div class="card bl-source">'
         '<span class="ic material-symbols-rounded">table_view</span>'
         '<div class="bl-src-info"><div class="lbl">NGUỒN DỮ LIỆU: GOOGLE DRIVE</div>'
-        f'<div class="fname">{src_line}</div></div>{edit_link_btn}</div>'
+        f'<div class="fname">{src_line}</div>'
+        '<span class="bl-active-file" id="blActiveFile" style="display:none"></span></div>'
+        f'{edit_link_btn}</div>'
         # tab tháng
         '<div class="bl-tabs" id="blTabs"></div>'
         + linkbar
@@ -1657,11 +1663,23 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
         '</div>'
         '<div style="overflow-x:auto"><table class="bl-table metric-table"><thead><tr id="blMetricHead"></tr></thead><tbody id="blMetricRows"></tbody></table></div>'
         '</div>'
-        + (_bug_log_source_modals() if is_admin else '')
+        # reopen metric card — chất lượng fix của dev (Decision: issue #69)
+        '<div class="card metric-card">'
+        '<div class="metric-header">'
+        '<div class="table-title"><span>Tỷ lệ Reopen — chất lượng fix của dev (Tháng)</span></div>'
+        '<div class="metric-filter"><span class="material-symbols-rounded mi-sm">calendar_month</span> <select id="blReopenMonth"></select></div>'
+        '</div>'
+        '<div class="bl-reopen-kpi" id="blReopenKpi"></div>'
+        '<div style="overflow-x:auto"><table class="bl-table metric-table"><thead><tr id="blReopenHead"></tr></thead><tbody id="blReopenRows"></tbody></table></div>'
+        '<div class="bl-reopen-note">Số tích luỹ từ khi bật theo dõi; reopen trước đó không có lịch sử. '
+        'Round-trip Fixed→Reopen→Fixed gọn trong 10 phút có thể bị sót.</div>'
+        '</div>'
+        + (_bug_log_source_modals() if editable else '')
         + _json_script('bugLogData', {
             'bugs': bugs, 'months': month_list, 'editable': bool(editable),
-            'syncedAt': synced_disp,
-            'sources': [{'id': s.get('id', ''), 'label': s.get('label', '')}
+            'syncedAt': synced_disp, 'reopen': reopen,
+            'sources': [{'id': s.get('id', ''), 'label': s.get('label', ''),
+                          'name': (files.get(s.get('id', ''), {}) or {}).get('name', '')}
                         for s in (sources or []) if s.get('id')],
         })
     )
@@ -1677,17 +1695,14 @@ def _bug_log_source_modals():
     return (
         # ----- đổi link 1 file (single) -----
         '<div class="overlay" id="blEditOv"><div class="modal">'
-        '<div class="modal-head"><span class="material-symbols-rounded">edit</span>'
-        '<h3>Đổi link file bug</h3>'
+        '<div class="modal-head"><span class="material-symbols-rounded">folder_open</span>'
+        '<h3>Chọn file bug để xem</h3>'
         '<button type="button" class="x material-symbols-rounded" id="blEditClose">close</button></div>'
-        '<div class="modal-body"><p class="modal-note">Dán link Google Drive của file bug log. '
-        'Hệ thống sẽ đi theo link để đọc dữ liệu. Lưu xong sẽ đồng bộ ngay.</p>'
-        '<div class="mfield"><label>Link Google Drive</label>'
-        '<input type="text" id="blEditInp" placeholder="https://drive.google.com/file/d/.../view" '
-        'autocomplete="off" spellcheck="false"></div></div>'
+        '<div class="modal-body"><p class="modal-note">Chọn 1 file Drive đã thêm để xem riêng dữ liệu của file đó. '
+        'Quản lý (thêm/sửa/xoá link) ở “Quản lý link drive”.</p>'
+        '<div id="blPickList" class="bl-pick-list"></div></div>'
         '<div class="modal-foot">'
-        '<button type="button" class="btn btn-ghost" id="blEditCancel">Huỷ</button>'
-        '<button type="button" class="btn btn-primary" id="blEditSave">Lưu &amp; đồng bộ</button>'
+        '<button type="button" class="btn btn-ghost" id="blEditCancel">Đóng</button>'
         '</div></div></div>'
         # ----- quản lý list link -----
         '<div class="overlay" id="blSrcOv"><div class="modal" style="width:620px">'

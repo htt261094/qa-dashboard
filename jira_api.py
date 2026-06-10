@@ -243,6 +243,42 @@ def search_parent_ptsp(query, limit=20):
     return out
 
 
+def _qa_task_index():
+    """Toàn bộ task assignee là QA team (key+summary+project+assignee+status), cache TTL 2 phút.
+    Cho ô tìm task ở Bug Log: QA muốn link bug tới CHÍNH task QA đang làm (KHÔNG phải Task-PTSP
+    của dev). 1 call/2p; lọc substring in-memory như _ptsp_index. ORDER BY updated DESC."""
+    cached, hit = _cache_get('qa_task_index')
+    if hit:
+        return cached
+    jql = f"assignee in ({','.join(USERS)}) ORDER BY updated DESC"
+    issues = _jira_request(jql, 1000, fields='summary,project,assignee,status').get('issues', [])
+    idx = []
+    for i in issues:
+        f = i.get('fields', {}) or {}
+        asg = f.get('assignee') or {}
+        idx.append({'key': i['key'], 'summary': f.get('summary') or '',
+                    'project': (f.get('project') or {}).get('key') or '',
+                    'assignee': asg.get('displayName') or asg.get('name') or '',
+                    'status': (f.get('status') or {}).get('name') or ''})
+    _cache_set('qa_task_index', idx)
+    return idx
+
+
+def search_qa_tasks(query, limit=20):
+    """Tìm task của QA team để link bug (Bug Log linkbar). Khớp substring trên key HOẶC summary
+    (case-insensitive). Trả [{key, summary, project, assignee, status}]."""
+    q = (query or '').strip().lower()
+    if len(q) < 2:
+        return []
+    out = []
+    for it in _qa_task_index():
+        if q in it['key'].lower() or q in it['summary'].lower():
+            out.append(it)
+            if len(out) >= limit:
+                break
+    return out
+
+
 def search_people(query, limit=15):
     """Tìm user Jira theo username/tên hiển thị (dropdown Leader). Read-only, PAT chung.
     Trả [{name, display}] (chỉ user active)."""
@@ -263,6 +299,49 @@ def search_people(query, limit=15):
         out.append({'name': u.get('name') or u.get('key') or '',
                     'display': u.get('displayName') or u.get('name') or ''})
     return out
+
+
+def global_search(query, limit=20):
+    """Quick-search TOÀN Jira cho thanh search topbar (gần như search top-nav Jira).
+    Khớp theo key, theo SỐ (vd '5125' -> DA61H26-5125, DA51H26-5125...) hoặc text trong
+    summary — dùng Jira issue picker (autocomplete native, 1 call) lấy danh sách key, rồi
+    1 call `key in (...)` lấy status/assignee/type cho dropdown. Read-only PAT chung.
+    Trả [{key, summary, status, assignee, type, project, url}] theo thứ tự picker (match tốt nhất trước)."""
+    q = (query or '').strip()
+    if len(q) < 2:
+        return []
+    keys = []
+    try:
+        r = _SESSION.get(f"{JIRA_URL}/rest/api/2/issue/picker", headers=_auth_headers(),
+                         params={'query': q, 'currentJQL': '', 'showSubTasks': 'true',
+                                 'showSubTaskParent': 'true'}, timeout=15)
+        r.raise_for_status()
+        for sec in (r.json().get('sections') or []):
+            for it in (sec.get('issues') or []):
+                k = it.get('key')
+                if k and k not in keys:
+                    keys.append(k)
+    except requests.RequestException as e:
+        raise RuntimeError(f"Network error: {str(e).replace(PAT, '<REDACTED>')}")
+    if not keys:
+        return []
+    keys = keys[:limit]
+    order = {k: n for n, k in enumerate(keys)}
+    jql = f"key in ({','.join(keys)})"
+    issues = _jira_request(jql, limit,
+                           fields='summary,status,assignee,issuetype,project').get('issues', [])
+    rows = []
+    for i in issues:
+        f = i.get('fields', {}) or {}
+        asg = f.get('assignee') or {}
+        rows.append({'key': i['key'], 'summary': f.get('summary') or '',
+                     'status': (f.get('status') or {}).get('name') or '',
+                     'assignee': asg.get('displayName') or asg.get('name') or '',
+                     'type': (f.get('issuetype') or {}).get('name') or '',
+                     'project': (f.get('project') or {}).get('key') or '',
+                     'url': f"{JIRA_URL}/browse/{i['key']}"})
+    rows.sort(key=lambda row: order.get(row['key'], 999))
+    return rows
 
 
 def _devs_in_charge(parent_key):
@@ -295,7 +374,7 @@ def fetch_issue_detail(key):
     updated = ngày update; devs = dev phụ trách (assignee non-QA của sub-task anh em dưới
     Task-PTSP cha). 1 call read-only + (nếu có parent) 1 call lấy dev. comments mới->cũ."""
     data = _jira_request(f'key = {key}', 1,
-                         fields='summary,description,comment,status,assignee,duedate,updated,parent')
+                         fields='summary,description,comment,status,assignee,duedate,updated,parent,created')
     issues = data.get('issues') or []
     if not issues:
         return {'key': key, 'summary': '', 'description': '', 'status': '',
@@ -316,6 +395,7 @@ def fetch_issue_detail(key):
             'assignee': asg.get('displayName') or asg.get('name') or '',
             'duedate': f.get('duedate') or '',
             'updated': (f.get('updated') or '')[:10],
+            'created': (f.get('created') or '')[:10],
             'devs': _devs_in_charge(parent_key),
             'comments': comments}
 

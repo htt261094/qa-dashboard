@@ -26,7 +26,7 @@ from bug_log_source import load_sources, save_sources, extract_file_id, MAX_SOUR
 from task_link import load_links, set_task_links
 from jira_api import (fetch_all, fetch_activity_feed, load_dismissed,
                       dismiss_activities, run_parallel, fetch_issue_detail,
-                      search_parent_ptsp, search_people)
+                      search_parent_ptsp, search_people, search_qa_tasks, global_search)
 from state import load_snapshots, save_snapshots, build_snapshot
 from pic import save_pic
 from docs import load_docs, save_docs, valid_tree
@@ -121,6 +121,39 @@ class Handler(http.server.BaseHTTPRequestHandler):
         """Jira username của chính người đăng nhập (cho tab My work). Local dev /
         admin-email-không-trong-USERS -> SELF_USER (default thanhht1)."""
         return username_from_email(self._user_email()) or username_from_email(ADMIN_EMAIL) or SELF_USER
+
+    def _bugs_for_task(self, task_key):
+        """Chiều ngược của task_link: list bug ĐÃ LINK tới `task_key`, cho drawer detail.
+        Nguồn = load_links() (bugKey->task) ∩ load_bug_log() (chi tiết bug). Đọc cache
+        local/property -> nhẹ. Lỗi -> [] (drawer vẫn mở bình thường, chỉ thiếu mục bug)."""
+        try:
+            links = load_links()
+        except Exception:
+            return []
+        bug_keys = [bk for bk, v in links.items() if (v or {}).get('task') == task_key]
+        if not bug_keys:
+            return []
+        try:
+            files = (load_bug_log() or {}).get('files', {}) or {}
+        except Exception:
+            return []
+        idx = {}
+        for f in files.values():
+            for k, b in (f.get('bugs', {}) or {}).items():
+                idx[k] = b
+        out = []
+        for bk in bug_keys:
+            b = idx.get(bk)
+            if not b:
+                continue
+            out.append({
+                'id': f"{b.get('project', '')}-{b.get('bug_no', '')}".strip('-'),
+                'summary': b.get('summary', ''),
+                'severity': b.get('severity', ''),
+                'status': b.get('status', ''),
+                'module': b.get('feature', ''),
+            })
+        return out
 
     def _bell_activities(self, with_patch=False):
         """Activities cho chuông notif — TÍNH GIỐNG HỆT ở mọi tab để bell đồng nhất.
@@ -361,8 +394,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             try:
                 res = run_parallel({'bug': load_bug_log, 'links': load_links,
                                     'sources': load_sources, 'bell': self._bell_activities})
+                # Bug Log mở cho MỌI QA (kể cả non-admin): liên kết Task + quản lý link
+                # drive nguồn. editable=True cho mọi user đã authed (route đã gate authed).
                 self._html(render_bug_log_v2(res['bug'], res['links'],
-                                             editable=self._is_admin(),
+                                             editable=True,
                                              user=self._user_ctx(), activities=res['bell'],
                                              sources=res['sources']))
             except RuntimeError as e:
@@ -377,7 +412,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._json(400, b'{"ok":false,"msg":"key"}')
                 return
             try:
-                detail = fetch_issue_detail(key)
+                # Jira detail + bug đã link tới task (chiều ngược task_link) song song.
+                res = run_parallel({'detail': lambda: fetch_issue_detail(key),
+                                    'bugs': lambda: self._bugs_for_task(key)})
+                detail = res['detail']
+                detail['bugs'] = res['bugs']
                 self._json(200, json.dumps({'ok': True, 'detail': detail}).encode('utf-8'))
             except RuntimeError:
                 self._json(400, b'{"ok":false,"msg":"loi"}')
@@ -408,6 +447,26 @@ class Handler(http.server.BaseHTTPRequestHandler):
             try:
                 self._json(200, json.dumps(
                     {'ok': True, 'results': search_parent_ptsp(q)}).encode('utf-8'))
+            except RuntimeError:
+                self._json(400, b'{"ok":false}')
+            return
+        if path == '/search-tasks':
+            # type-ahead task của QA team cho Bug Log linkbar (link bug -> task QA đang làm,
+            # KHÔNG phải Task-PTSP của dev). Read-only PAT chung.
+            q = (parse_qs(urlparse(self.path).query).get('q') or [''])[0]
+            try:
+                self._json(200, json.dumps(
+                    {'ok': True, 'results': search_qa_tasks(q)}).encode('utf-8'))
+            except RuntimeError:
+                self._json(400, b'{"ok":false}')
+            return
+        if path == '/global-search':
+            # Quick-search toàn Jira cho thanh search topbar (key / số / text summary).
+            # Read-only PAT chung. Mở task ra drawer qua /issue-comments khi click.
+            q = (parse_qs(urlparse(self.path).query).get('q') or [''])[0]
+            try:
+                self._json(200, json.dumps(
+                    {'ok': True, 'results': global_search(q)}).encode('utf-8'))
             except RuntimeError:
                 self._json(400, b'{"ok":false}')
             return
@@ -627,12 +686,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                        json.dumps(res, ensure_ascii=False).encode('utf-8'))
             return
         if self.path == '/save-bug-log-sources':
-            # Lưu list file Drive nguồn (paste link -> rút id) rồi scan ngay (admin-only).
+            # Lưu list file Drive nguồn (paste link -> rút id) rồi scan ngay.
             # Body: {sources:[{link|id, label}]}. Server rút file id, validate, save_sources,
             # rồi chạy scan() để đọc data luôn (user chốt "tự sync ngay sau khi lưu").
-            if not self._is_admin():
-                self._json(403, b'{"ok":false,"err":"forbidden"}')
-                return
+            # MỌI QA authed được sửa nguồn (do_POST đã gate authed) — user chốt mở toàn quyền.
             out = None
             err = ''
             try:
@@ -678,11 +735,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._json(200, json.dumps(res, ensure_ascii=False).encode('utf-8'))
             return
         if self.path == '/link-task':
-            # Liên kết / gỡ link list test-case (bug key) <-> 1 Jira task (#55). Admin-only
-            # (khớp editable=_is_admin ở render). Lưu app-side, không ghi Jira.
-            if not self._is_admin():
-                self._json(403, b'{"ok":false,"err":"forbidden"}')
-                return
+            # Liên kết / gỡ link list test-case (bug key) <-> 1 Jira task (#55).
+            # Mở cho MỌI QA authed (khớp editable=True ở render). Lưu app-side, không ghi Jira.
             out = None
             try:
                 length = int(self.headers.get('Content-Length', 0))

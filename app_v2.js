@@ -27,6 +27,26 @@ var AV = ['av-a','av-b','av-c','av-d','av-e','av-f'];
 function avById(name){ var s=0,n=name||'?'; for(var i=0;i<n.length;i++) s+=n.charCodeAt(i); return AV[s%AV.length]; }
 function initOf(name){ return ((name||'?').trim()[0]||'?').toUpperCase(); }
 
+// ---------- bug đã link tới task (drawer detail) ----------
+var BUG_ST = { 'New':['st-open','Mới'], 'Fixing':['st-fixing','Đang fix'],
+  'Fixed':['st-fixed','Đã fix (chờ retest)'], 'Reopen':['st-reopen','Reopen'],
+  'Rejected':['st-rejected','Bị từ chối'], 'Closed':['st-closed','Đã đóng'] };
+function bugSectionHtml(d){
+  var bugs=(d&&d.bugs)||[];
+  if(!bugs.length) return '';
+  var rows=bugs.map(function(b){
+    var m=BUG_ST[b.status]||['st-default', b.status||'—'];
+    var sev=(b.severity||'').trim();
+    return '<div class="dt-bug">'
+      +'<span class="dt-bug-id">'+esc(b.id||'')+'</span>'
+      +'<span class="dt-bug-sum">'+esc(b.summary||'')+(b.module?' <span class="dt-bug-mod">· '+esc(b.module)+'</span>':'')+'</span>'
+      +(sev?'<span class="dt-bug-sev">'+esc(sev)+'</span>':'')
+      +'<span class="st-badge '+m[0]+'">'+esc(m[1])+'</span>'
+      +'</div>';
+  }).join('');
+  return '<div class="dt-sec-title">Bug liên quan ('+bugs.length+')</div><div class="dt-bugs">'+rows+'</div>';
+}
+
 // ---------- toast ----------
 var toastT;
 function toast(msg, ok){ var el=$('toast'); if(!el) return; el.textContent=msg;
@@ -48,6 +68,67 @@ function applyTheme(t){ document.documentElement.setAttribute('data-theme', t);
     var n=$('notif'); if(n) n.classList.remove('open'); });
   document.addEventListener('click', function(e){
     if(!e.target.closest('#pmenu') && !e.target.closest('#profileBtn')) menu.classList.remove('open'); });
+})();
+
+// ---------- global search topbar (quick-search toàn Jira) ----------
+// Gõ key / số (5125 -> DA61H26-5125) / text summary -> dropdown -> click mở drawer tại chỗ.
+// Chạy mọi trang v2. KHÔNG đụng filter bảng local (vẫn bind input riêng ở từng closure).
+(function(){
+  var inp=$('searchInp'); if(!inp) return;
+  var box=inp.closest('.search') || inp.parentNode;
+  if(box && getComputedStyle(box).position==='static') box.style.position='relative';
+  var dd=document.createElement('div'); dd.className='gsearch-dd'; dd.style.display='none';
+  box.appendChild(dd);
+  var ST={ 'TO DO':'st-open','In Progress':'st-fixing','PENDING':'st-default',
+           'DONE':'st-fixed','CANCELLED':'st-closed' };
+  var seq=0, lastQ='', curRows=[], active=-1;
+
+  function hide(){ dd.style.display='none'; active=-1; }
+  function open(){ if(dd.firstChild) dd.style.display='block'; }
+  function rowHtml(r, i){
+    var cls=ST[r.status]||'st-default';
+    return '<div class="gs-item'+(i===active?' active':'')+'" data-key="'+esc(r.key)+'" data-i="'+i+'">'
+      +'<span class="gs-key">'+esc(r.key)+'</span>'
+      +'<span class="gs-sum">'+esc(r.summary||'')+'</span>'
+      +(r.status?'<span class="st-badge '+cls+'">'+esc(r.status)+'</span>':'')
+      +'</div>';
+  }
+  function render(){
+    if(!curRows.length){ dd.innerHTML='<div class="gs-empty">Không tìm thấy task</div>'; open(); return; }
+    dd.innerHTML=curRows.map(rowHtml).join('');
+    open();
+  }
+  function pick(key){ hide(); inp.blur();
+    if(window.__openDetail){ window.__openDetail(key); }
+    else { window.open((window.__jiraBase||'')+'/browse/'+encodeURIComponent(key), '_blank'); }
+  }
+  function run(q){
+    var my=++seq; lastQ=q;
+    dd.innerHTML='<div class="gs-empty">Đang tìm…</div>'; open();
+    getJSON('/global-search?q='+encodeURIComponent(q), 15000).then(function(j){
+      if(my!==seq) return;                 // kết quả cũ -> bỏ
+      curRows=(j&&j.ok&&j.results)||[]; active=-1; render();
+    }).catch(function(){ if(my!==seq) return; curRows=[]; dd.innerHTML='<div class="gs-empty">Lỗi tìm kiếm</div>'; open(); });
+  }
+  var deb;
+  inp.addEventListener('input', function(){
+    var q=(inp.value||'').trim();
+    clearTimeout(deb);
+    if(q.length<2){ seq++; hide(); return; }
+    deb=setTimeout(function(){ run(q); }, 300);
+  });
+  inp.addEventListener('keydown', function(e){
+    if(dd.style.display==='none') return;
+    if(e.key==='ArrowDown'){ e.preventDefault(); active=Math.min(active+1, curRows.length-1); render(); }
+    else if(e.key==='ArrowUp'){ e.preventDefault(); active=Math.max(active-1, -1); render(); }
+    else if(e.key==='Enter'){ if(active>=0&&curRows[active]){ e.preventDefault(); pick(curRows[active].key); } }
+    else if(e.key==='Escape'){ hide(); }
+  });
+  inp.addEventListener('focus', function(){ if(curRows.length && (inp.value||'').trim().length>=2) open(); });
+  dd.addEventListener('mousedown', function(e){    // mousedown để chạy trước blur
+    var it=e.target.closest('.gs-item'); if(it){ e.preventDefault(); pick(it.getAttribute('data-key')); } });
+  document.addEventListener('click', function(e){
+    if(!e.target.closest('.search')) hide(); });
 })();
 
 // ---------- settings PAT modal ----------
@@ -291,10 +372,11 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
           +'<span>'+esc(t.assignee.name)+'</span></div></td>'
           +'<td><span class="badge '+badgeCls(t.jira)+'">'+esc(t.jira)+'</span>'+chipHTML(t)+'</td>'
           +'<td class="cell-date"><span class="due '+esc(t.dueCls)+'">'+esc(t.dueDisp)+'</span></td>'
+          +'<td class="cell-date">'+esc(t.createdDisp)+'</td>'
           +'<td class="cell-date">'+esc(t.updatedDisp)+'</td></tr>';
       }).join('');
       for(var k=slice.length;k<PER_PAGE;k++){
-        html+='<tr class="pager-filler"><td>&nbsp;</td><td><span class="cell-title">&nbsp;</span></td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>';
+        html+='<tr class="pager-filler"><td>&nbsp;</td><td><span class="cell-title">&nbsp;</span></td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>';
       }
       tbody.innerHTML=html;
 
@@ -388,6 +470,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
         customs:[], canCustom:false,
         assignee:{ name:d.assignee||'—', init:initOf(d.assignee||'?'), cls:avById(d.assignee||'?') },
         due:d.duedate||'', dueDisp:d.duedate||'Chưa đặt hạn', dueCls:'',
+        created:d.created||'', createdDisp:d.created||'—',
         overdue:false, stuck:false, isNew:false,
         jiraUrl:(window.__jiraBase||'')+'/browse/'+key };
     }
@@ -429,12 +512,14 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
         +'<button class="x material-symbols-rounded" data-act="drawer-close">close</button></div>'
         +'<div class="drawer-body"><h2>'+esc(t.summary)+'</h2>'
         +'<div class="dt-grid"><div class="lbl">Người xử lý</div><div class="val"><span class="assignee"><span class="av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span> '+esc(t.assignee.name)+'</span></div>'
+        +'<div class="lbl">Ngày tạo</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].created)?esc(DETAIL[t.key].created):esc(t.createdDisp||'—'))+'</div>'
         +'<div class="lbl">Hạn chót</div><div class="val"><span class="due '+esc(t.dueCls)+'">'+esc(t.dueDisp)+'</span></div>'
         +'<div class="lbl">Cập nhật</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].updated)?esc(DETAIL[t.key].updated):'—')+'</div>'
         +'<div class="lbl">Dev phụ trách</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].devs&&DETAIL[t.key].devs.length)?DETAIL[t.key].devs.map(esc).join(', '):'—')+'</div>'
         +'<div class="lbl">Nhãn nội bộ</div><div class="val">'+chips+'</div>'
         +'<div class="lbl">Cảnh báo</div><div class="val">'+flags+'</div></div>'
         +'<div class="dt-sec-title">Mô tả</div><div class="dt-desc">'+desc+'</div>'
+        +bugSectionHtml(DETAIL[t.key])
         +'<div class="dt-cmts"><div class="dt-sec-title">Bình luận ('+(list&&list.length||0)+')</div>'
         +'<div class="cmt-panel"><div class="cmt-history">'+hist+'</div>'
         +'<div class="cmt-box"><textarea id="dtTa-'+esc(t.key)+'" placeholder="Viết bình luận..."></textarea>'
@@ -501,6 +586,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       customs:[], canCustom:false,
       assignee:{ name:d.assignee||'—', init:initOf(d.assignee||'?'), cls:avById(d.assignee||'?') },
       due:d.duedate||'', dueDisp:d.duedate||'Chưa đặt hạn', dueCls:'',
+      created:d.created||'', createdDisp:d.created||'—',
       overdue:false, stuck:false, isNew:false,
       jiraUrl:(window.__jiraBase||'')+'/browse/'+key };
   }
@@ -528,6 +614,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       +'<td class="status-cell"><div class="stat-wrap"><span class="badge '+jiraCls(t.jira)+'">'+esc(t.jira)+'</span>'
       +'<button class="caret material-symbols-rounded mi-sm" data-act="smenu" data-key="'+esc(t.key)+'">expand_more</button></div>'+chipHTML(t)+'</td>'
       +'<td><span class="assignee"><span class="av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span> '+esc(t.assignee.name)+'</span></td>'
+      +'<td class="cell-date">'+esc(t.createdDisp)+'</td>'
       +'<td><span class="due '+esc(t.dueCls)+'">'+esc(t.dueDisp)+'</span></td>'
       +'<td><button class="act-btn'+(openCmt[t.key]?' on':'')+'" data-act="cmt" data-key="'+esc(t.key)+'" title="Bình luận">'
       +'<span class="material-symbols-rounded mi-sm">chat_bubble_outline</span>'+cnt+'</button></td>'
@@ -541,7 +628,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     else hist=list.map(function(c){ return '<div class="cmt-item"><span class="av '+avById(c.author)+'">'+esc(initOf(c.author))+'</span>'
       +'<div class="cmt-main"><div class="cmt-meta"><b>'+esc(c.author)+'</b><span>'+esc((c.when||'').slice(0,16).replace('T',' '))+'</span></div>'
       +'<div class="cmt-text">'+esc(c.body)+'</div></div></div>'; }).join('');
-    return '<tr class="cmt-row"><td colspan="6"><div class="cmt-panel">'
+    return '<tr class="cmt-row"><td colspan="7"><div class="cmt-panel">'
       +'<div class="cmt-history">'+hist+'</div>'
       +'<div class="cmt-box"><textarea id="cmtTa-'+esc(key)+'" placeholder="Viết bình luận của bạn..."></textarea>'
       +'<div class="cmt-foot">'
@@ -551,7 +638,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   }
   function renderRows(){
     var all=visibleTasks();
-    if(!all.length){ tbody.innerHTML='<tr><td colspan="6"><div class="empty">Không có task nào 🎉</div></td></tr>';
+    if(!all.length){ tbody.innerHTML='<tr><td colspan="7"><div class="empty">Không có task nào 🎉</div></td></tr>';
       $('pager').innerHTML=''; return; }
     var pages=Math.max(1, Math.ceil(all.length/PER_PAGE));
     if(curPage>pages) curPage=pages; if(curPage<1) curPage=1;
@@ -651,12 +738,14 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       +'<button class="x material-symbols-rounded" data-act="drawer-close">close</button></div>'
       +'<div class="drawer-body"><h2>'+esc(t.summary)+'</h2>'
       +'<div class="dt-grid"><div class="lbl">Người xử lý</div><div class="val"><span class="assignee"><span class="av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span> '+esc(t.assignee.name)+'</span></div>'
+      +'<div class="lbl">Ngày tạo</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].created)?esc(DETAIL[t.key].created):esc(t.createdDisp||'—'))+'</div>'
       +'<div class="lbl">Hạn chót</div><div class="val"><span class="due '+esc(t.dueCls)+'">'+esc(t.dueDisp)+'</span></div>'
       +'<div class="lbl">Cập nhật</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].updated)?esc(DETAIL[t.key].updated):'—')+'</div>'
       +'<div class="lbl">Dev phụ trách</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].devs&&DETAIL[t.key].devs.length)?DETAIL[t.key].devs.map(esc).join(', '):'—')+'</div>'
       +'<div class="lbl">Nhãn nội bộ</div><div class="val">'+chips+'</div>'
       +'<div class="lbl">Cảnh báo</div><div class="val">'+flags+'</div></div>'
       +'<div class="dt-sec-title">Mô tả</div><div class="dt-desc">'+desc+'</div>'
+      +bugSectionHtml(DETAIL[t.key])
       +'<div class="dt-cmts"><div class="dt-sec-title">Bình luận ('+(list&&list.length||0)+')</div>'
       +'<div class="cmt-panel"><div class="cmt-history">'+hist+'</div>'
       +'<div class="cmt-box"><textarea id="dtTa-'+esc(t.key)+'" placeholder="Viết bình luận..."></textarea>'
@@ -818,10 +907,12 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       +'<button class="x material-symbols-rounded" data-act="drawer-close">close</button></div>'
       +'<div class="drawer-body"><h2>'+esc(t.summary)+'</h2>'
       +'<div class="dt-grid"><div class="lbl">Người xử lý</div><div class="val"><span class="assignee"><span class="av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span> '+esc(t.assignee.name)+'</span></div>'
+      +'<div class="lbl">Ngày tạo</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].created)?esc(DETAIL[t.key].created):'—')+'</div>'
       +'<div class="lbl">Hạn chót</div><div class="val"><span class="due">'+esc(t.dueDisp)+'</span></div>'
       +'<div class="lbl">Cập nhật</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].updated)?esc(DETAIL[t.key].updated):'—')+'</div>'
       +'<div class="lbl">Dev phụ trách</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].devs&&DETAIL[t.key].devs.length)?DETAIL[t.key].devs.map(esc).join(', '):'—')+'</div></div>'
       +'<div class="dt-sec-title">Mô tả</div><div class="dt-desc">'+desc+'</div>'
+      +bugSectionHtml(DETAIL[t.key])
       +'<div class="dt-cmts"><div class="dt-sec-title">Bình luận ('+(list&&list.length||0)+')</div>'
       +'<div class="cmt-panel"><div class="cmt-history">'+hist+'</div>'
       +'<div class="cmt-box"><textarea id="dtTa-'+esc(t.key)+'" placeholder="Viết bình luận..."></textarea>'
@@ -1856,7 +1947,12 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   var DATA = readJSON('bugLogData'); if(!DATA) return;
   var BUGS = DATA.bugs||[], MONTHS = DATA.months||[], EDIT = !!DATA.editable;
   var SOURCES = DATA.sources||[];    // [{id,label}] file Drive nguồn đã cấu hình
+  var REOPEN = DATA.reopen||{};      // {bugKey:{count,dev,project,month,last}} reopen tích luỹ
   var base = window.__jiraBase || '';
+  // activeFid = file Drive đang xem riêng ('' = tất cả). Nhớ qua localStorage, validate còn tồn tại.
+  var activeFid = '';
+  try{ activeFid = localStorage.getItem('qa-buglog-file')||''; }catch(e){}
+  if(activeFid && !SOURCES.some(function(s){ return s.id===activeFid; })) activeFid='';
   var curMonth = MONTHS.length ? MONTHS[0] : '';
   var page = 1, PER = 15;
   var sel = {};            // bugKey -> true (test case đang tick)
@@ -1884,12 +1980,37 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     return '<span class="bl-nolink">⛓️‍💥 Chưa liên kết</span>';
   }
 
-  function monthBugs(){ return BUGS.filter(function(b){ return b.month===curMonth; }); }
+  // file đang xem: '' = tất cả, else chỉ bug có fid===activeFid
+  function fileBugs(){ return activeFid ? BUGS.filter(function(b){ return b.fid===activeFid; }) : BUGS; }
+  // tháng có mặt trong file đang xem (giữ thứ tự MONTHS)
+  function availMonths(){ var fb=fileBugs(); return MONTHS.filter(function(m){ return fb.some(function(b){ return b.month===m; }); }); }
+  function monthBugs(){ return fileBugs().filter(function(b){ return b.month===curMonth; }); }
+
+  function activeLabel(){
+    if(!activeFid) return '';
+    var s=SOURCES.filter(function(x){ return x.id===activeFid; })[0];
+    return s ? (s.label||s.name||'File Drive') : '';
+  }
+  function setActiveFid(fid){
+    if(fid===activeFid){ return; }
+    activeFid = fid;
+    try{ if(fid) localStorage.setItem('qa-buglog-file', fid); else localStorage.removeItem('qa-buglog-file'); }catch(e){}
+    var av=availMonths();
+    if(av.indexOf(curMonth)<0) curMonth = av.length ? av[0] : '';
+    page=1; renderTabs(); render(); updateActiveChip();
+    toast(activeFid ? ('Đang xem: '+activeLabel()) : 'Đang xem: tất cả file', true);
+  }
+  function updateActiveChip(){ var c=$('blActiveFile'); if(!c) return;
+    if(activeFid){ c.textContent='📄 '+activeLabel(); c.style.display=''; }
+    else c.style.display='none';
+  }
 
   function renderTabs(){
-    if(!MONTHS.length){ tabs.innerHTML='<span class="bl-count">Chưa có dữ liệu — bấm ✎ trên thẻ nguồn để dán link file.</span>'; return; }
-    tabs.innerHTML = MONTHS.map(function(m){
-      var n = BUGS.filter(function(b){return b.month===m;}).length;
+    var av = availMonths();
+    if(!av.length){ tabs.innerHTML='<span class="bl-count">Chưa có dữ liệu cho file này.</span>'; return; }
+    if(av.indexOf(curMonth)<0) curMonth=av[0];
+    tabs.innerHTML = av.map(function(m){
+      var n = fileBugs().filter(function(b){return b.month===m;}).length;
       return '<button class="bl-tab'+(m===curMonth?' active':'')+'" data-m="'+esc(m)+'">'
         +'<span class="material-symbols-rounded">calendar_month</span> '+esc(m)+' ('+n+')</button>';
     }).join('');
@@ -1978,21 +2099,40 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     });
   })();
 
-  // ✎ đổi link 1 file bug (single) — sửa SOURCES[0], thêm nếu chưa có; giữ nguyên file khác
+  // ✎ trên thẻ nguồn = PICKER: chọn 1 file Drive đã thêm để xem riêng data của file đó.
+  // activeFid lưu localStorage (sống qua reload). '' = xem tất cả.
   (function(){
-    var ov=$('blEditOv'), inp=$('blEditInp'); if(!ov) return;
-    function open(){ inp.value = SOURCES.length ? driveLink(SOURCES[0].id) : ''; ov.classList.add('open'); inp.focus(); }
+    var ov=$('blEditOv'), listEl=$('blPickList'); if(!ov) return;
+    function rowHtml(fid, label, sub){
+      var on = (activeFid===fid);
+      return '<button type="button" class="bl-pick-row'+(on?' on':'')+'" data-fid="'+esc(fid)+'">'
+        +'<span class="material-symbols-rounded bl-pick-ic">'+(fid?'description':'apps')+'</span>'
+        +'<span class="bl-pick-meta"><span class="bl-pick-name">'+esc(label)+'</span>'
+        +(sub?'<span class="bl-pick-sub">'+esc(sub)+'</span>':'')+'</span>'
+        +'<span class="material-symbols-rounded bl-pick-chk">'+(on?'check_circle':'radio_button_unchecked')+'</span>'
+        +'</button>';
+    }
+    function renderPick(){
+      if(!SOURCES.length){ listEl.innerHTML='<div class="bl-src-empty">Chưa có file nào — thêm ở “Quản lý link drive”.</div>'; return; }
+      var html = rowHtml('', 'Tất cả file', BUGS.length+' bản ghi');
+      html += SOURCES.map(function(s){
+        var n = BUGS.filter(function(b){ return b.fid===s.id; }).length;
+        var name = s.label || s.name || 'File Drive';
+        return rowHtml(s.id, name, n+' bản ghi');
+      }).join('');
+      listEl.innerHTML = html;
+    }
+    function open(){ renderPick(); ov.classList.add('open'); }
     function close(){ ov.classList.remove('open'); }
+    listEl.addEventListener('click', function(e){
+      var r=e.target.closest('.bl-pick-row'); if(!r) return;
+      setActiveFid(r.getAttribute('data-fid')||'');
+      close();
+    });
     var b=$('blEditLinkBtn'); if(b) b.addEventListener('click', open);
     var c=$('blEditClose'); if(c) c.addEventListener('click', close);
     var cc=$('blEditCancel'); if(cc) cc.addEventListener('click', close);
     ov.addEventListener('click', function(e){ if(e.target===ov) close(); });
-    var sv=$('blEditSave'); if(sv) sv.addEventListener('click', function(){
-      var link=(inp.value||'').trim(); if(!link){ toast('Chưa dán link', false); return; }
-      var list=[{ link:link, label: SOURCES.length ? (SOURCES[0].label||'') : '' }];
-      for(var i=1;i<SOURCES.length;i++) list.push({ link:driveLink(SOURCES[i].id), label:SOURCES[i].label||'' });
-      saveSources(list, sv);
-    });
   })();
 
   // "Quản lý link drive" — modal CRUD list link
@@ -2043,11 +2183,13 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       var q=inp.value.trim(); clearTimeout(taT);
       if(q.length<2){ res.classList.remove('open'); return; }
       taT=setTimeout(function(){
-        getJSON('/search-parents?q='+encodeURIComponent(q), 15000).then(function(j){
+        getJSON('/search-tasks?q='+encodeURIComponent(q), 15000).then(function(j){
           var rs=(j&&j.results)||[];
           if(!rs.length){ res.innerHTML='<div class="opt">Không tìm thấy task.</div>'; res.classList.add('open'); return; }
           res.innerHTML = rs.map(function(r){
-            return '<div class="opt" data-k="'+esc(r.key)+'"><b>'+esc(r.key)+'</b> — '+esc(r.summary)+'</div>'; }).join('');
+            var meta=[r.assignee, r.status].filter(Boolean).map(esc).join(' · ');
+            return '<div class="opt" data-k="'+esc(r.key)+'"><b>'+esc(r.key)+'</b> — '+esc(r.summary)
+              +(meta?'<span class="bl-opt-meta">'+meta+'</span>':'')+'</div>'; }).join('');
           res.classList.add('open');
         }).catch(function(){ res.classList.remove('open'); });
       }, 250);
@@ -2060,7 +2202,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     lbtn.addEventListener('click', function(){
       var keys=Object.keys(sel).filter(function(k){return sel[k];});
       if(!keys.length) return;
-      if(!taskSel) { toast('Vui lòng tìm và chọn Task-PTSP ở ô bên trái để liên kết', false); return; }
+      if(!taskSel) { toast('Vui lòng tìm và chọn task ở ô bên trái để liên kết', false); return; }
       doLink(keys, taskSel);
     });
   }
@@ -2136,6 +2278,99 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     metricRows.innerHTML = html;
   }
   
+  // ----- Reopen metric (issue #69): % bug bị reopen + số lần fix theo dev + drill-down -----
+  var reopenMonthSel = $('blReopenMonth'), reopenKpi = $('blReopenKpi'),
+      reopenHead = $('blReopenHead'), reopenRows = $('blReopenRows');
+  var reopenExpanded = {};   // dev -> đang xổ chi tiết hay không
+
+  function reopenPct(n, d){ if(d <= 0) return null; var p = n / d * 100; return (p % 1 === 0 ? p.toFixed(0) : p.toFixed(1)); }
+  function fixOf(r){ return (r && r.fix != null) ? (+r.fix || 0) : ((+(r && r.count) || 0) + 1); }  // migration: entry cũ thiếu fix -> reopen+1
+
+  function renderReopen() {
+    if(!reopenMonthSel || !reopenHead || !reopenRows) return;
+    var selectedMonth = reopenMonthSel.value;
+    if(!selectedMonth) {
+      if(reopenKpi) reopenKpi.innerHTML = '';
+      reopenHead.innerHTML = '';
+      reopenRows.innerHTML = '<tr><td style="text-align:center;color:var(--on-surface-variant);padding:30px">Không có dữ liệu</td></tr>';
+      return;
+    }
+    // bug của tháng theo dev (mẫu số tỷ lệ) + tra bug theo key
+    var mBugs = BUGS.filter(function(b){ return b.month === selectedMonth; });
+    var bugsPerDev = {}, totalBugs = mBugs.length, bugByKey = {};
+    mBugs.forEach(function(b){
+      var d = (b.dev || 'Chưa gán').trim();
+      bugsPerDev[d] = (bugsPerDev[d] || 0) + 1;
+      if(b.key) bugByKey[b.key] = b;
+    });
+    // reopen của tháng: distinct bug + tổng lần fix, theo dev; gom chi tiết per-dev cho drill-down
+    var distinctPerDev = {}, fixPerDev = {}, detailPerDev = {}, distinctTotal = 0;
+    Object.keys(REOPEN).forEach(function(key){
+      var r = REOPEN[key] || {}; var cnt = +r.count || 0; if(cnt <= 0) return;
+      var b = bugByKey[key];
+      var month = b ? b.month : (r.month || '');
+      if(month !== selectedMonth) return;
+      var dev = ((b ? b.dev : r.dev) || 'Chưa gán').trim();
+      var fx = fixOf(r);
+      distinctPerDev[dev] = (distinctPerDev[dev] || 0) + 1;
+      fixPerDev[dev] = (fixPerDev[dev] || 0) + fx;
+      distinctTotal++;
+      (detailPerDev[dev] = detailPerDev[dev] || []).push({
+        id: b ? b.id : key, summary: b ? b.summary : '', reopen: cnt, fix: fx
+      });
+    });
+    // KPI headline
+    if(reopenKpi) {
+      var hp = reopenPct(distinctTotal, totalBugs);
+      reopenKpi.innerHTML = hp === null
+        ? '<span class="rk-sub">Không có bug trong tháng này.</span>'
+        : '<span class="rk-pct">' + hp + '%</span> bug bị reopen';
+    }
+    reopenHead.innerHTML = '<th>Developer</th><th>Bug bị reopen</th>'
+      + '<th>Tổng số lần fix bug</th><th>Tỷ lệ reopen</th>';
+    var devList = Object.keys(distinctPerDev).sort(function(a,b){
+      return distinctPerDev[b] - distinctPerDev[a];
+    });
+    if(devList.length === 0) {
+      reopenRows.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--on-surface-variant);padding:30px">Chưa ghi nhận reopen nào trong tháng này 🎉</td></tr>';
+      return;
+    }
+    function rateCell(nb, denom){
+      var r = reopenPct(nb, denom);
+      return r === null ? '—' : r + '%';
+    }
+    function detailRow(dev){
+      var items = (detailPerDev[dev] || []).slice().sort(function(a,b){ return b.reopen - a.reopen; });
+      var li = items.map(function(it){
+        return '<div class="rk-bug"><span class="rk-bug-id">' + esc(it.id) + '</span>'
+          + '<span class="rk-bug-sum">' + esc(it.summary || '(không mô tả)') + '</span>'
+          + '<span class="rk-bug-n">' + it.reopen + ' lần reopen · ' + it.fix + ' lần fix</span></div>';
+      }).join('');
+      return '<tr class="rk-detail"><td colspan="4"><div class="rk-detail-box">'
+        + '<div class="rk-detail-hd">Chi tiết bug bị reopen của ' + esc(dev) + '</div>' + li
+        + '</div></td></tr>';
+    }
+    var body = devList.map(function(d){
+      var nb = distinctPerDev[d], fx = fixPerDev[d], denom = bugsPerDev[d] || 0;
+      var open = !!reopenExpanded[d];
+      var row = '<tr class="rk-row' + (open ? ' open' : '') + '" data-dev="' + esc(d) + '">'
+        + '<td><span class="rk-caret material-symbols-rounded">' + (open ? 'expand_more' : 'chevron_right') + '</span>' + esc(d) + '</td>'
+        + '<td>' + nb + '</td><td>' + fx + '</td>'
+        + '<td class="col-total">' + rateCell(nb, denom) + '</td></tr>';
+      if(open) row += detailRow(d);
+      return row;
+    }).join('');
+    reopenRows.innerHTML = body;
+  }
+
+  // bấm dòng dev -> xổ/đóng chi tiết
+  if(reopenRows) reopenRows.addEventListener('click', function(e){
+    var tr = e.target.closest('.rk-row'); if(!tr) return;
+    var dev = tr.getAttribute('data-dev'); if(!dev) return;
+    reopenExpanded[dev] = !reopenExpanded[dev];
+    renderReopen();
+  });
+
   if(metricMonthSel) {
     if(MONTHS.length > 0) {
       metricMonthSel.innerHTML = MONTHS.map(function(m){
@@ -2148,15 +2383,32 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     metricMonthSel.addEventListener('change', renderMetric);
   }
 
+  if(reopenMonthSel) {
+    if(MONTHS.length > 0) {
+      reopenMonthSel.innerHTML = MONTHS.map(function(m){
+        return '<option value="' + esc(m) + '">' + esc(m) + '</option>';
+      }).join('');
+      reopenMonthSel.value = curMonth;
+    } else {
+      reopenMonthSel.innerHTML = '<option value="">Chưa có dữ liệu</option>';
+    }
+    reopenMonthSel.addEventListener('change', renderReopen);
+  }
+
   tabs.addEventListener('click', function(e){
     var t=e.target.closest('.bl-tab'); if(!t) return;
     if(metricMonthSel && metricMonthSel.value !== curMonth) {
       metricMonthSel.value = curMonth;
       renderMetric();
     }
+    if(reopenMonthSel && reopenMonthSel.value !== curMonth) {
+      reopenMonthSel.value = curMonth;
+      renderReopen();
+    }
   });
 
-  renderTabs(); render(); renderMetric();
+  if(activeFid){ var av0=availMonths(); if(av0.indexOf(curMonth)<0) curMonth = av0.length?av0[0]:''; }
+  renderTabs(); render(); renderMetric(); renderReopen(); updateActiveChip();
 })();
 
 })();
