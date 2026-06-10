@@ -1942,6 +1942,10 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   var SOURCES = DATA.sources||[];    // [{id,label}] file Drive nguồn đã cấu hình
   var REOPEN = DATA.reopen||{};      // {bugKey:{count,dev,project,month,last}} reopen tích luỹ
   var base = window.__jiraBase || '';
+  // activeFid = file Drive đang xem riêng ('' = tất cả). Nhớ qua localStorage, validate còn tồn tại.
+  var activeFid = '';
+  try{ activeFid = localStorage.getItem('qa-buglog-file')||''; }catch(e){}
+  if(activeFid && !SOURCES.some(function(s){ return s.id===activeFid; })) activeFid='';
   var curMonth = MONTHS.length ? MONTHS[0] : '';
   var page = 1, PER = 15;
   var sel = {};            // bugKey -> true (test case đang tick)
@@ -1969,12 +1973,37 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     return '<span class="bl-nolink">⛓️‍💥 Chưa liên kết</span>';
   }
 
-  function monthBugs(){ return BUGS.filter(function(b){ return b.month===curMonth; }); }
+  // file đang xem: '' = tất cả, else chỉ bug có fid===activeFid
+  function fileBugs(){ return activeFid ? BUGS.filter(function(b){ return b.fid===activeFid; }) : BUGS; }
+  // tháng có mặt trong file đang xem (giữ thứ tự MONTHS)
+  function availMonths(){ var fb=fileBugs(); return MONTHS.filter(function(m){ return fb.some(function(b){ return b.month===m; }); }); }
+  function monthBugs(){ return fileBugs().filter(function(b){ return b.month===curMonth; }); }
+
+  function activeLabel(){
+    if(!activeFid) return '';
+    var s=SOURCES.filter(function(x){ return x.id===activeFid; })[0];
+    return s ? (s.label||s.name||'File Drive') : '';
+  }
+  function setActiveFid(fid){
+    if(fid===activeFid){ return; }
+    activeFid = fid;
+    try{ if(fid) localStorage.setItem('qa-buglog-file', fid); else localStorage.removeItem('qa-buglog-file'); }catch(e){}
+    var av=availMonths();
+    if(av.indexOf(curMonth)<0) curMonth = av.length ? av[0] : '';
+    page=1; renderTabs(); render(); updateActiveChip();
+    toast(activeFid ? ('Đang xem: '+activeLabel()) : 'Đang xem: tất cả file', true);
+  }
+  function updateActiveChip(){ var c=$('blActiveFile'); if(!c) return;
+    if(activeFid){ c.textContent='📄 '+activeLabel(); c.style.display=''; }
+    else c.style.display='none';
+  }
 
   function renderTabs(){
-    if(!MONTHS.length){ tabs.innerHTML='<span class="bl-count">Chưa có dữ liệu — bấm ✎ trên thẻ nguồn để dán link file.</span>'; return; }
-    tabs.innerHTML = MONTHS.map(function(m){
-      var n = BUGS.filter(function(b){return b.month===m;}).length;
+    var av = availMonths();
+    if(!av.length){ tabs.innerHTML='<span class="bl-count">Chưa có dữ liệu cho file này.</span>'; return; }
+    if(av.indexOf(curMonth)<0) curMonth=av[0];
+    tabs.innerHTML = av.map(function(m){
+      var n = fileBugs().filter(function(b){return b.month===m;}).length;
       return '<button class="bl-tab'+(m===curMonth?' active':'')+'" data-m="'+esc(m)+'">'
         +'<span class="material-symbols-rounded">calendar_month</span> '+esc(m)+' ('+n+')</button>';
     }).join('');
@@ -2050,21 +2079,40 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     }).catch(function(){ if(btn) btn.disabled=false; toast('Lỗi mạng khi lưu', false); });
   }
 
-  // ✎ đổi link 1 file bug (single) — sửa SOURCES[0], thêm nếu chưa có; giữ nguyên file khác
+  // ✎ trên thẻ nguồn = PICKER: chọn 1 file Drive đã thêm để xem riêng data của file đó.
+  // activeFid lưu localStorage (sống qua reload). '' = xem tất cả.
   (function(){
-    var ov=$('blEditOv'), inp=$('blEditInp'); if(!ov) return;
-    function open(){ inp.value = SOURCES.length ? driveLink(SOURCES[0].id) : ''; ov.classList.add('open'); inp.focus(); }
+    var ov=$('blEditOv'), listEl=$('blPickList'); if(!ov) return;
+    function rowHtml(fid, label, sub){
+      var on = (activeFid===fid);
+      return '<button type="button" class="bl-pick-row'+(on?' on':'')+'" data-fid="'+esc(fid)+'">'
+        +'<span class="material-symbols-rounded bl-pick-ic">'+(fid?'description':'apps')+'</span>'
+        +'<span class="bl-pick-meta"><span class="bl-pick-name">'+esc(label)+'</span>'
+        +(sub?'<span class="bl-pick-sub">'+esc(sub)+'</span>':'')+'</span>'
+        +'<span class="material-symbols-rounded bl-pick-chk">'+(on?'check_circle':'radio_button_unchecked')+'</span>'
+        +'</button>';
+    }
+    function renderPick(){
+      if(!SOURCES.length){ listEl.innerHTML='<div class="bl-src-empty">Chưa có file nào — thêm ở “Quản lý link drive”.</div>'; return; }
+      var html = rowHtml('', 'Tất cả file', BUGS.length+' bản ghi');
+      html += SOURCES.map(function(s){
+        var n = BUGS.filter(function(b){ return b.fid===s.id; }).length;
+        var name = s.label || s.name || 'File Drive';
+        return rowHtml(s.id, name, n+' bản ghi');
+      }).join('');
+      listEl.innerHTML = html;
+    }
+    function open(){ renderPick(); ov.classList.add('open'); }
     function close(){ ov.classList.remove('open'); }
+    listEl.addEventListener('click', function(e){
+      var r=e.target.closest('.bl-pick-row'); if(!r) return;
+      setActiveFid(r.getAttribute('data-fid')||'');
+      close();
+    });
     var b=$('blEditLinkBtn'); if(b) b.addEventListener('click', open);
     var c=$('blEditClose'); if(c) c.addEventListener('click', close);
     var cc=$('blEditCancel'); if(cc) cc.addEventListener('click', close);
     ov.addEventListener('click', function(e){ if(e.target===ov) close(); });
-    var sv=$('blEditSave'); if(sv) sv.addEventListener('click', function(){
-      var link=(inp.value||'').trim(); if(!link){ toast('Chưa dán link', false); return; }
-      var list=[{ link:link, label: SOURCES.length ? (SOURCES[0].label||'') : '' }];
-      for(var i=1;i<SOURCES.length;i++) list.push({ link:driveLink(SOURCES[i].id), label:SOURCES[i].label||'' });
-      saveSources(list, sv);
-    });
   })();
 
   // "Quản lý link drive" — modal CRUD list link
@@ -2339,7 +2387,8 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     }
   });
 
-  renderTabs(); render(); renderMetric(); renderReopen();
+  if(activeFid){ var av0=availMonths(); if(av0.indexOf(curMonth)<0) curMonth = av0.length?av0[0]:''; }
+  renderTabs(); render(); renderMetric(); renderReopen(); updateActiveChip();
 })();
 
 })();

@@ -926,6 +926,23 @@ html[data-theme="dark"] .bottom-toast {
   border-radius:var(--r-md);display:flex;align-items:center;justify-content:center;flex:0 0 auto}
 .bl-src-row .del:hover{background:var(--error-bg);color:var(--error)}
 .bl-src-empty{font-size:13px;color:var(--on-surface-variant);font-style:italic;padding:6px 0}
+/* chip "file đang xem" trên thẻ nguồn */
+.bl-active-file{display:inline-flex;align-items:center;margin-top:6px;padding:3px 10px;border-radius:999px;
+  font-size:12px;font-weight:600;background:var(--primary-tint);color:var(--primary)}
+/* picker chọn file (modal ✎) */
+.bl-pick-list{display:flex;flex-direction:column;gap:8px}
+.bl-pick-row{display:flex;align-items:center;gap:12px;width:100%;text-align:left;cursor:pointer;
+  padding:11px 13px;border:1px solid var(--outline-variant);border-radius:var(--r-md);
+  background:var(--surface);color:var(--on-surface);font:inherit}
+.bl-pick-row:hover{background:var(--surface-low);border-color:var(--outline)}
+.bl-pick-row.on{border-color:var(--primary);background:var(--primary-tint)}
+.bl-pick-ic{font-size:22px;color:var(--on-surface-variant);flex:0 0 auto}
+.bl-pick-row.on .bl-pick-ic{color:var(--primary)}
+.bl-pick-meta{flex:1;display:flex;flex-direction:column;gap:1px;min-width:0}
+.bl-pick-name{font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bl-pick-sub{font-size:12px;color:var(--on-surface-variant)}
+.bl-pick-chk{font-size:21px;color:var(--outline);flex:0 0 auto}
+.bl-pick-row.on .bl-pick-chk{color:var(--primary)}
 /* tab tháng */
 .bl-tabs{display:flex;gap:24px;border-bottom:1px solid var(--outline-variant);margin-bottom:20px;flex-wrap:wrap}
 .bl-tab{display:inline-flex;align-items:center;gap:7px;padding:0 2px 12px;font-size:15px;font-weight:600;color:var(--on-surface-variant);background:none;border:none;border-bottom:2px solid transparent;cursor:pointer;margin-bottom:-1px}

@@ -1564,6 +1564,7 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
             link = links.get(key) or {}
             bugs.append({
                 'key': key,
+                'fid': fid,
                 'id': f"{b.get('project', '')}-{b.get('bug_no', '')}".strip('-'),
                 'summary': b.get('summary', ''),
                 'module': b.get('feature', ''),
@@ -1599,7 +1600,7 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
                  'Quản lý link drive</button>') if editable else ''
     # ✎ trên source card: đổi link file bug -> hệ thống đi theo link load data (single).
     edit_link_btn = ('<button class="bl-src-edit material-symbols-rounded" id="blEditLinkBtn" '
-                     'title="Đổi link file bug">edit</button>') if editable else ''
+                     'title="Chọn file bug để xem">folder_open</button>') if editable else ''
 
     # link-to-task bar (chỉ khi editable: cho tick + tạo link)
     linkbar = ''
@@ -1627,7 +1628,9 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
         '<div class="card bl-source">'
         '<span class="ic material-symbols-rounded">table_view</span>'
         '<div class="bl-src-info"><div class="lbl">NGUỒN DỮ LIỆU: GOOGLE DRIVE</div>'
-        f'<div class="fname">{src_line}</div></div>{edit_link_btn}</div>'
+        f'<div class="fname">{src_line}</div>'
+        '<span class="bl-active-file" id="blActiveFile" style="display:none"></span></div>'
+        f'{edit_link_btn}</div>'
         # tab tháng
         '<div class="bl-tabs" id="blTabs"></div>'
         + linkbar
@@ -1668,7 +1671,8 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
         + _json_script('bugLogData', {
             'bugs': bugs, 'months': month_list, 'editable': bool(editable),
             'syncedAt': synced_disp, 'reopen': reopen,
-            'sources': [{'id': s.get('id', ''), 'label': s.get('label', '')}
+            'sources': [{'id': s.get('id', ''), 'label': s.get('label', ''),
+                          'name': (files.get(s.get('id', ''), {}) or {}).get('name', '')}
                         for s in (sources or []) if s.get('id')],
         })
     )
@@ -1684,17 +1688,14 @@ def _bug_log_source_modals():
     return (
         # ----- đổi link 1 file (single) -----
         '<div class="overlay" id="blEditOv"><div class="modal">'
-        '<div class="modal-head"><span class="material-symbols-rounded">edit</span>'
-        '<h3>Đổi link file bug</h3>'
+        '<div class="modal-head"><span class="material-symbols-rounded">folder_open</span>'
+        '<h3>Chọn file bug để xem</h3>'
         '<button type="button" class="x material-symbols-rounded" id="blEditClose">close</button></div>'
-        '<div class="modal-body"><p class="modal-note">Dán link Google Drive của file bug log. '
-        'Hệ thống sẽ đi theo link để đọc dữ liệu. Lưu xong sẽ đồng bộ ngay.</p>'
-        '<div class="mfield"><label>Link Google Drive</label>'
-        '<input type="text" id="blEditInp" placeholder="https://drive.google.com/file/d/.../view" '
-        'autocomplete="off" spellcheck="false"></div></div>'
+        '<div class="modal-body"><p class="modal-note">Chọn 1 file Drive đã thêm để xem riêng dữ liệu của file đó. '
+        'Quản lý (thêm/sửa/xoá link) ở “Quản lý link drive”.</p>'
+        '<div id="blPickList" class="bl-pick-list"></div></div>'
         '<div class="modal-foot">'
-        '<button type="button" class="btn btn-ghost" id="blEditCancel">Huỷ</button>'
-        '<button type="button" class="btn btn-primary" id="blEditSave">Lưu &amp; đồng bộ</button>'
+        '<button type="button" class="btn btn-ghost" id="blEditCancel">Đóng</button>'
         '</div></div></div>'
         # ----- quản lý list link -----
         '<div class="overlay" id="blSrcOv"><div class="modal" style="width:620px">'
