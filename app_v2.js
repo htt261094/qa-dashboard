@@ -1959,6 +1959,40 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   var taskSel = [];        // các task key đã chọn ở ô tìm (multi-select chip)
   var tabs=$('blTabs'), rows=$('blRows'), pager=$('blPager'), cnt=$('blCount');
 
+  var FULL_MONTH_YEARS = [];
+  (function(){
+    var years = {};
+    years[new Date().getFullYear()] = true;
+    BUGS.forEach(function(b){
+      if(b.created) { var p = b.created.split('-'); if(p.length >= 1 && p[0]) years[parseInt(p[0], 10)] = true; }
+    });
+    Object.keys(years).sort().reverse().forEach(function(y) {
+      if(y && !isNaN(y)) {
+        for(var i=1; i<=12; i++) {
+          var mm = i<10 ? '0'+i : ''+i;
+          FULL_MONTH_YEARS.push(mm+'/'+y);
+        }
+      }
+    });
+  })();
+  var curMetricMonth = (function(){
+    var d = new Date(); var m = d.getMonth()+1;
+    return (m<10?'0'+m:m)+'/'+d.getFullYear();
+  })();
+
+  function formatCreated(iso) {
+    if(!iso) return '—';
+    var p = iso.split('-');
+    if(p.length >= 3) return p[2]+'/'+p[1]+'/'+p[0];
+    return iso;
+  }
+  function getCreatedMonthYear(iso) {
+    if(!iso) return '';
+    var p = iso.split('-');
+    if(p.length >= 2) return p[1]+'/'+p[0];
+    return '';
+  }
+
   // ----- map mức độ / trạng thái -> class + nhãn -----
   function sevCls(s){ var t=(s||'').toLowerCase();
     if(/nghi[êe]m|critical|blocker/.test(t)) return 'sev-crit';
@@ -2043,7 +2077,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
         +'<td><span class="bl-id">'+esc(b.id)+'</span></td>'
         +'<td>'+esc(b.module)+'</td>'
         +'<td><b>'+esc(b.summary)+'</b></td>'
-        +'<td style="white-space:nowrap">'+esc(b.created||'—')+'</td>'
+        +'<td style="white-space:nowrap">'+esc(formatCreated(b.created))+'</td>'
         +'<td>'+stCell(b.status)+'</td>'
         +'<td>'+esc(b.qa||'—')+'</td>'
         +'<td>'+esc(b.dev||'—')+'</td>'
@@ -2128,9 +2162,11 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       var left=Math.round((t0+interval*1000-Date.now())/1000);
       var tail;
       if(left<=0) tail='lần tới: sắp tới…';
-      else if(left>=60) tail='lần tới sau ~'+Math.ceil(left/60)+' phút';
-      else tail='lần tới sau '+left+' giây';
-      el.lastChild.nodeValue=' Tự đồng bộ lại toàn bộ file mỗi '+mins+' phút · '+tail;
+      else {
+        var m=Math.floor(left/60), s=left%60;
+        tail='lần tới sau <span style="font-variant-numeric:tabular-nums;font-family:\'JetBrains Mono\',monospace;font-weight:500">'+(m<10?'0'+m:m)+':'+(s<10?'0'+s:s)+'</span>';
+      }
+      el.innerHTML='<span class="material-symbols-rounded mi-sm">autorenew</span> Tự đồng bộ lại toàn bộ file mỗi '+mins+' phút · '+tail;
     }
     tick(); setInterval(tick, 1000);
   })();
@@ -2302,7 +2338,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     }
     
     // Lấy bugs của tháng
-    var mBugs = BUGS.filter(function(b){ return b.month === selectedMonth; });
+    var mBugs = BUGS.filter(function(b){ return getCreatedMonthYear(b.created) === selectedMonth; });
     
     // Tập hợp dev và project
     var devs = {}; // dev -> { proj -> count }
@@ -2365,7 +2401,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       return;
     }
     // bug của tháng theo dev (mẫu số tỷ lệ) + tra bug theo key
-    var mBugs = BUGS.filter(function(b){ return b.month === selectedMonth; });
+    var mBugs = BUGS.filter(function(b){ return getCreatedMonthYear(b.created) === selectedMonth; });
     var bugsPerDev = {}, totalBugs = mBugs.length, bugByKey = {};
     mBugs.forEach(function(b){
       var d = (b.dev || 'Chưa gán').trim();
@@ -2441,11 +2477,11 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   });
 
   if(metricMonthSel) {
-    if(MONTHS.length > 0) {
-      metricMonthSel.innerHTML = MONTHS.map(function(m){
-        return '<option value="' + esc(m) + '">' + esc(m) + '</option>';
+    if(FULL_MONTH_YEARS.length > 0) {
+      metricMonthSel.innerHTML = FULL_MONTH_YEARS.map(function(m){
+        return '<option value="' + esc(m) + '">Tháng ' + esc(m) + '</option>';
       }).join('');
-      metricMonthSel.value = curMonth;
+      metricMonthSel.value = curMetricMonth;
     } else {
       metricMonthSel.innerHTML = '<option value="">Chưa có dữ liệu</option>';
     }
@@ -2453,11 +2489,11 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   }
 
   if(reopenMonthSel) {
-    if(MONTHS.length > 0) {
-      reopenMonthSel.innerHTML = MONTHS.map(function(m){
-        return '<option value="' + esc(m) + '">' + esc(m) + '</option>';
+    if(FULL_MONTH_YEARS.length > 0) {
+      reopenMonthSel.innerHTML = FULL_MONTH_YEARS.map(function(m){
+        return '<option value="' + esc(m) + '">Tháng ' + esc(m) + '</option>';
       }).join('');
-      reopenMonthSel.value = curMonth;
+      reopenMonthSel.value = curMetricMonth;
     } else {
       reopenMonthSel.innerHTML = '<option value="">Chưa có dữ liệu</option>';
     }
@@ -2466,14 +2502,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
 
   tabs.addEventListener('click', function(e){
     var t=e.target.closest('.bl-tab'); if(!t) return;
-    if(metricMonthSel && metricMonthSel.value !== curMonth) {
-      metricMonthSel.value = curMonth;
-      renderMetric();
-    }
-    if(reopenMonthSel && reopenMonthSel.value !== curMonth) {
-      reopenMonthSel.value = curMonth;
-      renderReopen();
-    }
+    // metricMonthSel và reopenMonthSel giờ độc lập không theo tab nữa
   });
 
   if(activeFid){ var av0=availMonths(); if(av0.indexOf(curMonth)<0) curMonth = av0.length?av0[0]:''; }
