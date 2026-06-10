@@ -746,8 +746,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         keys = payload.get('keys')
                         task = payload.get('task', '')
                         op = payload.get('op', 'add')
+                        # task = str (1 task) hoặc list[str] (multi-select link bar #55)
+                        task_ok = isinstance(task, str) or (
+                            isinstance(task, list) and all(isinstance(x, str) for x in task))
                         if (isinstance(keys, list) and all(isinstance(x, str) for x in keys)
-                                and isinstance(task, str) and op in ('add', 'remove', 'clear')):
+                                and task_ok and op in ('add', 'remove', 'clear')):
+                            task = task[:50] if isinstance(task, list) else task
                             out = set_task_links(self._user_email(), keys[:500], task, op)
             except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
                 out = None

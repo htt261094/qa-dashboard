@@ -85,18 +85,24 @@ def set_task_links(email, bug_keys, task_key, op='add'):
     """Đổi link task của list `bug_keys`. Author = người đăng nhập (không cần PAT —
     đây là lớp app-side, không ghi Jira). 1 bug có thể link NHIỀU task.
 
+    `task_key` nhận str (1 task) HOẶC list[str] (nhiều task, cho 'add'/'remove') —
+    multi-select link bar (#55) gửi list để link nhiều task 1 lần.
+
     op:
-      'add'    -> thêm `task_key` vào tasks của mỗi bug (idempotent, bỏ qua nếu đã có)
-      'remove' -> gỡ `task_key` khỏi tasks của mỗi bug
+      'add'    -> thêm task(s) vào tasks của mỗi bug (idempotent, bỏ qua nếu đã có)
+      'remove' -> gỡ task(s) khỏi tasks của mỗi bug
       'clear'  -> gỡ HẾT task của mỗi bug (`task_key` bỏ qua)
 
     Trả {bugKey: [tasks...]} (trạng thái MỚI) cho các key vừa đổi nếu lưu được lên Jira;
     None nếu lỗi (caller phân biệt fail vs map rỗng). Khoá bug không hợp lệ -> bỏ qua."""
     if not isinstance(bug_keys, list) or not bug_keys:
         return None
-    task_key = (task_key or '').strip()
-    if op in ('add', 'remove') and not valid_task_key(task_key):
-        return None
+    # chuẩn hoá task_key -> list các task hợp lệ (cho add/remove)
+    raw = task_key if isinstance(task_key, list) else [task_key]
+    task_keys = [t.strip() for t in raw if isinstance(t, str) and t.strip()]
+    if op in ('add', 'remove'):
+        if not task_keys or not all(valid_task_key(t) for t in task_keys):
+            return None
     data = _load_data()
     links = data.setdefault('links', {})
     username = username_from_email(email) or 'local'
@@ -107,10 +113,11 @@ def set_task_links(email, bug_keys, task_key, op='add'):
             continue
         cur = tasks_of(links.get(k))
         if op == 'add':
-            if task_key not in cur:
-                cur.append(task_key)
+            for t in task_keys:
+                if t not in cur:
+                    cur.append(t)
         elif op == 'remove':
-            cur = [t for t in cur if t != task_key]
+            cur = [t for t in cur if t not in task_keys]
         else:  # clear
             cur = []
         if cur:
