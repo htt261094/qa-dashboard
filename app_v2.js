@@ -1972,10 +1972,14 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     return '<span class="st-badge '+m[0]+'">'+esc(m[1])+'</span>'; }
 
   function taskCell(b){
-    if(b.task){
-      // × để NGOÀI <a> (nếu nằm trong sẽ đi theo href + bị bắt nhầm). Cả 2 trong 1 wrapper.
-      var unlink = EDIT ? '<span class="unlink material-symbols-rounded mi-xs" data-unlink="'+esc(b.key)+'" title="Gỡ liên kết">close</span>' : '';
-      return '<span class="bl-jira-wrap"><a class="bl-jira" href="'+esc(base)+'/browse/'+esc(b.task)+'" target="_blank" rel="noopener">🔗 '+esc(b.task)+'</a>'+unlink+'</span>';
+    var tasks = b.tasks || [];
+    if(tasks.length){
+      // 1 bug có thể link nhiều task -> mỗi task 1 chip, × gỡ riêng task đó.
+      // × để NGOÀI <a> (nếu nằm trong sẽ đi theo href + bị bắt nhầm).
+      return '<span class="bl-jira-wrap">' + tasks.map(function(t){
+        var unlink = EDIT ? '<span class="unlink material-symbols-rounded mi-xs" data-unlink="'+esc(b.key)+'" data-task="'+esc(t)+'" title="Gỡ liên kết">close</span>' : '';
+        return '<span class="bl-jira-chip"><a class="bl-jira" href="'+esc(base)+'/browse/'+esc(t)+'" target="_blank" rel="noopener">🔗 '+esc(t)+'</a>'+unlink+'</span>';
+      }).join('') + '</span>';
     }
     return '<span class="bl-nolink">⛓️‍💥 Chưa liên kết</span>';
   }
@@ -1997,12 +2001,23 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     try{ if(fid) localStorage.setItem('qa-buglog-file', fid); else localStorage.removeItem('qa-buglog-file'); }catch(e){}
     var av=availMonths();
     if(av.indexOf(curMonth)<0) curMonth = av.length ? av[0] : '';
-    page=1; renderTabs(); render(); updateActiveChip();
+    page=1; renderTabs(); render(); updateActiveChip(); updateSrcLine();
     toast(activeFid ? ('Đang xem: '+activeLabel()) : 'Đang xem: tất cả file', true);
   }
   function updateActiveChip(){ var c=$('blActiveFile'); if(!c) return;
     if(activeFid){ c.textContent='📄 '+activeLabel(); c.style.display=''; }
     else c.style.display='none';
+  }
+  // Dòng tên file nguồn: chọn 1 file -> CHỈ hiện tên file đó; '' -> hiện tất cả (HTML gốc render server-side).
+  var ORIG_SRC_LINE = null;
+  function updateSrcLine(){ var el=$('blSrcLine'); if(!el) return;
+    if(ORIG_SRC_LINE===null) ORIG_SRC_LINE = el.innerHTML;
+    if(activeFid){
+      var s=SOURCES.filter(function(x){ return x.id===activeFid; })[0];
+      var nm = s ? (s.name||s.label||'File Drive') : 'File Drive';
+      var n = BUGS.filter(function(b){ return b.fid===activeFid; }).length;
+      el.innerHTML = '<b>'+esc(nm)+'</b> — '+n+' bản ghi';
+    } else el.innerHTML = ORIG_SRC_LINE;
   }
 
   function renderTabs(){
@@ -2068,7 +2083,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   // ----- events: tick + unlink (delegate trên tbody) -----
   rows.addEventListener('click', function(e){
     var u=e.target.closest('[data-unlink]');
-    if(u){ e.preventDefault(); doLink([u.getAttribute('data-unlink')], ''); return; }
+    if(u){ e.preventDefault(); doLink([u.getAttribute('data-unlink')], u.getAttribute('data-task')||'', 'remove'); return; }
     var c=e.target.closest('.bl-row-chk');
     if(c){ var k=c.getAttribute('data-k'); if(c.checked) sel[k]=true; else delete sel[k]; syncCheckAll(); updateLinkBtn(); }
   });
@@ -2194,12 +2209,14 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     });
   }
 
-  function doLink(keys, task){
-    postJSON('/link-task', { keys: keys, task: task }, 20000).then(function(j){
+  // op: 'add' (thêm task vào bug), 'remove' (gỡ 1 task khỏi bug), 'clear' (gỡ hết)
+  function doLink(keys, task, op){
+    op = op || 'add';
+    postJSON('/link-task', { keys: keys, task: task, op: op }, 20000).then(function(j){
       if(j && j.ok && j.links){
-        var m=j.links;
-        BUGS.forEach(function(b){ if(m.hasOwnProperty(b.key)) b.task = m[b.key]||''; });
-        if(task){ keys.forEach(function(k){ delete sel[k]; }); taskSel=''; var inp=$('blTaskInp'); if(inp) inp.value='';
+        var m=j.links;   // {bugKey: [tasks...]} trạng thái mới
+        BUGS.forEach(function(b){ if(m.hasOwnProperty(b.key)) b.tasks = m[b.key]||[]; });
+        if(op==='add'){ keys.forEach(function(k){ delete sel[k]; }); taskSel=''; var inp=$('blTaskInp'); if(inp) inp.value='';
           toast('Đã liên kết '+keys.length+' mục với '+task+' ✓', true); }
         else toast('Đã gỡ liên kết ✓', true);
         renderTabs(); render();
@@ -2395,7 +2412,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   });
 
   if(activeFid){ var av0=availMonths(); if(av0.indexOf(curMonth)<0) curMonth = av0.length?av0[0]:''; }
-  renderTabs(); render(); renderMetric(); renderReopen(); updateActiveChip();
+  renderTabs(); render(); renderMetric(); renderReopen(); updateActiveChip(); updateSrcLine();
 })();
 
 })();

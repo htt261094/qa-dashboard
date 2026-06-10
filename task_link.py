@@ -5,9 +5,11 @@ TỰ tạo link trên dashboard: tick các test case → tìm task → bấm "Li
 Link lưu APP-SIDE (Jira user property `qa-dashboard-bug-task-link`, sync chéo máy +
 cache local fallback), KHÔNG đụng Excel. Khoá = bug key `{project}#{month}#{bug_no}`.
 
-  { "links": { "<bugKey>": {"task": "PSIT1H26-123", "by": "quangbm", "at": iso}, ... } }
+  { "links": { "<bugKey>": {"tasks": ["PSIT1H26-123", ...], "by": "quangbm", "at": iso}, ... } }
 
-Migration-safe: thiếu `links` -> {}. Concurrent edit 2 máy = last-write-wins (chấp nhận).
+1 bug link tới NHIỀU task (issue: 2026-06-10). Migration-safe: link cũ dạng
+`{"task": "PROJ-1"}` (1 task string) đọc qua `tasks_of()` thành list 1 phần tử.
+Thiếu `links` -> {}. Concurrent edit 2 máy = last-write-wins (chấp nhận).
 
 Layer: config -> jira_api -> (this). Không cycle (pattern y custom_status.py).
 """
@@ -59,24 +61,41 @@ def _load_data():
 
 
 def load_links():
-    """{bugKey: {'task','by','at'}} — link hiện tại. {} nếu chưa có."""
+    """{bugKey: {'tasks','by','at'}} — link hiện tại. {} nếu chưa có."""
     return _load_data().get('links', {})
+
+
+def tasks_of(link_val):
+    """List task keys của 1 entry link (migration-safe). Đọc `tasks` (list mới) hoặc
+    `task` (string cũ, 1 task) -> luôn trả list (có thể rỗng)."""
+    if not isinstance(link_val, dict):
+        return []
+    ts = link_val.get('tasks')
+    if isinstance(ts, list):
+        return [t for t in ts if isinstance(t, str) and t]
+    t = link_val.get('task')
+    return [t] if isinstance(t, str) and t else []
 
 
 def valid_task_key(task):
     return bool(_KEY_RE.match((task or '').strip()))
 
 
-def set_task_links(email, bug_keys, task_key):
-    """Gán `task_key` cho list `bug_keys` (hoặc GỠ link nếu task_key=''). Author = người
-    đăng nhập (không cần PAT — đây là lớp app-side, không ghi Jira).
+def set_task_links(email, bug_keys, task_key, op='add'):
+    """Đổi link task của list `bug_keys`. Author = người đăng nhập (không cần PAT —
+    đây là lớp app-side, không ghi Jira). 1 bug có thể link NHIỀU task.
 
-    Trả {bugKey: task_or_empty} cho các key vừa đổi nếu lưu được lên Jira; None nếu lỗi
-    (caller phân biệt fail vs map rỗng). Khoá không hợp lệ trong list -> bỏ qua."""
+    op:
+      'add'    -> thêm `task_key` vào tasks của mỗi bug (idempotent, bỏ qua nếu đã có)
+      'remove' -> gỡ `task_key` khỏi tasks của mỗi bug
+      'clear'  -> gỡ HẾT task của mỗi bug (`task_key` bỏ qua)
+
+    Trả {bugKey: [tasks...]} (trạng thái MỚI) cho các key vừa đổi nếu lưu được lên Jira;
+    None nếu lỗi (caller phân biệt fail vs map rỗng). Khoá bug không hợp lệ -> bỏ qua."""
     if not isinstance(bug_keys, list) or not bug_keys:
         return None
     task_key = (task_key or '').strip()
-    if task_key and not valid_task_key(task_key):
+    if op in ('add', 'remove') and not valid_task_key(task_key):
         return None
     data = _load_data()
     links = data.setdefault('links', {})
@@ -86,12 +105,19 @@ def set_task_links(email, bug_keys, task_key):
     for k in bug_keys:
         if not isinstance(k, str) or not k:
             continue
-        if task_key:
-            links[k] = {'task': task_key, 'by': username, 'at': iso}
-            out[k] = task_key
+        cur = tasks_of(links.get(k))
+        if op == 'add':
+            if task_key not in cur:
+                cur.append(task_key)
+        elif op == 'remove':
+            cur = [t for t in cur if t != task_key]
+        else:  # clear
+            cur = []
+        if cur:
+            links[k] = {'tasks': cur, 'by': username, 'at': iso}
         else:
             links.pop(k, None)
-            out[k] = ''
+        out[k] = cur
     if not out:
         return None
     try:

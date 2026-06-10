@@ -986,7 +986,8 @@ html[data-theme="dark"] .bottom-toast {
 /* cột link task */
 .bl-jira{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--primary);text-decoration:none;display:inline-flex;align-items:center;gap:5px;padding:5px 11px;background:var(--primary-tint);border-radius:var(--r-md);font-weight:600}
 .bl-jira:hover{background:var(--primary-strong);color:var(--on-primary)}
-.bl-jira-wrap{display:inline-flex;align-items:center;gap:5px}
+.bl-jira-wrap{display:flex;flex-wrap:wrap;align-items:center;gap:5px}
+.bl-jira-chip{display:inline-flex;align-items:center;gap:3px}
 .bl-jira-wrap .unlink{opacity:.55;font-size:16px;cursor:pointer;color:var(--on-surface-variant);border-radius:50%}
 .bl-jira-wrap .unlink:hover{opacity:1;color:var(--error);background:var(--error-bg)}
 .bl-nolink{font-size:13px;color:var(--on-surface-variant);font-style:italic;display:inline-flex;align-items:center;gap:6px}
