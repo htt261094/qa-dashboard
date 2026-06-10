@@ -1965,6 +1965,19 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     }).catch(function(){ if(btn) btn.disabled=false; toast('Lỗi mạng khi lưu', false); });
   }
 
+  // "Đồng bộ ngay" — F5 chỉ render cache; nút này gọi scan() Drive ngay rồi reload (admin)
+  (function(){
+    var b=$('blSyncBtn'); if(!b) return;
+    b.addEventListener('click', function(){
+      b.disabled=true;
+      toast('Đang đọc lại data từ Drive…', true);
+      postJSON('/sync-bug-log', {}, 90000).then(function(j){
+        if(j && j.ok){ toast('Đã đồng bộ ✓ — đang tải lại', true); setTimeout(function(){ location.reload(); }, 900); }
+        else { b.disabled=false; toast((j&&(j.errors&&j.errors[0]))||'Đồng bộ lỗi', false); }
+      }).catch(function(){ b.disabled=false; toast('Lỗi mạng khi đồng bộ', false); });
+    });
+  })();
+
   // ✎ đổi link 1 file bug (single) — sửa SOURCES[0], thêm nếu chưa có; giữ nguyên file khác
   (function(){
     var ov=$('blEditOv'), inp=$('blEditInp'); if(!ov) return;
