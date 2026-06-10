@@ -2381,9 +2381,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       var val = Math.round((yMax / steps) * i);
       var bottomPct = (i / steps) * 100;
       ticksHtml += '<div style="position:absolute; bottom:'+bottomPct+'%; right:8px; transform:translateY(50%); font-size:11px; color:var(--on-surface-variant);">'+val+'</div>';
-      if(i > 0) {
-        gridHtml += '<div style="position:absolute; bottom:'+bottomPct+'%; left:0; right:0; height:1px; background:var(--outline-variant); z-index:0;"></div>';
-      }
+      // Bỏ dòng gạch ngang (gridHtml) để không chèn lên chữ
     }
     
     var barsHtml = '';
@@ -2585,7 +2583,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
                imgWidth = (imgProps.width * imgHeight) / imgProps.height;
             }
 
-            var title = 'Metric do bug cua Dev theo du an - Thang ' + (metricMonthSel.value || '');
+            var title = 'Số lượng bug theo từng dev (tháng ' + (metricMonthSel.value || '') + ')';
             pdf.setFontSize(16);
             pdf.text(title, margin, margin + 5);
             
