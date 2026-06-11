@@ -20,6 +20,7 @@ import datetime
 import re
 import threading
 import time
+import unicodedata
 import zipfile
 from io import BytesIO
 from xml.etree import ElementTree as ET
@@ -315,6 +316,13 @@ def _norm_header(h):
     return re.sub(r'\s+', ' ', str(h or '').strip()).lower()
 
 
+def _remove_accents(s):
+    if not isinstance(s, str):
+        return s
+    s = s.replace('Đ', 'D').replace('đ', 'd')
+    return unicodedata.normalize('NFKD', s).encode('ASCII', 'ignore').decode('utf-8')
+
+
 # normalized header -> field. Cột KHÔNG có ở đây (Urgent, Bug, Bug (T), Team Dev,
 # Bug (D), PIC cũ (Dev)) bị bỏ qua. 3 cột status xử lý riêng ở _lifecycle_status.
 _FIELD_MAP = {
@@ -356,11 +364,11 @@ def _lifecycle_status(total, test, dev):
 
 
 def project_from_filename(filename):
-    """Tên file Drive -> mã project (vd 'Logbug_DA6_2026.xlsx' -> 'DA6').
+    """Tên file Drive -> mã project (vd 'Logbug_DA6_2026.xlsx' -> 'DA6', 'Bug VĐT' -> 'VĐT').
 
-    Bỏ đuôi + tiền tố 'Logbug'/'Bug log', lấy token mã dự án (chữ+số) đầu tiên."""
+    Bỏ đuôi + tiền tố 'Logbug'/'Bug log'/'Bug', lấy token mã dự án (chữ+số) đầu tiên."""
     base = re.sub(r'\.[^.]+$', '', filename or '').strip()
-    base = re.sub(r'^(log\s*bug|bug\s*log)[\s_-]*', '', base, flags=re.IGNORECASE)
+    base = re.sub(r'^(log\s*bug|bug\s*log|bug)[\s_-]*', '', base, flags=re.IGNORECASE)
     m = re.search(r'[A-Za-z]+\d+[A-Za-z0-9]*', base)
     if m:
         return m.group(0).upper()
@@ -386,7 +394,10 @@ def normalize(rows, project=''):
 
         bug = {'month': month, 'project': project}
         for nh, field in _FIELD_MAP.items():
-            bug[field] = nrec.get(nh, [] if field == 'screenshot_urls' else '')
+            val = nrec.get(nh, [] if field == 'screenshot_urls' else '')
+            if field in ('qa_pic', 'dev_pic') and isinstance(val, str):
+                val = _remove_accents(val).strip()
+            bug[field] = val
         if not isinstance(bug['screenshot_urls'], list):
             bug['screenshot_urls'] = []
 
