@@ -188,12 +188,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
         từ chính feed (issue đổi trong window), customs từ overlay -> gần như zero extra call."""
         email = self._user_email()
         scope = None if self._is_admin() else username_from_email(email)
-        res = run_parallel({
-            'feed': lambda: fetch_activity_feed(days=ACTIVITY_DAYS, scope_user=scope,
-                                                with_status=with_patch),
-            'dismissed': lambda: load_dismissed(email),
-            'custom': lambda: load_bundle(scope, ACTIVITY_DAYS),
-        })
+        try:
+            res = run_parallel({
+                'feed': lambda: fetch_activity_feed(days=ACTIVITY_DAYS, scope_user=scope,
+                                                    with_status=with_patch),
+                'dismissed': lambda: load_dismissed(email),
+                'custom': lambda: load_bundle(scope, ACTIVITY_DAYS),
+            })
+        except RuntimeError:
+            # Jira không với tới được -> chuông RỖNG, KHÔNG kéo sập cả trang. Các tab không
+            # cần Jira (Tài liệu/Roadmap/Bug Log/Cài đặt — data đọc cache local) vẫn hoạt động;
+            # tab cần Jira (`/`, /my-work, /leader-eval) tự show lỗi từ data job của nó.
+            return ([], {}) if with_patch else []
         dismissed = res['dismissed']
         overlay, cust_act = res['custom']
         feed = res['feed']
