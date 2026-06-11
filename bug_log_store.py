@@ -285,7 +285,7 @@ def scan():
                 result['count'] += len(prev.get('bugs', {}))
                 continue
             # Tầng-2: normalize + diff
-            project = project_from_filename(meta.get('name', '') or src.get('label', ''))
+            project = project_from_filename(src.get('label', '') or meta.get('name', ''))
             norm = normalize(rows, project=project)
             cur_bugs = {b['key']: b for b in norm['bugs'] if b.get('key')}
             new_events.extend(_diff_events(prev.get('bugs', {}), cur_bugs))
