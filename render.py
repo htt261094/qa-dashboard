@@ -1841,11 +1841,21 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
 
     chip_css = """
     <style>
-    .eval-chip { display: inline-flex; align-items: center; background: #e9eaec; color: #172b4d; padding: 2px 8px; border-radius: 12px; font-size: 12px; margin-bottom: 4px;}
-    html[data-theme="dark"] .eval-chip { background: #283447; color: #b6c2d4; }
-    .eval-chip-x { margin-left: 4px; cursor: pointer; color: #6b778c; font-weight: bold; line-height: 1; }
-    .eval-chip-x:hover { color: #f15b50; }
-    #exclChipsContainer:empty { display: none; }
+    .eval-filter { display:grid; grid-template-columns:150px 200px 150px minmax(240px,1fr) auto; gap:14px 16px; align-items:end; }
+    .eval-filter .mfield { margin:0; }
+    .eval-flabel { font-size:12px; font-weight:600; display:block; margin-bottom:6px; color:var(--on-surface-variant); }
+    .eval-chipbox { display:flex; flex-wrap:wrap; gap:6px; align-items:center; min-height:40px; padding:5px 8px;
+        border:1px solid var(--outline-variant); border-radius:var(--r-md); background:var(--surface-low); cursor:text; }
+    .eval-chipbox:focus-within { border-color:var(--primary); background:var(--card); }
+    .eval-chipselect { border:none; background:transparent; outline:none; flex:1; min-width:130px; height:28px;
+        font-family:inherit; font-size:13px; color:var(--on-surface); cursor:pointer; padding:0 4px; }
+    .eval-chip { display:inline-flex; align-items:center; gap:5px; background:var(--surface-container); color:var(--on-surface);
+        padding:3px 6px 3px 10px; border-radius:14px; font-size:12px; font-weight:600; line-height:1; }
+    .eval-chip-x { cursor:pointer; color:var(--on-surface-variant); font-weight:bold; font-size:14px; line-height:1;
+        width:16px; height:16px; display:inline-flex; align-items:center; justify-content:center; border-radius:50%; }
+    .eval-chip-x:hover { color:#fff; background:#f15b50; }
+    .eval-filter .btn-primary { height:40px; padding:0 20px; }
+    @media (max-width:760px){ .eval-filter{ grid-template-columns:1fr 1fr; } }
     </style>
     """
 
@@ -1973,34 +1983,34 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
 
     <!-- B\u1ed9 l\u1ecdc -->
     <div class="card" style="margin-bottom:20px; padding:16px;">
-        <form action="/leader-eval" method="GET" id="evalFilterForm" style="display:flex; gap:16px; align-items:flex-end; flex-wrap:wrap;">
-            <div class="mfield" style="margin:0; width:150px;">
-                <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Th\u00e1ng:</label>
-                <input type="month" name="month" value="{month_str}" class="set-input" style="width:100%; margin:0;">
+        <form action="/leader-eval" method="GET" id="evalFilterForm" class="eval-filter">
+            <div class="mfield">
+                <label class="eval-flabel">Th\u00e1ng:</label>
+                <input type="month" name="month" value="{month_str}" class="set-input" style="margin:0;">
             </div>
-            <div class="mfield" style="margin:0; width:200px;">
-                <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Category:</label>
-                <select name="category" class="set-input" style="width:100%; margin:0;">
+            <div class="mfield">
+                <label class="eval-flabel">Category:</label>
+                <select name="category" class="set-input" style="margin:0;">
                     {cat_opts}
                 </select>
             </div>
-            <div class="mfield" style="margin:0; width:150px;">
-                <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Leader:</label>
-                <select name="leader" class="set-input" style="width:100%; margin:0;">
+            <div class="mfield">
+                <label class="eval-flabel">Leader:</label>
+                <select name="leader" class="set-input" style="margin:0;">
                     {ld_opts}
                 </select>
             </div>
-            <div class="mfield" style="margin:0; flex:1; min-width:250px;">
-                <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Assignee:</label>
-                <div style="display:flex; flex-wrap:wrap; gap:4px;" id="exclChipsContainer">{excl_chips}</div>
-                <select id="exclDropdown" class="set-input" style="width:100%; margin:0;">
-                    {excl_dropdown_opts}
-                </select>
+            <div class="mfield">
+                <label class="eval-flabel">Assignee:</label>
+                <div class="eval-chipbox" onclick="this.querySelector('select').focus()">
+                    <span id="exclChipsContainer" style="display:contents;">{excl_chips}</span>
+                    <select id="exclDropdown" class="eval-chipselect">
+                        {excl_dropdown_opts}
+                    </select>
+                </div>
                 <div id="exclHiddenInputs" style="display:none;">{excl_hidden}</div>
             </div>
-            <div>
-                <button type="submit" class="btn btn-primary" style="padding:6px 12px;">L\u1ecdc</button>
-            </div>
+            <button type="submit" class="btn btn-primary">L\u1ecdc</button>
         </form>
     </div>
 
