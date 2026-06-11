@@ -1571,7 +1571,7 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
             bugs.append({
                 'key': key,
                 'fid': fid,
-                'id': f"{b.get('project', '')}-{b.get('bug_no', '')}".strip('-'),
+                'id': f"{b.get('project', '')}-{b.get('service') + '-' if b.get('service') else ''}{b.get('bug_no', '')}".strip('-'),
                 'summary': b.get('summary', ''),
                 'module': b.get('feature', ''),
                 'severity': b.get('severity', ''),
@@ -1696,7 +1696,7 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
         + _json_script('bugLogData', {
             'bugs': bugs, 'months': month_list, 'editable': bool(editable),
             'syncedAt': synced_disp, 'reopen': reopen,
-            'sources': [{'id': s.get('id', ''), 'label': s.get('label', ''),
+            'sources': [{'id': s.get('id', ''), 'label': s.get('label', ''), 'service': s.get('service', ''),
                           'name': (files.get(s.get('id', ''), {}) or {}).get('name', '')}
                         for s in (sources or []) if s.get('id')],
         })

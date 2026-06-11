@@ -376,17 +376,19 @@ def project_from_filename(filename):
     return (parts[0] if parts else base).strip().upper()
 
 
-def normalize(rows, project=''):
+def normalize(rows, project='', service=''):
     """rows thô (parse_xlsx) -> {bugs:[...], unmapped:[...]}.
 
     bug = {bug_no, month, project, feature, summary, status, severity, qa_pic, dev_pic,
-           screenshot_urls, created, note, expected, handle_time}.
+           screenshot_urls, created, note, expected, handle_time, service}.
     - status = _lifecycle_status (gộp 3 cột).
     - month  = tên sheet (rec['_sheet']); created đã là 'YYYY-MM-DD' từ parse.
-    - Khoá diff = {project}#{month}#{bug_no}. Thiếu bug_no -> unmapped (reason 'no_stt');
+    - Khoá diff = {project}#{service}#{month}#{bug_no} (nếu có service) hoặc {project}#{month}#{bug_no}.
+      Thiếu bug_no -> unmapped (reason 'no_stt');
       trùng khoá -> MỌI dòng cùng khoá vào unmapped (reason 'dup_stt') vì không phân biệt được.
     `project` nên do caller suy từ tên file (project_from_filename)."""
     project = (project or '').strip()
+    service = (service or '').strip()
     parsed = []
     for rec in rows:
         month = str(rec.get('_sheet', '')).strip()
@@ -405,7 +407,9 @@ def normalize(rows, project=''):
             nrec.get('status', ''), nrec.get('test status', ''), nrec.get('dev status', ''))
 
         bug['bug_no'] = str(bug.get('bug_no', '')).strip()
-        bug['key'] = f"{project}#{month}#{bug['bug_no']}" if bug['bug_no'] else ''
+        bug['service'] = service
+        base_key = f"{project}#{service}#{month}#{bug['bug_no']}" if service else f"{project}#{month}#{bug['bug_no']}"
+        bug['key'] = base_key if bug['bug_no'] else ''
         parsed.append(bug)
 
     # đếm khoá để bắt trùng (chỉ tính dòng CÓ bug_no)

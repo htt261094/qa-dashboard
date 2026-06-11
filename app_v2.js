@@ -2210,15 +2210,16 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   // "Quản lý link drive" — modal CRUD list link
   (function(){
     var ov=$('blSrcOv'), listEl=$('blSrcList'); if(!ov) return;
-    function rowHtml(label, link){
+    function rowHtml(label, link, service){
       return '<div class="bl-src-row">'
-        +'<input type="text" class="bl-src-label" placeholder="Nhãn (tuỳ chọn)" value="'+esc(label||'')+'">'
+        +'<input type="text" class="bl-src-label" placeholder="Nhãn (tuỳ chọn)" value="'+esc(label||'')+'" style="width:140px;">'
+        +'<input type="text" class="bl-src-service" placeholder="Hậu tố (VD: FE)" value="'+esc(service||'')+'" style="width:110px;">'
         +'<input type="text" class="bl-src-link" placeholder="Link Google Drive" value="'+esc(link||'')+'">'
         +'<button type="button" class="del material-symbols-rounded mi-sm" title="Xoá">delete</button></div>';
     }
     function renderList(){
       if(!SOURCES.length){ listEl.innerHTML='<div class="bl-src-empty">Chưa có link nào — bấm “Thêm link”.</div>'; return; }
-      listEl.innerHTML = SOURCES.map(function(s){ return rowHtml(s.label, driveLink(s.id)); }).join('');
+      listEl.innerHTML = SOURCES.map(function(s){ return rowHtml(s.label, driveLink(s.id), s.service); }).join('');
     }
     function open(){ renderList(); ov.classList.add('open'); }
     function close(){ ov.classList.remove('open'); }
@@ -2228,7 +2229,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     ov.addEventListener('click', function(e){ if(e.target===ov) close(); });
     var add=$('blSrcAdd'); if(add) add.addEventListener('click', function(){
       var empty=listEl.querySelector('.bl-src-empty'); if(empty) listEl.innerHTML='';
-      listEl.insertAdjacentHTML('beforeend', rowHtml('', '')); });
+      listEl.insertAdjacentHTML('beforeend', rowHtml('', '', '')); });
     listEl.addEventListener('click', function(e){ var d=e.target.closest('.del'); if(!d) return;
       var row=d.closest('.bl-src-row'); if(row) row.remove();
       if(!listEl.querySelector('.bl-src-row')) listEl.innerHTML='<div class="bl-src-empty">Chưa có link nào — bấm “Thêm link”.</div>'; });
@@ -2237,7 +2238,8 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       listEl.querySelectorAll('.bl-src-row').forEach(function(row){
         var link=(row.querySelector('.bl-src-link').value||'').trim();
         var label=(row.querySelector('.bl-src-label').value||'').trim();
-        if(link) list.push({ link:link, label:label });   // bỏ dòng trống
+        var service=(row.querySelector('.bl-src-service').value||'').trim();
+        if(link) list.push({ link:link, label:label, service:service });   // bỏ dòng trống
       });
       saveSources(list, sv);
     });

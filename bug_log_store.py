@@ -286,7 +286,7 @@ def scan():
                 continue
             # Tầng-2: normalize + diff
             project = project_from_filename(src.get('label', '') or meta.get('name', ''))
-            norm = normalize(rows, project=project)
+            norm = normalize(rows, project=project, service=src.get('service', ''))
             cur_bugs = {b['key']: b for b in norm['bugs'] if b.get('key')}
             new_events.extend(_diff_events(prev.get('bugs', {}), cur_bugs))
             if _count_reopens(reopen, prev.get('bugs', {}), cur_bugs):

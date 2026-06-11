@@ -147,7 +147,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if not b:
                 continue
             out.append({
-                'id': f"{b.get('project', '')}-{b.get('bug_no', '')}".strip('-'),
+                'id': f"{b.get('project', '')}-{b.get('service') + '-' if b.get('service') else ''}{b.get('bug_no', '')}".strip('-'),
                 'summary': b.get('summary', ''),
                 'severity': b.get('severity', ''),
                 'status': b.get('status', ''),
@@ -709,7 +709,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                 bad = True
                                 break
                             label = it.get('label', '')
-                            clean.append({'id': fid, 'label': label if isinstance(label, str) else ''})
+                            service = str(it.get('service') or '').strip()
+                            clean.append({'id': fid, 'label': label if isinstance(label, str) else '', 'service': service})
                         if bad:
                             err = 'Có link Drive không hợp lệ — kiểm tra lại.'
                         elif save_sources(clean):

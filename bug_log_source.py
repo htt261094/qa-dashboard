@@ -45,6 +45,8 @@ def valid_sources(data):
             return False
         if not isinstance(it.get('label', ''), str):
             return False
+        if not isinstance(it.get('service', ''), str):
+            return False
     return True
 
 
