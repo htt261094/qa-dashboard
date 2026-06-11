@@ -59,7 +59,8 @@ def _load_env():
                 cfg[k.strip()] = v.strip().strip('"').strip("'")
     for k in ('JIRA_URL', 'JIRA_PAT', 'JIRA_USERS', 'JIRA_PORT',
               'JIRA_ADMIN_EMAIL', 'JIRA_ALLOWED_DOMAIN',
-              'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'SESSION_SECRET'):
+              'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'SESSION_SECRET',
+              'PUBLIC_BASE_URL'):
         if os.environ.get(k):
             cfg[k] = os.environ[k]
     return cfg
@@ -89,6 +90,10 @@ ALLOWED_DOMAIN = CFG.get('JIRA_ALLOWED_DOMAIN', '').strip().lstrip('@').lower()
 GOOGLE_CLIENT_ID = CFG.get('GOOGLE_CLIENT_ID', '').strip()
 GOOGLE_CLIENT_SECRET = CFG.get('GOOGLE_CLIENT_SECRET', '').strip()
 SESSION_SECRET = CFG.get('SESSION_SECRET', '').strip()  # khoá ký session cookie (HMAC)
+# URL gốc công khai (vd 'https://baokim-qa.com'). Khi set => dùng cái này để build
+# redirect_uri OAuth + quyết cờ Secure cookie, KHÔNG tin Host/X-Forwarded-Proto của client
+# (chống Host-header injection — issue #49). Bỏ trống => suy từ request (local dev).
+PUBLIC_BASE_URL = CFG.get('PUBLIC_BASE_URL', '').strip().rstrip('/')
 AUTH_ENABLED = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
 if AUTH_ENABLED and not SESSION_SECRET:
     print("ERROR: Bật Google OAuth nhưng thiếu SESSION_SECRET trong .env.\n"
