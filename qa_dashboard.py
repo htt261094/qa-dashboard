@@ -378,7 +378,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             month_str = (q.get('month') or [''])[0]
             category = (q.get('category') or [''])[0]
             leader = (q.get('leader') or [''])[0]
-            exclude_assignees = q.get('excl', [])
+            sel_assignees = q.get('assignee', [])
             
             if not month_str:
                 now = datetime.now()
@@ -391,14 +391,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             try:
                 from jira_api import fetch_leader_eval_tasks, fetch_project_categories
                 res = run_parallel({
-                    'tasks': lambda: fetch_leader_eval_tasks(category, leader, exclude_assignees, y, m),
+                    'tasks': lambda: fetch_leader_eval_tasks(category, leader, sel_assignees, y, m),
                     'categories': fetch_project_categories,
                     'bell': self._bell_activities,
                 })
                 from render import render_leader_eval_page
                 self._html(render_leader_eval_page(res['tasks'], y, m, user=self._user_ctx(), activities=res['bell'],
                                                    categories=res['categories'],
-                                                   sel_category=category, sel_leader=leader, excl_assignees=exclude_assignees))
+                                                   sel_category=category, sel_leader=leader, sel_assignees=sel_assignees))
             except RuntimeError as e:
                 from render import render_error_page
                 self._html(render_error_page(str(e)))

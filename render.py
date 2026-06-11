@@ -1765,10 +1765,10 @@ def render_roadmap_alerts(roadmap_data):
             f'<div class="rm-al-list">{"".join(rows)}</div></div>')
 
 
-def render_leader_eval_page(tasks, year, month, user=None, activities=None, categories=None, sel_category='', sel_leader='', excl_assignees=None):
+def render_leader_eval_page(tasks, year, month, user=None, activities=None, categories=None, sel_category='', sel_leader='', sel_assignees=None):
     from config import LEADER_EVAL_NUM_FIELD, LEADER_EVAL_TEXT_FIELD, USERS, display_name
     import json
-    excl_assignees = excl_assignees or []
+    sel_assignees = sel_assignees or []
     
     rows = []
     for issue in tasks:
@@ -1823,11 +1823,11 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
         sel = ' selected' if u == sel_leader else ''
         ld_opts += f'<option value="{esc(u)}"{sel}>{esc(display_name(u))}</option>'
         
-    excl_hidden = ''.join(f'<input type="hidden" name="excl" value="{esc(u)}">' for u in excl_assignees)
+    excl_hidden = ''.join(f'<input type="hidden" name="assignee" value="{esc(u)}">' for u in excl_assignees)
     
-    excl_dropdown_opts = '<option value="">+ Thêm người loại trừ...</option>'
+    excl_dropdown_opts = '<option value="">+ Chọn Assignee...</option>'
     for u in USERS:
-        if u not in excl_assignees:
+        if u not in sel_assignees:
             excl_dropdown_opts += f'<option value="{esc(u)}">{esc(display_name(u))}</option>'
 
     month_str = f"{year}-{month:02d}"
@@ -1872,7 +1872,7 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
                 </select>
             </div>
             <div class="mfield" style="margin:0; flex:1; min-width:250px;">
-                <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Assignee != (Loại trừ):</label>
+                <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Assignee:</label>
                 <div style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:4px;" id="exclChipsContainer">
                     {excl_chips}
                 </div>

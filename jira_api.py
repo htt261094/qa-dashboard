@@ -600,7 +600,7 @@ def fetch_project_categories():
         return []
 
 
-def fetch_leader_eval_tasks(category, leader, excluded_assignees, year, month):
+def fetch_leader_eval_tasks(category, leader, sel_assignees, year, month):
     import calendar
     _, last_day = calendar.monthrange(year, month)
     start_str = f"{year}-{month:02d}-01"
@@ -616,10 +616,11 @@ def fetch_leader_eval_tasks(category, leader, excluded_assignees, year, month):
     
     if leader:
         parts.append(f'Leader = "{leader}"')
+        parts.append(f'assignee != "{leader}"')
         
-    if excluded_assignees:
-        excl = ', '.join(f'"{a}"' for a in excluded_assignees)
-        parts.append(f'assignee not in ({excl})')
+    if sel_assignees:
+        incl = ', '.join(f'"{a}"' for a in sel_assignees)
+        parts.append(f'assignee in ({incl})')
         
     jql = " AND ".join(parts) + " ORDER BY priority DESC, updated DESC"
     fields = f"{_DEFAULT_FIELDS},{LEADER_EVAL_NUM_FIELD},{LEADER_EVAL_TEXT_FIELD},project"
