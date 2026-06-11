@@ -279,7 +279,8 @@ def scan():
             # Tầng-1: không đổi -> bỏ qua (vẫn cộng count để tổng kết phản ánh thực tế)
             unchanged = (prev.get('modifiedTime') == meta.get('modifiedTime')
                          and prev.get('md5Checksum') == meta.get('md5Checksum')
-                         and 'bugs' in prev)
+                         and 'bugs' in prev
+                         and prev.get('_version') == 2)
             if unchanged:
                 result['count'] += len(prev.get('bugs', {}))
                 continue
@@ -299,6 +300,7 @@ def scan():
                 'count': len(cur_bugs),
                 'unmapped': len(norm['unmapped']),
                 'scanned_at': _now_iso(),
+                '_version': 2,
             }
             result['count'] += len(cur_bugs)
             result['unmapped'] += len(norm['unmapped'])
