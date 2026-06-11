@@ -370,6 +370,33 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._html(html_out)
             return
 
+        if self.path.startswith('/leader-eval'):
+            if not self._is_admin():
+                self._redirect('/')
+                return
+            q = parse_qs(urlparse(self.path).query)
+            month_str = (q.get('month') or [''])[0]
+            if not month_str:
+                now = datetime.now()
+                month_str = f"{now.year}-{now.month:02d}"
+            try:
+                y, m = map(int, month_str.split('-'))
+            except ValueError:
+                now = datetime.now()
+                y, m = now.year, now.month
+            try:
+                from jira_api import fetch_qa_tasks_by_month
+                res = run_parallel({
+                    'tasks': lambda: fetch_qa_tasks_by_month(y, m),
+                    'bell': self._bell_activities,
+                })
+                from render import render_leader_eval_page
+                self._html(render_leader_eval_page(res['tasks'], y, m, user=self._user_ctx(), activities=res['bell']))
+            except RuntimeError as e:
+                from render import render_error_page
+                self._html(render_error_page(str(e)))
+            return
+
         if self.path in ('/docs', '/docs.html'):
             # tài liệu training: load song song tài liệu và chuông notif (đồng nhất mọi tab)
             try:
@@ -787,6 +814,26 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         if self.path == '/create-subtask':
             self._handle_create_subtask()
+            return
+        if self.path == '/batch-eval':
+            if not self._is_admin():
+                self._json(403, b'{"ok":false,"err":"forbidden"}')
+                return
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+                payload = json.loads(self.rfile.read(length).decode('utf-8'))
+                keys = payload.get('keys', [])
+                num_val = payload.get('num_val')
+                text_val = payload.get('text_val')
+                pat = load_user_pat(self._user_email())
+                if not pat:
+                    self._json(400, json.dumps({'ok': False, 'msg': 'Bạn chưa cấu hình PAT. Vào ⚙ Cài đặt để thêm.'}).encode('utf-8'))
+                    return
+                from jira_write import batch_update_evaluations
+                ok, msg = batch_update_evaluations(keys, num_val, text_val, pat)
+                self._json(200 if ok else 400, json.dumps({'ok': ok, 'msg': msg}).encode('utf-8'))
+            except Exception as e:
+                self._json(400, json.dumps({'ok': False, 'msg': str(e)}).encode('utf-8'))
             return
         if self.path == '/upload-file':
             if not self._is_admin():

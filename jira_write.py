@@ -9,7 +9,8 @@ Layer: config -> (this). Caller (handler) tự lấy PAT qua pat_store rồi tru
 import requests
 
 from config import (JIRA_URL, SUBTASK_TYPE_ID, TASK_PTSP_TYPE_ID,
-                    START_DATE_FIELD, LEADER_FIELD)
+                    START_DATE_FIELD, LEADER_FIELD,
+                    LEADER_EVAL_NUM_FIELD, LEADER_EVAL_TEXT_FIELD)
 
 _TIMEOUT = 20
 
@@ -155,3 +156,55 @@ def add_comment(key, body, pat):
         return False, _err_for(r.status_code, pat)
     except requests.RequestException as e:
         return False, _redact(f'Lỗi mạng: {e}', pat)
+
+
+def batch_update_evaluations(keys, num_val, text_val, pat):
+    """Cập nhật hàng loạt trường Đánh giá của Leader cho nhiều task.
+    num_val (float hoặc None), text_val (str hoặc None). Trả (ok, msg)."""
+    if not keys:
+        return True, "Không có task nào được chọn."
+    fields = {}
+    if num_val is not None and str(num_val).strip() != '':
+        try:
+            fields[LEADER_EVAL_NUM_FIELD] = float(num_val)
+        except ValueError:
+            return False, "Điểm đánh giá phải là một số."
+    if text_val is not None:
+        fields[LEADER_EVAL_TEXT_FIELD] = str(text_val).strip()
+
+    if not fields:
+        return False, "Không có dữ liệu hợp lệ để cập nhật."
+
+    errors = []
+    success_count = 0
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    def _update(key):
+        try:
+            r = requests.put(f"{JIRA_URL}/rest/api/2/issue/{key}",
+                             headers=_headers(pat), json={'fields': fields}, timeout=_TIMEOUT)
+            if r.status_code in (200, 204):
+                return key, True, None
+            # Extract specific errors if any
+            try:
+                err = r.json()
+                msgs = list((err.get('errors') or {}).values()) + (err.get('errorMessages') or [])
+                if msgs:
+                    return key, False, _redact('; '.join(str(m) for m in msgs), pat)
+            except ValueError:
+                pass
+            return key, False, _err_for(r.status_code, pat)
+        except requests.RequestException as e:
+            return key, False, _redact(f'Lỗi mạng: {e}', pat)
+
+    with ThreadPoolExecutor(max_workers=5) as ex:
+        futs = [ex.submit(_update, k) for k in keys]
+        for fut in as_completed(futs):
+            key, ok, msg = fut.result()
+            if ok:
+                success_count += 1
+            else:
+                errors.append(f"{key}: {msg}")
+
+    if errors:
+        return False, f"Thành công {success_count}/{len(keys)}. Lỗi: " + "; ".join(errors[:3]) + ("..." if len(errors)>3 else "")
+    return True, f"Đã cập nhật thành công {success_count} task."

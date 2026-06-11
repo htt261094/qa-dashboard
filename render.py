@@ -1129,6 +1129,7 @@ def render_sidebar_v2(active, user):
     nav = lnk('/', 'dashboard', 'space_dashboard', 'Dashboard')
     if is_admin:
         nav += lnk('/my-work', 'mywork', 'person', 'Việc của tôi')
+        nav += lnk('/leader-eval', 'leadereval', 'star', 'Đánh giá')
     nav += lnk('/roadmap', 'roadmap', 'map', 'Roadmap')
     nav += lnk('/bug-log', 'buglog', 'bug_report', 'Bugs')
     nav += lnk('/docs', 'docs', 'description', 'Tài liệu')
@@ -1762,6 +1763,161 @@ def render_roadmap_alerts(roadmap_data):
     return (f'<div class="section rm-alerts"><h2>🗺 Roadmap sắp đến hạn '
             f'<span class="count">{len(alerts)}</span></h2>'
             f'<div class="rm-al-list">{"".join(rows)}</div></div>')
+
+
+def render_leader_eval_page(tasks, year, month, user=None, activities=None):
+    from config import LEADER_EVAL_NUM_FIELD, LEADER_EVAL_TEXT_FIELD
+    rows = []
+    for issue in tasks:
+        f = issue.get('fields', {})
+        st = (f.get('status') or {}).get('name') or ''
+        num_val = f.get(LEADER_EVAL_NUM_FIELD)
+        num_str = str(num_val) if num_val is not None else ''
+        text_val = f.get(LEADER_EVAL_TEXT_FIELD) or ''
+        
+        rows.append(f'''
+        <tr>
+            <td style="text-align:center"><input type="checkbox" class="eval-chk" value="{esc(issue['key'])}"></td>
+            <td>{issue_link(issue)}</td>
+            <td class="summary-cell" title="{esc(i_summary(issue))}">{esc(i_summary(issue))}</td>
+            <td>{esc(i_assignee_name(issue))}</td>
+            <td><span class="status {status_class(st)}">{esc(st)}</span></td>
+            <td>{esc(num_str)}</td>
+            <td><div style="max-height:60px;overflow-y:auto;font-size:0.9em">{esc(text_val)}</div></td>
+        </tr>''')
+    
+    table_html = f'''
+    <div class="card">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th style="width:40px;text-align:center"><input type="checkbox" id="evalCheckAll"></th>
+                <th>Key</th>
+                <th>Summary</th>
+                <th>Assignee</th>
+                <th>Status</th>
+                <th>Điểm (Số)</th>
+                <th>Đánh giá (Text)</th>
+            </tr>
+        </thead>
+        <tbody id="evalTbody">
+            {''.join(rows) if rows else '<tr><td colspan="7" class="empty">Không có task nào trong tháng này.</td></tr>'}
+        </tbody>
+    </table>
+    </div>
+    '''
+
+    month_str = f"{year}-{month:02d}"
+    inner = f'''
+    <div class="page-head">
+        <div>
+            <h2 class="page-title">⭐ Đánh giá Task QA (Leader)</h2>
+            <div class="page-sub">Lọc task theo tháng tạo, chọn nhiều task để chấm điểm và đánh giá hàng loạt. Lưu trực tiếp lên Jira.</div>
+        </div>
+        <div class="head-actions">
+            <form action="/leader-eval" method="GET" style="display:flex; gap:8px; align-items:center;">
+                <label><strong>Chọn tháng:</strong></label>
+                <input type="month" name="month" value="{month_str}" class="set-input" style="width:150px; margin:0;" onchange="this.form.submit()">
+            </form>
+        </div>
+    </div>
+    
+    <div style="display:flex; gap:20px; align-items:flex-start;">
+        <div style="flex:1;">
+            <div class="section">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                    <h3>Danh sách Task ({len(tasks)})</h3>
+                    <span id="evalSelectedCount" style="color:#85b8ff; font-weight:bold;">0 task đang chọn</span>
+                </div>
+                {table_html}
+            </div>
+        </div>
+        <div style="width:320px; position:sticky; top:20px;">
+            <div class="card">
+                <h3>Cập nhật hàng loạt</h3>
+                <p class="set-note" style="margin-top:4px;">Chỉ cập nhật cho các task đang được chọn (tick) ở bên trái.</p>
+                <div class="set-form" style="display:flex; flex-direction:column; gap:12px; margin-top:16px;">
+                    <div>
+                        <label style="display:block; margin-bottom:4px; font-weight:500;">Điểm (Số):</label>
+                        <input type="number" id="evalNum" class="set-input" placeholder="VD: 8.5" step="0.1">
+                        <small style="color:#a5adba;">Bỏ trống nếu không muốn đổi</small>
+                    </div>
+                    <div>
+                        <label style="display:block; margin-bottom:4px; font-weight:500;">Đánh giá (Text):</label>
+                        <textarea id="evalText" class="set-input" rows="4" placeholder="Nhận xét..."></textarea>
+                        <small style="color:#a5adba;">Bỏ trống nếu không muốn đổi</small>
+                    </div>
+                    <button type="button" class="btn btn-primary" id="btnBatchEval" style="margin-top:8px;">Lưu lên Jira</button>
+                    <div id="evalResult" style="margin-top:8px; font-size:0.9em; white-space:pre-wrap;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {{
+            const checkAll = document.getElementById('evalCheckAll');
+            const checkboxes = document.querySelectorAll('.eval-chk');
+            const countLabel = document.getElementById('evalSelectedCount');
+            const btn = document.getElementById('btnBatchEval');
+            
+            function updateCount() {{
+                const sel = document.querySelectorAll('.eval-chk:checked').length;
+                countLabel.textContent = sel + ' task đang chọn';
+            }}
+            
+            if (checkAll) {{
+                checkAll.addEventListener('change', function() {{
+                    checkboxes.forEach(c => c.checked = this.checked);
+                    updateCount();
+                }});
+            }}
+            
+            checkboxes.forEach(c => c.addEventListener('change', updateCount));
+            
+            if (btn) {{
+                btn.addEventListener('click', async function() {{
+                    const keys = Array.from(document.querySelectorAll('.eval-chk:checked')).map(c => c.value);
+                    if (keys.length === 0) {{
+                        alert('Vui lòng chọn ít nhất 1 task.');
+                        return;
+                    }}
+                    const num_val = document.getElementById('evalNum').value;
+                    const text_val = document.getElementById('evalText').value;
+                    if (!num_val && !text_val) {{
+                        alert('Vui lòng nhập điểm hoặc text.');
+                        return;
+                    }}
+                    
+                    const resDiv = document.getElementById('evalResult');
+                    resDiv.textContent = 'Đang xử lý...';
+                    resDiv.style.color = '#a5adba';
+                    btn.disabled = true;
+                    
+                    try {{
+                        const r = await fetch('/batch-eval', {{
+                            method: 'POST',
+                            headers: {{'Content-Type': 'application/json'}},
+                            body: JSON.stringify({{keys, num_val: num_val || null, text_val: text_val || null}})
+                        }});
+                        const data = await r.json();
+                        resDiv.textContent = data.msg || (data.ok ? 'Thành công' : 'Lỗi');
+                        resDiv.style.color = data.ok ? '#94C748' : '#F87168';
+                        if (data.ok) {{
+                            setTimeout(() => location.reload(), 2000);
+                        }}
+                    }} catch (e) {{
+                        resDiv.textContent = 'Lỗi mạng: ' + e;
+                        resDiv.style.color = '#F87168';
+                    }} finally {{
+                        btn.disabled = false;
+                    }}
+                }});
+            }}
+        }});
+    </script>
+    '''
+    return _document_v2(inner, 'leadereval', user, activities or [], title=f'Đánh giá tháng {{month}}/{{year}} — QA Dashboard')
 
 
 def render_error_page(msg):

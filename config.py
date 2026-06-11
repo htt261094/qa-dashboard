@@ -34,6 +34,8 @@ SUBTASK_TYPE_ID = '10003'              # issuetype "Sub-task"
 TASK_PTSP_TYPE_ID = '10103'            # issuetype "Task-PTSP" (parent của sub-task QA)
 START_DATE_FIELD = 'customfield_10208'  # "Start date" (required khi tạo, default = hôm nay)
 LEADER_FIELD = 'customfield_10606'      # "Leader" (user-picker, optional)
+LEADER_EVAL_NUM_FIELD = 'customfield_10605'  # "Leader đánh giá (Số)" (number)
+LEADER_EVAL_TEXT_FIELD = 'customfield_10604' # "Leader đánh giá (Text)" (text)
 
 DEFAULT_DISPLAY_NAMES = {
     'quangbm': 'Quang',

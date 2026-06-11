@@ -9,7 +9,8 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
-from config import JIRA_URL, PAT, USERS, TASK_PTSP_TYPE_ID, actor_name
+from config import (JIRA_URL, PAT, USERS, TASK_PTSP_TYPE_ID, actor_name,
+                    LEADER_EVAL_NUM_FIELD, LEADER_EVAL_TEXT_FIELD)
 from issues import parse_date
 
 try:
@@ -580,3 +581,15 @@ def fetch_all(scope_user=None):
     data['fetched_at'] = datetime.now()
     _cache_set(cache_key, data)
     return data
+
+
+def fetch_qa_tasks_by_month(year, month):
+    """Fetch all tasks assigned to QA team created in the specified year and month."""
+    import calendar
+    _, last_day = calendar.monthrange(year, month)
+    start_str = f"{year}-{month:02d}-01"
+    end_str = f"{year}-{month:02d}-{last_day}"
+    user_list = ', '.join(USERS)
+    jql = f"assignee in ({user_list}) AND created >= '{start_str}' AND created <= '{end_str}' ORDER BY created DESC"
+    fields = f"{_DEFAULT_FIELDS},{LEADER_EVAL_NUM_FIELD},{LEADER_EVAL_TEXT_FIELD},project"
+    return jira_search(jql, max_results=500, fields=fields)
