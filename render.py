@@ -1772,21 +1772,25 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
 
     rows = []
     unique_statuses = set()
+    unique_assignees = {}
     for issue in tasks:
         f = issue.get('fields', {})
         st = (f.get('status') or {}).get('name') or ''
         if st:
             unique_statuses.add(st)
+        asg_user = i_assignee(issue)
+        asg_name = i_assignee_name(issue)
+        unique_assignees[asg_user] = asg_name
         num_val = f.get(LEADER_EVAL_NUM_FIELD)
         num_str = str(num_val) if num_val is not None else ''
         text_val = f.get(LEADER_EVAL_TEXT_FIELD) or ''
 
         rows.append(f"""
-        <tr class="eval-row" data-status="{esc(st)}" data-key="{esc(issue['key'])}">
+        <tr class="eval-row" data-status="{esc(st)}" data-key="{esc(issue['key'])}" data-assignee="{esc(asg_user)}">
             <td style="text-align:center"><input type="checkbox" class="eval-chk" value="{esc(issue['key'])}"></td>
             <td>{issue_link(issue)}</td>
             <td class="summary-cell clickable" title="{esc(i_summary(issue))}">{esc(i_summary(issue))}</td>
-            <td>{esc(i_assignee_name(issue))}</td>
+            <td>{esc(asg_name)}</td>
             <td><span class="status {status_class(st)}">{esc(st)}</span></td>
             <td>{esc(num_str)}</td>
             <td><div style="max-height:60px;overflow-y:auto;font-size:0.9em">{esc(text_val)}</div></td>
@@ -1795,6 +1799,10 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
     status_opts = ''
     for st in sorted(unique_statuses):
         status_opts += f'<option value="{esc(st)}">{esc(st)}</option>'
+
+    asg_opts = ''
+    for u, n in sorted(unique_assignees.items(), key=lambda kv: kv[1].lower()):
+        asg_opts += f'<option value="{esc(u)}">{esc(n)}</option>'
 
     table_html = f"""
     <div class="card">
@@ -1879,12 +1887,16 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
             if (lbl) lbl.textContent = sel + ' task \\u0111ang ch\\u1ecdn';
         }
 
-        /* Status filter */
+        /* Status + Assignee filters (combined) */
         var sf = document.getElementById('statusFilter');
-        if (sf) sf.addEventListener('change', function() {
-            var val = this.value;
+        var af = document.getElementById('asgFilter');
+        function applyRowFilters() {
+            var sv = sf ? sf.value : '';
+            var av = af ? af.value : '';
             document.querySelectorAll('.eval-row').forEach(function(r) {
-                if (!val || r.getAttribute('data-status') === val) {
+                var ok = (!sv || r.getAttribute('data-status') === sv) &&
+                         (!av || r.getAttribute('data-assignee') === av);
+                if (ok) {
                     r.style.display = '';
                 } else {
                     r.style.display = 'none';
@@ -1893,7 +1905,9 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
                 }
             });
             updateCount();
-        });
+        }
+        if (sf) sf.addEventListener('change', applyRowFilters);
+        if (af) af.addEventListener('change', applyRowFilters);
 
         /* Check-all */
         var ca = document.getElementById('evalCheckAll');
@@ -2046,6 +2060,13 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
                             <select id="statusFilter" class="set-input" style="margin:0; padding:4px 28px 4px 8px; font-size:13px; width:160px;">
                                 <option value="">-- T\u1ea5t c\u1ea3 --</option>
                                 {status_opts}
+                            </select>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <label style="font-size:13px; font-weight:600; color:var(--on-surface-variant);">L\u1ecdc Assignee:</label>
+                            <select id="asgFilter" class="set-input" style="margin:0; padding:4px 28px 4px 8px; font-size:13px; width:160px;">
+                                <option value="">-- T\u1ea5t c\u1ea3 --</option>
+                                {asg_opts}
                             </select>
                         </div>
                     </div>
