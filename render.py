@@ -1841,9 +1841,13 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
 
     chip_css = """
     <style>
-    .eval-filter { display:grid; grid-template-columns:150px 200px 150px minmax(240px,1fr) auto; gap:14px 16px; align-items:end; }
-    .eval-filter .mfield { margin:0; min-width:0; }
-    .eval-filter .set-input { height:42px; box-sizing:border-box; }
+    .eval-filter { display:flex; flex-wrap:wrap; gap:14px 16px; align-items:end; }
+    .eval-filter .mfield { margin:0; }
+    .eval-filter .set-input { height:42px; box-sizing:border-box; width:100%; }
+    .ef-month { width:130px; }
+    .ef-cat { width:190px; }
+    .ef-leader { width:130px; }
+    .ef-assignee { width:240px; }
     .eval-flabel { font-size:12px; font-weight:600; display:block; margin-bottom:6px; color:var(--on-surface-variant); }
     .eval-chipbox { display:flex; flex-wrap:wrap; gap:6px; align-items:center; min-height:42px; padding:4px 8px;
         box-sizing:border-box; border:1px solid var(--outline-variant); border-radius:var(--r-md);
@@ -1986,23 +1990,23 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
     <!-- B\u1ed9 l\u1ecdc -->
     <div class="card" style="margin-bottom:20px; padding:16px;">
         <form action="/leader-eval" method="GET" id="evalFilterForm" class="eval-filter">
-            <div class="mfield">
+            <div class="mfield ef-month">
                 <label class="eval-flabel">Th\u00e1ng:</label>
                 <input type="month" name="month" value="{month_str}" class="set-input" style="margin:0;">
             </div>
-            <div class="mfield">
+            <div class="mfield ef-cat">
                 <label class="eval-flabel">Category:</label>
                 <select name="category" class="set-input" style="margin:0;">
                     {cat_opts}
                 </select>
             </div>
-            <div class="mfield">
+            <div class="mfield ef-leader">
                 <label class="eval-flabel">Leader:</label>
                 <select name="leader" class="set-input" style="margin:0;">
                     {ld_opts}
                 </select>
             </div>
-            <div class="mfield">
+            <div class="mfield ef-assignee">
                 <label class="eval-flabel">Assignee:</label>
                 <div class="eval-chipbox" onclick="this.querySelector('select').focus()">
                     <span id="exclChipsContainer" style="display:contents;">{excl_chips}</span>
