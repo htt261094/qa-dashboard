@@ -2190,6 +2190,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       html += SOURCES.map(function(s){
         var n = BUGS.filter(function(b){ return b.fid===s.id; }).length;
         var name = s.label || s.name || 'File Drive';
+        if (s.service) name += ' (' + s.service + ')';
         return rowHtml(s.id, name, n+' bản ghi');
       }).join('');
       listEl.innerHTML = html;
