@@ -422,7 +422,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                                    categories=res['categories'],
                                                    sel_category=category, sel_leader=leader, sel_assignees=sel_assignees))
             except RuntimeError as e:
-                from render import render_error_page
                 self._html(render_error_page(str(e)))
             return
 
