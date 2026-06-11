@@ -1823,7 +1823,7 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
         sel = ' selected' if u == sel_leader else ''
         ld_opts += f'<option value="{esc(u)}"{sel}>{esc(display_name(u))}</option>'
         
-    excl_hidden = ''.join(f'<input type="hidden" name="assignee" value="{esc(u)}">' for u in excl_assignees)
+    excl_hidden = ''.join(f'<input type="hidden" name="assignee" value="{esc(u)}">' for u in sel_assignees)
     
     excl_dropdown_opts = '<option value="">+ Chọn Assignee...</option>'
     for u in USERS:
@@ -1841,7 +1841,7 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
     </style>
     '''
 
-    excl_chips = ''.join(f'<div class="eval-chip" data-val="{esc(u)}">{esc(display_name(u))} <span class="eval-chip-x" onclick="removeExcl(this, \'{esc(u)}\')">×</span></div>' for u in excl_assignees)
+    excl_chips = ''.join(f'<div class="eval-chip" data-val="{esc(u)}">{esc(display_name(u))} <span class="eval-chip-x" onclick="removeExcl(this, \'{esc(u)}\')">×</span></div>' for u in sel_assignees)
 
     inner = f'''
     {chip_css}
