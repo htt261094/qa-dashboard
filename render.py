@@ -1842,13 +1842,15 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
     chip_css = """
     <style>
     .eval-filter { display:grid; grid-template-columns:150px 200px 150px minmax(240px,1fr) auto; gap:14px 16px; align-items:end; }
-    .eval-filter .mfield { margin:0; }
+    .eval-filter .mfield { margin:0; min-width:0; }
+    .eval-filter .set-input { height:42px; box-sizing:border-box; }
     .eval-flabel { font-size:12px; font-weight:600; display:block; margin-bottom:6px; color:var(--on-surface-variant); }
-    .eval-chipbox { display:flex; flex-wrap:wrap; gap:6px; align-items:center; min-height:40px; padding:5px 8px;
-        border:1px solid var(--outline-variant); border-radius:var(--r-md); background:var(--surface-low); cursor:text; }
+    .eval-chipbox { display:flex; flex-wrap:wrap; gap:6px; align-items:center; min-height:42px; padding:4px 8px;
+        box-sizing:border-box; border:1px solid var(--outline-variant); border-radius:var(--r-md);
+        background:var(--surface-low); cursor:text; }
     .eval-chipbox:focus-within { border-color:var(--primary); background:var(--card); }
-    .eval-chipselect { border:none; background:transparent; outline:none; flex:1; min-width:130px; height:28px;
-        font-family:inherit; font-size:13px; color:var(--on-surface); cursor:pointer; padding:0 4px; }
+    .eval-chipselect { border:none; background:transparent; outline:none; flex:1 1 130px; min-width:130px;
+        font-family:inherit; font-size:14px; line-height:1.5; color:var(--on-surface); cursor:pointer; padding:4px; }
     .eval-chip { display:inline-flex; align-items:center; gap:5px; background:var(--surface-container); color:var(--on-surface);
         padding:3px 6px 3px 10px; border-radius:14px; font-size:12px; font-weight:600; line-height:1; }
     .eval-chip-x { cursor:pointer; color:var(--on-surface-variant); font-weight:bold; font-size:14px; line-height:1;
