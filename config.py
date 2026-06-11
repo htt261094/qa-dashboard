@@ -18,7 +18,6 @@ for _stream in (sys.stdout, sys.stderr):
 SCRIPT_DIR = Path(__file__).parent
 ENV_FILE = SCRIPT_DIR / '.env'
 STATE_FILE = SCRIPT_DIR / '.last_seen.json'
-PIC_FILE = SCRIPT_DIR / '.pic_config.json'
 DOCS_FILE = SCRIPT_DIR / '.docs_config.json'
 ROADMAP_FILE = SCRIPT_DIR / '.roadmap_config.json'
 DRIVE_TOKEN_FILE = SCRIPT_DIR / '.drive_token.json'      # cache refresh token (mã hoá) fallback
