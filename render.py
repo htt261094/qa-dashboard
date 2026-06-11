@@ -1862,7 +1862,7 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
     
     <!-- Bộ lọc -->
     <div class="card" style="margin-bottom:20px; padding:16px;">
-        <form action="/leader-eval" method="GET" id="evalFilterForm" style="display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap;">
+        <form action="/leader-eval" method="GET" id="evalFilterForm" style="display:flex; gap:16px; align-items:flex-end; flex-wrap:wrap;">
             <div class="mfield" style="margin:0; width:150px;">
                 <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Tháng:</label>
                 <input type="month" name="month" value="{month_str}" class="set-input" style="width:100%; margin:0;">
@@ -1881,15 +1881,13 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
             </div>
             <div class="mfield" style="margin:0; flex:1; min-width:250px;">
                 <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Assignee:</label>
-                <div style="display:flex; flex-wrap:wrap; gap:4px;" id="exclChipsContainer">
-                    {excl_chips}
-                </div>
+                <div style="display:flex; flex-wrap:wrap; gap:4px;" id="exclChipsContainer">{excl_chips}</div>
                 <select id="exclDropdown" class="set-input" style="width:100%; margin:0;">
                     {excl_dropdown_opts}
                 </select>
                 <div id="exclHiddenInputs" style="display:none;">{excl_hidden}</div>
             </div>
-            <div style="margin-top:22px;">
+            <div>
                 <button type="submit" class="btn btn-primary" style="padding:6px 12px;">Lọc</button>
             </div>
         </form>
