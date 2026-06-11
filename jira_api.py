@@ -583,13 +583,44 @@ def fetch_all(scope_user=None):
     return data
 
 
-def fetch_qa_tasks_by_month(year, month):
-    """Fetch all tasks assigned to QA team created in the specified year and month."""
+def fetch_project_categories():
+    """Fetch project categories from Jira for filtering."""
+    cache_key = 'project_categories'
+    cached, hit = _cache_get(cache_key)
+    if hit:
+        return cached
+    try:
+        r = _SESSION.get(f"{JIRA_URL}/rest/api/2/projectCategory", headers=_auth_headers(), timeout=15)
+        if r.status_code == 200:
+            cats = r.json()
+            _cache_set(cache_key, cats)
+            return cats
+        return []
+    except Exception:
+        return []
+
+
+def fetch_leader_eval_tasks(category, leader, excluded_assignees, year, month):
     import calendar
     _, last_day = calendar.monthrange(year, month)
     start_str = f"{year}-{month:02d}-01"
     end_str = f"{year}-{month:02d}-{last_day}"
-    user_list = ', '.join(USERS)
-    jql = f"assignee in ({user_list}) AND created >= '{start_str}' AND created <= '{end_str}' ORDER BY created DESC"
+    
+    parts = []
+    if category:
+        parts.append(f'category = "{category}"')
+        
+    parts.append('type in (Task, Sub-task)')
+    parts.append('NOT ((statusCategory = Done OR status = PENDING) AND "Leader đánh giá (text)" is not EMPTY)')
+    parts.append(f'("Start date" <= "{end_str}" AND duedate >= "{start_str}")')
+    
+    if leader:
+        parts.append(f'Leader = "{leader}"')
+        
+    if excluded_assignees:
+        excl = ', '.join(f'"{a}"' for a in excluded_assignees)
+        parts.append(f'assignee not in ({excl})')
+        
+    jql = " AND ".join(parts) + " ORDER BY priority DESC, updated DESC"
     fields = f"{_DEFAULT_FIELDS},{LEADER_EVAL_NUM_FIELD},{LEADER_EVAL_TEXT_FIELD},project"
     return jira_search(jql, max_results=500, fields=fields)

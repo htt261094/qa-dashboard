@@ -1765,8 +1765,11 @@ def render_roadmap_alerts(roadmap_data):
             f'<div class="rm-al-list">{"".join(rows)}</div></div>')
 
 
-def render_leader_eval_page(tasks, year, month, user=None, activities=None):
-    from config import LEADER_EVAL_NUM_FIELD, LEADER_EVAL_TEXT_FIELD
+def render_leader_eval_page(tasks, year, month, user=None, activities=None, categories=None, sel_category='', sel_leader='', excl_assignees=None):
+    from config import LEADER_EVAL_NUM_FIELD, LEADER_EVAL_TEXT_FIELD, USERS, display_name
+    import json
+    excl_assignees = excl_assignees or []
+    
     rows = []
     for issue in tasks:
         f = issue.get('fields', {})
@@ -1801,25 +1804,87 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None):
             </tr>
         </thead>
         <tbody id="evalTbody">
-            {''.join(rows) if rows else '<tr><td colspan="7" class="empty">Không có task nào trong tháng này.</td></tr>'}
+            {''.join(rows) if rows else '<tr><td colspan="7" class="empty">Không có task nào.</td></tr>'}
         </tbody>
     </table>
     </div>
     '''
 
+    cat_opts = '<option value="">-- Tất cả --</option>'
+    for c in (categories or []):
+        n = c.get('name', '')
+        sel = ' selected' if n == sel_category else ''
+        cat_opts += f'<option value="{esc(n)}"{sel}>{esc(n)}</option>'
+        
+    all_leaders = set(USERS)
+    all_leaders.add('thanhht1')
+    ld_opts = '<option value="">-- Tất cả --</option>'
+    for u in sorted(all_leaders):
+        sel = ' selected' if u == sel_leader else ''
+        ld_opts += f'<option value="{esc(u)}"{sel}>{esc(display_name(u))}</option>'
+        
+    excl_hidden = ''.join(f'<input type="hidden" name="excl" value="{esc(u)}">' for u in excl_assignees)
+    
+    excl_dropdown_opts = '<option value="">+ Thêm người loại trừ...</option>'
+    for u in USERS:
+        if u not in excl_assignees:
+            excl_dropdown_opts += f'<option value="{esc(u)}">{esc(display_name(u))}</option>'
+
     month_str = f"{year}-{month:02d}"
+    
+    chip_css = '''
+    <style>
+    .eval-chip { display: inline-flex; align-items: center; background: #e9eaec; color: #172b4d; padding: 2px 8px; border-radius: 12px; font-size: 12px; }
+    html[data-theme="dark"] .eval-chip { background: #283447; color: #b6c2d4; }
+    .eval-chip-x { margin-left: 4px; cursor: pointer; color: #6b778c; font-weight: bold; line-height: 1; }
+    .eval-chip-x:hover { color: #f15b50; }
+    </style>
+    '''
+
+    excl_chips = ''.join(f'<div class="eval-chip" data-val="{esc(u)}">{esc(display_name(u))} <span class="eval-chip-x" onclick="removeExcl(this, \'{esc(u)}\')">×</span></div>' for u in excl_assignees)
+
     inner = f'''
+    {chip_css}
     <div class="page-head">
         <div>
             <h2 class="page-title">⭐ Đánh giá Task QA (Leader)</h2>
-            <div class="page-sub">Lọc task theo tháng tạo, chọn nhiều task để chấm điểm và đánh giá hàng loạt. Lưu trực tiếp lên Jira.</div>
+            <div class="page-sub">Lọc task, chọn nhiều task để chấm điểm và đánh giá hàng loạt. Lưu trực tiếp lên Jira.</div>
         </div>
-        <div class="head-actions">
-            <form action="/leader-eval" method="GET" style="display:flex; gap:8px; align-items:center;">
-                <label><strong>Chọn tháng:</strong></label>
-                <input type="month" name="month" value="{month_str}" class="set-input" style="width:150px; margin:0;" onchange="this.form.submit()">
-            </form>
-        </div>
+    </div>
+    
+    <!-- Bộ lọc -->
+    <div class="card" style="margin-bottom:20px; padding:16px;">
+        <form action="/leader-eval" method="GET" id="evalFilterForm" style="display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap;">
+            <div class="mfield" style="margin:0; width:150px;">
+                <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Tháng:</label>
+                <input type="month" name="month" value="{month_str}" class="set-input" style="width:100%; margin:0;">
+            </div>
+            <div class="mfield" style="margin:0; width:200px;">
+                <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Category:</label>
+                <select name="category" class="set-input" style="width:100%; margin:0;">
+                    {cat_opts}
+                </select>
+            </div>
+            <div class="mfield" style="margin:0; width:150px;">
+                <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Leader:</label>
+                <select name="leader" class="set-input" style="width:100%; margin:0;">
+                    {ld_opts}
+                </select>
+            </div>
+            <div class="mfield" style="margin:0; flex:1; min-width:250px;">
+                <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Assignee != (Loại trừ):</label>
+                <div style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:4px;" id="exclChipsContainer">
+                    {excl_chips}
+                </div>
+                <select id="exclDropdown" class="set-input" style="width:100%; margin:0;">
+                    {excl_dropdown_opts}
+                </select>
+                <div id="exclHiddenInputs" style="display:none;">{excl_hidden}</div>
+            </div>
+            <div style="margin-top:22px;">
+                <button type="submit" class="btn btn-primary" style="padding:6px 12px;">Lọc</button>
+            </div>
+        </form>
     </div>
     
     <div style="display:flex; gap:20px; align-items:flex-start;">
@@ -1914,10 +1979,47 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None):
                     }}
                 }});
             }}
+            
+            // Chip Selector
+            const exclDropdown = document.getElementById('exclDropdown');
+            const exclChipsContainer = document.getElementById('exclChipsContainer');
+            const exclHiddenInputs = document.getElementById('exclHiddenInputs');
+            
+            window.removeExcl = function(el, val) {{
+                const inputs = exclHiddenInputs.querySelectorAll('input');
+                inputs.forEach(inp => {{
+                    if(inp.value === val) inp.remove();
+                }});
+                el.parentElement.remove();
+                const opt = document.createElement('option');
+                opt.value = val;
+                opt.textContent = val; // Mặc định hiển thị key
+                exclDropdown.appendChild(opt);
+            }};
+            
+            exclDropdown.addEventListener('change', function() {{
+                const val = this.value;
+                const text = this.options[this.selectedIndex].text;
+                if(!val) return;
+                
+                this.options[this.selectedIndex].remove();
+                this.value = '';
+                
+                const chip = document.createElement('div');
+                chip.className = 'eval-chip';
+                chip.innerHTML = text + ' <span class="eval-chip-x" onclick="removeExcl(this, \'' + val + '\')">×</span>';
+                exclChipsContainer.appendChild(chip);
+                
+                const inp = document.createElement('input');
+                inp.type = 'hidden';
+                inp.name = 'excl';
+                inp.value = val;
+                exclHiddenInputs.appendChild(inp);
+            }});
         }});
     </script>
     '''
-    return _document_v2(inner, 'leadereval', user, activities or [], title=f'Đánh giá tháng {{month}}/{{year}} — QA Dashboard')
+    return _document_v2(inner, 'leadereval', user, activities or [], title=f'Đánh giá tháng {month}/{year} — QA Dashboard')
 
 
 def render_error_page(msg):
