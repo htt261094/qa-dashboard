@@ -1771,15 +1771,18 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
     sel_assignees = sel_assignees or []
     
     rows = []
+    unique_statuses = set()
     for issue in tasks:
         f = issue.get('fields', {})
         st = (f.get('status') or {}).get('name') or ''
+        if st:
+            unique_statuses.add(st)
         num_val = f.get(LEADER_EVAL_NUM_FIELD)
         num_str = str(num_val) if num_val is not None else ''
         text_val = f.get(LEADER_EVAL_TEXT_FIELD) or ''
         
         rows.append(f'''
-        <tr>
+        <tr class="eval-row" data-status="{esc(st)}">
             <td style="text-align:center"><input type="checkbox" class="eval-chk" value="{esc(issue['key'])}"></td>
             <td>{issue_link(issue)}</td>
             <td class="summary-cell" title="{esc(i_summary(issue))}">{esc(i_summary(issue))}</td>
@@ -1789,6 +1792,10 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
             <td><div style="max-height:60px;overflow-y:auto;font-size:0.9em">{esc(text_val)}</div></td>
         </tr>''')
     
+    status_opts = ''
+    for st in sorted(unique_statuses):
+        status_opts += f'<option value="{esc(st)}">{esc(st)}</option>'
+
     table_html = f'''
     <div class="card">
     <table class="data-table">
@@ -1834,10 +1841,11 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
     
     chip_css = '''
     <style>
-    .eval-chip { display: inline-flex; align-items: center; background: #e9eaec; color: #172b4d; padding: 2px 8px; border-radius: 12px; font-size: 12px; }
+    .eval-chip { display: inline-flex; align-items: center; background: #e9eaec; color: #172b4d; padding: 2px 8px; border-radius: 12px; font-size: 12px; margin-bottom: 4px;}
     html[data-theme="dark"] .eval-chip { background: #283447; color: #b6c2d4; }
     .eval-chip-x { margin-left: 4px; cursor: pointer; color: #6b778c; font-weight: bold; line-height: 1; }
     .eval-chip-x:hover { color: #f15b50; }
+    #exclChipsContainer:empty { display: none; }
     </style>
     '''
 
@@ -1873,7 +1881,7 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
             </div>
             <div class="mfield" style="margin:0; flex:1; min-width:250px;">
                 <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Assignee:</label>
-                <div style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:4px;" id="exclChipsContainer">
+                <div style="display:flex; flex-wrap:wrap; gap:4px;" id="exclChipsContainer">
                     {excl_chips}
                 </div>
                 <select id="exclDropdown" class="set-input" style="width:100%; margin:0;">
@@ -1891,7 +1899,16 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
         <div style="flex:1;">
             <div class="section">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-                    <h3>Danh sách Task ({len(tasks)})</h3>
+                    <div style="display:flex; align-items:center; gap:16px;">
+                        <h3 style="margin:0;">Danh sách Task ({len(tasks)})</h3>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <label style="font-size:13px; font-weight:600; color:#6b778c;">Lọc Status:</label>
+                            <select id="statusFilter" class="set-input" style="margin:0; padding:2px 8px; font-size:13px; min-height:0; width:150px;">
+                                <option value="">-- Tất cả --</option>
+                                {status_opts}
+                            </select>
+                        </div>
+                    </div>
                     <span id="evalSelectedCount" style="color:#85b8ff; font-weight:bold;">0 task đang chọn</span>
                 </div>
                 {table_html}
@@ -1925,15 +1942,42 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
             const checkboxes = document.querySelectorAll('.eval-chk');
             const countLabel = document.getElementById('evalSelectedCount');
             const btn = document.getElementById('btnBatchEval');
+            const statusFilter = document.getElementById('statusFilter');
             
             function updateCount() {{
                 const sel = document.querySelectorAll('.eval-chk:checked').length;
                 countLabel.textContent = sel + ' task đang chọn';
             }}
             
+            if (statusFilter) {{
+                statusFilter.addEventListener('change', function() {{
+                    const val = this.value;
+                    const rows = document.querySelectorAll('.eval-row');
+                    rows.forEach(r => {{
+                        if (!val || r.getAttribute('data-status') === val) {{
+                            r.style.display = '';
+                        }} else {{
+                            r.style.display = 'none';
+                            // Uncheck hidden rows to prevent accidental evaluation
+                            const chk = r.querySelector('.eval-chk');
+                            if (chk && chk.checked) {{
+                                chk.checked = false;
+                            }}
+                        }}
+                    }});
+                    updateCount();
+                }});
+            }}
+            
             if (checkAll) {{
                 checkAll.addEventListener('change', function() {{
-                    checkboxes.forEach(c => c.checked = this.checked);
+                    checkboxes.forEach(c => {{
+                        // Only check visible rows
+                        const row = c.closest('tr');
+                        if (row.style.display !== 'none') {{
+                            c.checked = this.checked;
+                        }}
+                    }});
                     updateCount();
                 }});
             }}
@@ -2012,7 +2056,7 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
                 
                 const inp = document.createElement('input');
                 inp.type = 'hidden';
-                inp.name = 'excl';
+                inp.name = 'assignee';
                 inp.value = val;
                 exclHiddenInputs.appendChild(inp);
             }});
