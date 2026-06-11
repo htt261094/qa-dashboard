@@ -228,7 +228,7 @@ def _serial_to_date(value):
         return s
 
 
-_DATA_SHEET_RE = re.compile(r'^T\d+$')
+_DATA_SHEET_RE = re.compile(r'^(?!template$).+$', re.IGNORECASE)
 _BANNER_RE = re.compile(r'AI\s*báo\s*cáo', re.IGNORECASE)
 
 
