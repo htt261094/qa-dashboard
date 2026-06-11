@@ -1841,31 +1841,30 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
 
     chip_css = """
     <style>
-    .eval-filter { display:flex; flex-wrap:wrap; gap:14px 16px; align-items:start; }
-    .eval-filter .mfield { margin:0; }
-    .eval-flabel-sp { visibility:hidden; }
-    .eval-filter .set-input { height:42px; box-sizing:border-box; width:100%; }
-    .ef-month { width:130px; }
-    .ef-cat { width:190px; }
-    .ef-leader { width:130px; }
-    .ef-assignee { width:240px; }
-    .eval-flabel { font-size:12px; font-weight:600; display:block; margin-bottom:6px; color:var(--on-surface-variant); }
-    .eval-chipbox { display:flex; flex-wrap:wrap; gap:6px; align-items:center; min-height:42px; padding:4px 8px;
-        box-sizing:border-box; border:1px solid var(--outline-variant); border-radius:var(--r-md);
-        background:var(--surface-low); cursor:text; }
-    .eval-chipbox:focus-within { border-color:var(--primary); background:var(--card); }
-    .eval-chipselect { border:none; background:transparent; outline:none; flex:1 1 130px; min-width:130px;
-        font-family:inherit; font-size:14px; line-height:1.5; color:var(--on-surface); cursor:pointer; padding:4px; }
-    .eval-chip { display:inline-flex; align-items:center; gap:5px; background:var(--surface-container); color:var(--on-surface);
-        padding:3px 6px 3px 10px; border-radius:14px; font-size:12px; font-weight:600; line-height:1; }
-    .eval-chip-x { cursor:pointer; color:var(--on-surface-variant); font-weight:bold; font-size:14px; line-height:1;
-        width:16px; height:16px; display:inline-flex; align-items:center; justify-content:center; border-radius:50%; }
+    .eval-filter { display:flex; flex-wrap:wrap; gap:14px 16px; align-items:flex-end; }
+    .ef { display:flex; flex-direction:column; gap:6px; }
+    .eval-flabel { font-size:12px; font-weight:600; color:var(--on-surface-variant); }
+    .eval-filter .set-input { height:42px; box-sizing:border-box; margin:0; }
+    .ef-month  .set-input { width:140px; }
+    .ef-cat    .set-input { width:200px; }
+    .ef-leader .set-input { width:150px; }
+    .ef-assignee .set-input { width:200px; }
+    .eval-filter .btn-primary { height:42px; padding:0 24px; }
+    .eval-chips { flex-basis:100%; display:flex; flex-wrap:wrap; gap:8px; margin-top:2px; }
+    .eval-chips:empty { display:none; }
+    .eval-chip { display:inline-flex; align-items:center; gap:6px; background:var(--surface-container);
+        color:var(--on-surface); padding:4px 8px 4px 12px; border-radius:14px; font-size:13px; font-weight:600; }
+    .eval-chip-x { cursor:pointer; color:var(--on-surface-variant); font-size:16px; line-height:1;
+        width:18px; height:18px; display:inline-flex; align-items:center; justify-content:center; border-radius:50%; }
     .eval-chip-x:hover { color:#fff; background:#f15b50; }
-    .eval-filter .btn-primary { height:42px; padding:0 20px; }
     </style>
     """
 
-    excl_chips = ''.join(f'<div class="eval-chip" data-val="{esc(u)}">{esc(display_name(u))} <span class="eval-chip-x" onclick="removeExcl(this,\'{esc(u)}\')">\u00d7</span></div>' for u in sel_assignees)
+    name_map_json = json.dumps({u: display_name(u) for u in USERS})
+    excl_chips = ''.join(
+        f'<span class="eval-chip" data-val="{esc(u)}">{esc(display_name(u))}'
+        f'<span class="eval-chip-x" onclick="removeExcl(\'{esc(u)}\')">\u00d7</span></span>'
+        for u in sel_assignees)
 
     # Build JS as a separate string (NOT inside f-string) to avoid {{/}} hell
     js_block = """
@@ -1941,42 +1940,53 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
             }
         };
 
-        /* Chip Selector */
-        var exclDropdown = document.getElementById('exclDropdown');
-        var exclChipsContainer = document.getElementById('exclChipsContainer');
-        var exclHiddenInputs = document.getElementById('exclHiddenInputs');
+        /* Assignee multi-select: dropdown adds a chip on its own row below */
+        var dd = document.getElementById('exclDropdown');
+        var chips = document.getElementById('exclChipsContainer');
+        var hidden = document.getElementById('exclHiddenInputs');
 
-        window.removeExcl = function(el, val) {
-            var inputs = exclHiddenInputs.querySelectorAll('input');
-            inputs.forEach(function(inp) {
-                if (inp.value === val) inp.remove();
-            });
-            el.parentElement.remove();
+        window.removeExcl = function(val) {
+            var chip = chips.querySelector('.eval-chip[data-val="' + val + '"]');
+            if (chip) chip.remove();
+            var inp = hidden.querySelector('input[value="' + val + '"]');
+            if (inp) inp.remove();
             var opt = document.createElement('option');
             opt.value = val;
-            opt.textContent = val;
-            exclDropdown.appendChild(opt);
+            opt.textContent = (window.EVAL_NAMES && window.EVAL_NAMES[val]) || val;
+            dd.appendChild(opt);
         };
 
-        if (exclDropdown) exclDropdown.addEventListener('change', function() {
-            var val = this.value;
-            var text = this.options[this.selectedIndex].text;
-            if (!val) return;
-            this.options[this.selectedIndex].remove();
-            this.value = '';
-            var chip = document.createElement('div');
+        function addExcl(val) {
+            var name = (window.EVAL_NAMES && window.EVAL_NAMES[val]) || val;
+            var chip = document.createElement('span');
             chip.className = 'eval-chip';
-            chip.innerHTML = text + ' <span class="eval-chip-x" onclick="removeExcl(this,\\x27'+val+'\\x27)">\\u00d7</span>';
-            exclChipsContainer.appendChild(chip);
+            chip.setAttribute('data-val', val);
+            chip.textContent = name;
+            var x = document.createElement('span');
+            x.className = 'eval-chip-x';
+            x.textContent = '\\u00d7';
+            x.onclick = function() { removeExcl(val); };
+            chip.appendChild(x);
+            chips.appendChild(chip);
             var inp = document.createElement('input');
             inp.type = 'hidden';
             inp.name = 'assignee';
             inp.value = val;
-            exclHiddenInputs.appendChild(inp);
+            hidden.appendChild(inp);
+        }
+
+        if (dd) dd.addEventListener('change', function() {
+            var val = this.value;
+            if (!val) return;
+            var opt = this.options[this.selectedIndex];
+            if (opt) opt.remove();
+            this.value = '';
+            addExcl(val);
         });
     })();
     </script>
     """
+    js_block = '<script>window.EVAL_NAMES = ' + name_map_json + ';</script>' + js_block
 
     inner = f"""
     {chip_css}
@@ -1990,36 +2000,25 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
     <!-- B\u1ed9 l\u1ecdc -->
     <div class="card" style="margin-bottom:20px; padding:16px;">
         <form action="/leader-eval" method="GET" id="evalFilterForm" class="eval-filter">
-            <div class="mfield ef-month">
+            <div class="ef ef-month">
                 <label class="eval-flabel">Th\u00e1ng:</label>
-                <input type="month" name="month" value="{month_str}" class="set-input" style="margin:0;">
+                <input type="month" name="month" value="{month_str}" class="set-input">
             </div>
-            <div class="mfield ef-cat">
+            <div class="ef ef-cat">
                 <label class="eval-flabel">Category:</label>
-                <select name="category" class="set-input" style="margin:0;">
-                    {cat_opts}
-                </select>
+                <select name="category" class="set-input">{cat_opts}</select>
             </div>
-            <div class="mfield ef-leader">
+            <div class="ef ef-leader">
                 <label class="eval-flabel">Leader:</label>
-                <select name="leader" class="set-input" style="margin:0;">
-                    {ld_opts}
-                </select>
+                <select name="leader" class="set-input">{ld_opts}</select>
             </div>
-            <div class="mfield ef-assignee">
+            <div class="ef ef-assignee">
                 <label class="eval-flabel">Assignee:</label>
-                <div class="eval-chipbox" onclick="this.querySelector('select').focus()">
-                    <span id="exclChipsContainer" style="display:contents;">{excl_chips}</span>
-                    <select id="exclDropdown" class="eval-chipselect">
-                        {excl_dropdown_opts}
-                    </select>
-                </div>
-                <div id="exclHiddenInputs" style="display:none;">{excl_hidden}</div>
+                <select id="exclDropdown" class="set-input">{excl_dropdown_opts}</select>
             </div>
-            <div class="mfield">
-                <label class="eval-flabel eval-flabel-sp">.</label>
-                <button type="submit" class="btn btn-primary">L\u1ecdc</button>
-            </div>
+            <button type="submit" class="btn btn-primary">L\u1ecdc</button>
+            <div id="exclHiddenInputs" style="display:none;">{excl_hidden}</div>
+            <div class="eval-chips" id="exclChipsContainer">{excl_chips}</div>
         </form>
     </div>
 
