@@ -1782,10 +1782,10 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
         text_val = f.get(LEADER_EVAL_TEXT_FIELD) or ''
 
         rows.append(f"""
-        <tr class="eval-row" data-status="{esc(st)}">
+        <tr class="eval-row" data-status="{esc(st)}" data-key="{esc(issue['key'])}">
             <td style="text-align:center"><input type="checkbox" class="eval-chk" value="{esc(issue['key'])}"></td>
             <td>{issue_link(issue)}</td>
-            <td class="summary-cell" title="{esc(i_summary(issue))}">{esc(i_summary(issue))}</td>
+            <td class="summary-cell clickable" title="{esc(i_summary(issue))}">{esc(i_summary(issue))}</td>
             <td>{esc(i_assignee_name(issue))}</td>
             <td><span class="status {status_class(st)}">{esc(st)}</span></td>
             <td>{esc(num_str)}</td>
@@ -1857,6 +1857,9 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
     .eval-chip-x { cursor:pointer; color:var(--on-surface-variant); font-size:16px; line-height:1;
         width:18px; height:18px; display:inline-flex; align-items:center; justify-content:center; border-radius:50%; }
     .eval-chip-x:hover { color:#fff; background:#f15b50; }
+    .eval-row { cursor:pointer; }
+    .eval-row:hover { background:var(--surface-low); }
+    .eval-row .summary-cell.clickable { color:var(--on-surface); }
     </style>
     """
 
@@ -1906,6 +1909,16 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
         /* Individual checkboxes */
         document.querySelectorAll('.eval-chk').forEach(function(c) {
             c.addEventListener('change', updateCount);
+        });
+
+        /* Click a row -> open detail drawer (ignore checkbox + links) */
+        var tbody = document.getElementById('evalTbody');
+        if (tbody) tbody.addEventListener('click', function(e) {
+            if (e.target.closest('input, a, label, button')) return;
+            var row = e.target.closest('tr.eval-row');
+            if (!row) return;
+            var key = row.getAttribute('data-key');
+            if (key && window.__openDetail) window.__openDetail(key);
         });
 
         /* Batch eval */
