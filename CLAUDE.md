@@ -424,44 +424,55 @@ python3 qa_dashboard.py
 
 ## File Map
 
+> **Tái cấu trúc folder (issue #85, 2026-06-11):** code lõi gom vào `core/`, asset tĩnh vào `assets/`, script tiện ích vào `scripts/`. Entry `qa_dashboard.py` GIỮ ở root (`python qa_dashboard.py` không đổi) + tự thêm `core/` vào `sys.path` → các module vẫn `from config import ...` (absolute, KHÔNG package/relative import). State/cache files (`.env`, `.last_seen.json`, `.crypto_key`, ...) vẫn sinh ở **root** (config.SCRIPT_DIR = root); assets đọc qua `config.ASSETS_DIR`.
+
 ```
 qa-dashboard/
+├── qa_dashboard.py    ← ENTRY POINT (ở ROOT): HTTP Handler (do_GET/do_POST) + main(). Thêm core/ vào sys.path rồi import. Mỏng.
 ├── CLAUDE.md          ← bạn đang đọc
 ├── README.md          ← hướng dẫn cho user (không phải Claude Code)
-├── start.sh           ← launcher macOS/Linux (check python/.env/requests → mở browser → run)
-├── start.bat          ← launcher Windows (tương tự, double-click chạy được)
-├── gen_preview.py     ← sinh preview.html TĨNH (render thật + mock fetch) để check UI offline, KHÔNG cần Jira/server
-├── preview*.html      ← mockup tĩnh do gen_preview.py sinh (gitignore)
-│
-│   ── Python modules (layer: config → issues → {jira_api,state} → {crypto_util,custom_status,pat_store,jira_write,render} → entry) ──
-├── qa_dashboard.py    ← ENTRY POINT: HTTP Handler (do_GET/do_POST, ~18 route) + main(). Mỏng.
-├── config.py          ← env load, paths, JIRA_URL/PAT/USERS/PORT, ADMIN_EMAIL/SELF_USER/ALLOWED_DOMAIN, GOOGLE_*/SESSION_SECRET/AUTH_ENABLED, SUBTASK/TASK_PTSP/START_DATE/LEADER field ids, STUCK_DAYS, display_name/actor_name/username_from_email
-├── issues.py          ← accessor i_* + helper (parse_date, days_*, is_stuck, esc, status_class, issue_link)
-├── jira_api.py        ← gọi Jira REST bằng PAT chung (_SESSION keep-alive): jira_search/count, fetch_all, fetch_activity_feed, fetch_issue_detail, load/save_property, verify_pat, run_parallel. PAT redact ở đây.
-├── auth.py            ← Google OAuth login + session cookie HMAC (Decision #15)
-├── crypto_util.py     ← Fernet mã hoá PAT cá nhân at-rest, khoá từ SESSION_SECRET/.crypto_key (Decision #20)
-├── pat_store.py       ← lưu PAT cá nhân {email:enc} vào Jira property, verify đúng chủ (Decision #20)
-├── jira_write.py      ← ghi Jira bằng PAT cá nhân: transitions/comment/create_subtask (Decision #20, #22)
-├── custom_status.py   ← nhãn tình trạng overlay (Jira property + activity events) (Decision #21)
-├── state.py           ← snapshot NEW badge, load/save .last_seen.json (load/build/save_snapshots)
-├── docs.py            ← Tài liệu: cây folder+link, load/save .docs_config.json (sync Jira property), valid_tree
-├── roadmap.py         ← Roadmap team: giai đoạn›mục›sub-task, due_alerts, load/save .roadmap_config.json (sync Jira property)
-├── render.py          ← toàn bộ render_*. UI v2 (Decision #19): render_page (dispatch admin/QA), render_sidebar_v2/topbar_v2/_document_v2/render_admin_v2/render_qa_v2/render_roadmap_v2/render_bug_log_v2/render_docs_page/render_settings_page/render_leader_eval_page. load_css/load_css_v2/load_js_v2 (UI cũ render_personal/render_nav/_document đã GỠ — cleanup #43)
-├── styles.css         ← chỉ còn render_error_page dùng (qua load_css), đọc per-render
-├── styles_v2.css / app_v2.js  ← UI v2 (Stitch sidebar), đọc per-render (Decision #19)
+├── requirements.txt   ← deps (requests + cryptography)
 ├── .env.example       ← template
-├── .env               ← (KHÔNG có trong git) PAT + config thật + GOOGLE_*/SESSION_SECRET
-├── .gitignore         ← .env, .last_seen.json, .pic/.docs/.roadmap/.custom_status_config.json, .crypto_key, preview*.html, uploads/
-├── .last_seen.json    ← auto-generated, NEW-badge baseline
-├── uploads/           ← (KHÔNG git, hardcode path macOS) file upload từ /docs (Decision #23)
-└── .docs_config.json  ← (KHÔNG có trong git) cây tài liệu
+├── start.bat          ← launcher Windows (cd root → chạy qa_dashboard.py, double-click)
+├── start.command      ← launcher macOS (tương tự)
+│
+├── core/              ← Python modules lõi (layer: config → issues → jira_api/state → {crypto_util,custom_status,pat_store,jira_write,docs,roadmap,...} → render). qa_dashboard import qua sys.path.
+│   ├── config.py          ← env load, paths (SCRIPT_DIR=ROOT, ASSETS_DIR), JIRA_URL/PAT/USERS/PORT, ADMIN_EMAIL/SELF_USER/ALLOWED_DOMAIN, GOOGLE_*/SESSION_SECRET/AUTH_ENABLED, field ids, STUCK_DAYS, display_name/actor_name/username_from_email
+│   ├── issues.py          ← accessor i_* + helper (parse_date, days_*, is_stuck, esc, status_class, issue_link)
+│   ├── jira_api.py        ← gọi Jira REST bằng PAT chung (_SESSION keep-alive): jira_search/count, fetch_all, fetch_activity_feed, fetch_issue_detail, load/save_property, verify_pat, run_parallel. PAT redact ở đây.
+│   ├── auth.py            ← Google OAuth login + session cookie HMAC (Decision #15)
+│   ├── crypto_util.py     ← Fernet mã hoá PAT cá nhân at-rest, khoá từ SESSION_SECRET/.crypto_key (Decision #20)
+│   ├── pat_store.py       ← lưu PAT cá nhân {email:enc} vào Jira property, verify đúng chủ (Decision #20)
+│   ├── jira_write.py      ← ghi Jira bằng PAT cá nhân: transitions/comment/create_subtask (Decision #20, #22)
+│   ├── custom_status.py   ← nhãn tình trạng overlay (Jira property + activity events) (Decision #21)
+│   ├── state.py           ← snapshot NEW badge, load/save .last_seen.json (load/build/save_snapshots)
+│   ├── docs.py            ← Tài liệu: cây folder+link, load/save .docs_config.json (sync Jira property), valid_tree
+│   ├── roadmap.py         ← Roadmap team: giai đoạn›mục›sub-task, due_alerts, load/save .roadmap_config.json (sync Jira property)
+│   ├── bug_log.py / bug_log_source.py / bug_log_store.py  ← Bug Log (#55)
+│   ├── task_link.py / drive_token.py / monthly_reporter_chat_app.py
+│   └── render.py          ← toàn bộ render_*. UI v2 (Decision #19): render_page (dispatch admin/QA), render_sidebar_v2/topbar_v2/_document_v2/render_admin_v2/render_qa_v2/render_roadmap_v2/render_bug_log_v2/render_docs_page/render_settings_page/render_leader_eval_page. load_css/load_css_v2/load_js_v2 đọc từ ASSETS_DIR.
+│
+├── assets/            ← asset tĩnh, đọc per-render (qua config.ASSETS_DIR)
+│   ├── app_v2.js / styles_v2.css  ← UI v2 (Stitch sidebar) (Decision #19)
+│   ├── styles.css         ← chỉ còn render_error_page dùng (qua load_css)
+│   └── example.html / stitch_preview.html  ← mockup tĩnh tham chiếu
+│
+├── scripts/           ← tiện ích offline (tự thêm ../core vào sys.path)
+│   ├── gen_preview.py        ← sinh preview.html TĨNH (render thật + mock fetch), KHÔNG cần Jira/server
+│   └── gen_bug_log_preview.py
+│
+│   ── auto-generated / KHÔNG trong git (sinh ở ROOT, gitignore) ──
+├── .env               ← PAT + config thật + GOOGLE_*/SESSION_SECRET
+├── .last_seen.json    ← NEW-badge baseline
+├── .docs_config.json / .roadmap_config.json / .custom_status.json / .crypto_key / ...
+└── uploads/           ← file upload từ /docs (hardcode path macOS — Decision #23)
 ```
 
 ## Coding Conventions
 
 - **Đã tách module (2026-06-04)** vì vượt 1000 dòng. Layer rõ ràng, KHÔNG vòng lặp import: `config` (không phụ thuộc ai) → `issues` → `jira_api`/`state`/`pic` → `{crypto_util,custom_status,pat_store,jira_write,docs,roadmap,auth}` → `render` → `qa_dashboard` (entry). Thêm logic mới thì đặt đúng layer, đừng nhét hết vào entry.
 - Import kiểu `from X import (tên cụ thể)` (không `import *`) để rõ phụ thuộc
-- Entry vẫn là `qa_dashboard.py` (start.sh/.bat không đổi). Chạy `python qa_dashboard.py` → tự thêm script dir vào sys.path nên import sibling chạy được
+- Entry vẫn là `qa_dashboard.py` ở **root** (start.bat/.command không đổi). Module lõi gom trong `core/` (issue #85): entry tự `sys.path.insert(0, '<root>/core')` TRƯỚC khi import → các module vẫn `from config import ...` (absolute, KHÔNG dùng package/relative import). Script trong `scripts/` tự thêm `../core` vào sys.path tương tự. Thêm module lõi mới → đặt vào `core/`.
 - Section comments: `# ===== SECTION NAME =====`
 - Helper functions ngắn (i_assignee, i_status, ...) — quy ước `i_` prefix cho issue field accessors
 - HTML rendering: f-strings inline trong functions (`render_*`)

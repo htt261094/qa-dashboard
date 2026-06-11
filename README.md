@@ -149,29 +149,40 @@ Roadmap/docs/dismiss/PAT/nhãn nội bộ sync qua Jira property nên xoá file 
 
 Module theo layer (không vòng import): `config` → `issues` → `{jira_api, state, docs, roadmap, auth, pat_store, custom_status, crypto_util, jira_write, bug_log*, drive_token, task_link}` → `render` → `qa_dashboard` (entry).
 
+Tái cấu trúc folder (issue #85): code lõi trong `core/`, asset tĩnh trong `assets/`, script tiện ích trong `scripts/`. Entry `qa_dashboard.py` giữ ở root (`python qa_dashboard.py` không đổi), tự thêm `core/` vào `sys.path`.
+
 ```
-qa_dashboard.py    ← ENTRY: HTTP Handler (do_GET/do_POST, ~30 route) + main()
-config.py          ← env load, JIRA_URL/PAT/USERS/PORT, ADMIN_EMAIL/SELF_USER, OAuth, field ids, STUCK_DAYS
-issues.py          ← accessor i_* + helper (parse_date, days_overdue, is_stuck, esc...)
-jira_api.py        ← Jira REST (PAT chung): fetch_all/activity_feed, leader_eval, load/save property
-auth.py            ← Google OAuth + session cookie HMAC
-crypto_util.py     ← Fernet mã hoá/giải mã (PAT cá nhân + token Drive)
-pat_store.py       ← PAT cá nhân per-user (verify đúng chủ + mã hoá)
-jira_write.py      ← ghi Jira bằng PAT cá nhân: transition / comment / create_subtask
-custom_status.py   ← nhãn trạng thái nội bộ (overlay, sync property)
-state.py           ← snapshot .last_seen.json cho NEW badge
-docs.py / roadmap.py  ← data tự soạn (sync Jira property + cache local)
-bug_log.py         ← tải + parse file .xlsx bug log từ Drive
-bug_log_source.py  ← danh sách file Drive nguồn
-bug_log_store.py   ← background thread poll Drive 10 phút + cache + diff
-drive_token.py     ← refresh_token Google Drive (mã hoá at-rest)
-task_link.py       ← link bug/test-case ↔ Jira task (sync property)
-render.py          ← toàn bộ render_* (UI v2 sidebar) + load_css/load_css_v2/load_js_v2
-styles_v2.css / app_v2.js  ← UI v2 (Stitch sidebar), inline lúc render
-styles.css         ← chỉ render_error_page còn dùng
-start.bat / start.command  ← launcher
-.env / .env.example
-.last_seen.json    ← state (auto-generated)
+qa_dashboard.py    ← ENTRY (ROOT): HTTP Handler (do_GET/do_POST, ~30 route) + main(). Thêm core/ vào sys.path.
+start.bat / start.command  ← launcher (ROOT)
+
+core/
+  config.py          ← env load, JIRA_URL/PAT/USERS/PORT, ADMIN_EMAIL/SELF_USER, OAuth, field ids, STUCK_DAYS, ASSETS_DIR
+  issues.py          ← accessor i_* + helper (parse_date, days_overdue, is_stuck, esc...)
+  jira_api.py        ← Jira REST (PAT chung): fetch_all/activity_feed, leader_eval, load/save property
+  auth.py            ← Google OAuth + session cookie HMAC
+  crypto_util.py     ← Fernet mã hoá/giải mã (PAT cá nhân + token Drive)
+  pat_store.py       ← PAT cá nhân per-user (verify đúng chủ + mã hoá)
+  jira_write.py      ← ghi Jira bằng PAT cá nhân: transition / comment / create_subtask
+  custom_status.py   ← nhãn trạng thái nội bộ (overlay, sync property)
+  state.py           ← snapshot .last_seen.json cho NEW badge
+  docs.py / roadmap.py  ← data tự soạn (sync Jira property + cache local)
+  bug_log.py         ← tải + parse file .xlsx bug log từ Drive
+  bug_log_source.py  ← danh sách file Drive nguồn
+  bug_log_store.py   ← background thread poll Drive 10 phút + cache + diff
+  drive_token.py     ← refresh_token Google Drive (mã hoá at-rest)
+  task_link.py       ← link bug/test-case ↔ Jira task (sync property)
+  render.py          ← toàn bộ render_* (UI v2 sidebar) + load_css/load_css_v2/load_js_v2 (đọc từ assets/)
+
+assets/
+  styles_v2.css / app_v2.js  ← UI v2 (Stitch sidebar), inline lúc render
+  styles.css         ← chỉ render_error_page còn dùng
+  example.html / stitch_preview.html  ← mockup tĩnh
+
+scripts/
+  gen_preview.py / gen_bug_log_preview.py  ← sinh preview tĩnh offline
+
+.env / .env.example  ← (ROOT)
+.last_seen.json    ← state (auto-generated, ROOT)
 uploads/           ← file upload từ /docs (gitignore, hardcode path macOS — xem CLAUDE.md #37)
 ```
 
