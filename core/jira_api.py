@@ -23,6 +23,27 @@ except ImportError:
 # urllib3 connection pool thread-safe nên share được giữa các thread của run_parallel.
 _SESSION = requests.Session()
 
+# Connect-timeout ngắn cho MỌI call qua _SESSION: khi Jira/VPN down (route blackhole),
+# bước TCP connect không có short timeout sẽ treo 15-30s/call -> nhiều call nối nhau làm
+# trang (kể cả tab non-Jira, vì chuông notif) treo cả phút + block server single-thread.
+# Bọc _SESSION.request ép connect-timeout = _CONNECT_TIMEOUT, GIỮ read-timeout caller truyền
+# (số đơn -> (connect, read); None -> mặc định). Fail nhanh -> chuông fail mềm gần như tức thì.
+_CONNECT_TIMEOUT = 5  # giây — Jira nội bộ qua VPN connect <1s lúc khoẻ; down thì bỏ sau 5s
+_orig_request = _SESSION.request
+
+
+def _request_short_connect(method, url, **kw):
+    t = kw.get('timeout')
+    if isinstance(t, (int, float)):
+        kw['timeout'] = (min(_CONNECT_TIMEOUT, t), t)
+    elif t is None:
+        kw['timeout'] = (_CONNECT_TIMEOUT, 30)
+    # t là tuple sẵn -> tôn trọng caller
+    return _orig_request(method, url, **kw)
+
+
+_SESSION.request = _request_short_connect
+
 # In-memory cache với TTL 2 phút: giảm số call Jira khi F5 nhanh hoặc nhiều tab.
 _CACHE_TTL = 120  # giây
 _cache: dict = {}
