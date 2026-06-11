@@ -15,7 +15,10 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 # ----- Paths -----
-SCRIPT_DIR = Path(__file__).parent
+# config.py lives in ./core/ (issue #85); project root is its parent. State/cache
+# files + .env stay at the root (generated in cwd as before); assets moved to ./assets/.
+SCRIPT_DIR = Path(__file__).resolve().parent.parent
+ASSETS_DIR = SCRIPT_DIR / 'assets'
 ENV_FILE = SCRIPT_DIR / '.env'
 STATE_FILE = SCRIPT_DIR / '.last_seen.json'
 DOCS_FILE = SCRIPT_DIR / '.docs_config.json'

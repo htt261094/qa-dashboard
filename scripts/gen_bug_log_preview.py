@@ -6,10 +6,14 @@ Khác bản preview đầu (hand-built): nay gọi thẳng render.render_bug_log
 HTML production. Chèn mock fetch cho /search-parents, /link-task, /sync-bug-log để bấm
 thử OFFLINE (tab tháng, tick test case, liên kết task, gỡ link, pager) mà không cần Jira.
 
-KHÔNG sửa app code. Chạy:  python gen_bug_log_preview.py  →  mở preview_bug_log.html
+KHÔNG sửa app code. Chạy:  python scripts/gen_bug_log_preview.py  →  mở preview_bug_log.html
 """
 import json
 import os
+import sys
+
+# Core modules live in ../core/ (issue #85).
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'core'))
 
 os.environ.setdefault('JIRA_URL', 'https://jira.baokim.vn:8443')
 os.environ.setdefault('JIRA_PAT', 'preview-fake')

@@ -9,9 +9,14 @@ import http.server
 import socketserver
 import json
 import sys
+import os
 from datetime import datetime
 from http.cookies import SimpleCookie
 from urllib.parse import urlparse, parse_qs
+
+# Core modules live in ./core/ (issue #85). Add it to sys.path so sibling-style
+# imports (`from config import ...`) keep working unchanged.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'core'))
 
 from config import (JIRA_URL, USERS, PORT, STATE_FILE, ADMIN_EMAIL, ALLOWED_DOMAIN,
                     AUTH_ENABLED, SELF_USER, display_name, username_from_email)

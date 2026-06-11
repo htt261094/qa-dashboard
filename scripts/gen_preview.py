@@ -4,12 +4,16 @@
 Dùng render thật (CSS/JS/layout y hệt production) + chèn mock `fetch` để mọi nút
 (🔄 transition, 💬 comment, nhãn nội bộ, lưu PAT) bấm được offline — trả JSON giả.
 
-Chạy:  python gen_preview.py   →  mở preview.html trong browser.
+Chạy:  python scripts/gen_preview.py   →  mở preview.html trong browser.
 Sửa CSS/JS xong chạy lại để cập nhật.
 """
 import json
 import os
+import sys
 from datetime import datetime, timedelta
+
+# Core modules live in ../core/ (issue #85).
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'core'))
 
 os.environ.setdefault('JIRA_URL', 'https://jira.baokim.vn:8443')
 os.environ.setdefault('JIRA_PAT', 'preview-fake')

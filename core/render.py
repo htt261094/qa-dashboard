@@ -9,7 +9,7 @@ import urllib.parse
 from collections import defaultdict
 from datetime import datetime, timedelta
 
-from config import SCRIPT_DIR, JIRA_URL, USERS, STUCK_DAYS, display_name, username_from_email
+from config import ASSETS_DIR, JIRA_URL, USERS, STUCK_DAYS, display_name, username_from_email
 from issues import (parse_date, i_assignee, i_reporter, i_assignee_name, i_reporter_name,
                     i_status, i_summary, i_duedate,
                     i_created, i_resolved, i_updated, i_type, days_overdue, days_since_update,
@@ -25,7 +25,7 @@ from bug_log_store import POLL_SECONDS as BUG_LOG_POLL_SECONDS
 def load_css():
     """Read styles.css per-render (edits hot-reload without restart); inlined into <style>."""
     try:
-        return (SCRIPT_DIR / 'styles.css').read_text(encoding='utf-8')
+        return (ASSETS_DIR / 'styles.css').read_text(encoding='utf-8')
     except OSError:
         return ''
 
@@ -33,7 +33,7 @@ def load_css():
 def load_css_v2():
     """Read styles_v2.css per-render (shell UI v2 — dashboard QA + roadmap)."""
     try:
-        return (SCRIPT_DIR / 'styles_v2.css').read_text(encoding='utf-8')
+        return (ASSETS_DIR / 'styles_v2.css').read_text(encoding='utf-8')
     except OSError:
         return ''
 
@@ -41,7 +41,7 @@ def load_css_v2():
 def load_js_v2():
     """Read app_v2.js per-render (shell UI v2)."""
     try:
-        return (SCRIPT_DIR / 'app_v2.js').read_text(encoding='utf-8')
+        return (ASSETS_DIR / 'app_v2.js').read_text(encoding='utf-8')
     except OSError:
         return ''
 
