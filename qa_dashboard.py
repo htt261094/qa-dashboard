@@ -19,7 +19,8 @@ from urllib.parse import urlparse, parse_qs
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'core'))
 
 from config import (JIRA_URL, USERS, PORT, STATE_FILE, ADMIN_EMAIL, ALLOWED_DOMAIN,
-                    AUTH_ENABLED, SELF_USER, display_name, username_from_email)
+                    AUTH_ENABLED, SELF_USER, PUBLIC_BASE_URL,
+                    display_name, username_from_email)
 from auth import (SESSION_COOKIE, STATE_COOKIE, DRIVE_STATE_COOKIE, SESSION_TTL, STATE_TTL,
                   login_url, exchange_code, email_allowed, email_from_session,
                   make_session_token, make_state_token, state_valid,
@@ -83,11 +84,28 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return m.value if m else ''
 
     def _base_url(self):
-        """scheme://host của request (đằng sau cloudflared: X-Forwarded-Proto=https)."""
+        """scheme://host gốc để build redirect_uri OAuth + quyết cờ Secure cookie.
+
+        Ưu tiên PUBLIC_BASE_URL trong .env (prod) -> KHÔNG tin Host/X-Forwarded-Proto của
+        client (chống Host-header injection, issue #49). Chưa cấu hình => suy từ request
+        (local dev: localhost/127.0.0.1)."""
+        if PUBLIC_BASE_URL:
+            return PUBLIC_BASE_URL
         host = self.headers.get('Host', f'localhost:{PORT}')
         proto = (self.headers.get('X-Forwarded-Proto')
                  or ('http' if host.startswith(('localhost', '127.0.0.1')) else 'https'))
         return f'{proto}://{host}'
+
+    def _secure_cookie(self):
+        """Cờ Secure cho cookie. Dùng base_url (đã ưu tiên PUBLIC_BASE_URL); khi AUTH bật ở
+        prod mà chưa set PUBLIC_BASE_URL, vẫn ép Secure trừ khi host là loopback — để
+        client KHÔNG ép rớt Secure qua X-Forwarded-Proto: http (issue #49)."""
+        base = self._base_url()
+        if base.startswith('https'):
+            return True
+        host = self.headers.get('Host', '')
+        is_loopback = host.startswith(('localhost', '127.0.0.1'))
+        return AUTH_ENABLED and not PUBLIC_BASE_URL and not is_loopback
 
     def _user_email(self):
         """Email người đăng nhập từ session cookie; fallback Cloudflare header. '' nếu chưa login."""
@@ -222,7 +240,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     # ----- OAuth routes -----
     def _do_login(self):
         state = make_state_token()
-        secure = self._base_url().startswith('https')
+        secure = self._secure_cookie()
         url = login_url(self._base_url() + '/oauth/callback', state)
         self._redirect(url, [self._set_cookie(STATE_COOKIE, state, STATE_TTL, secure)])
 
@@ -242,14 +260,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if not ok:
             self._forbidden()
             return
-        secure = self._base_url().startswith('https')
+        secure = self._secure_cookie()
         self._redirect('/', [
             self._set_cookie(SESSION_COOKIE, make_session_token(email), SESSION_TTL, secure),
             self._set_cookie(STATE_COOKIE, '', 0, secure),  # clear state
         ])
 
     def _do_logout(self):
-        secure = self._base_url().startswith('https')
+        secure = self._secure_cookie()
         self._redirect('/login', [self._set_cookie(SESSION_COOKIE, '', 0, secure)])
 
     # ----- Drive connect (admin-only, tách khỏi login chung — issue #52) -----
@@ -258,7 +276,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._forbidden()
             return
         state = make_state_token()
-        secure = self._base_url().startswith('https')
+        secure = self._secure_cookie()
         url = drive_login_url(self._base_url() + '/oauth/drive-callback', state)
         self._redirect(url, [self._set_cookie(DRIVE_STATE_COOKIE, state, STATE_TTL, secure)])
 
@@ -272,7 +290,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if not code or not state or state != self._cookie(DRIVE_STATE_COOKIE) or not state_valid(state):
             self._forbidden()
             return
-        secure = self._base_url().startswith('https')
+        secure = self._secure_cookie()
         clear = self._set_cookie(DRIVE_STATE_COOKIE, '', 0, secure)
         try:
             info, refresh = exchange_code_tokens(code, self._base_url() + '/oauth/drive-callback')
