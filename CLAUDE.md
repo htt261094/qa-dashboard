@@ -14,7 +14,7 @@ Custom HTML dashboard cho team QA Bảo Kim, pull data live từ Jira qua REST A
 - External deps: `requests` + `cryptography` (Fernet — mã hoá PAT cá nhân at-rest, thêm 2026-06-08, xem Decision #20). KHÔNG còn "chỉ 1 dep". Vẫn giữ nguyên tắc tối thiểu — KHÔNG thêm Flask/web-framework.
 - Local HTTP server: `http.server` stdlib (KHÔNG Flask — quyết định giữ deps tối thiểu)
 - Server-side render HTML với string templates
-- **Vanilla JS, KHÔNG framework** (React/Vue/Svelte). JS/CSS tách thành file riêng đọc per-render: `app.js`/`styles.css` (UI cũ topnav) + `app_v2.js`/`styles_v2.css` (UI Stitch sidebar — xem Decision #19). `load_js*()`/`load_css*()` inline vào `<script>`/`<style>` lúc render (sửa F5 thấy ngay, output tự chứa).
+- **Vanilla JS, KHÔNG framework** (React/Vue/Svelte). JS/CSS chính: `app_v2.js`/`styles_v2.css` (UI Stitch sidebar — Decision #19), đọc per-render. UI cũ topnav đã GỠ (cleanup #43): `app.js` đã XOÁ; chỉ còn `styles.css` (nạp bởi `render_error_page` qua `load_css`). `load_*()` inline vào `<script>`/`<style>` lúc render (sửa F5 thấy ngay, output tự chứa).
 - State persistence: file JSON local (`.last_seen.json` cho NEW badge) + **Jira user property làm kho sync chéo máy** (roadmap/docs/dismiss/PAT/custom-status — xem Decision #14, #20, #21)
 
 ## Architecture
@@ -432,9 +432,8 @@ qa-dashboard/
 ├── start.bat          ← launcher Windows (tương tự, double-click chạy được)
 ├── gen_preview.py     ← sinh preview.html TĨNH (render thật + mock fetch) để check UI offline, KHÔNG cần Jira/server
 ├── preview*.html      ← mockup tĩnh do gen_preview.py sinh (gitignore)
-├── probe_subtask.py   ← script chẩn đoán read-only field createmeta sub-task (chạy ở nơi tới được Jira)
 │
-│   ── Python modules (layer: config → issues → {jira_api,state,pic} → {crypto_util,custom_status,pat_store,jira_write,render} → entry) ──
+│   ── Python modules (layer: config → issues → {jira_api,state} → {crypto_util,custom_status,pat_store,jira_write,render} → entry) ──
 ├── qa_dashboard.py    ← ENTRY POINT: HTTP Handler (do_GET/do_POST, ~18 route) + main(). Mỏng.
 ├── config.py          ← env load, paths, JIRA_URL/PAT/USERS/PORT, ADMIN_EMAIL/SELF_USER/ALLOWED_DOMAIN, GOOGLE_*/SESSION_SECRET/AUTH_ENABLED, SUBTASK/TASK_PTSP/START_DATE/LEADER field ids, STUCK_DAYS, display_name/actor_name/username_from_email
 ├── issues.py          ← accessor i_* + helper (parse_date, days_*, is_stuck, esc, status_class, issue_link)
@@ -444,12 +443,11 @@ qa-dashboard/
 ├── pat_store.py       ← lưu PAT cá nhân {email:enc} vào Jira property, verify đúng chủ (Decision #20)
 ├── jira_write.py      ← ghi Jira bằng PAT cá nhân: transitions/comment/create_subtask (Decision #20, #22)
 ├── custom_status.py   ← nhãn tình trạng overlay (Jira property + activity events) (Decision #21)
-├── state.py           ← snapshot NEW badge, load/save .last_seen.json (compute_activities phần lớn dead)
-├── pic.py             ← PIC_DEFAULT + load/save .pic_config.json
+├── state.py           ← snapshot NEW badge, load/save .last_seen.json (load/build/save_snapshots)
 ├── docs.py            ← Tài liệu: cây folder+link, load/save .docs_config.json (sync Jira property), valid_tree
 ├── roadmap.py         ← Roadmap team: giai đoạn›mục›sub-task, due_alerts, load/save .roadmap_config.json (sync Jira property)
-├── render.py          ← toàn bộ render_*. UI cũ: render_page/render_personal/render_nav/_document. UI v2 (Decision #19): render_sidebar_v2/topbar_v2/_document_v2/render_admin_v2/render_qa_v2/render_roadmap_v2/render_docs_page/render_settings_page. load_css(_v2)/load_js(_v2)
-├── styles.css / app.js        ← UI cũ (topnav), đọc per-render
+├── render.py          ← toàn bộ render_*. UI v2 (Decision #19): render_page (dispatch admin/QA), render_sidebar_v2/topbar_v2/_document_v2/render_admin_v2/render_qa_v2/render_roadmap_v2/render_bug_log_v2/render_docs_page/render_settings_page/render_leader_eval_page. load_css/load_css_v2/load_js_v2 (UI cũ render_personal/render_nav/_document đã GỠ — cleanup #43)
+├── styles.css         ← chỉ còn render_error_page dùng (qua load_css), đọc per-render
 ├── styles_v2.css / app_v2.js  ← UI v2 (Stitch sidebar), đọc per-render (Decision #19)
 ├── .env.example       ← template
 ├── .env               ← (KHÔNG có trong git) PAT + config thật + GOOGLE_*/SESSION_SECRET
@@ -476,3 +474,4 @@ qa-dashboard/
 
 2026-06-04 — Initial handoff từ chat session sang Claude Code.
 2026-06-09 — Đồng bộ lại với code: thêm Decision #19–#23 (UI v2 Stitch sidebar, PAT cá nhân + ghi Jira đúng tên, custom status overlay, tạo sub-task, upload file docs), cập nhật Tech Stack (+`cryptography`), File Map (crypto_util/pat_store/jira_write/custom_status/auth/gen_preview/probe_subtask/app_v2/styles_v2), Current State.
+2026-06-11 — Cleanup dead code (issue #43): GỠ toàn bộ UI cũ topnav + helper chết khỏi `render.py` (render_page giờ chỉ dispatch v2; render_nav/_document/render_personal/render_charts/render_workload/render_attention/... + status_control/_status_badge/_attn_row...), `state.py` (clear_pending/compute_activities/save_state). **BỎ HẲN tính năng PIC**: xoá `pic.py`, route `/save-pic`, `PIC_FILE`. XOÁ `app.js` (chỉ load_js đã chết nạp nó). GIỮ `styles.css`+`load_css` (render_error_page còn dùng).

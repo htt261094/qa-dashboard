@@ -2,7 +2,7 @@
 """QA Team Dashboard for Jira (Bảo Kim) — entry point.
 
 Local web server on http://localhost:<PORT>. F5 = fresh pull from Jira.
-Layered modules: config -> issues -> {jira_api, state, pic} -> render -> (this file).
+Layered modules: config -> issues -> {jira_api, state} -> render -> (this file).
 Run: python qa_dashboard.py
 """
 import http.server
@@ -28,7 +28,6 @@ from jira_api import (fetch_all, fetch_activity_feed, load_dismissed,
                       dismiss_activities, run_parallel, fetch_issue_detail,
                       search_parent_ptsp, search_people, search_qa_tasks, global_search)
 from state import load_snapshots, save_snapshots, build_snapshot
-from pic import save_pic
 from docs import load_docs, save_docs, valid_tree
 from roadmap import load_roadmap, save_roadmap, valid_roadmap
 from pat_store import save_user_pat, has_pat, delete_user_pat, load_user_pat
@@ -960,24 +959,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 ok = False
             self._json(200 if ok else 400, b'{"ok":true}' if ok else b'{"ok":false}')
             return
-        if self.path != '/save-pic':
-            self.send_response(404)
-            self.end_headers()
-            return
-        ok = False
-        try:
-            length = int(self.headers.get('Content-Length', 0))
-            if 0 < length <= 200_000:
-                payload = json.loads(self.rfile.read(length).decode('utf-8'))
-                # minimal shape validation: list of {group, rows:[{flow, pic}]}
-                if isinstance(payload, list) and all(
-                    isinstance(g, dict) and 'group' in g and isinstance(g.get('rows'), list)
-                    for g in payload
-                ):
-                    ok = save_pic(payload)
-        except (ValueError, json.JSONDecodeError, OSError):
-            ok = False
-        self._json(200 if ok else 400, b'{"ok":true}' if ok else b'{"ok":false}')
+        self.send_response(404)
+        self.end_headers()
 
     def _json(self, status, body):
         self.send_response(status)
