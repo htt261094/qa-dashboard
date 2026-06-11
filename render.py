@@ -1841,8 +1841,9 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
 
     chip_css = """
     <style>
-    .eval-filter { display:flex; flex-wrap:wrap; gap:14px 16px; align-items:end; }
+    .eval-filter { display:flex; flex-wrap:wrap; gap:14px 16px; align-items:start; }
     .eval-filter .mfield { margin:0; }
+    .eval-flabel-sp { visibility:hidden; }
     .eval-filter .set-input { height:42px; box-sizing:border-box; width:100%; }
     .ef-month { width:130px; }
     .ef-cat { width:190px; }
@@ -1860,8 +1861,7 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
     .eval-chip-x { cursor:pointer; color:var(--on-surface-variant); font-weight:bold; font-size:14px; line-height:1;
         width:16px; height:16px; display:inline-flex; align-items:center; justify-content:center; border-radius:50%; }
     .eval-chip-x:hover { color:#fff; background:#f15b50; }
-    .eval-filter .btn-primary { height:40px; padding:0 20px; }
-    @media (max-width:760px){ .eval-filter{ grid-template-columns:1fr 1fr; } }
+    .eval-filter .btn-primary { height:42px; padding:0 20px; }
     </style>
     """
 
@@ -2016,7 +2016,10 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
                 </div>
                 <div id="exclHiddenInputs" style="display:none;">{excl_hidden}</div>
             </div>
-            <button type="submit" class="btn btn-primary">L\u1ecdc</button>
+            <div class="mfield">
+                <label class="eval-flabel eval-flabel-sp">.</label>
+                <button type="submit" class="btn btn-primary">L\u1ecdc</button>
+            </div>
         </form>
     </div>
 
