@@ -1068,3 +1068,12 @@ html[data-theme="dark"] .rk-bug-n { color: #ff7b72; }
 .gs-sum{flex:1;color:var(--on-surface);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gs-item .st-badge{padding:2px 8px;font-size:11px;flex-shrink:0}
 .gs-empty{padding:14px 12px;text-align:center;color:var(--on-surface-variant);font-size:13px}
+
+/* Hide scrollbar for horizontal scroll containers */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.hide-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}

@@ -2425,7 +2425,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
           ticksHtml + 
         '</div>' +
         // Chart Area
-        '<div style="position:relative; flex:1; height:'+(chartHeight+50)+'px; display:flex; align-items:flex-start; overflow-x:auto; border-bottom:1px solid var(--outline-variant);">' +
+        '<div class="hide-scrollbar" style="position:relative; flex:1; height:'+(chartHeight+50)+'px; display:flex; align-items:flex-start; overflow-x:auto; border-bottom:1px solid var(--outline-variant);">' +
           gridHtml +
           '<div style="display:flex; height:'+(chartHeight+40)+'px; padding-top:0;">' + barsHtml + '</div>' +
         '</div>' +
