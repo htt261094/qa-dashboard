@@ -1769,7 +1769,7 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
     from config import LEADER_EVAL_NUM_FIELD, LEADER_EVAL_TEXT_FIELD, USERS, display_name
     import json
     sel_assignees = sel_assignees or []
-    
+
     rows = []
     unique_statuses = set()
     for issue in tasks:
@@ -1780,8 +1780,8 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
         num_val = f.get(LEADER_EVAL_NUM_FIELD)
         num_str = str(num_val) if num_val is not None else ''
         text_val = f.get(LEADER_EVAL_TEXT_FIELD) or ''
-        
-        rows.append(f'''
+
+        rows.append(f"""
         <tr class="eval-row" data-status="{esc(st)}">
             <td style="text-align:center"><input type="checkbox" class="eval-chk" value="{esc(issue['key'])}"></td>
             <td>{issue_link(issue)}</td>
@@ -1790,13 +1790,13 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
             <td><span class="status {status_class(st)}">{esc(st)}</span></td>
             <td>{esc(num_str)}</td>
             <td><div style="max-height:60px;overflow-y:auto;font-size:0.9em">{esc(text_val)}</div></td>
-        </tr>''')
-    
+        </tr>""")
+
     status_opts = ''
     for st in sorted(unique_statuses):
         status_opts += f'<option value="{esc(st)}">{esc(st)}</option>'
 
-    table_html = f'''
+    table_html = f"""
     <div class="card">
     <table class="data-table">
         <thead>
@@ -1815,31 +1815,31 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
         </tbody>
     </table>
     </div>
-    '''
+    """
 
     cat_opts = '<option value="">-- Tất cả --</option>'
     for c in (categories or []):
         n = c.get('name', '')
         sel = ' selected' if n == sel_category else ''
         cat_opts += f'<option value="{esc(n)}"{sel}>{esc(n)}</option>'
-        
+
     all_leaders = set(USERS)
     all_leaders.add('thanhht1')
     ld_opts = '<option value="">-- Tất cả --</option>'
     for u in sorted(all_leaders):
         sel = ' selected' if u == sel_leader else ''
         ld_opts += f'<option value="{esc(u)}"{sel}>{esc(display_name(u))}</option>'
-        
+
     excl_hidden = ''.join(f'<input type="hidden" name="assignee" value="{esc(u)}">' for u in sel_assignees)
-    
+
     excl_dropdown_opts = '<option value="">+ Chọn Assignee...</option>'
     for u in USERS:
         if u not in sel_assignees:
             excl_dropdown_opts += f'<option value="{esc(u)}">{esc(display_name(u))}</option>'
 
     month_str = f"{year}-{month:02d}"
-    
-    chip_css = '''
+
+    chip_css = """
     <style>
     .eval-chip { display: inline-flex; align-items: center; background: #e9eaec; color: #172b4d; padding: 2px 8px; border-radius: 12px; font-size: 12px; margin-bottom: 4px;}
     html[data-theme="dark"] .eval-chip { background: #283447; color: #b6c2d4; }
@@ -1847,24 +1847,135 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
     .eval-chip-x:hover { color: #f15b50; }
     #exclChipsContainer:empty { display: none; }
     </style>
-    '''
+    """
 
-    excl_chips = ''.join(f'<div class="eval-chip" data-val="{esc(u)}">{esc(display_name(u))} <span class="eval-chip-x" onclick="removeExcl(this, \'{esc(u)}\')">×</span></div>' for u in sel_assignees)
+    excl_chips = ''.join(f'<div class="eval-chip" data-val="{esc(u)}">{esc(display_name(u))} <span class="eval-chip-x" onclick="removeExcl(this,\'{esc(u)}\')">\u00d7</span></div>' for u in sel_assignees)
 
-    inner = f'''
+    # Build JS as a separate string (NOT inside f-string) to avoid {{/}} hell
+    js_block = """
+    <script>
+    (function() {
+        function updateCount() {
+            var sel = document.querySelectorAll('.eval-chk:checked').length;
+            var lbl = document.getElementById('evalSelectedCount');
+            if (lbl) lbl.textContent = sel + ' task \\u0111ang ch\\u1ecdn';
+        }
+
+        /* Status filter */
+        var sf = document.getElementById('statusFilter');
+        if (sf) sf.addEventListener('change', function() {
+            var val = this.value;
+            document.querySelectorAll('.eval-row').forEach(function(r) {
+                if (!val || r.getAttribute('data-status') === val) {
+                    r.style.display = '';
+                } else {
+                    r.style.display = 'none';
+                    var c = r.querySelector('.eval-chk');
+                    if (c) c.checked = false;
+                }
+            });
+            updateCount();
+        });
+
+        /* Check-all */
+        var ca = document.getElementById('evalCheckAll');
+        if (ca) ca.addEventListener('change', function() {
+            var me = this;
+            document.querySelectorAll('.eval-chk').forEach(function(c) {
+                var row = c.closest('tr');
+                if (row && row.style.display !== 'none') c.checked = me.checked;
+            });
+            updateCount();
+        });
+
+        /* Individual checkboxes */
+        document.querySelectorAll('.eval-chk').forEach(function(c) {
+            c.addEventListener('change', updateCount);
+        });
+
+        /* Batch eval */
+        window._doBatchEval = async function() {
+            var keys = Array.from(document.querySelectorAll('.eval-chk:checked')).map(function(c){ return c.value; });
+            if (keys.length === 0) { alert('Vui l\\u00f2ng ch\\u1ecdn \\u00edt nh\\u1ea5t 1 task.'); return; }
+            var num_val = document.getElementById('evalNum').value;
+            var text_val = document.getElementById('evalText').value;
+            if (!num_val && !text_val) { alert('Vui l\\u00f2ng nh\\u1eadp \\u0111i\\u1ec3m ho\\u1eb7c text.'); return; }
+
+            var resDiv = document.getElementById('evalResult');
+            var btn = document.getElementById('btnBatchEval');
+            resDiv.textContent = '\\u0110ang x\\u1eed l\\u00fd...';
+            resDiv.style.color = '#a5adba';
+            btn.disabled = true;
+
+            try {
+                var r = await fetch('/batch-eval', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({keys: keys, num_val: num_val || null, text_val: text_val || null})
+                });
+                var data = await r.json();
+                resDiv.textContent = data.msg || (data.ok ? 'Th\\u00e0nh c\\u00f4ng' : 'L\\u1ed7i');
+                resDiv.style.color = data.ok ? '#94C748' : '#F87168';
+                if (data.ok) setTimeout(function(){ location.reload(); }, 2000);
+            } catch (e) {
+                resDiv.textContent = 'L\\u1ed7i m\\u1ea1ng: ' + e;
+                resDiv.style.color = '#F87168';
+            } finally {
+                btn.disabled = false;
+            }
+        };
+
+        /* Chip Selector */
+        var exclDropdown = document.getElementById('exclDropdown');
+        var exclChipsContainer = document.getElementById('exclChipsContainer');
+        var exclHiddenInputs = document.getElementById('exclHiddenInputs');
+
+        window.removeExcl = function(el, val) {
+            var inputs = exclHiddenInputs.querySelectorAll('input');
+            inputs.forEach(function(inp) {
+                if (inp.value === val) inp.remove();
+            });
+            el.parentElement.remove();
+            var opt = document.createElement('option');
+            opt.value = val;
+            opt.textContent = val;
+            exclDropdown.appendChild(opt);
+        };
+
+        if (exclDropdown) exclDropdown.addEventListener('change', function() {
+            var val = this.value;
+            var text = this.options[this.selectedIndex].text;
+            if (!val) return;
+            this.options[this.selectedIndex].remove();
+            this.value = '';
+            var chip = document.createElement('div');
+            chip.className = 'eval-chip';
+            chip.innerHTML = text + ' <span class="eval-chip-x" onclick="removeExcl(this,\\x27'+val+'\\x27)">\\u00d7</span>';
+            exclChipsContainer.appendChild(chip);
+            var inp = document.createElement('input');
+            inp.type = 'hidden';
+            inp.name = 'assignee';
+            inp.value = val;
+            exclHiddenInputs.appendChild(inp);
+        });
+    })();
+    </script>
+    """
+
+    inner = f"""
     {chip_css}
     <div class="page-head">
         <div>
-            <h2 class="page-title">⭐ Đánh giá Task QA (Leader)</h2>
-            <div class="page-sub">Lọc task, chọn nhiều task để chấm điểm và đánh giá hàng loạt. Lưu trực tiếp lên Jira.</div>
+            <h2 class="page-title">\u2b50 \u0110\u00e1nh gi\u00e1 Task QA (Leader)</h2>
+            <div class="page-sub">L\u1ecdc task, ch\u1ecdn nhi\u1ec1u task \u0111\u1ec3 ch\u1ea5m \u0111i\u1ec3m v\u00e0 \u0111\u00e1nh gi\u00e1 h\u00e0ng lo\u1ea1t. L\u01b0u tr\u1ef1c ti\u1ebfp l\u00ean Jira.</div>
         </div>
     </div>
-    
-    <!-- Bộ lọc -->
+
+    <!-- B\u1ed9 l\u1ecdc -->
     <div class="card" style="margin-bottom:20px; padding:16px;">
         <form action="/leader-eval" method="GET" id="evalFilterForm" style="display:flex; gap:16px; align-items:flex-end; flex-wrap:wrap;">
             <div class="mfield" style="margin:0; width:150px;">
-                <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Tháng:</label>
+                <label style="font-size:13px; font-weight:600; display:block; margin-bottom:4px;">Th\u00e1ng:</label>
                 <input type="month" name="month" value="{month_str}" class="set-input" style="width:100%; margin:0;">
             </div>
             <div class="mfield" style="margin:0; width:200px;">
@@ -1888,180 +1999,55 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
                 <div id="exclHiddenInputs" style="display:none;">{excl_hidden}</div>
             </div>
             <div>
-                <button type="submit" class="btn btn-primary" style="padding:6px 12px;">Lọc</button>
+                <button type="submit" class="btn btn-primary" style="padding:6px 12px;">L\u1ecdc</button>
             </div>
         </form>
     </div>
-    
+
     <div style="display:flex; gap:20px; align-items:flex-start;">
         <div style="flex:1;">
             <div class="section">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
                     <div style="display:flex; align-items:center; gap:16px;">
-                        <h3 style="margin:0;">Danh sách Task ({len(tasks)})</h3>
+                        <h3 style="margin:0;">Danh s\u00e1ch Task ({len(tasks)})</h3>
                         <div style="display:flex; align-items:center; gap:8px;">
-                            <label style="font-size:13px; font-weight:600; color:#6b778c;">Lọc Status:</label>
-                            <select id="statusFilter" class="set-input" style="margin:0; padding:2px 8px; font-size:13px; min-height:0; width:150px;">
-                                <option value="">-- Tất cả --</option>
+                            <label style="font-size:13px; font-weight:600; color:var(--on-surface-variant);">L\u1ecdc Status:</label>
+                            <select id="statusFilter" class="set-input" style="margin:0; padding:4px 28px 4px 8px; font-size:13px; width:160px;">
+                                <option value="">-- T\u1ea5t c\u1ea3 --</option>
                                 {status_opts}
                             </select>
                         </div>
                     </div>
-                    <span id="evalSelectedCount" style="color:#85b8ff; font-weight:bold;">0 task đang chọn</span>
+                    <span id="evalSelectedCount" style="color:#85b8ff; font-weight:bold;">0 task \u0111ang ch\u1ecdn</span>
                 </div>
                 {table_html}
             </div>
         </div>
         <div style="width:320px; position:sticky; top:20px;">
-            <div class="card">
-                <h3>Cập nhật hàng loạt</h3>
-                <p class="set-note" style="margin-top:4px;">Chỉ cập nhật cho các task đang được chọn (tick) ở bên trái.</p>
-                <div class="set-form" style="display:flex; flex-direction:column; gap:12px; margin-top:16px;">
+            <div class="card" style="padding:20px;">
+                <h3>C\u1eadp nh\u1eadt h\u00e0ng lo\u1ea1t</h3>
+                <p class="set-note" style="margin-top:4px;">Ch\u1ec9 c\u1eadp nh\u1eadt cho c\u00e1c task \u0111ang \u0111\u01b0\u1ee3c ch\u1ecdn (tick) \u1edf b\u00ean tr\u00e1i.</p>
+                <div style="display:flex; flex-direction:column; gap:12px; margin-top:16px;">
                     <div>
-                        <label style="display:block; margin-bottom:4px; font-weight:500;">Điểm (Số):</label>
+                        <label style="display:block; margin-bottom:4px; font-weight:500;">\u0110i\u1ec3m (S\u1ed1):</label>
                         <input type="number" id="evalNum" class="set-input" placeholder="VD: 8.5" step="0.1">
-                        <small style="color:#a5adba;">Bỏ trống nếu không muốn đổi</small>
+                        <small style="color:var(--on-surface-variant);">B\u1ecf tr\u1ed1ng n\u1ebfu kh\u00f4ng mu\u1ed1n \u0111\u1ed5i</small>
                     </div>
                     <div>
-                        <label style="display:block; margin-bottom:4px; font-weight:500;">Đánh giá (Text):</label>
-                        <textarea id="evalText" class="set-input" rows="4" placeholder="Nhận xét..."></textarea>
-                        <small style="color:#a5adba;">Bỏ trống nếu không muốn đổi</small>
+                        <label style="display:block; margin-bottom:4px; font-weight:500;">\u0110\u00e1nh gi\u00e1 (Text):</label>
+                        <textarea id="evalText" class="set-input" rows="4" placeholder="Nh\u1eadn x\u00e9t..."></textarea>
+                        <small style="color:var(--on-surface-variant);">B\u1ecf tr\u1ed1ng n\u1ebfu kh\u00f4ng mu\u1ed1n \u0111\u1ed5i</small>
                     </div>
-                    <button type="button" class="btn btn-primary" id="btnBatchEval" style="margin-top:8px;">Lưu lên Jira</button>
+                    <button type="button" class="btn btn-primary" id="btnBatchEval" style="margin-top:8px;" onclick="window._doBatchEval()">L\u01b0u l\u00ean Jira</button>
                     <div id="evalResult" style="margin-top:8px; font-size:0.9em; white-space:pre-wrap;"></div>
                 </div>
             </div>
         </div>
     </div>
-    
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {{
-            const checkAll = document.getElementById('evalCheckAll');
-            const checkboxes = document.querySelectorAll('.eval-chk');
-            const countLabel = document.getElementById('evalSelectedCount');
-            const btn = document.getElementById('btnBatchEval');
-            const statusFilter = document.getElementById('statusFilter');
-            
-            function updateCount() {{
-                const sel = document.querySelectorAll('.eval-chk:checked').length;
-                countLabel.textContent = sel + ' task đang chọn';
-            }}
-            
-            if (statusFilter) {{
-                statusFilter.addEventListener('change', function() {{
-                    const val = this.value;
-                    const rows = document.querySelectorAll('.eval-row');
-                    rows.forEach(r => {{
-                        if (!val || r.getAttribute('data-status') === val) {{
-                            r.style.display = '';
-                        }} else {{
-                            r.style.display = 'none';
-                            // Uncheck hidden rows to prevent accidental evaluation
-                            const chk = r.querySelector('.eval-chk');
-                            if (chk && chk.checked) {{
-                                chk.checked = false;
-                            }}
-                        }}
-                    }});
-                    updateCount();
-                }});
-            }}
-            
-            if (checkAll) {{
-                checkAll.addEventListener('change', function() {{
-                    checkboxes.forEach(c => {{
-                        // Only check visible rows
-                        const row = c.closest('tr');
-                        if (row.style.display !== 'none') {{
-                            c.checked = this.checked;
-                        }}
-                    }});
-                    updateCount();
-                }});
-            }}
-            
-            checkboxes.forEach(c => c.addEventListener('change', updateCount));
-            
-            if (btn) {{
-                btn.addEventListener('click', async function() {{
-                    const keys = Array.from(document.querySelectorAll('.eval-chk:checked')).map(c => c.value);
-                    if (keys.length === 0) {{
-                        alert('Vui lòng chọn ít nhất 1 task.');
-                        return;
-                    }}
-                    const num_val = document.getElementById('evalNum').value;
-                    const text_val = document.getElementById('evalText').value;
-                    if (!num_val && !text_val) {{
-                        alert('Vui lòng nhập điểm hoặc text.');
-                        return;
-                    }}
-                    
-                    const resDiv = document.getElementById('evalResult');
-                    resDiv.textContent = 'Đang xử lý...';
-                    resDiv.style.color = '#a5adba';
-                    btn.disabled = true;
-                    
-                    try {{
-                        const r = await fetch('/batch-eval', {{
-                            method: 'POST',
-                            headers: {{'Content-Type': 'application/json'}},
-                            body: JSON.stringify({{keys, num_val: num_val || null, text_val: text_val || null}})
-                        }});
-                        const data = await r.json();
-                        resDiv.textContent = data.msg || (data.ok ? 'Thành công' : 'Lỗi');
-                        resDiv.style.color = data.ok ? '#94C748' : '#F87168';
-                        if (data.ok) {{
-                            setTimeout(() => location.reload(), 2000);
-                        }}
-                    }} catch (e) {{
-                        resDiv.textContent = 'Lỗi mạng: ' + e;
-                        resDiv.style.color = '#F87168';
-                    }} finally {{
-                        btn.disabled = false;
-                    }}
-                }});
-            }}
-            
-            // Chip Selector
-            const exclDropdown = document.getElementById('exclDropdown');
-            const exclChipsContainer = document.getElementById('exclChipsContainer');
-            const exclHiddenInputs = document.getElementById('exclHiddenInputs');
-            
-            window.removeExcl = function(el, val) {{
-                const inputs = exclHiddenInputs.querySelectorAll('input');
-                inputs.forEach(inp => {{
-                    if(inp.value === val) inp.remove();
-                }});
-                el.parentElement.remove();
-                const opt = document.createElement('option');
-                opt.value = val;
-                opt.textContent = val; // Mặc định hiển thị key
-                exclDropdown.appendChild(opt);
-            }};
-            
-            exclDropdown.addEventListener('change', function() {{
-                const val = this.value;
-                const text = this.options[this.selectedIndex].text;
-                if(!val) return;
-                
-                this.options[this.selectedIndex].remove();
-                this.value = '';
-                
-                const chip = document.createElement('div');
-                chip.className = 'eval-chip';
-                chip.innerHTML = text + ' <span class="eval-chip-x" onclick="removeExcl(this, \'' + val + '\')">×</span>';
-                exclChipsContainer.appendChild(chip);
-                
-                const inp = document.createElement('input');
-                inp.type = 'hidden';
-                inp.name = 'assignee';
-                inp.value = val;
-                exclHiddenInputs.appendChild(inp);
-            }});
-        }});
-    </script>
-    '''
-    return _document_v2(inner, 'leadereval', user, activities or [], title=f'Đánh giá tháng {month}/{year} — QA Dashboard')
+
+    {js_block}
+    """
+    return _document_v2(inner, 'leadereval', user, activities or [], title=f'\u0110\u00e1nh gi\u00e1 th\u00e1ng {month}/{year} \u2014 QA Dashboard')
 
 
 def render_error_page(msg):
