@@ -1784,9 +1784,11 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
         num_val = f.get(LEADER_EVAL_NUM_FIELD)
         num_str = str(num_val) if num_val is not None else ''
         text_val = f.get(LEADER_EVAL_TEXT_FIELD) or ''
+        # "Đã đánh giá" = 1 trong 2 field Leader đánh giá có value
+        evaluated = '1' if (num_val is not None or text_val.strip()) else '0'
 
         rows.append(f"""
-        <tr class="eval-row" data-status="{esc(st)}" data-key="{esc(issue['key'])}" data-assignee="{esc(asg_user)}">
+        <tr class="eval-row" data-status="{esc(st)}" data-key="{esc(issue['key'])}" data-assignee="{esc(asg_user)}" data-evaluated="{evaluated}">
             <td style="text-align:center"><input type="checkbox" class="eval-chk" value="{esc(issue['key'])}"></td>
             <td>{issue_link(issue)}</td>
             <td class="summary-cell clickable" title="{esc(i_summary(issue))}">{esc(i_summary(issue))}</td>
@@ -1890,12 +1892,15 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
         /* Status + Assignee filters (combined) */
         var sf = document.getElementById('statusFilter');
         var af = document.getElementById('asgFilter');
+        var ef = document.getElementById('evalStateFilter');
         function applyRowFilters() {
             var sv = sf ? sf.value : '';
             var av = af ? af.value : '';
+            var ev = ef ? ef.value : '';
             document.querySelectorAll('.eval-row').forEach(function(r) {
                 var ok = (!sv || r.getAttribute('data-status') === sv) &&
-                         (!av || r.getAttribute('data-assignee') === av);
+                         (!av || r.getAttribute('data-assignee') === av) &&
+                         (!ev || r.getAttribute('data-evaluated') === ev);
                 if (ok) {
                     r.style.display = '';
                 } else {
@@ -1908,6 +1913,7 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
         }
         if (sf) sf.addEventListener('change', applyRowFilters);
         if (af) af.addEventListener('change', applyRowFilters);
+        if (ef) ef.addEventListener('change', applyRowFilters);
 
         /* Check-all */
         var ca = document.getElementById('evalCheckAll');
@@ -2067,6 +2073,14 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
                             <select id="asgFilter" class="set-input" style="margin:0; padding:4px 28px 4px 8px; font-size:13px; width:160px;">
                                 <option value="">-- T\u1ea5t c\u1ea3 --</option>
                                 {asg_opts}
+                            </select>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <label style="font-size:13px; font-weight:600; color:var(--on-surface-variant);">\u0110\u00e1nh gi\u00e1:</label>
+                            <select id="evalStateFilter" class="set-input" style="margin:0; padding:4px 28px 4px 8px; font-size:13px; width:160px;">
+                                <option value="">-- T\u1ea5t c\u1ea3 --</option>
+                                <option value="1">\u0110\u00e3 \u0111\u00e1nh gi\u00e1</option>
+                                <option value="0">Ch\u01b0a \u0111\u00e1nh gi\u00e1</option>
                             </select>
                         </div>
                     </div>
