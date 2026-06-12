@@ -136,7 +136,7 @@ def render_settings_page(has_pat, user=None, has_drive=False, auth_enabled=False
 
 # ===== Full page =====
 def render_page(data, new_keys, first_run, activities, activity_days=7, roadmap_data=None,
-                user=None, custom_overlay=None):
+                user=None, custom_overlay=None, bug_log_data=None):
     is_admin = user[1] if (user and len(user) > 1) else True
 
     # QA thường (non-admin): data đã auto-scope về chính họ -> UI v2 (shell sidebar Stitch).
@@ -144,7 +144,35 @@ def render_page(data, new_keys, first_run, activities, activity_days=7, roadmap_
         return render_qa_v2(data, new_keys, activities, custom_overlay, user)
 
     # Admin -> new v2 dashboard (pills + member filter + 5-col table + KPI cards)
-    return render_admin_v2(data, new_keys, activities, custom_overlay, user)
+    return render_admin_v2(data, new_keys, activities, custom_overlay, user,
+                           bug_log_data=bug_log_data)
+
+
+def _bug_metrics_payload(bug_log_data):
+    """bug_log_store.load_bug_log() -> payload cho controller `#bugMetrics` trên dashboard.
+
+    {files:[{fid,label,project,months:[sheet,...]}], metrics:{fid:{month:[snapshot,...]}},
+     syncedAt}. snapshot = {at, total, statuses:{raw_status:count}} (xem bug_log_store).
+    Tháng (sheet) lấy TỪ lịch sử metric -> chạy được cả khi Jira property ở bản nhẹ
+    (đã drop `bugs`). Chỉ liệt kê file CÓ lịch sử metric."""
+    bug_log_data = bug_log_data or {}
+    files_raw = bug_log_data.get('files', {}) or {}
+    metrics = bug_log_data.get('metrics', {}) or {}
+    files = []
+    for fid, fm in metrics.items():
+        months = sorted((m for m in (fm or {}) if m), reverse=True)
+        if not months:
+            continue
+        f = files_raw.get(fid, {}) or {}
+        files.append({
+            'fid': fid,
+            'label': f.get('name') or f.get('project') or fid,
+            'project': f.get('project', ''),
+            'months': months,
+        })
+    files.sort(key=lambda x: (x['label'] or '').lower())
+    synced = (bug_log_data.get('synced_at', '') or '').replace('T', ' ')[:16]
+    return {'files': files, 'metrics': metrics, 'syncedAt': synced or 'chưa đồng bộ'}
 
 
 # ===== Tài liệu training (tab /docs): cây folder + link Google Drive =====
@@ -532,7 +560,7 @@ def _document_v2(content_inner, active, user, activities, title='QA Suite'):
 
 
 # ===== Admin Dashboard v2 (team-wide — pills + member filter + 5-col table + KPI cards) =====
-def render_admin_v2(data, new_keys, activities, cmap, user):
+def render_admin_v2(data, new_keys, activities, cmap, user, bug_log_data=None):
     """Admin dashboard v2: team-wide view with status pills, member dropdown, paginated
     5-column table, 3 KPI cards, and a task detail drawer. Data is embedded as JSON and
     rendered entirely client-side by the admin controller in app_v2.js."""
@@ -685,8 +713,26 @@ def render_admin_v2(data, new_keys, activities, cmap, user):
         '<div class="kpi-value" id="kpiBugs">0</div>'
         '<div class="kpi-trend down"><span class="material-symbols-rounded">warning</span>'
         '<span>need attention</span></div></div></div></div>'
+        # ===== Metric Bug (nguồn = bug_log_store; chọn theo file + sheet; lịch sử mỗi sync)
+        '<div class="card bug-metric-card" id="bugMetricCard">'
+        '<div class="table-header"><div class="table-title">'
+        '<span class="material-symbols-rounded">bug_report</span>'
+        '<span>Metric Bug — Tổng &amp; theo Status</span></div>'
+        '<div class="bm-filters">'
+        '<span class="material-symbols-rounded mi-sm">description</span>'
+        '<select id="bmFile" class="bm-sel"></select>'
+        '<span class="material-symbols-rounded mi-sm">tab</span>'
+        '<select id="bmSheet" class="bm-sel"></select></div></div>'
+        '<div class="bm-body">'
+        '<div class="bm-current" id="bmCurrent"></div>'
+        '<div class="bm-history-wrap"><div class="bm-history-head">'
+        '<span class="material-symbols-rounded mi-sm">history</span> '
+        'Lịch sử thay đổi qua mỗi lần sync</div>'
+        '<div class="bm-history" id="bmHistory"></div></div></div>'
+        '<div class="bm-sub" id="bmSynced"></div></div>'
         # Status menu (drawer DOM nằm ở shell _document_v2 -> mọi trang dùng chung)
         '<div class="smenu" id="smenu"></div>'
+        + _json_script('bugMetrics', _bug_metrics_payload(bug_log_data))
         + _json_script('qaData', {'tasks': tasks, 'meta': meta})
         + f'<script>window.QA_CUSTOM_STATUSES={json.dumps(CUSTOM_STATUSES, ensure_ascii=False)};</script>'
     )
