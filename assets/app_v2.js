@@ -2136,21 +2136,33 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     }).catch(function(){ if(btn) btn.disabled=false; toast('Lỗi mạng khi lưu', false); });
   }
 
-  // "Đồng bộ ngay" — F5 chỉ render cache; nút này gọi scan() Drive ngay rồi reload (admin)
+  // "Đồng bộ ngay" — F5 chỉ render cache; nút này gọi scan() Drive ngay rồi reload (admin).
+  // Khi đang sync: disable + đổi nhãn (spinner) để KHÔNG bấm nhiều lần. Dùng chung cho cả
+  // auto-sync hết giờ (runBugSync) -> 1 đường đi duy nhất.
+  // Nút GIỮ disabled suốt quá trình sync; chỉ "active" lại khi sync thành công -> reload
+  // (trang load lại = nút mới tinh, enabled). Lỗi -> đổi nhãn báo lỗi + gợi ý F5 retry,
+  // KHÔNG tự enable lại (tránh bấm dồn khi Drive đang chậm/timeout).
+  function runBugSync(b){
+    if(!b || b.disabled) return Promise.resolve(false);
+    b.disabled=true;
+    b.innerHTML='<span class="material-symbols-rounded mi-sm" style="animation:spin 1s linear infinite">progress_activity</span> Đang đồng bộ…';
+    toast('Đang đọc lại data từ Drive…', true);
+    return postJSON('/sync-bug-log', {}, 90000).then(function(j){
+      if(j && j.ok){ toast('Đã đồng bộ ✓ — đang tải lại', true); setTimeout(function(){ location.reload(); }, 900); return true; }
+      b.innerHTML='<span class="material-symbols-rounded mi-sm">error</span> Đồng bộ lỗi — F5 để thử lại';
+      toast((j&&(j.errors&&j.errors[0]))||'Đồng bộ lỗi', false); return false;
+    }).catch(function(){
+      b.innerHTML='<span class="material-symbols-rounded mi-sm">error</span> Đồng bộ lỗi — F5 để thử lại';
+      toast('Lỗi mạng khi đồng bộ', false); return false;
+    });
+  }
   (function(){
     var b=$('blSyncBtn'); if(!b) return;
-    b.addEventListener('click', function(){
-      b.disabled=true;
-      toast('Đang đọc lại data từ Drive…', true);
-      postJSON('/sync-bug-log', {}, 90000).then(function(j){
-        if(j && j.ok){ toast('Đã đồng bộ ✓ — đang tải lại', true); setTimeout(function(){ location.reload(); }, 900); }
-        else { b.disabled=false; toast((j&&(j.errors&&j.errors[0]))||'Đồng bộ lỗi', false); }
-      }).catch(function(){ b.disabled=false; toast('Lỗi mạng khi đồng bộ', false); });
-    });
+    b.addEventListener('click', function(){ runBugSync(b); });
   })();
 
   // Đếm ngược "lần đồng bộ tự động kế tiếp" — next = synced_at + interval. Hết giờ thì
-  // hiện "sắp tới…" (scheduler chạy nền, trang sẽ tươi ở lần F5/đồng bộ sau).
+  // TỰ chạy sync (scan Drive) + reload để thấy data mới, thay vì chỉ đứng yên "sắp tới…".
   (function(){
     var el=$('blNextSync'); if(!el) return;
     var iso=el.getAttribute('data-synced')||'';
@@ -2158,11 +2170,23 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     var mins=Math.max(1, Math.round(interval/60));
     var t0=iso?Date.parse(iso):NaN;
     if(!interval || isNaN(t0)) return;
+    var fired=false;
+    // Chống loop F5: nếu trang vừa load lại mà synced_at VẪN trùng mốc lần auto-sync trước
+    // (scan chưa nhích vì lỗi/không phải admin) thì thôi tự đồng bộ — đợi F5 tay.
+    var allow = (sessionStorage.getItem('bl-autosync-iso') !== iso);
     function tick(){
       var left=Math.round((t0+interval*1000-Date.now())/1000);
       var tail;
-      if(left<=0) tail='lần tới: sắp tới…';
-      else {
+      if(left<=0){
+        tail='lần tới: đang đồng bộ…';
+        if(allow && !fired && !document.hidden){   // tab ẩn -> đợi quay lại mới chạy
+          fired=true;
+          sessionStorage.setItem('bl-autosync-iso', iso);
+          var b=$('blSyncBtn');
+          if(b) runBugSync(b);                      // admin: scan + reload (có nhãn spinner)
+          else setTimeout(function(){ location.reload(); }, 800); // non-admin: reload đọc cache scheduler
+        }
+      } else {
         var m=Math.floor(left/60), s=left%60;
         tail='lần tới sau <span style="font-variant-numeric:tabular-nums;font-family:\'JetBrains Mono\',monospace;font-weight:500">'+(m<10?'0'+m:m)+':'+(s<10?'0'+s:s)+'</span>';
       }
