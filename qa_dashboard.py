@@ -314,6 +314,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self._redirect('/bug-log', [clear])
 
     def do_GET(self):
+        # Dispatch mỏng: gate auth/domain rồi route tới method _get_* / _do_*.
+        # Giữ NGUYÊN thứ tự kiểm tra path (zero behavior change — B0/#111).
         path = urlparse(self.path).path
         if path == '/login':
             self._do_login()
@@ -338,235 +340,281 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._do_drive_callback()
             return
         if path.startswith('/uploads/'):
-            import os
-            from pathlib import Path
-            from urllib.parse import quote
-            filename = os.path.basename(path)
-            uploads_dir = Path("/Users/thanhht/qa-dashboard/uploads")
-            file_path = uploads_dir / filename
-            if not file_path.exists() or not file_path.is_file():
-                self.send_response(404)
-                self.end_headers()
-                return
-            ext = file_path.suffix.lower()
-            content_type = 'application/octet-stream'
-            if ext == '.pdf':
-                content_type = 'application/pdf'
-            elif ext in ('.xlsx', '.xls'):
-                content_type = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-            elif ext in ('.docx', '.doc'):
-                content_type = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-            elif ext in ('.png', '.jpg', '.jpeg', '.gif', '.webp'):
-                content_type = f'image/{ext[1:] if ext != ".jpg" else "jpeg"}'
-            disp = 'inline' if ext in ('.pdf', '.png', '.jpg', '.jpeg', '.gif', '.webp') else 'attachment'
-            try:
-                data = file_path.read_bytes()
-                self.send_response(200)
-                self.send_header('Content-Type', content_type)
-                self.send_header('Content-Disposition', f"{disp}; filename*=UTF-8''{quote(filename)}")
-                self.send_header('Content-Length', str(len(data)))
-                self.end_headers()
-                self.wfile.write(data)
-            except Exception:
-                self.send_response(500)
-                self.end_headers()
+            self._get_uploads(path)
             return
-
         if self.path in ('/my-work', '/my-work.html'):
-            # Việc của tôi = lens cá nhân của admin (task của chính mình). QA thường KHÔNG
-            # cần (dashboard `/` của họ đã auto-scope về chính họ) -> đá về dashboard.
-            if not self._is_admin():
-                self._redirect('/')
-                return
-            scope = self._self_username()
-            try:
-                # data trang = task của chính admin (scope self); chuông notif = _bell_activities()
-                # (đồng nhất mọi tab). overlay nhãn custom là scope-independent -> lấy từ bundle(self).
-                res = run_parallel({
-                    'data': lambda: fetch_all(scope),
-                    'custom': lambda: load_bundle(scope, ACTIVITY_DAYS),
-                    'bell': self._bell_activities,
-                })
-                data = res['data']
-                overlay, _cust_act = res['custom']
-                new_keys, _first_run = _build_view(data, scope)
-                # UI hệt QA member (render_qa_v2), chỉ highlight tab "Việc của tôi" ở sidebar
-                html_out = render_qa_v2(data, new_keys, res['bell'], overlay,
-                                        self._user_ctx(), nav_active='mywork')
-            except RuntimeError as e:
-                html_out = render_error_page(str(e))
-            self._html(html_out)
+            self._get_my_work()
             return
-
         if self.path.startswith('/leader-eval'):
-            if not self._is_admin():
-                self._redirect('/')
-                return
-            q = parse_qs(urlparse(self.path).query)
-            month_str = (q.get('month') or [''])[0]
-            category = (q.get('category') or [''])[0]
-            leader = (q.get('leader') or [''])[0]
-            sel_assignees = q.get('assignee', [])
-            
-            if not month_str:
-                now = datetime.now()
-                month_str = f"{now.year}-{now.month:02d}"
-            try:
-                y, m = map(int, month_str.split('-'))
-            except ValueError:
-                now = datetime.now()
-                y, m = now.year, now.month
-            try:
-                from jira_api import fetch_leader_eval_tasks, fetch_project_categories
-                res = run_parallel({
-                    'tasks': lambda: fetch_leader_eval_tasks(category, leader, sel_assignees, y, m),
-                    'categories': fetch_project_categories,
-                    'bell': self._bell_activities,
-                })
-                from render import render_leader_eval_page
-                self._html(render_leader_eval_page(res['tasks'], y, m, user=self._user_ctx(), activities=res['bell'],
-                                                   categories=res['categories'],
-                                                   sel_category=category, sel_leader=leader, sel_assignees=sel_assignees))
-            except RuntimeError as e:
-                self._html(render_error_page(str(e)))
+            self._get_leader_eval()
             return
-
         if self.path in ('/docs', '/docs.html'):
-            # tài liệu training: load song song tài liệu và chuông notif (đồng nhất mọi tab)
-            try:
-                res = run_parallel({'docs': load_docs, 'bell': self._bell_activities})
-                self._html(render_docs_page(res['docs'], editable=self._is_admin(),
-                                            user=self._user_ctx(), activities=res['bell']))
-            except RuntimeError as e:
-                self._html(render_error_page(str(e)))
+            self._get_docs()
             return
         if self.path in ('/roadmap', '/roadmap.html'):
-            # roadmap team (UI v2): roadmap + chuông notif (đồng nhất mọi tab) song song
-            try:
-                res = run_parallel({'roadmap': load_roadmap, 'bell': self._bell_activities})
-                self._html(render_roadmap_v2(res['roadmap'], editable=self._is_admin(),
-                                             user=self._user_ctx(), activities=res['bell']))
-            except RuntimeError as e:
-                self._html(render_error_page(str(e)))
+            self._get_roadmap()
             return
         if self.path in ('/bug-log', '/bug-log.html'):
-            # Bug Log (#55): bug từ Excel/Drive (cache bug_log_store) + link app-side (task_link)
-            # + chuông notif. Không gọi Jira search (cache đọc local/property) -> nhẹ.
-            try:
-                res = run_parallel({'bug': load_bug_log, 'links': load_links,
-                                    'sources': load_sources, 'bell': self._bell_activities})
-                # Bug Log mở cho MỌI QA (kể cả non-admin): liên kết Task + quản lý link
-                # drive nguồn. editable=True cho mọi user đã authed (route đã gate authed).
-                self._html(render_bug_log_v2(res['bug'], res['links'],
-                                             editable=True,
-                                             user=self._user_ctx(), activities=res['bell'],
-                                             sources=res['sources']))
-            except RuntimeError as e:
-                self._html(render_error_page(str(e)))
+            self._get_bug_log()
             return
         if path == '/issue-comments':
-            # JSON chi tiết 1 issue (drawer + comment panel lazy-load). Read-only PAT chung.
-            q = parse_qs(urlparse(self.path).query)
-            key = (q.get('key') or [''])[0]
-            parts = key.split('-')
-            if len(parts) != 2 or not parts[0].isalnum() or not parts[1].isdigit():
-                self._json(400, b'{"ok":false,"msg":"key"}')
-                return
-            try:
-                # Jira detail + bug đã link tới task (chiều ngược task_link) song song.
-                res = run_parallel({'detail': lambda: fetch_issue_detail(key),
-                                    'bugs': lambda: self._bugs_for_task(key)})
-                detail = res['detail']
-                detail['bugs'] = res['bugs']
-                self._json(200, json.dumps({'ok': True, 'detail': detail}).encode('utf-8'))
-            except RuntimeError:
-                self._json(400, b'{"ok":false,"msg":"loi"}')
+            self._get_issue_comments()
             return
         if path == '/activity-feed':
-            # JSON feed cho chuông notif — client poll định kỳ để cập nhật real-time,
-            # KHÔNG reload trang (Decision #24). Cùng nguồn _bell_activities() nên đồng nhất
-            # mọi tab + đã gắn is_unread theo dismissed của người đăng nhập.
-            try:
-                acts, tasks = self._bell_activities(with_patch=True)
-                self._json(200, json.dumps(
-                    {'ok': True, 'activities': acts, 'tasks': tasks}).encode('utf-8'))
-            except RuntimeError:
-                self._json(400, b'{"ok":false}')
+            self._get_activity_feed()
             return
         if path == '/has-pat':
-            # FE check trước khi mở form tạo sub-task: chưa có PAT -> mở luôn modal Cài đặt PAT.
-            # Lỗi Jira -> bỏ qua (ok=false) để FE vẫn mở form, backend /create-subtask tự chặn.
-            try:
-                self._json(200, json.dumps(
-                    {'ok': True, 'hasPat': has_pat(self._user_email())}).encode('utf-8'))
-            except RuntimeError:
-                self._json(200, b'{"ok":false}')
+            self._get_has_pat()
             return
         if path == '/has-drive':
-            # FE (modal Setting) check trạng thái kết nối Drive — admin-only. Load lười để
-            # KHÔNG +1 Jira call mỗi lần render shell. Lỗi Jira -> ok=false, FE báo nhẹ.
-            if not self._is_admin():
-                self._json(200, b'{"ok":true,"hasDrive":false,"authEnabled":false}')
-                return
-            try:
-                self._json(200, json.dumps(
-                    {'ok': True, 'hasDrive': has_drive_token(),
-                     'authEnabled': AUTH_ENABLED}).encode('utf-8'))
-            except RuntimeError:
-                self._json(200, b'{"ok":false}')
+            self._get_has_drive()
             return
         if path == '/search-parents':
-            # type-ahead Task-PTSP cho form tạo sub-task. Read-only PAT chung.
-            q = (parse_qs(urlparse(self.path).query).get('q') or [''])[0]
-            try:
-                self._json(200, json.dumps(
-                    {'ok': True, 'results': search_parent_ptsp(q)}).encode('utf-8'))
-            except RuntimeError:
-                self._json(400, b'{"ok":false}')
+            self._get_search_parents()
             return
         if path == '/search-tasks':
-            # type-ahead task của QA team cho Bug Log linkbar (link bug -> task QA đang làm,
-            # KHÔNG phải Task-PTSP của dev). Read-only PAT chung.
-            q = (parse_qs(urlparse(self.path).query).get('q') or [''])[0]
-            try:
-                self._json(200, json.dumps(
-                    {'ok': True, 'results': search_qa_tasks(q)}).encode('utf-8'))
-            except RuntimeError:
-                self._json(400, b'{"ok":false}')
+            self._get_search_tasks()
             return
         if path == '/global-search':
-            # Quick-search toàn Jira cho thanh search topbar (key / số / text summary).
-            # Read-only PAT chung. Mở task ra drawer qua /issue-comments khi click.
-            q = (parse_qs(urlparse(self.path).query).get('q') or [''])[0]
-            try:
-                self._json(200, json.dumps(
-                    {'ok': True, 'results': global_search(q)}).encode('utf-8'))
-            except RuntimeError:
-                self._json(400, b'{"ok":false}')
+            self._get_global_search()
             return
         if path == '/search-people':
-            # type-ahead user (field Leader) cho form tạo sub-task. Read-only PAT chung.
-            q = (parse_qs(urlparse(self.path).query).get('q') or [''])[0]
-            try:
-                self._json(200, json.dumps(
-                    {'ok': True, 'results': search_people(q)}).encode('utf-8'))
-            except RuntimeError:
-                self._json(400, b'{"ok":false}')
+            self._get_search_people()
             return
         if self.path in ('/settings', '/settings.html'):
-            # Cài đặt PAT cá nhân (mã hoá khi lưu) — thao tác Jira ghi đúng tên người dùng
-            try:
-                hd = has_drive_token() if self._is_admin() else False
-                self._html(render_settings_page(has_pat(self._user_email()), user=self._user_ctx(),
-                                                 has_drive=hd, auth_enabled=AUTH_ENABLED,
-                                                 activities=self._bell_activities()))
-            except RuntimeError as e:
-                self._html(render_error_page(str(e)))
+            self._get_settings()
             return
         if self.path not in ('/', '/index.html'):
             self.send_response(404)
             self.end_headers()
             return
+        self._get_dashboard()
+
+    # ===== GET route handlers (trích từ do_GET — B0/#111) =====
+    def _get_uploads(self, path):
+        import os
+        from pathlib import Path
+        from urllib.parse import quote
+        filename = os.path.basename(path)
+        uploads_dir = Path("/Users/thanhht/qa-dashboard/uploads")
+        file_path = uploads_dir / filename
+        if not file_path.exists() or not file_path.is_file():
+            self.send_response(404)
+            self.end_headers()
+            return
+        ext = file_path.suffix.lower()
+        content_type = 'application/octet-stream'
+        if ext == '.pdf':
+            content_type = 'application/pdf'
+        elif ext in ('.xlsx', '.xls'):
+            content_type = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        elif ext in ('.docx', '.doc'):
+            content_type = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        elif ext in ('.png', '.jpg', '.jpeg', '.gif', '.webp'):
+            content_type = f'image/{ext[1:] if ext != ".jpg" else "jpeg"}'
+        disp = 'inline' if ext in ('.pdf', '.png', '.jpg', '.jpeg', '.gif', '.webp') else 'attachment'
+        try:
+            data = file_path.read_bytes()
+            self.send_response(200)
+            self.send_header('Content-Type', content_type)
+            self.send_header('Content-Disposition', f"{disp}; filename*=UTF-8''{quote(filename)}")
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        except Exception:
+            self.send_response(500)
+            self.end_headers()
+
+    def _get_my_work(self):
+        # Việc của tôi = lens cá nhân của admin (task của chính mình). QA thường KHÔNG
+        # cần (dashboard `/` của họ đã auto-scope về chính họ) -> đá về dashboard.
+        if not self._is_admin():
+            self._redirect('/')
+            return
+        scope = self._self_username()
+        try:
+            # data trang = task của chính admin (scope self); chuông notif = _bell_activities()
+            # (đồng nhất mọi tab). overlay nhãn custom là scope-independent -> lấy từ bundle(self).
+            res = run_parallel({
+                'data': lambda: fetch_all(scope),
+                'custom': lambda: load_bundle(scope, ACTIVITY_DAYS),
+                'bell': self._bell_activities,
+            })
+            data = res['data']
+            overlay, _cust_act = res['custom']
+            new_keys, _first_run = _build_view(data, scope)
+            # UI hệt QA member (render_qa_v2), chỉ highlight tab "Việc của tôi" ở sidebar
+            html_out = render_qa_v2(data, new_keys, res['bell'], overlay,
+                                    self._user_ctx(), nav_active='mywork')
+        except RuntimeError as e:
+            html_out = render_error_page(str(e))
+        self._html(html_out)
+
+    def _get_leader_eval(self):
+        if not self._is_admin():
+            self._redirect('/')
+            return
+        q = parse_qs(urlparse(self.path).query)
+        month_str = (q.get('month') or [''])[0]
+        category = (q.get('category') or [''])[0]
+        leader = (q.get('leader') or [''])[0]
+        sel_assignees = q.get('assignee', [])
+
+        if not month_str:
+            now = datetime.now()
+            month_str = f"{now.year}-{now.month:02d}"
+        try:
+            y, m = map(int, month_str.split('-'))
+        except ValueError:
+            now = datetime.now()
+            y, m = now.year, now.month
+        try:
+            from jira_api import fetch_leader_eval_tasks, fetch_project_categories
+            res = run_parallel({
+                'tasks': lambda: fetch_leader_eval_tasks(category, leader, sel_assignees, y, m),
+                'categories': fetch_project_categories,
+                'bell': self._bell_activities,
+            })
+            from render import render_leader_eval_page
+            self._html(render_leader_eval_page(res['tasks'], y, m, user=self._user_ctx(), activities=res['bell'],
+                                               categories=res['categories'],
+                                               sel_category=category, sel_leader=leader, sel_assignees=sel_assignees))
+        except RuntimeError as e:
+            self._html(render_error_page(str(e)))
+
+    def _get_docs(self):
+        # tài liệu training: load song song tài liệu và chuông notif (đồng nhất mọi tab)
+        try:
+            res = run_parallel({'docs': load_docs, 'bell': self._bell_activities})
+            self._html(render_docs_page(res['docs'], editable=self._is_admin(),
+                                        user=self._user_ctx(), activities=res['bell']))
+        except RuntimeError as e:
+            self._html(render_error_page(str(e)))
+
+    def _get_roadmap(self):
+        # roadmap team (UI v2): roadmap + chuông notif (đồng nhất mọi tab) song song
+        try:
+            res = run_parallel({'roadmap': load_roadmap, 'bell': self._bell_activities})
+            self._html(render_roadmap_v2(res['roadmap'], editable=self._is_admin(),
+                                         user=self._user_ctx(), activities=res['bell']))
+        except RuntimeError as e:
+            self._html(render_error_page(str(e)))
+
+    def _get_bug_log(self):
+        # Bug Log (#55): bug từ Excel/Drive (cache bug_log_store) + link app-side (task_link)
+        # + chuông notif. Không gọi Jira search (cache đọc local/property) -> nhẹ.
+        try:
+            res = run_parallel({'bug': load_bug_log, 'links': load_links,
+                                'sources': load_sources, 'bell': self._bell_activities})
+            # Bug Log mở cho MỌI QA (kể cả non-admin): liên kết Task + quản lý link
+            # drive nguồn. editable=True cho mọi user đã authed (route đã gate authed).
+            self._html(render_bug_log_v2(res['bug'], res['links'],
+                                         editable=True,
+                                         user=self._user_ctx(), activities=res['bell'],
+                                         sources=res['sources']))
+        except RuntimeError as e:
+            self._html(render_error_page(str(e)))
+
+    def _get_issue_comments(self):
+        # JSON chi tiết 1 issue (drawer + comment panel lazy-load). Read-only PAT chung.
+        q = parse_qs(urlparse(self.path).query)
+        key = (q.get('key') or [''])[0]
+        parts = key.split('-')
+        if len(parts) != 2 or not parts[0].isalnum() or not parts[1].isdigit():
+            self._json(400, b'{"ok":false,"msg":"key"}')
+            return
+        try:
+            # Jira detail + bug đã link tới task (chiều ngược task_link) song song.
+            res = run_parallel({'detail': lambda: fetch_issue_detail(key),
+                                'bugs': lambda: self._bugs_for_task(key)})
+            detail = res['detail']
+            detail['bugs'] = res['bugs']
+            self._json(200, json.dumps({'ok': True, 'detail': detail}).encode('utf-8'))
+        except RuntimeError:
+            self._json(400, b'{"ok":false,"msg":"loi"}')
+
+    def _get_activity_feed(self):
+        # JSON feed cho chuông notif — client poll định kỳ để cập nhật real-time,
+        # KHÔNG reload trang (Decision #24). Cùng nguồn _bell_activities() nên đồng nhất
+        # mọi tab + đã gắn is_unread theo dismissed của người đăng nhập.
+        try:
+            acts, tasks = self._bell_activities(with_patch=True)
+            self._json(200, json.dumps(
+                {'ok': True, 'activities': acts, 'tasks': tasks}).encode('utf-8'))
+        except RuntimeError:
+            self._json(400, b'{"ok":false}')
+
+    def _get_has_pat(self):
+        # FE check trước khi mở form tạo sub-task: chưa có PAT -> mở luôn modal Cài đặt PAT.
+        # Lỗi Jira -> bỏ qua (ok=false) để FE vẫn mở form, backend /create-subtask tự chặn.
+        try:
+            self._json(200, json.dumps(
+                {'ok': True, 'hasPat': has_pat(self._user_email())}).encode('utf-8'))
+        except RuntimeError:
+            self._json(200, b'{"ok":false}')
+
+    def _get_has_drive(self):
+        # FE (modal Setting) check trạng thái kết nối Drive — admin-only. Load lười để
+        # KHÔNG +1 Jira call mỗi lần render shell. Lỗi Jira -> ok=false, FE báo nhẹ.
+        if not self._is_admin():
+            self._json(200, b'{"ok":true,"hasDrive":false,"authEnabled":false}')
+            return
+        try:
+            self._json(200, json.dumps(
+                {'ok': True, 'hasDrive': has_drive_token(),
+                 'authEnabled': AUTH_ENABLED}).encode('utf-8'))
+        except RuntimeError:
+            self._json(200, b'{"ok":false}')
+
+    def _get_search_parents(self):
+        # type-ahead Task-PTSP cho form tạo sub-task. Read-only PAT chung.
+        q = (parse_qs(urlparse(self.path).query).get('q') or [''])[0]
+        try:
+            self._json(200, json.dumps(
+                {'ok': True, 'results': search_parent_ptsp(q)}).encode('utf-8'))
+        except RuntimeError:
+            self._json(400, b'{"ok":false}')
+
+    def _get_search_tasks(self):
+        # type-ahead task của QA team cho Bug Log linkbar (link bug -> task QA đang làm,
+        # KHÔNG phải Task-PTSP của dev). Read-only PAT chung.
+        q = (parse_qs(urlparse(self.path).query).get('q') or [''])[0]
+        try:
+            self._json(200, json.dumps(
+                {'ok': True, 'results': search_qa_tasks(q)}).encode('utf-8'))
+        except RuntimeError:
+            self._json(400, b'{"ok":false}')
+
+    def _get_global_search(self):
+        # Quick-search toàn Jira cho thanh search topbar (key / số / text summary).
+        # Read-only PAT chung. Mở task ra drawer qua /issue-comments khi click.
+        q = (parse_qs(urlparse(self.path).query).get('q') or [''])[0]
+        try:
+            self._json(200, json.dumps(
+                {'ok': True, 'results': global_search(q)}).encode('utf-8'))
+        except RuntimeError:
+            self._json(400, b'{"ok":false}')
+
+    def _get_search_people(self):
+        # type-ahead user (field Leader) cho form tạo sub-task. Read-only PAT chung.
+        q = (parse_qs(urlparse(self.path).query).get('q') or [''])[0]
+        try:
+            self._json(200, json.dumps(
+                {'ok': True, 'results': search_people(q)}).encode('utf-8'))
+        except RuntimeError:
+            self._json(400, b'{"ok":false}')
+
+    def _get_settings(self):
+        # Cài đặt PAT cá nhân (mã hoá khi lưu) — thao tác Jira ghi đúng tên người dùng
+        try:
+            hd = has_drive_token() if self._is_admin() else False
+            self._html(render_settings_page(has_pat(self._user_email()), user=self._user_ctx(),
+                                             has_drive=hd, auth_enabled=AUTH_ENABLED,
+                                             activities=self._bell_activities()))
+        except RuntimeError as e:
+            self._html(render_error_page(str(e)))
+
+    def _get_dashboard(self):
         email = self._user_email()  # dismiss tách theo người đăng nhập
         # admin/local -> scope None (xem cả team); QA thường -> scope = username của họ
         if self._is_admin():
