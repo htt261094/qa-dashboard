@@ -1093,19 +1093,25 @@ html[data-theme="dark"] .rk-bug-n { color: #ff7b72; }
 .bm-sel{font-family:inherit;font-size:13px;color:var(--on-surface);background:var(--surface-low);
         border:1px solid var(--outline-variant);border-radius:var(--r-md);padding:6px 8px;max-width:240px}
 .bm-body{display:flex;gap:24px;flex-wrap:wrap;padding:18px 20px 6px}
-.bm-current{display:flex;align-items:flex-start;gap:24px;flex-wrap:wrap;flex:1;min-width:280px}
-.bm-total{text-align:center;padding-right:24px;border-right:1px solid var(--divider);min-width:96px}
-.bm-total-num{font-size:34px;font-weight:800;line-height:1;color:var(--on-surface);
-              display:flex;align-items:baseline;gap:6px;justify-content:center}
-.bm-total-lbl{font-size:12px;color:var(--on-surface-variant);margin-top:6px;text-transform:uppercase;letter-spacing:.04em}
-.bm-stats{display:flex;flex-wrap:wrap;gap:8px 18px;align-content:flex-start}
-.bm-stat{display:flex;align-items:center;gap:7px;font-size:13px}
-.bm-stat-lbl{color:var(--on-surface-variant)}
-.bm-stat-num{font-weight:700;color:var(--on-surface);display:inline-flex;align-items:baseline;gap:4px}
+.bm-current{flex:1;min-width:280px}
+/* Mỗi status = 1 card riêng (label màu + số + delta %) */
+.bm-cards{display:flex;flex-wrap:wrap;gap:14px;width:100%}
+.bm-card{flex:1 1 150px;min-width:140px;border:1px solid var(--divider);border-radius:12px;
+         padding:14px 16px;background:var(--surface);display:flex;flex-direction:column;gap:12px;
+         box-shadow:var(--shadow-1,0 1px 2px rgba(0,0,0,.05))}
+.bm-card-total{border-color:var(--primary)}
+.bm-card-lbl{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;
+             color:var(--on-surface-variant)}
+.bm-card-total .bm-card-lbl{color:var(--primary)}
+.bm-card-row{display:flex;align-items:flex-end;justify-content:space-between;gap:8px}
+.bm-card-num{font-size:28px;font-weight:800;line-height:1;color:var(--on-surface);
+             font-variant-numeric:tabular-nums}
 .bm-dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex:none}
-.bm-delta{font-size:11px;font-weight:700}
-.bm-delta.up{color:#d92d20}    /* bug tăng = xấu (đỏ) */
-.bm-delta.down{color:#12805c}  /* bug giảm = tốt (xanh) */
+.bm-delta{font-size:12px;font-weight:700;display:inline-flex;align-items:center;gap:1px;white-space:nowrap}
+.bm-arr{font-size:15px;line-height:1}
+.bm-delta.up{color:#d92d20}    /* xấu (đỏ) */
+.bm-delta.down{color:#12805c}  /* tốt (xanh) */
+.bm-delta.flat{color:var(--on-surface-variant)}
 .bm-history-wrap{flex:1;min-width:320px;border-top:1px solid var(--divider);padding-top:14px;width:100%}
 .bm-history-head{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;
                  text-transform:uppercase;letter-spacing:.04em;color:var(--on-surface-variant);margin-bottom:10px}
