@@ -10,6 +10,7 @@
 .bug_log_source.json
 .bug_log.json
 .bug_task_link.json
+*.db
 
 # Python
 __pycache__/
