@@ -2701,6 +2701,20 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     var d = (cur||0) - (prev||0); if(!d) return '';
     return '<span class="bm-delta '+(d>0?'up':'down')+'">'+(d>0?'▲':'▼')+Math.abs(d)+'</span>';
   }
+  // Status mà TĂNG = TỐT (xanh): đã fix/xong/đóng. Còn lại tăng = xấu (đỏ).
+  function isGood(name){ return /fix|done|resolv|clos|xong|hoàn|đóng|pass/i.test(String(name)); }
+  // Delta dạng % + mũi tên (card view). good = tăng có lợi không -> chọn màu.
+  function deltaCard(cur, prev, good){
+    if(prev==null) return '';
+    var d=(cur||0)-(prev||0);
+    if(!d) return '<span class="bm-delta flat">0%<span class="material-symbols-rounded bm-arr">remove</span></span>';
+    var benefit = good ? d>0 : d<0;          // thay đổi này có lợi?
+    var cls = benefit ? 'down' : 'up';        // down=xanh(tốt) · up=đỏ(xấu)
+    var txt = (prev>0) ? ((d>0?'+':'')+Math.round(d/prev*100)+'%') : ((d>0?'+':'')+d);
+    var arr = d>0 ? 'trending_up' : 'trending_down';
+    return '<span class="bm-delta '+cls+'">'+txt+
+      '<span class="material-symbols-rounded bm-arr">'+arr+'</span></span>';
+  }
 
   if(!FILES.length){
     var body = card.querySelector('.bm-body');
@@ -2732,17 +2746,19 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     var latest = snaps[snaps.length-1];
     var prev = snaps.length>1 ? snaps[snaps.length-2] : null;
 
-    // ----- Hiện tại: tổng + theo status (delta vs mốc trước) -----
-    var cur = '<div class="bm-total"><div class="bm-total-num">'+latest.total+
-      (prev?delta(latest.total, prev.total):'')+'</div>'+
-      '<div class="bm-total-lbl">Tổng bug</div></div><div class="bm-stats">';
+    // ----- Hiện tại: mỗi status 1 card (tổng + theo status), delta % vs mốc trước -----
+    var cards = '<div class="bm-card bm-card-total">'+
+      '<div class="bm-card-lbl">Tổng bug</div>'+
+      '<div class="bm-card-row"><span class="bm-card-num">'+latest.total+'</span>'+
+      deltaCard(latest.total, prev?prev.total:null, false)+'</div></div>';
     keys.forEach(function(k){
-      var v=(latest.statuses||{})[k]||0, pv=prev?((prev.statuses||{})[k]||0):0;
-      cur += '<div class="bm-stat"><span class="bm-dot" style="background:'+colorOf(k)+'"></span>'+
-        '<span class="bm-stat-lbl">'+esc(k)+'</span><span class="bm-stat-num">'+v+
-        (prev?delta(v,pv):'')+'</span></div>';
+      var v=(latest.statuses||{})[k]||0, pv=prev?((prev.statuses||{})[k]||0):0, c=colorOf(k);
+      cards += '<div class="bm-card" style="--bm-acc:'+c+'">'+
+        '<div class="bm-card-lbl" style="color:'+c+'">'+esc(k)+'</div>'+
+        '<div class="bm-card-row"><span class="bm-card-num">'+v+'</span>'+
+        deltaCard(v, prev?pv:null, isGood(k))+'</div></div>';
     });
-    curBox.innerHTML = cur + '</div>';
+    curBox.innerHTML = '<div class="bm-cards">'+cards+'</div>';
 
     // ----- Lịch sử: mỗi mốc sync 1 dòng (mới nhất trên cùng) + delta vs mốc trước -----
     var rows='';
