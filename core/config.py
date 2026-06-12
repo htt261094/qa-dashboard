@@ -26,6 +26,7 @@ ROADMAP_FILE = SCRIPT_DIR / '.roadmap_config.json'
 DRIVE_TOKEN_FILE = SCRIPT_DIR / '.drive_token.json'      # cache refresh token (mã hoá) fallback
 BUG_LOG_SOURCE_FILE = SCRIPT_DIR / '.bug_log_source.json'  # cache file Drive nguồn bug log
 BUG_LOG_FILE = SCRIPT_DIR / '.bug_log.json'              # cache snapshot bug log (fallback + render nhanh)
+BUG_LOG_DB = SCRIPT_DIR / '.bug_log.db'                  # SQLite: baseline + status_event + reopen counter (bền, đổi host pull file này)
 BUG_TASK_LINK_FILE = SCRIPT_DIR / '.bug_task_link.json'  # cache link bug/test-case -> Jira task (#55)
 
 # ----- Domain constants -----

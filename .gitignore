@@ -31,3 +31,4 @@ preview*.html
 # Local uploaded files
 uploads/
 
+.bug_log.db
