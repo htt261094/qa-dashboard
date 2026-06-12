@@ -34,12 +34,12 @@ from state import load_snapshots, save_snapshots, build_snapshot
 from docs import load_docs, save_docs, valid_tree
 from roadmap import load_roadmap, save_roadmap, valid_roadmap
 from pat_store import save_user_pat, has_pat, delete_user_pat, load_user_pat
-from custom_status import (load_bundle, set_custom_status, is_valid, values_of)
-from jira_write import get_transitions, do_transition, add_comment, create_subtask
+from custom_status import (load_bundle, values_of)
 from render import (render_page, render_qa_v2, render_docs_page,
                     render_roadmap_v2, render_bug_log_v2,
                     render_settings_page, render_error_page, render_403)
 from routes.oauth import OAuthMixin
+from routes.write import WriteMixin
 
 ACTIVITY_DAYS = 7  # cửa sổ activity feed kéo từ Jira changelog
 
@@ -63,7 +63,7 @@ def _build_view(data, scope):
 
 
 # ===== HTTP server =====
-class Handler(OAuthMixin, http.server.BaseHTTPRequestHandler):
+class Handler(OAuthMixin, WriteMixin, http.server.BaseHTTPRequestHandler):
     # ----- Auth (Google OAuth login + session cookie ký HMAC) -----
     # Identity = session cookie (đặt sau khi đăng nhập Google, đã verify @ALLOWED_DOMAIN).
     # Fallback Cloudflare Access header nếu có (không bắt buộc). AUTH_ENABLED=False -> local dev.
@@ -579,82 +579,6 @@ class Handler(OAuthMixin, http.server.BaseHTTPRequestHandler):
     def _reply_json(self, ok, payload):
         self._json(200 if ok else 400, json.dumps(payload).encode('utf-8'))
 
-    def _handle_jira_write(self):
-        """Transition / comment THẬT lên Jira bằng PAT cá nhân của người đăng nhập.
-        Không có PAT -> từ chối (để KHÔNG ghi nhầm tên tài khoản chung)."""
-        pat = load_user_pat(self._user_email())
-        if not pat:
-            self._reply_json(False, {'ok': False, 'code': 'no_pat',
-                'msg': 'Bạn chưa cấu hình PAT. Vào ⚙ Cài đặt để thêm, rồi thử lại.'})
-            return
-        try:
-            payload = self._read_json_body(20_000)
-            if not isinstance(payload, dict):
-                self._reply_json(False, {'ok': False, 'msg': 'Dữ liệu không hợp lệ.'})
-                return
-            key = payload.get('key')
-            if not isinstance(key, str) or not key:
-                self._reply_json(False, {'ok': False, 'msg': 'Thiếu key task.'})
-                return
-            if self.path == '/jira-transitions':
-                # CHỈ trả các transition QA này thật sự đổi được (theo PAT + workflow).
-                ok, data = get_transitions(key, pat)
-                self._reply_json(ok, {'ok': True, 'transitions': data} if ok else {'ok': False, 'msg': data})
-            elif self.path == '/do-transition':
-                tid = payload.get('id')
-                if not isinstance(tid, (str, int)) or str(tid) == '':
-                    self._reply_json(False, {'ok': False, 'msg': 'Thiếu transition id.'})
-                    return
-                ok, msg = do_transition(key, tid, pat)
-                self._reply_json(ok, {'ok': ok, 'msg': msg})
-            else:  # /add-comment
-                body = payload.get('body')
-                if not isinstance(body, str):
-                    self._reply_json(False, {'ok': False, 'msg': 'Thiếu nội dung comment.'})
-                    return
-                ok, msg = add_comment(key, body[:5000], pat)
-                self._reply_json(ok, {'ok': ok, 'msg': msg})
-        except (ValueError, json.JSONDecodeError, OSError):
-            self._reply_json(False, {'ok': False, 'msg': 'Lỗi xử lý yêu cầu.'})
-
-    def _handle_create_subtask(self):
-        """Tạo Sub-task QA dưới 1 Task-PTSP, NHÂN DANH chủ PAT cá nhân (reporter = người
-        đăng nhập). Admin + QA member đều dùng được (chỉ cần đã đăng nhập + có PAT)."""
-        import re
-        pat = load_user_pat(self._user_email())
-        if not pat:
-            self._reply_json(False, {'ok': False, 'code': 'no_pat',
-                'msg': 'Bạn chưa cấu hình PAT. Vào ⚙ Cài đặt để thêm, rồi thử lại.'})
-            return
-        try:
-            payload = self._read_json_body(20_000)
-            if not isinstance(payload, dict):
-                self._reply_json(False, {'ok': False, 'msg': 'Dữ liệu không hợp lệ.'})
-                return
-            parent = (payload.get('parent') or '').strip()
-            summary = payload.get('summary') or ''
-            duedate = (payload.get('duedate') or '').strip()
-            start_date = (payload.get('startDate') or '').strip()
-            assignee = (payload.get('assignee') or '').strip() or None
-            leader = (payload.get('leader') or '').strip() or None
-            if not re.match(r'^[A-Za-z0-9]+-\d+$', parent):
-                self._reply_json(False, {'ok': False, 'msg': 'Task cha không hợp lệ.'})
-                return
-            datep = r'^\d{4}-\d{2}-\d{2}$'
-            if not re.match(datep, duedate) or not re.match(datep, start_date):
-                self._reply_json(False, {'ok': False,
-                    'msg': 'Ngày phải đúng định dạng YYYY-MM-DD.'})
-                return
-            ok, res = create_subtask(parent, summary, duedate, start_date,
-                                     assignee, leader, pat)
-            if ok:
-                self._reply_json(True, {'ok': True, 'key': res,
-                    'url': f'{JIRA_URL}/browse/{res}', 'msg': f'Đã tạo {res} ✓'})
-            else:
-                self._reply_json(False, {'ok': False, 'msg': res})
-        except (ValueError, json.JSONDecodeError, OSError):
-            self._reply_json(False, {'ok': False, 'msg': 'Lỗi xử lý yêu cầu.'})
-
     def do_POST(self):
         # Dispatch mỏng: gate auth/domain rồi route tới method _post_* / _handle_*.
         # Giữ NGUYÊN thứ tự kiểm tra path (zero behavior change — B0b/#112).
@@ -840,27 +764,6 @@ class Handler(OAuthMixin, http.server.BaseHTTPRequestHandler):
             out = None
         if out is not None:
             self._json(200, json.dumps({'ok': True, 'links': out}).encode('utf-8'))
-        else:
-            self._json(400, b'{"ok":false}')
-
-    def _post_set_custom_status(self):
-        # QA toggle nhãn nội bộ cho task (chọn nhiều). Author = người đăng nhập (không cần PAT).
-        values = None
-        try:
-            length = int(self.headers.get('Content-Length', 0))
-            if 0 < length <= 20_000:
-                payload = json.loads(self.rfile.read(length).decode('utf-8'))
-                if isinstance(payload, dict):
-                    key = payload.get('key')
-                    value = payload.get('status', '')
-                    summary = payload.get('summary', '')
-                    if (isinstance(key, str) and key and isinstance(value, str)
-                            and is_valid(value) and isinstance(summary, str)):
-                        values = set_custom_status(self._user_email(), key, value, summary[:200])
-        except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
-            values = None
-        if values is not None:
-            self._json(200, json.dumps({'ok': True, 'values': values}).encode('utf-8'))
         else:
             self._json(400, b'{"ok":false}')
 

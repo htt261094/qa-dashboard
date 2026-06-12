@@ -7,5 +7,6 @@ kế thừa các mixin này; helper dùng chung (`_base_url`, `_redirect`, `_coo
 Layer rule (CLAUDE.md): KHÔNG import qa_dashboard ở đây (tránh vòng import).
 """
 from routes.oauth import OAuthMixin
+from routes.write import WriteMixin
 
-__all__ = ['OAuthMixin']
+__all__ = ['OAuthMixin', 'WriteMixin']
