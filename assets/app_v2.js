@@ -2770,7 +2770,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     if(!d) return '<span class="bm-delta flat">0%<span class="material-symbols-rounded bm-arr">remove</span></span>';
     var benefit = good ? d>0 : d<0;          // thay đổi này có lợi?
     var cls = benefit ? 'down' : 'up';        // down=xanh(tốt) · up=đỏ(xấu)
-    var txt = (prev>0) ? ((d>0?'+':'')+Math.round(d/prev*100)+'%') : ((d>0?'+':'')+d);
+    var txt = (d>0?'+':'')+d;          // số tăng/giảm tuyệt đối (bỏ %, base nhỏ làm % nổ)
     var arr = d>0 ? 'trending_up' : 'trending_down';
     return '<span class="bm-delta '+cls+'">'+txt+
       '<span class="material-symbols-rounded bm-arr">'+arr+'</span></span>';
@@ -2812,6 +2812,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       '<div class="bm-card-row"><span class="bm-card-num">'+latest.total+'</span>'+
       deltaCard(latest.total, prev?prev.total:null, false)+'</div></div>';
     keys.forEach(function(k){
+      if(['New','Fixed','Closed','Rejected'].indexOf(k)<0) return;   // card New/Fixed/Closed/Rejected (bỏ Fixing)
       var v=(latest.statuses||{})[k]||0, pv=prev?((prev.statuses||{})[k]||0):0, c=colorOf(k);
       cards += '<div class="bm-card" style="--bm-acc:'+c+'">'+
         '<div class="bm-card-lbl" style="color:'+c+'">'+esc(k)+'</div>'+
