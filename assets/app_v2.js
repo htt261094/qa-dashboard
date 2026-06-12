@@ -2678,3 +2678,100 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
 })();
 
 })();
+
+// ================= BUG METRICS (dashboard admin, guard #bugMetrics) =================
+// Tổng bug + bug theo từng status (cột "Status" gốc), chọn theo file + sheet, kèm
+// "dòng lịch sử thay đổi qua mỗi lần sync" (delta giữa các mốc). Nguồn = bug_log_store
+// (snapshot mỗi lần file Drive đổi). KHÔNG reload — F5 để lấy mốc mới.
+(function(){
+  var DATA = readJSON('bugMetrics'); if(!DATA) return;
+  var card = $('bugMetricCard'); if(!card) return;
+  var fileSel = $('bmFile'), sheetSel = $('bmSheet');
+  var curBox = $('bmCurrent'), histBox = $('bmHistory'), syncedBox = $('bmSynced');
+  var FILES = DATA.files || [], METRICS = DATA.metrics || {};
+
+  // Màu ổn định theo tên status -> cùng status luôn cùng màu giữa các mốc.
+  var PALETTE = ['#4c9aff','#36b37e','#ffab00','#ff5630','#6554c0','#00b8d9','#ff7452','#57d9a3','#8777d9','#ff8b00'];
+  function colorOf(name){
+    var h=0; name=String(name); for(var i=0;i<name.length;i++){ h=(h*31 + name.charCodeAt(i))>>>0; }
+    return PALETTE[h % PALETTE.length];
+  }
+  function fmtAt(at){ return String(at||'').replace('T',' ').slice(0,16); }
+  function delta(cur, prev){
+    var d = (cur||0) - (prev||0); if(!d) return '';
+    return '<span class="bm-delta '+(d>0?'up':'down')+'">'+(d>0?'▲':'▼')+Math.abs(d)+'</span>';
+  }
+
+  if(!FILES.length){
+    var body = card.querySelector('.bm-body');
+    if(body) body.innerHTML = '<div class="bm-empty">Chưa có dữ liệu metric bug. '+
+      'Vào tab Bug Log → bấm “Đồng bộ ngay”.</div>';
+    if(fileSel) fileSel.style.display='none';
+    if(sheetSel) sheetSel.style.display='none';
+    if(syncedBox) syncedBox.textContent = 'Đã đồng bộ: '+(DATA.syncedAt||'—');
+    return;
+  }
+
+  function snapshots(){ return ((METRICS[fileSel.value]||{})[sheetSel.value])||[]; }
+
+  // Mọi status từng xuất hiện trong lịch sử (file,sheet) -> tập cột ổn định.
+  function statusKeys(snaps){
+    var seen={}, order=[];
+    snaps.forEach(function(s){ Object.keys(s.statuses||{}).forEach(function(k){
+      if(!seen[k]){ seen[k]=1; order.push(k); } }); });
+    return order.sort();
+  }
+
+  function render(){
+    var snaps = snapshots();
+    if(!snaps.length){
+      curBox.innerHTML = '<div class="bm-empty">Sheet này chưa có dữ liệu metric.</div>';
+      histBox.innerHTML = ''; return;
+    }
+    var keys = statusKeys(snaps);
+    var latest = snaps[snaps.length-1];
+    var prev = snaps.length>1 ? snaps[snaps.length-2] : null;
+
+    // ----- Hiện tại: tổng + theo status (delta vs mốc trước) -----
+    var cur = '<div class="bm-total"><div class="bm-total-num">'+latest.total+
+      (prev?delta(latest.total, prev.total):'')+'</div>'+
+      '<div class="bm-total-lbl">Tổng bug</div></div><div class="bm-stats">';
+    keys.forEach(function(k){
+      var v=(latest.statuses||{})[k]||0, pv=prev?((prev.statuses||{})[k]||0):0;
+      cur += '<div class="bm-stat"><span class="bm-dot" style="background:'+colorOf(k)+'"></span>'+
+        '<span class="bm-stat-lbl">'+esc(k)+'</span><span class="bm-stat-num">'+v+
+        (prev?delta(v,pv):'')+'</span></div>';
+    });
+    curBox.innerHTML = cur + '</div>';
+
+    // ----- Lịch sử: mỗi mốc sync 1 dòng (mới nhất trên cùng) + delta vs mốc trước -----
+    var rows='';
+    for(var i=snaps.length-1;i>=0;i--){
+      var s=snaps[i], p=i>0?snaps[i-1]:null;
+      var chips = keys.map(function(k){
+        var v=(s.statuses||{})[k]||0, pv=p?((p.statuses||{})[k]||0):0;
+        if(!v && !pv) return '';
+        return '<span class="bm-hchip"><span class="bm-dot" style="background:'+colorOf(k)+'"></span>'+
+          esc(k)+' '+v+(p?delta(v,pv):'')+'</span>';
+      }).filter(Boolean).join('');
+      rows += '<div class="bm-hrow"><div class="bm-htime">'+esc(fmtAt(s.at))+'</div>'+
+        '<div class="bm-htotal">Tổng '+s.total+(p?delta(s.total,p.total):'')+'</div>'+
+        '<div class="bm-hchips">'+chips+'</div></div>';
+    }
+    histBox.innerHTML = rows;
+  }
+
+  function fillSheets(){
+    var f = FILES.filter(function(x){return x.fid===fileSel.value;})[0] || FILES[0];
+    var months = (f&&f.months)||[];
+    sheetSel.innerHTML = months.map(function(m){
+      return '<option value="'+esc(m)+'">'+esc(m)+'</option>'; }).join('');
+  }
+
+  fileSel.innerHTML = FILES.map(function(f){
+    return '<option value="'+esc(f.fid)+'">'+esc(f.label)+'</option>'; }).join('');
+  fileSel.addEventListener('change', function(){ fillSheets(); render(); });
+  sheetSel.addEventListener('change', render);
+  if(syncedBox) syncedBox.textContent = 'Đã đồng bộ: '+(DATA.syncedAt||'—');
+  fillSheets(); render();
+})();

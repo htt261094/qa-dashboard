@@ -573,6 +573,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 'dismissed': lambda: load_dismissed(email),
                 # 1 lần đọc property -> (nhãn custom hiện tại, sự kiện đổi nhãn để báo admin)
                 'custom': lambda: load_bundle(scope, ACTIVITY_DAYS),
+                # bug log = cache local (+1 property read) -> metric bug trên dashboard admin
+                'buglog': load_bug_log,
             })
             data, feed, dismissed = res['data'], res['feed'], res['dismissed']
             overlay, cust_act = res['custom']
@@ -585,7 +587,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 a['is_unread'] = a['id'] not in dismissed
             html_out = render_page(data, new_keys, first_run, merged, ACTIVITY_DAYS,
                                    roadmap_data=load_roadmap(), user=self._user_ctx(),
-                                   custom_overlay=overlay)
+                                   custom_overlay=overlay, bug_log_data=res['buglog'])
         except RuntimeError as e:
             html_out = render_error_page(str(e))
         self._html(html_out)

@@ -50,7 +50,7 @@ def _now_iso():
 
 # ===== Lưu trữ (cache local full + Jira property full/nhẹ) =====
 def _empty():
-    return {'files': {}, 'activity': [], 'reopen': {}, 'synced_at': ''}
+    return {'files': {}, 'activity': [], 'reopen': {}, 'metrics': {}, 'synced_at': ''}
 
 
 def _read_cache():
@@ -85,6 +85,7 @@ def _light(data):
         files[fid] = {k: v for k, v in f.items() if k != 'bugs'}
     return {'files': files, 'activity': data.get('activity', []),
             'reopen': data.get('reopen', {}),
+            'metrics': data.get('metrics', {}),   # counts nhỏ -> giữ cả ở bản nhẹ
             'synced_at': data.get('synced_at', ''), 'light': True}
 
 
@@ -185,6 +186,46 @@ def _diff_events(prev_bugs, cur_bugs):
     return events
 
 
+# ===== Metric snapshot + lịch sử thay đổi (per file, per sheet/tháng) =====
+# Dashboard admin (#...) cần: Tổng bug + bug theo từng status (cột "Status" gốc trong
+# Excel), chọn theo file + sheet, và "track change sau mỗi lần sync". Ta chụp 1 snapshot
+# counts mỗi lần file đổi rồi nối vào lịch sử -> UI vẽ dòng lịch sử + delta giữa các mốc.
+_METRIC_HISTORY_CAP = 40   # số mốc lưu mỗi (file, sheet); cũ nhất bị cắt
+
+
+def _metric_snapshot(cur_bugs):
+    """{key:bug} -> {month: {'total': n, 'statuses': {raw_status: count}}}.
+
+    raw_status = bug['status_raw'] (cột "Status" gốc); rỗng -> nhãn '(trống)'."""
+    out = {}
+    for b in cur_bugs.values():
+        month = (b.get('month') or '').strip()
+        raw = (b.get('status_raw') or '').strip() or '(trống)'
+        m = out.setdefault(month, {'total': 0, 'statuses': {}})
+        m['total'] += 1
+        m['statuses'][raw] = m['statuses'].get(raw, 0) + 1
+    return out
+
+
+def _update_metrics(metrics, fid, snap):
+    """Nối snapshot vào lịch sử metric của file. CHỈ thêm mốc mới khi counts ĐỔI so với
+    mốc gần nhất của (file, sheet) -> lịch sử chỉ gồm các lần thực sự thay đổi. Cắt còn
+    `_METRIC_HISTORY_CAP` mốc gần nhất mỗi sheet. Trả True nếu có ghi gì mới."""
+    fm = metrics.setdefault(fid, {})
+    changed = False
+    iso = _now_iso()
+    for month, cur in snap.items():
+        hist = fm.setdefault(month, [])
+        last = hist[-1] if hist else None
+        if last and last.get('total') == cur['total'] and last.get('statuses') == cur['statuses']:
+            continue
+        hist.append({'at': iso, 'total': cur['total'], 'statuses': cur['statuses']})
+        if len(hist) > _METRIC_HISTORY_CAP:
+            del hist[:-_METRIC_HISTORY_CAP]
+        changed = True
+    return changed
+
+
 # ===== Đếm vòng đời reopen/fix tích luỹ (theo transition status giữa 2 snapshot) =====
 def _count_reopens(reopen_map, prev_bugs, cur_bugs):
     """Cập nhật counter reopen + số lần fix cho mỗi bug, theo transition status.
@@ -263,6 +304,7 @@ def scan():
         files = data.setdefault('files', {})
         activity = data.setdefault('activity', [])
         reopen = data.setdefault('reopen', {})
+        metrics = data.setdefault('metrics', {})
         new_events = []
         dirty = False
 
@@ -280,7 +322,7 @@ def scan():
             unchanged = (prev.get('modifiedTime') == meta.get('modifiedTime')
                          and prev.get('md5Checksum') == meta.get('md5Checksum')
                          and 'bugs' in prev
-                         and prev.get('_version') == 2)
+                         and prev.get('_version') == 3)
             if unchanged:
                 result['count'] += len(prev.get('bugs', {}))
                 continue
@@ -291,6 +333,8 @@ def scan():
             new_events.extend(_diff_events(prev.get('bugs', {}), cur_bugs))
             if _count_reopens(reopen, prev.get('bugs', {}), cur_bugs):
                 dirty = True
+            if _update_metrics(metrics, fid, _metric_snapshot(cur_bugs)):
+                dirty = True
             files[fid] = {
                 'modifiedTime': meta.get('modifiedTime', ''),
                 'md5Checksum': meta.get('md5Checksum', ''),
@@ -300,7 +344,7 @@ def scan():
                 'count': len(cur_bugs),
                 'unmapped': len(norm['unmapped']),
                 'scanned_at': _now_iso(),
-                '_version': 2,
+                '_version': 3,   # 3: thêm bug['status_raw'] + seed metric snapshot
             }
             result['count'] += len(cur_bugs)
             result['unmapped'] += len(norm['unmapped'])

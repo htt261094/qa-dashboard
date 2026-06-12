@@ -1086,3 +1086,34 @@ html[data-theme="dark"] .rk-bug-n { color: #ff7b72; }
   -ms-overflow-style: none;  /* IE and Edge */
   scrollbar-width: none;  /* Firefox */
 }
+
+/* ===== Metric Bug trên dashboard admin (#bugMetricCard) ===== */
+.bug-metric-card .bm-filters{display:flex;align-items:center;gap:6px;color:var(--on-surface-variant)}
+.bm-sel{font-family:inherit;font-size:13px;color:var(--on-surface);background:var(--surface-low);
+        border:1px solid var(--outline-variant);border-radius:var(--r-md);padding:6px 8px;max-width:240px}
+.bm-body{display:flex;gap:24px;flex-wrap:wrap;padding:18px 20px 6px}
+.bm-current{display:flex;align-items:flex-start;gap:24px;flex-wrap:wrap;flex:1;min-width:280px}
+.bm-total{text-align:center;padding-right:24px;border-right:1px solid var(--divider);min-width:96px}
+.bm-total-num{font-size:34px;font-weight:800;line-height:1;color:var(--on-surface);
+              display:flex;align-items:baseline;gap:6px;justify-content:center}
+.bm-total-lbl{font-size:12px;color:var(--on-surface-variant);margin-top:6px;text-transform:uppercase;letter-spacing:.04em}
+.bm-stats{display:flex;flex-wrap:wrap;gap:8px 18px;align-content:flex-start}
+.bm-stat{display:flex;align-items:center;gap:7px;font-size:13px}
+.bm-stat-lbl{color:var(--on-surface-variant)}
+.bm-stat-num{font-weight:700;color:var(--on-surface);display:inline-flex;align-items:baseline;gap:4px}
+.bm-dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex:none}
+.bm-delta{font-size:11px;font-weight:700}
+.bm-delta.up{color:#d92d20}    /* bug tăng = xấu (đỏ) */
+.bm-delta.down{color:#12805c}  /* bug giảm = tốt (xanh) */
+.bm-history-wrap{flex:1;min-width:320px;border-top:1px solid var(--divider);padding-top:14px;width:100%}
+.bm-history-head{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;
+                 text-transform:uppercase;letter-spacing:.04em;color:var(--on-surface-variant);margin-bottom:10px}
+.bm-history{display:flex;flex-direction:column;gap:6px;max-height:260px;overflow:auto}
+.bm-hrow{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:7px 10px;
+         background:var(--surface-low);border-radius:var(--r-md);font-size:12.5px}
+.bm-htime{color:var(--on-surface-variant);font-variant-numeric:tabular-nums;min-width:108px;flex:none}
+.bm-htotal{font-weight:700;color:var(--on-surface);min-width:78px;flex:none;display:inline-flex;align-items:baseline;gap:4px}
+.bm-hchips{display:flex;flex-wrap:wrap;gap:5px 10px}
+.bm-hchip{display:inline-flex;align-items:center;gap:5px;color:var(--on-surface-variant)}
+.bm-empty{color:var(--on-surface-variant);font-size:13px;padding:8px 0}
+.bm-sub{padding:10px 20px 16px;font-size:12px;color:var(--on-surface-variant)}

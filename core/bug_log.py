@@ -405,6 +405,10 @@ def normalize(rows, project='', service=''):
 
         bug['status'] = _lifecycle_status(
             nrec.get('status', ''), nrec.get('test status', ''), nrec.get('dev status', ''))
+        # status_raw = CỘT "Status" gốc trong Excel (đã là công thức gộp dev+test status).
+        # Dùng cho metric dashboard "bug theo từng status" — user muốn sát file, KHÔNG gộp
+        # lifecycle. Migration-safe: bug cache cũ thiếu field này -> coi như '' (xem #...).
+        bug['status_raw'] = str(nrec.get('status', '') or '').strip()
 
         bug['bug_no'] = str(bug.get('bug_no', '')).strip()
         bug['service'] = service
