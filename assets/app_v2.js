@@ -2677,8 +2677,6 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   renderTabs(); render(); renderMetric(); renderReopen(); updateActiveChip(); updateSrcLine();
 })();
 
-})();
-
 // ================= BUG METRICS (dashboard admin, guard #bugMetrics) =================
 // Tổng bug + bug theo từng status (cột "Status" gốc), chọn theo file + sheet, kèm
 // "dòng lịch sử thay đổi qua mỗi lần sync" (delta giữa các mốc). Nguồn = bug_log_store
@@ -2777,3 +2775,5 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   if(syncedBox) syncedBox.textContent = 'Đã đồng bộ: '+(DATA.syncedAt||'—');
   fillSheets(); render();
 })();
+
+})();   // ===== đóng IIFE ngoài cùng (shared scope) — bug-metrics block nằm TRONG để dùng $/esc/readJSON
