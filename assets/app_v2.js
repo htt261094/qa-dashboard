@@ -2786,6 +2786,10 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     return;
   }
 
+  // Status được track ở CẢ card + lịch sử (tổng bug vẫn tính trên tất cả status).
+  var TRACKED = ['New','Fixed','Closed','Reopen'];
+  function isTracked(k){ return TRACKED.indexOf(k) >= 0; }
+
   function snapshots(){ return ((METRICS[fileSel.value]||{})[sheetSel.value])||[]; }
 
   // Mọi status từng xuất hiện trong lịch sử (file,sheet) -> tập cột ổn định.
@@ -2811,8 +2815,9 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       '<div class="bm-card-lbl">Tổng bug</div>'+
       '<div class="bm-card-row"><span class="bm-card-num">'+latest.total+'</span>'+
       deltaCard(latest.total, prev?prev.total:null, false)+'</div></div>';
-    keys.forEach(function(k){
-      if(['New','Fixed','Closed','Rejected'].indexOf(k)<0) return;   // card New/Fixed/Closed/Rejected (bỏ Fixing)
+    // Card cố định theo TRACKED (New/Fixed/Closed/Reopen) — luôn hiện đủ kể cả khi
+    // status đó chưa từng xuất hiện trong lịch sử (count=0), tránh "thiếu status".
+    TRACKED.forEach(function(k){
       var v=(latest.statuses||{})[k]||0, pv=prev?((prev.statuses||{})[k]||0):0, c=colorOf(k);
       cards += '<div class="bm-card" style="--bm-acc:'+c+'">'+
         '<div class="bm-card-lbl" style="color:'+c+'">'+esc(k)+'</div>'+
@@ -2822,10 +2827,11 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     curBox.innerHTML = '<div class="bm-cards">'+cards+'</div>';
 
     // ----- Lịch sử: mỗi mốc sync 1 dòng (mới nhất trên cùng) + delta vs mốc trước -----
-    var rows='';
-    for(var i=snaps.length-1;i>=0;i--){
+    // Chỉ hiện 3 mốc gần nhất (delta vẫn so với mốc liền trước, kể cả mốc thứ 4 đã ẩn).
+    var rows='', shown=0;
+    for(var i=snaps.length-1;i>=0 && shown<3;i--,shown++){
       var s=snaps[i], p=i>0?snaps[i-1]:null;
-      var chips = keys.map(function(k){
+      var chips = keys.filter(isTracked).map(function(k){
         var v=(s.statuses||{})[k]||0, pv=p?((p.statuses||{})[k]||0):0;
         if(!v && !pv) return '';
         return '<span class="bm-hchip"><span class="bm-dot" style="background:'+colorOf(k)+'"></span>'+
