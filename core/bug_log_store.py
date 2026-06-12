@@ -101,9 +101,22 @@ def _sync_property(data):
         return False
 
 
+_ACCUM_KEYS = ('reopen', 'metrics', 'activity')   # accumulator sync chéo máy (truth = property)
+
+
 def _load_data():
-    """Source of truth = Jira property; fallback cache local. Property bản nhẹ (thiếu bugs)
-    -> ưu tiên cache local nếu cache CÓ bugs (full), vì cache mới là nguồn render."""
+    """Source of truth = Jira property; fallback cache local.
+
+    Property bản nhẹ (light) bỏ `bugs` rows để < ~32KB nhưng GIỮ reopen/metrics/activity.
+    Khi đó: `bugs` rows lấy từ cache local (full — cần cho render + làm prev-snapshot dò
+    transition), NHƯNG reopen/metrics/activity là **accumulator sync chéo máy** nên LẤY TỪ
+    PROPERTY (truth). Nhờ vậy đổi host qua lại (Win<->Mac) KHÔNG mất count dù máy nhận còn
+    cache cũ — trước đây `_load_data` trả thẳng cache local nên reopen máy kia ghi lên
+    property bị bỏ, count bị reset/mất (bug bounce-host).
+
+    Đánh đổi (hướng A): nếu CÙNG một transition được CẢ hai máy quan sát (cache lệch nhau
+    lúc handoff) thì reopen có thể +1 dư cho đúng bug đó. Chấp nhận để KHÔNG mất dữ liệu;
+    muốn idempotent tuyệt đối cần gắn id transition (việc lớn hơn — chưa làm)."""
     prop = None
     try:
         d = load_property(BUG_LOG_PROP)
@@ -115,8 +128,18 @@ def _load_data():
     if prop is not None and not prop.get('light'):
         _write_cache(prop)
         return prop
-    # property nhẹ hoặc vắng -> cache local (full) thắng nếu có
+    # property nhẹ -> bugs từ cache local, accumulator từ property (truth chéo máy)
     if cached is not None:
+        if prop is not None:
+            merged = dict(cached)
+            for k in _ACCUM_KEYS:
+                if k in prop:
+                    merged[k] = prop[k]
+            # synced_at lấy mốc mới hơn để "Đã đồng bộ" không lùi khi máy kia vừa sync
+            merged['synced_at'] = max(cached.get('synced_at', '') or '',
+                                      prop.get('synced_at', '') or '')
+            _write_cache(merged)   # cache thành truth đã graft -> sống cả khi Jira tạm hỏng
+            return merged
         return cached
     if prop is not None:
         return prop
