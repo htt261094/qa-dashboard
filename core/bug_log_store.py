@@ -31,6 +31,7 @@ from jira_api import load_property, save_property
 from bug_log import fetch_rows, normalize, project_from_filename, _redact
 from bug_log_source import load_sources
 from drive_token import has_drive_token, load_refresh_token
+import bug_log_db
 
 BUG_LOG_PROP = 'qa-dashboard-bug-log'
 
@@ -226,47 +227,10 @@ def _update_metrics(metrics, fid, snap):
     return changed
 
 
-# ===== Đếm vòng đời reopen/fix tích luỹ (theo transition status giữa 2 snapshot) =====
-def _count_reopens(reopen_map, prev_bugs, cur_bugs):
-    """Cập nhật counter reopen + số lần fix cho mỗi bug, theo transition status.
-
-    Entry `reopen_map[key]` = {count(reopen), fix, last, dev, project, month}. CHỈ tạo
-    entry khi bug bị reopen (tập bug 'có vấn đề' — giữ map nhỏ, an toàn property ~32KB).
-
-    - prev.status != 'Reopen' & cur.status == 'Reopen' → reopen +1. Tạo entry nếu chưa có,
-      khởi tạo `fix=1` (lần fix TRƯỚC khi bị dội đầu tiên — reopen tất phải có 1 fix trước đó).
-    - prev.status != 'Fixed' & cur.status == 'Fixed' & key ĐÃ trong map → fix +1 (lần fix lại
-      sau khi bị dội). Bug chưa từng reopen không tính (không nằm trong bảng reopen).
-    - Chỉ xét key có ở CẢ prev và cur (key mới đã ở Reopen/Fixed = trước khi bật tracking →
-      bỏ, không quan sát được transition). Trả số hit để caller set dirty."""
-    hits = 0
-    for key, cur in cur_bugs.items():
-        prev = prev_bugs.get(key)
-        if prev is None:
-            continue
-        ps = prev.get('status') or ''
-        cs = cur.get('status') or ''
-
-        def _touch(ent):
-            ent['last'] = _now_iso()
-            ent['dev'] = cur.get('dev_pic', '') or ''
-            ent['project'] = cur.get('project', '') or ''
-            ent['month'] = cur.get('month', '') or ''
-
-        if ps != 'Reopen' and cs == 'Reopen':
-            ent = reopen_map.get(key)
-            if ent is None:
-                ent = {'count': 0, 'fix': 1}   # fix gốc (trước khi bị dội)
-                reopen_map[key] = ent
-            ent['count'] = int(ent.get('count', 0)) + 1
-            _touch(ent)
-            hits += 1
-        elif ps != 'Fixed' and cs == 'Fixed' and key in reopen_map:
-            ent = reopen_map[key]
-            ent['fix'] = int(ent.get('fix', 1)) + 1
-            _touch(ent)
-            hits += 1
-    return hits
+# ===== Đếm vòng đời reopen/fix =====
+# Chuyển sang SQLite (bug_log_db) — diff theo baseline DB bền thay vì snapshot JSON dễ reset
+# khi đổi host. Logic cũ `_count_reopens` (diff 2 dict prev/cur) đã thay bằng
+# bug_log_db.apply_file() trong scan(). Xem docstring bug_log_db để biết vì sao đổi.
 
 
 def _prune_activity(activity):
@@ -308,6 +272,10 @@ def scan():
         new_events = []
         dirty = False
 
+        # Reopen sống ở SQLite (bền, không bị property strip / reset khi đổi host). Nạp counts
+        # từ property-mirror (data['reopen']) vào DB cho host mới có DB rỗng (idempotent).
+        bug_log_db.import_reopen(reopen)
+
         for src in sources:
             fid = src.get('id')
             if not fid:
@@ -331,7 +299,8 @@ def scan():
             norm = normalize(rows, project=project, service=src.get('service', ''))
             cur_bugs = {b['key']: b for b in norm['bugs'] if b.get('key')}
             new_events.extend(_diff_events(prev.get('bugs', {}), cur_bugs))
-            if _count_reopens(reopen, prev.get('bugs', {}), cur_bugs):
+            # Reopen: diff theo baseline DB (bền) thay vì snapshot JSON (dễ reset khi đổi host).
+            if bug_log_db.apply_file(fid, cur_bugs):
                 dirty = True
             if _update_metrics(metrics, fid, _metric_snapshot(cur_bugs)):
                 dirty = True
@@ -353,6 +322,8 @@ def scan():
         if new_events:
             data['activity'] = _prune_activity(new_events + activity)
             result['changed'] = len(new_events)
+        # reopen = export từ DB (nguồn thật) -> render đọc cache + mirror lên property như cũ.
+        data['reopen'] = bug_log_db.reopen_dict()
         # synced_at = mốc "vừa quét xong" — cập nhật MỖI lần scan chạy trót lọt (kể cả
         # khi không file nào đổi, Tầng-1 skip hết) để UI "Đã đồng bộ" luôn tươi sau khi
         # bấm nút / auto-sync. Luôn ghi cache local (rẻ, nguồn render). CHỈ sync property
