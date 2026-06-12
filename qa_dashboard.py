@@ -746,165 +746,34 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._reply_json(False, {'ok': False, 'msg': 'Lỗi xử lý yêu cầu.'})
 
     def do_POST(self):
+        # Dispatch mỏng: gate auth/domain rồi route tới method _post_* / _handle_*.
+        # Giữ NGUYÊN thứ tự kiểm tra path (zero behavior change — B0b/#112).
         if not self._authed() or not self._domain_ok():
             self._json(403, b'{"ok":false,"err":"forbidden"}')
             return
         if self.path == '/dismiss':
-            ok = False
-            try:
-                length = int(self.headers.get('Content-Length', 0))
-                if 0 < length <= 100_000:
-                    payload = json.loads(self.rfile.read(length).decode('utf-8'))
-                    ids = payload.get('ids') if isinstance(payload, dict) else None
-                    if isinstance(ids, list) and all(isinstance(x, str) for x in ids):
-                        ok = dismiss_activities(self._user_email(), ids[:500])
-            except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
-                ok = False
-            self._json(200 if ok else 400, b'{"ok":true}' if ok else b'{"ok":false}')
+            self._post_dismiss()
             return
         if self.path == '/save-pat':
-            # Lưu PAT cá nhân (mã hoá). Bất kỳ user đã đăng nhập đều lưu được PAT CỦA HỌ.
-            try:
-                length = int(self.headers.get('Content-Length', 0))
-                if not (0 < length <= 10_000):
-                    self._json(400, b'{"ok":false,"msg":"payload"}')
-                    return
-                payload = json.loads(self.rfile.read(length).decode('utf-8'))
-                pat = payload.get('pat') if isinstance(payload, dict) else None
-                if not isinstance(pat, str):
-                    self._json(400, b'{"ok":false,"msg":"thieu pat"}')
-                    return
-                ok, msg = save_user_pat(self._user_email(), pat)
-            except (ValueError, json.JSONDecodeError, OSError):
-                ok, msg = False, 'Lỗi xử lý yêu cầu.'
-            self._json(200 if ok else 400,
-                       json.dumps({'ok': ok, 'msg': msg}).encode('utf-8'))
+            self._post_save_pat()
             return
         if self.path == '/delete-pat':
-            try:
-                ok = delete_user_pat(self._user_email())
-            except (RuntimeError, OSError):
-                ok = False
-            self._json(200 if ok else 400, b'{"ok":true}' if ok else b'{"ok":false}')
+            self._post_delete_pat()
             return
         if self.path == '/disconnect-drive':
-            if not self._is_admin():
-                self._json(403, b'{"ok":false,"err":"forbidden"}')
-                return
-            try:
-                ok = delete_drive_token()
-            except (RuntimeError, OSError):
-                ok = False
-            self._json(200 if ok else 400, b'{"ok":true}' if ok else b'{"ok":false}')
+            self._post_disconnect_drive()
             return
         if self.path == '/sync-bug-log':
-            # Trigger thủ công: chạy scan() bug log ngay (admin-only).
-            if not self._is_admin():
-                self._json(403, b'{"ok":false,"err":"forbidden"}')
-                return
-            try:
-                res = bug_log_scan()
-            except Exception:   # noqa: BLE001 — scan đã redact token; chặn mọi lỗi lạ
-                res = {'ok': False, 'errors': ['Lỗi không xác định khi scan.']}
-            self._json(200 if res.get('ok') else 400,
-                       json.dumps(res, ensure_ascii=False).encode('utf-8'))
+            self._post_sync_bug_log()
             return
         if self.path == '/save-bug-log-sources':
-            # Lưu list file Drive nguồn (paste link -> rút id) rồi scan ngay.
-            # Body: {sources:[{link|id, label}]}. Server rút file id, validate, save_sources,
-            # rồi chạy scan() để đọc data luôn (user chốt "tự sync ngay sau khi lưu").
-            # MỌI QA authed được sửa nguồn (do_POST đã gate authed) — user chốt mở toàn quyền.
-            out = None
-            err = ''
-            try:
-                length = int(self.headers.get('Content-Length', 0))
-                if 0 < length <= 100_000:
-                    payload = json.loads(self.rfile.read(length).decode('utf-8'))
-                    raw = payload.get('sources') if isinstance(payload, dict) else None
-                    if isinstance(raw, list) and len(raw) <= MAX_SOURCES:
-                        clean = []
-                        bad = False
-                        for it in raw:
-                            if not isinstance(it, dict):
-                                bad = True
-                                break
-                            fid = extract_file_id(str(it.get('link') or it.get('id') or ''))
-                            if not fid:
-                                bad = True
-                                break
-                            label = it.get('label', '')
-                            service = str(it.get('service') or '').strip()
-                            clean.append({'id': fid, 'label': label if isinstance(label, str) else '', 'service': service})
-                        if bad:
-                            err = 'Có link Drive không hợp lệ — kiểm tra lại.'
-                        elif save_sources(clean):
-                            out = clean
-                        else:
-                            err = 'Không lưu được nguồn (Jira property lỗi).'
-                    else:
-                        err = 'Danh sách nguồn không hợp lệ.'
-                else:
-                    err = 'Payload rỗng hoặc quá lớn.'
-            except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
-                out = None
-                err = 'Lỗi xử lý dữ liệu.'
-            if out is None:
-                self._json(400, json.dumps({'ok': False, 'err': err or 'Lỗi'}).encode('utf-8'))
-                return
-            # Lưu xong -> scan ngay để đọc data (không đợi scheduler 10p).
-            try:
-                res = bug_log_scan()
-            except Exception:   # noqa: BLE001 — scan đã redact token
-                res = {'ok': False, 'errors': ['Lỗi không xác định khi scan.']}
-            res['saved'] = len(out)
-            self._json(200, json.dumps(res, ensure_ascii=False).encode('utf-8'))
+            self._post_save_bug_log_sources()
             return
         if self.path == '/link-task':
-            # Liên kết / gỡ link list test-case (bug key) <-> 1 Jira task (#55).
-            # Mở cho MỌI QA authed (khớp editable=True ở render). Lưu app-side, không ghi Jira.
-            out = None
-            try:
-                length = int(self.headers.get('Content-Length', 0))
-                if 0 < length <= 50_000:
-                    payload = json.loads(self.rfile.read(length).decode('utf-8'))
-                    if isinstance(payload, dict):
-                        keys = payload.get('keys')
-                        task = payload.get('task', '')
-                        op = payload.get('op', 'add')
-                        # task = str (1 task) hoặc list[str] (multi-select link bar #55)
-                        task_ok = isinstance(task, str) or (
-                            isinstance(task, list) and all(isinstance(x, str) for x in task))
-                        if (isinstance(keys, list) and all(isinstance(x, str) for x in keys)
-                                and task_ok and op in ('add', 'remove', 'clear')):
-                            task = task[:50] if isinstance(task, list) else task
-                            out = set_task_links(self._user_email(), keys[:500], task, op)
-            except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
-                out = None
-            if out is not None:
-                self._json(200, json.dumps({'ok': True, 'links': out}).encode('utf-8'))
-            else:
-                self._json(400, b'{"ok":false}')
+            self._post_link_task()
             return
         if self.path == '/set-custom-status':
-            # QA toggle nhãn nội bộ cho task (chọn nhiều). Author = người đăng nhập (không cần PAT).
-            values = None
-            try:
-                length = int(self.headers.get('Content-Length', 0))
-                if 0 < length <= 20_000:
-                    payload = json.loads(self.rfile.read(length).decode('utf-8'))
-                    if isinstance(payload, dict):
-                        key = payload.get('key')
-                        value = payload.get('status', '')
-                        summary = payload.get('summary', '')
-                        if (isinstance(key, str) and key and isinstance(value, str)
-                                and is_valid(value) and isinstance(summary, str)):
-                            values = set_custom_status(self._user_email(), key, value, summary[:200])
-            except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
-                values = None
-            if values is not None:
-                self._json(200, json.dumps({'ok': True, 'values': values}).encode('utf-8'))
-            else:
-                self._json(400, b'{"ok":false}')
+            self._post_set_custom_status()
             return
         if self.path in ('/jira-transitions', '/do-transition', '/add-comment'):
             self._handle_jira_write()
@@ -913,145 +782,315 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._handle_create_subtask()
             return
         if self.path == '/batch-eval':
-            if not self._is_admin():
-                self._json(403, b'{"ok":false,"err":"forbidden"}')
-                return
-            try:
-                length = int(self.headers.get('Content-Length', 0))
-                payload = json.loads(self.rfile.read(length).decode('utf-8'))
-                keys = payload.get('keys', [])
-                num_val = payload.get('num_val')
-                text_val = payload.get('text_val')
-                pat = load_user_pat(self._user_email())
-                if not pat:
-                    self._json(400, json.dumps({'ok': False, 'msg': 'Bạn chưa cấu hình PAT. Vào ⚙ Cài đặt để thêm.'}).encode('utf-8'))
-                    return
-                from jira_write import batch_update_evaluations
-                ok, msg = batch_update_evaluations(keys, num_val, text_val, pat)
-                self._json(200 if ok else 400, json.dumps({'ok': ok, 'msg': msg}).encode('utf-8'))
-            except Exception as e:
-                self._json(400, json.dumps({'ok': False, 'msg': str(e)}).encode('utf-8'))
+            self._post_batch_eval()
             return
         if self.path == '/upload-file':
-            if not self._is_admin():
-                self._json(403, b'{"ok":false,"err":"forbidden"}')
-                return
-            try:
-                import os
-                import time
-                import re
-                from pathlib import Path
-                
-                content_length = int(self.headers.get('Content-Length', 0))
-                if content_length > 25_000_000: # 25MB safety cap (limit is 20MB)
-                    self._json(400, b'{"ok":false,"msg":"File qua lon (> 20MB)"}')
-                    return
-                
-                body = self.rfile.read(content_length)
-                
-                # Parse multipart boundary
-                ctype = self.headers.get('Content-Type', '')
-                if 'boundary=' not in ctype:
-                    self._json(400, b'{"ok":false,"msg":"Thieu multipart boundary"}')
-                    return
-                
-                boundary = ctype.split('boundary=')[1].strip()
-                boundary_bytes = ('--' + boundary).encode('utf-8')
-                
-                # Custom parse multipart
-                parts = body.split(boundary_bytes)
-                filename = None
-                file_data = None
-                for part in parts:
-                    if not part or part == b'--\r\n' or part == b'--':
-                        continue
-                    idx = part.find(b'\r\n\r\n')
-                    header_end = idx + 4
-                    if idx == -1:
-                        idx = part.find(b'\n\n')
-                        header_end = idx + 2
-                    if idx == -1:
-                        continue
-                        
-                    header_part = part[:idx].decode('utf-8', errors='ignore')
-                    m = re.search(r'filename="([^"]+)"', header_part)
-                    if m:
-                        filename = m.group(1)
-                        file_data = part[header_end:]
-                        if file_data.endswith(b'\r\n'):
-                            file_data = file_data[:-2]
-                        elif file_data.endswith(b'\n'):
-                            file_data = file_data[:-1]
-                        break
-                
-                if not filename or file_data is None:
-                    self._json(400, b'{"ok":false,"msg":"Khong tim thay file trong request"}')
-                    return
-                
-                # Clean filename (prevent directory traversal)
-                filename = os.path.basename(filename)
-                
-                # Target path setup
-                uploads_dir = Path("/Users/thanhht/qa-dashboard/uploads")
-                uploads_dir.mkdir(parents=True, exist_ok=True)
-                
-                # Check collision, append timestamp if duplicate
-                stem = Path(filename).stem
-                suffix = Path(filename).suffix
-                target_path = uploads_dir / filename
-                if target_path.exists():
-                    timestamp = int(time.time())
-                    filename = f"{stem}_{timestamp}{suffix}"
-                    target_path = uploads_dir / filename
-                
-                # Write file
-                target_path.write_bytes(file_data)
-                
-                # Return success JSON
-                self._json(200, json.dumps({
-                    "ok": True,
-                    "filename": filename,
-                    "url": f"/uploads/{filename}"
-                }, ensure_ascii=False).encode('utf-8'))
-                
-            except Exception as e:
-                self._json(500, json.dumps({
-                    "ok": False,
-                    "msg": f"Loi he thong: {str(e)}"
-                }).encode('utf-8'))
+            self._post_upload_file()
             return
         if self.path == '/save-docs':
-            if not self._is_admin():
-                self._json(403, b'{"ok":false,"err":"forbidden"}')
-                return
-            ok = False
-            try:
-                length = int(self.headers.get('Content-Length', 0))
-                if 0 < length <= 1_000_000:
-                    payload = json.loads(self.rfile.read(length).decode('utf-8'))
-                    if valid_tree(payload):
-                        ok = save_docs(payload)
-            except (ValueError, json.JSONDecodeError, OSError):
-                ok = False
-            self._json(200 if ok else 400, b'{"ok":true}' if ok else b'{"ok":false}')
+            self._post_save_docs()
             return
         if self.path == '/save-roadmap':
-            if not self._is_admin():
-                self._json(403, b'{"ok":false,"err":"forbidden"}')
-                return
-            ok = False
-            try:
-                length = int(self.headers.get('Content-Length', 0))
-                if 0 < length <= 1_000_000:
-                    payload = json.loads(self.rfile.read(length).decode('utf-8'))
-                    if valid_roadmap(payload):
-                        ok = save_roadmap(payload)
-            except (ValueError, json.JSONDecodeError, OSError):
-                ok = False
-            self._json(200 if ok else 400, b'{"ok":true}' if ok else b'{"ok":false}')
+            self._post_save_roadmap()
             return
         self.send_response(404)
         self.end_headers()
+
+    # ===== POST route handlers (trích từ do_POST — B0b/#112) =====
+    def _post_dismiss(self):
+        ok = False
+        try:
+            length = int(self.headers.get('Content-Length', 0))
+            if 0 < length <= 100_000:
+                payload = json.loads(self.rfile.read(length).decode('utf-8'))
+                ids = payload.get('ids') if isinstance(payload, dict) else None
+                if isinstance(ids, list) and all(isinstance(x, str) for x in ids):
+                    ok = dismiss_activities(self._user_email(), ids[:500])
+        except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
+            ok = False
+        self._json(200 if ok else 400, b'{"ok":true}' if ok else b'{"ok":false}')
+
+    def _post_save_pat(self):
+        # Lưu PAT cá nhân (mã hoá). Bất kỳ user đã đăng nhập đều lưu được PAT CỦA HỌ.
+        try:
+            length = int(self.headers.get('Content-Length', 0))
+            if not (0 < length <= 10_000):
+                self._json(400, b'{"ok":false,"msg":"payload"}')
+                return
+            payload = json.loads(self.rfile.read(length).decode('utf-8'))
+            pat = payload.get('pat') if isinstance(payload, dict) else None
+            if not isinstance(pat, str):
+                self._json(400, b'{"ok":false,"msg":"thieu pat"}')
+                return
+            ok, msg = save_user_pat(self._user_email(), pat)
+        except (ValueError, json.JSONDecodeError, OSError):
+            ok, msg = False, 'Lỗi xử lý yêu cầu.'
+        self._json(200 if ok else 400,
+                   json.dumps({'ok': ok, 'msg': msg}).encode('utf-8'))
+
+    def _post_delete_pat(self):
+        try:
+            ok = delete_user_pat(self._user_email())
+        except (RuntimeError, OSError):
+            ok = False
+        self._json(200 if ok else 400, b'{"ok":true}' if ok else b'{"ok":false}')
+
+    def _post_disconnect_drive(self):
+        if not self._is_admin():
+            self._json(403, b'{"ok":false,"err":"forbidden"}')
+            return
+        try:
+            ok = delete_drive_token()
+        except (RuntimeError, OSError):
+            ok = False
+        self._json(200 if ok else 400, b'{"ok":true}' if ok else b'{"ok":false}')
+
+    def _post_sync_bug_log(self):
+        # Trigger thủ công: chạy scan() bug log ngay (admin-only).
+        if not self._is_admin():
+            self._json(403, b'{"ok":false,"err":"forbidden"}')
+            return
+        try:
+            res = bug_log_scan()
+        except Exception:   # noqa: BLE001 — scan đã redact token; chặn mọi lỗi lạ
+            res = {'ok': False, 'errors': ['Lỗi không xác định khi scan.']}
+        self._json(200 if res.get('ok') else 400,
+                   json.dumps(res, ensure_ascii=False).encode('utf-8'))
+
+    def _post_save_bug_log_sources(self):
+        # Lưu list file Drive nguồn (paste link -> rút id) rồi scan ngay.
+        # Body: {sources:[{link|id, label}]}. Server rút file id, validate, save_sources,
+        # rồi chạy scan() để đọc data luôn (user chốt "tự sync ngay sau khi lưu").
+        # MỌI QA authed được sửa nguồn (do_POST đã gate authed) — user chốt mở toàn quyền.
+        out = None
+        err = ''
+        try:
+            length = int(self.headers.get('Content-Length', 0))
+            if 0 < length <= 100_000:
+                payload = json.loads(self.rfile.read(length).decode('utf-8'))
+                raw = payload.get('sources') if isinstance(payload, dict) else None
+                if isinstance(raw, list) and len(raw) <= MAX_SOURCES:
+                    clean = []
+                    bad = False
+                    for it in raw:
+                        if not isinstance(it, dict):
+                            bad = True
+                            break
+                        fid = extract_file_id(str(it.get('link') or it.get('id') or ''))
+                        if not fid:
+                            bad = True
+                            break
+                        label = it.get('label', '')
+                        service = str(it.get('service') or '').strip()
+                        clean.append({'id': fid, 'label': label if isinstance(label, str) else '', 'service': service})
+                    if bad:
+                        err = 'Có link Drive không hợp lệ — kiểm tra lại.'
+                    elif save_sources(clean):
+                        out = clean
+                    else:
+                        err = 'Không lưu được nguồn (Jira property lỗi).'
+                else:
+                    err = 'Danh sách nguồn không hợp lệ.'
+            else:
+                err = 'Payload rỗng hoặc quá lớn.'
+        except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
+            out = None
+            err = 'Lỗi xử lý dữ liệu.'
+        if out is None:
+            self._json(400, json.dumps({'ok': False, 'err': err or 'Lỗi'}).encode('utf-8'))
+            return
+        # Lưu xong -> scan ngay để đọc data (không đợi scheduler 10p).
+        try:
+            res = bug_log_scan()
+        except Exception:   # noqa: BLE001 — scan đã redact token
+            res = {'ok': False, 'errors': ['Lỗi không xác định khi scan.']}
+        res['saved'] = len(out)
+        self._json(200, json.dumps(res, ensure_ascii=False).encode('utf-8'))
+
+    def _post_link_task(self):
+        # Liên kết / gỡ link list test-case (bug key) <-> 1 Jira task (#55).
+        # Mở cho MỌI QA authed (khớp editable=True ở render). Lưu app-side, không ghi Jira.
+        out = None
+        try:
+            length = int(self.headers.get('Content-Length', 0))
+            if 0 < length <= 50_000:
+                payload = json.loads(self.rfile.read(length).decode('utf-8'))
+                if isinstance(payload, dict):
+                    keys = payload.get('keys')
+                    task = payload.get('task', '')
+                    op = payload.get('op', 'add')
+                    # task = str (1 task) hoặc list[str] (multi-select link bar #55)
+                    task_ok = isinstance(task, str) or (
+                        isinstance(task, list) and all(isinstance(x, str) for x in task))
+                    if (isinstance(keys, list) and all(isinstance(x, str) for x in keys)
+                            and task_ok and op in ('add', 'remove', 'clear')):
+                        task = task[:50] if isinstance(task, list) else task
+                        out = set_task_links(self._user_email(), keys[:500], task, op)
+        except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
+            out = None
+        if out is not None:
+            self._json(200, json.dumps({'ok': True, 'links': out}).encode('utf-8'))
+        else:
+            self._json(400, b'{"ok":false}')
+
+    def _post_set_custom_status(self):
+        # QA toggle nhãn nội bộ cho task (chọn nhiều). Author = người đăng nhập (không cần PAT).
+        values = None
+        try:
+            length = int(self.headers.get('Content-Length', 0))
+            if 0 < length <= 20_000:
+                payload = json.loads(self.rfile.read(length).decode('utf-8'))
+                if isinstance(payload, dict):
+                    key = payload.get('key')
+                    value = payload.get('status', '')
+                    summary = payload.get('summary', '')
+                    if (isinstance(key, str) and key and isinstance(value, str)
+                            and is_valid(value) and isinstance(summary, str)):
+                        values = set_custom_status(self._user_email(), key, value, summary[:200])
+        except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
+            values = None
+        if values is not None:
+            self._json(200, json.dumps({'ok': True, 'values': values}).encode('utf-8'))
+        else:
+            self._json(400, b'{"ok":false}')
+
+    def _post_batch_eval(self):
+        if not self._is_admin():
+            self._json(403, b'{"ok":false,"err":"forbidden"}')
+            return
+        try:
+            length = int(self.headers.get('Content-Length', 0))
+            payload = json.loads(self.rfile.read(length).decode('utf-8'))
+            keys = payload.get('keys', [])
+            num_val = payload.get('num_val')
+            text_val = payload.get('text_val')
+            pat = load_user_pat(self._user_email())
+            if not pat:
+                self._json(400, json.dumps({'ok': False, 'msg': 'Bạn chưa cấu hình PAT. Vào ⚙ Cài đặt để thêm.'}).encode('utf-8'))
+                return
+            from jira_write import batch_update_evaluations
+            ok, msg = batch_update_evaluations(keys, num_val, text_val, pat)
+            self._json(200 if ok else 400, json.dumps({'ok': ok, 'msg': msg}).encode('utf-8'))
+        except Exception as e:
+            self._json(400, json.dumps({'ok': False, 'msg': str(e)}).encode('utf-8'))
+
+    def _post_upload_file(self):
+        if not self._is_admin():
+            self._json(403, b'{"ok":false,"err":"forbidden"}')
+            return
+        try:
+            import os
+            import time
+            import re
+            from pathlib import Path
+
+            content_length = int(self.headers.get('Content-Length', 0))
+            if content_length > 25_000_000: # 25MB safety cap (limit is 20MB)
+                self._json(400, b'{"ok":false,"msg":"File qua lon (> 20MB)"}')
+                return
+
+            body = self.rfile.read(content_length)
+
+            # Parse multipart boundary
+            ctype = self.headers.get('Content-Type', '')
+            if 'boundary=' not in ctype:
+                self._json(400, b'{"ok":false,"msg":"Thieu multipart boundary"}')
+                return
+
+            boundary = ctype.split('boundary=')[1].strip()
+            boundary_bytes = ('--' + boundary).encode('utf-8')
+
+            # Custom parse multipart
+            parts = body.split(boundary_bytes)
+            filename = None
+            file_data = None
+            for part in parts:
+                if not part or part == b'--\r\n' or part == b'--':
+                    continue
+                idx = part.find(b'\r\n\r\n')
+                header_end = idx + 4
+                if idx == -1:
+                    idx = part.find(b'\n\n')
+                    header_end = idx + 2
+                if idx == -1:
+                    continue
+
+                header_part = part[:idx].decode('utf-8', errors='ignore')
+                m = re.search(r'filename="([^"]+)"', header_part)
+                if m:
+                    filename = m.group(1)
+                    file_data = part[header_end:]
+                    if file_data.endswith(b'\r\n'):
+                        file_data = file_data[:-2]
+                    elif file_data.endswith(b'\n'):
+                        file_data = file_data[:-1]
+                    break
+
+            if not filename or file_data is None:
+                self._json(400, b'{"ok":false,"msg":"Khong tim thay file trong request"}')
+                return
+
+            # Clean filename (prevent directory traversal)
+            filename = os.path.basename(filename)
+
+            # Target path setup
+            uploads_dir = Path("/Users/thanhht/qa-dashboard/uploads")
+            uploads_dir.mkdir(parents=True, exist_ok=True)
+
+            # Check collision, append timestamp if duplicate
+            stem = Path(filename).stem
+            suffix = Path(filename).suffix
+            target_path = uploads_dir / filename
+            if target_path.exists():
+                timestamp = int(time.time())
+                filename = f"{stem}_{timestamp}{suffix}"
+                target_path = uploads_dir / filename
+
+            # Write file
+            target_path.write_bytes(file_data)
+
+            # Return success JSON
+            self._json(200, json.dumps({
+                "ok": True,
+                "filename": filename,
+                "url": f"/uploads/{filename}"
+            }, ensure_ascii=False).encode('utf-8'))
+
+        except Exception as e:
+            self._json(500, json.dumps({
+                "ok": False,
+                "msg": f"Loi he thong: {str(e)}"
+            }).encode('utf-8'))
+
+    def _post_save_docs(self):
+        if not self._is_admin():
+            self._json(403, b'{"ok":false,"err":"forbidden"}')
+            return
+        ok = False
+        try:
+            length = int(self.headers.get('Content-Length', 0))
+            if 0 < length <= 1_000_000:
+                payload = json.loads(self.rfile.read(length).decode('utf-8'))
+                if valid_tree(payload):
+                    ok = save_docs(payload)
+        except (ValueError, json.JSONDecodeError, OSError):
+            ok = False
+        self._json(200 if ok else 400, b'{"ok":true}' if ok else b'{"ok":false}')
+
+    def _post_save_roadmap(self):
+        if not self._is_admin():
+            self._json(403, b'{"ok":false,"err":"forbidden"}')
+            return
+        ok = False
+        try:
+            length = int(self.headers.get('Content-Length', 0))
+            if 0 < length <= 1_000_000:
+                payload = json.loads(self.rfile.read(length).decode('utf-8'))
+                if valid_roadmap(payload):
+                    ok = save_roadmap(payload)
+        except (ValueError, json.JSONDecodeError, OSError):
+            ok = False
+        self._json(200 if ok else 400, b'{"ok":true}' if ok else b'{"ok":false}')
 
     def _json(self, status, body):
         self.send_response(status)
