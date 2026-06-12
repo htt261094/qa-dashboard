@@ -1088,6 +1088,7 @@ html[data-theme="dark"] .rk-bug-n { color: #ff7b72; }
 }
 
 /* ===== Metric Bug trên dashboard admin (#bugMetricCard) ===== */
+.bug-metric-card{margin-top:20px}   /* cách block KPI/metric task phía trên (kpi-grid không có margin-bottom) */
 .bug-metric-card .bm-filters{display:flex;align-items:center;gap:6px;color:var(--on-surface-variant)}
 .bm-sel{font-family:inherit;font-size:13px;color:var(--on-surface);background:var(--surface-low);
         border:1px solid var(--outline-variant);border-radius:var(--r-md);padding:6px 8px;max-width:240px}
