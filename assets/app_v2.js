@@ -2684,8 +2684,10 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
 // "dòng lịch sử thay đổi qua mỗi lần sync" (delta giữa các mốc). Nguồn = bug_log_store
 // (snapshot mỗi lần file Drive đổi). KHÔNG reload — F5 để lấy mốc mới.
 (function(){
-  var DATA = readJSON('bugMetrics'); if(!DATA) return;
   var card = $('bugMetricCard'); if(!card) return;
+  // DATA null (chưa sync / render cũ) -> coi như rỗng để rơi vào nhánh empty-state
+  // bên dưới (hiện thông báo), KHÔNG return sớm để tránh card trắng câm.
+  var DATA = readJSON('bugMetrics') || {};
   var fileSel = $('bmFile'), sheetSel = $('bmSheet');
   var curBox = $('bmCurrent'), histBox = $('bmHistory'), syncedBox = $('bmSynced');
   var FILES = DATA.files || [], METRICS = DATA.metrics || {};
