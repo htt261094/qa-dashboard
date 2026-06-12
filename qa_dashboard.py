@@ -311,7 +311,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if not save_ok:
             self._html(render_error_page(_msg))
             return
-        self._redirect('/settings', [clear])
+        self._redirect('/bug-log', [clear])
 
     def do_GET(self):
         path = urlparse(self.path).path
@@ -499,6 +499,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
             try:
                 self._json(200, json.dumps(
                     {'ok': True, 'hasPat': has_pat(self._user_email())}).encode('utf-8'))
+            except RuntimeError:
+                self._json(200, b'{"ok":false}')
+            return
+        if path == '/has-drive':
+            # FE (modal Setting) check trạng thái kết nối Drive — admin-only. Load lười để
+            # KHÔNG +1 Jira call mỗi lần render shell. Lỗi Jira -> ok=false, FE báo nhẹ.
+            if not self._is_admin():
+                self._json(200, b'{"ok":true,"hasDrive":false,"authEnabled":false}')
+                return
+            try:
+                self._json(200, json.dumps(
+                    {'ok': True, 'hasDrive': has_drive_token(),
+                     'authEnabled': AUTH_ENABLED}).encode('utf-8'))
             except RuntimeError:
                 self._json(200, b'{"ok":false}')
             return

@@ -98,14 +98,13 @@ def _render_drive_card(has_drive, auth_enabled):
 
 
 def render_settings_page(has_pat, user=None, has_drive=False, auth_enabled=False, activities=None):
-    is_admin = bool(user and len(user) > 1 and user[1])
     status_line = ('<div class="set-state set-ok">✓ Bạn đã lưu PAT. Thao tác đổi status/comment sẽ ghi đúng tên bạn trên Jira.</div>'
                    if has_pat else
                    '<div class="set-state set-none">⚠ Bạn chưa lưu PAT. Hiện thao tác (nếu có) sẽ mang tên tài khoản chung.</div>')
     jira_base = esc(JIRA_URL)
     inner = (
         '<div class="page-head"><div>'
-        '<h2 class="page-title">⚙ Cài đặt — Personal Access Token (PAT)</h2>'
+        '<h2 class="page-title">⚙ Setting — Personal Access Token (PAT)</h2>'
         '<div class="page-sub">PAT giúp dashboard thao tác Jira <strong>nhân danh chính bạn</strong>. '
         'Mã được mã hoá (AES) trước khi lưu, không bao giờ lưu dạng thô.</div>'
         '</div></div>'
@@ -128,7 +127,6 @@ def render_settings_page(has_pat, user=None, has_drive=False, auth_enabled=False
         + '<p class="set-note">⚠ Token được verify thuộc đúng tài khoản của bạn (gọi <code>/myself</code>) trước khi lưu. '
         'PAT của người khác sẽ bị từ chối.</p>'
         '</div>'
-        + (_render_drive_card(has_drive, auth_enabled) if is_admin else '')
         + '</div>'
     )
     return _document_v2(inner, 'settings', user, activities or [], title='Cài đặt — QA Dashboard')
@@ -441,7 +439,7 @@ def render_sidebar_v2(active, user):
         f'<nav class="nav">{nav}</nav>'
         '<div class="nav-foot">'
         '<div class="pmenu" id="pmenu">'
-        '<button type="button" id="pmSettings"><span class="material-symbols-rounded mi-sm">key</span> Cài đặt PAT</button>'
+        '<button type="button" id="pmSettings"><span class="material-symbols-rounded mi-sm">settings</span> Setting</button>'
         f'{logout}</div>'
         '<button class="profile" id="profileBtn">'
         f'<span class="av">{esc(init)}</span>'
@@ -476,18 +474,38 @@ def render_topbar_v2():
     )
 
 
-def _settings_modal_v2():
+def _settings_modal_v2(user=None):
+    # Drive connection = admin-only (chỉ admin lấy refresh_token đọc bug log). Non-admin
+    # chỉ thấy phần PAT. Trạng thái kết nối load lười qua /has-drive (tránh +1 Jira call
+    # mỗi lần render shell). IDs prefix `setDrive*` để KHÔNG đụng id nào khác.
+    is_admin = bool(user and len(user) > 1 and user[1])
+    drive = ''
+    if is_admin:
+        drive = (
+            '<div class="set-drive" id="setDriveSect">'
+            '<label class="set-drive-lbl"><span class="material-symbols-rounded mi-sm">cloud</span> '
+            'Kết nối Google Drive (Bug Log)</label>'
+            '<p class="modal-note">Cấp quyền <b>chỉ đọc</b> để background sync đọc file <code>.xlsx</code> bug log. '
+            'Khi Google hỏi, chọn tài khoản <b>@baokim.vn</b>. Token được mã hoá khi lưu.</p>'
+            '<div class="set-drive-state" id="setDriveState">Đang kiểm tra…</div>'
+            '<div class="set-drive-acts">'
+            '<a class="btn btn-ghost" id="setDriveConnect" href="/drive/connect">Kết nối Drive</a>'
+            '<button type="button" class="btn btn-danger" id="setDriveDisconnect" style="display:none;margin-right:0">Ngắt kết nối</button>'
+            '</div></div>'
+        )
     return (
         '<div class="overlay" id="setOverlay">'
         '<div class="modal">'
-        '<div class="modal-head"><span class="material-symbols-rounded">key</span>'
-        '<h3>Cài đặt PAT cá nhân</h3>'
+        '<div class="modal-head"><span class="material-symbols-rounded">settings</span>'
+        '<h3>Setting</h3>'
         '<button type="button" class="x material-symbols-rounded" id="setClose">close</button></div>'
         '<div class="modal-body"><p class="modal-note">Thêm Personal Access Token để thao tác Jira '
         '(đổi status, comment) nhân danh chính bạn. Token được mã hoá khi lưu, không hiển thị lại.</p>'
         '<div class="field"><label>Personal Access Token</label>'
         '<div class="inp-wrap"><input type="password" id="patInp" placeholder="Dán PAT của bạn vào đây..." autocomplete="off" spellcheck="false">'
-        '<button type="button" class="eye material-symbols-rounded mi-sm" id="patShowBtn">visibility</button></div></div></div>'
+        '<button type="button" class="eye material-symbols-rounded mi-sm" id="patShowBtn">visibility</button></div></div>'
+        + drive +
+        '</div>'
         '<div class="modal-foot">'
         '<button type="button" class="btn btn-danger" id="patDelBtn">Xoá PAT</button>'
         '<button type="button" class="btn btn-ghost" id="setCancel">Huỷ</button>'
@@ -549,7 +567,7 @@ def _document_v2(content_inner, active, user, activities, title='QA Suite'):
 <div class="app">{render_sidebar_v2(active, user)}
 <div class="main">{render_topbar_v2()}
 <div class="content">{content_inner}</div></div></div>
-{_settings_modal_v2()}
+{_settings_modal_v2(user)}
 {_subtask_modal_v2()}
 <div class="toast" id="toast"></div>
 <div class="drawer-ov" id="drawerOv"></div><aside class="drawer" id="drawer"></aside>

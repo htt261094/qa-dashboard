@@ -134,9 +134,28 @@ function applyTheme(t){ document.documentElement.setAttribute('data-theme', t);
 // ---------- settings PAT modal ----------
 (function(){
   var ov=$('setOverlay'); if(!ov) return;
-  function open(){ ov.classList.add('open'); var m=$('pmenu'); if(m) m.classList.remove('open'); }
+  function loadDrive(){
+    var sect=$('setDriveSect'); if(!sect) return;   // chỉ admin có section này
+    var st=$('setDriveState'), conn=$('setDriveConnect'), dc=$('setDriveDisconnect');
+    fetch('/has-drive').then(function(r){ return r.json(); }).then(function(j){
+      if(!j || !j.ok){ st.textContent='Không kiểm tra được trạng thái Drive.'; st.className='set-drive-state'; return; }
+      if(!j.authEnabled){ st.textContent='⚠ Chưa bật Google OAuth (local dev) — không kết nối được.';
+        st.className='set-drive-state warn'; if(conn) conn.style.display='none'; if(dc) dc.style.display='none'; return; }
+      if(j.hasDrive){ st.textContent='✓ Đã kết nối Drive (chỉ đọc).'; st.className='set-drive-state ok';
+        if(conn){ conn.textContent='Kết nối lại'; conn.style.display=''; } if(dc) dc.style.display=''; }
+      else { st.textContent='⚠ Chưa kết nối Drive.'; st.className='set-drive-state warn';
+        if(conn){ conn.textContent='Kết nối Drive'; conn.style.display=''; } if(dc) dc.style.display='none'; }
+    }).catch(function(){ st.textContent='Lỗi mạng khi kiểm tra Drive.'; st.className='set-drive-state'; });
+  }
+  function open(){ ov.classList.add('open'); var m=$('pmenu'); if(m) m.classList.remove('open'); loadDrive(); }
   function close(){ ov.classList.remove('open'); }
   var s=$('pmSettings'); if(s) s.addEventListener('click', open);
+  var ddc=$('setDriveDisconnect');
+  if(ddc) ddc.addEventListener('click', function(){
+    if(!confirm('Ngắt kết nối Drive? Background sync bug log sẽ ngừng đọc file cho tới khi kết nối lại.')) return;
+    fetch('/disconnect-drive', { method:'POST' }).then(function(r){ return r.json(); })
+      .then(function(j){ toast(j.ok?'Đã ngắt kết nối Drive':'Lỗi ngắt kết nối', j.ok); if(j.ok) loadDrive(); })
+      .catch(function(){ toast('Lỗi mạng', false); }); });
   var c=$('setClose'); if(c) c.addEventListener('click', close);
   var cc=$('setCancel'); if(cc) cc.addEventListener('click', close);
   ov.addEventListener('click', function(e){ if(e.target===ov) close(); });
