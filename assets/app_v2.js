@@ -236,7 +236,10 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       case 'duedate':  return w+' đổi hạn '+k+': '+esc(n.old||'')+' → '+esc(n.new||'');
       case 'priority': return w+' đổi ưu tiên '+k;
       case 'summary':  return w+' đổi tiêu đề '+k;
-      case 'custom_status': return w+' gắn nhãn '+k+': '+esc(n.new||'');
+      case 'custom_status': { var nv=n.new||'';
+        if(nv.indexOf('✕')===0) return w+' gỡ nhãn '+k+': '+esc(nv.replace(/^✕\s*/,''));
+        if(nv.indexOf('—')===0) return w+' gỡ nhãn '+k;
+        return w+' gắn nhãn '+k+': '+esc(nv); }
       default: return w+' cập nhật '+k;
     } }
   function visible(){
