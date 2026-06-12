@@ -947,6 +947,10 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
     if editable:
         linkbar = (
             '<div class="bl-linkbar">'
+            '<div class="bl-filter" id="blTesterWrap">'
+            '<span class="material-symbols-rounded mi-sm">person_search</span>'
+            '<select id="blTesterFilter"><option value="">Tất cả tester</option></select>'
+            '</div>'
             '<div class="bl-ta" id="blTaskTA">'
             '<span class="material-symbols-rounded mi-sm">add_link</span>'
             '<div class="bl-ta-field" id="blTaskChips">'

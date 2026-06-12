@@ -970,6 +970,9 @@ html[data-theme="dark"] .bottom-toast {
 .bl-tab.active{color:var(--primary);border-bottom-color:var(--primary)}
 /* link-to-task bar */
 .bl-linkbar{display:flex;align-items:center;gap:8px;background:var(--surface-low);border:1px solid var(--outline-variant);border-radius:var(--r-lg);padding:6px 6px 6px 14px;margin-bottom:20px}
+.bl-filter{display:flex;align-items:center;gap:6px;color:var(--on-surface-variant);padding-right:10px;border-right:1px solid var(--outline-variant)}
+.bl-filter select{border:none;background:none;font-family:inherit;font-size:14px;color:var(--on-surface);outline:none;cursor:pointer;max-width:160px}
+.bl-filter select option{background:var(--card);color:var(--on-surface)}
 .bl-ta{flex:1;position:relative;display:flex;align-items:center;gap:9px;color:var(--on-surface-variant)}
 .bl-ta-field{flex:1;display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-height:24px}
 .bl-ta input{flex:1;min-width:140px;border:none;background:none;font-family:inherit;font-size:14px;color:var(--on-surface);outline:none}
