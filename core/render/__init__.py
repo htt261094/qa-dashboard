@@ -15,8 +15,6 @@ from issues import (parse_date, i_assignee, i_reporter, i_assignee_name, i_repor
                     i_created, i_resolved, i_updated, i_type, days_overdue, days_since_update,
                     is_stuck, esc, status_class, issue_link)
 from docs import load_docs
-from roadmap import (RM_STATUSES, RM_PEOPLE, load_roadmap, due_alerts,
-                     task_done, task_started, plan_done, derive_plan_status)
 from custom_status import CUSTOM_STATUSES, label_of, values_of
 from task_link import tasks_of
 from bug_log_store import POLL_SECONDS as BUG_LOG_POLL_SECONDS
@@ -40,43 +38,9 @@ from render.dashboard import (render_page, _bug_metrics_payload,
 # Tài liệu training (tab /docs) tách sang render.docs; re-export để chỗ gọi
 # (qa_dashboard.py) không phải đổi import. See issue #107 / #86.
 from render.docs import render_docs_page
-
-
-# ===== Roadmap v2 (plan › task › sub-task, schema Stitch) =====
-def render_roadmap_v2(data, editable=True, user=None, activities=None):
-    add_btn = ('<button class="btn-pri" id="rmAddPlan"><span class="material-symbols-rounded mi-sm">add_circle</span> Thêm kế hoạch</button>'
-               if editable else '')
-    banner = '' if editable else '<div class="ro-banner">👁 Chế độ chỉ xem — chỉ quản lý mới chỉnh sửa được.</div>'
-    ro = '' if editable else ' ro'
-    seg = (
-        '<div class="rm-filter"><div class="seg" id="rmSeg">'
-        '<button class="active" data-f="all">Tất cả</button>'
-        '<button data-f="in_progress">Đang thực hiện</button>'
-        '<button data-f="planned">Sắp tới</button>'
-        '<button data-f="done">Hoàn thành</button>'
-        '</div></div>'
-    )
-    modal = (
-        '<div class="overlay" id="modalOverlay">'
-        '<div class="modal">'
-        '<div class="modal-head"><span class="material-symbols-rounded" id="modalIcon">edit</span>'
-        '<h3 id="modalTitle">Sửa</h3>'
-        '<button type="button" class="x material-symbols-rounded" id="modalClose">close</button></div>'
-        '<div class="modal-body" id="modalBody"></div>'
-        '<div class="modal-foot"><button type="button" class="btn btn-ghost" id="modalCancel">Huỷ</button>'
-        '<button type="button" class="btn btn-primary" id="modalSave">Lưu</button></div>'
-        '</div></div>'
-    )
-    rm_meta = {'editable': bool(editable), 'statuses': RM_STATUSES, 'people': RM_PEOPLE}
-    content = (
-        f'<div class="page-head"><div><h2>Lộ trình QA Team</h2></div>{add_btn}</div>'
-        + banner + seg
-        + f'<div class="rm-list{ro}" id="rmList2"></div>'
-        + modal
-        + _json_script('rmData', data or [])
-        + _json_script('rmMeta', rm_meta)
-    )
-    return _document_v2(content, 'roadmap', user, activities or [], title='Roadmap QA Team')
+# Roadmap v2 (tab /roadmap) tách sang render.roadmap; re-export để chỗ gọi
+# (qa_dashboard.py) không phải đổi import. See issue #108 / #86.
+from render.roadmap import render_roadmap_v2
 
 
 # ===== Bug Log v2 (issue #55) — bug từ Excel/Drive + link ngược Jira task =====
