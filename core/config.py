@@ -60,7 +60,7 @@ def _load_env():
     for k in ('JIRA_URL', 'JIRA_PAT', 'JIRA_USERS', 'JIRA_PORT',
               'JIRA_ADMIN_EMAIL', 'JIRA_ALLOWED_DOMAIN',
               'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'SESSION_SECRET',
-              'PUBLIC_BASE_URL'):
+              'PUBLIC_BASE_URL', 'BUG_LOG_POLL_SECONDS'):
         if os.environ.get(k):
             cfg[k] = os.environ[k]
     return cfg
@@ -75,6 +75,14 @@ JIRA_URL = CFG['JIRA_URL'].rstrip('/')
 PAT = CFG['JIRA_PAT']
 USERS = [u.strip() for u in CFG.get('JIRA_USERS', 'quangbm,nhungnh,phuongct,tholt,thanhht1').split(',') if u.strip()]
 PORT = int(CFG.get('JIRA_PORT', '8080'))
+# ----- Bug Log: nhịp poll Drive (giây) của daemon scan (Decision #54). -----
+# Default 600s (10 phút). Nhờ Tầng-1 metadata-first, mỗi poll khi không file nào đổi chỉ
+# tốn N call metadata rẻ -> hạ xuống 2-3 phút (120-180) vẫn an toàn nếu muốn data tươi hơn.
+# Chặn sàn 30s để khỏi spam Drive API do gõ nhầm.
+try:
+    BUG_LOG_POLL_SECONDS = max(30, int(CFG.get('BUG_LOG_POLL_SECONDS', '600')))
+except ValueError:
+    BUG_LOG_POLL_SECONDS = 600
 # ----- Auth (qua Cloudflare Access; identity = header Cf-Access-Authenticated-User-Email) -----
 # Email role ADMIN: được edit roadmap/tài liệu. Rỗng = không khoá (local dev).
 ADMIN_EMAIL = CFG.get('JIRA_ADMIN_EMAIL', '').strip().lower()

@@ -26,15 +26,15 @@ import threading
 import time
 from datetime import datetime, timedelta
 
-from config import BUG_LOG_FILE
-from jira_api import load_property, save_property
-from bug_log import fetch_rows, normalize, project_from_filename, _redact
+from config import BUG_LOG_FILE, BUG_LOG_POLL_SECONDS
+from jira_api import load_property, save_property, run_parallel
+from bug_log import fetch_meta, fetch_content, normalize, project_from_filename, _redact
 from bug_log_source import load_sources
 from drive_token import has_drive_token, load_refresh_token
 
 BUG_LOG_PROP = 'qa-dashboard-bug-log'
 
-POLL_SECONDS = 10 * 60      # 10 phút (issue chốt 2026-06-09)
+POLL_SECONDS = BUG_LOG_POLL_SECONDS   # nhịp poll Drive (giây), cấu hình qua .env (default 600)
 _STARTUP_DELAY = 20         # đợi server lên + đỡ chậm khởi động trước lần scan đầu
 _ACT_CAP = 200
 _ACT_PRUNE_DAYS = 14
@@ -298,12 +298,43 @@ def _prune_activity(activity):
 
 
 # ===== scan() — tầng-1 metadata check -> tầng-2 fetch+diff =====
+def _scan_one(src, prev):
+    """Xử lý 1 file Drive — PHẦN THUẦN (không ghi state chung) để chạy song song an toàn.
+
+    Tầng-1: chỉ lấy metadata; nếu (modifiedTime, md5) y lần trước -> 'unchanged', KHÔNG tải.
+    Tầng-2 (chỉ khi đổi): tải binary + parse + normalize. Trả dict cho merge tuần tự ở scan().
+    Bắt MỌI lỗi vào 'error' (không raise) -> 1 file hỏng không kéo sập cả lượt scan."""
+    fid = src.get('id')
+    if not fid:
+        return None
+    try:
+        meta = fetch_meta(fid)   # Tầng-1: rẻ, không tải binary
+        unchanged = (prev.get('modifiedTime') == meta.get('modifiedTime')
+                     and prev.get('md5Checksum') == meta.get('md5Checksum')
+                     and 'bugs' in prev
+                     and prev.get('_version') == 3)
+        if unchanged:
+            return {'fid': fid, 'unchanged': True, 'count': len(prev.get('bugs', {}))}
+        # Tầng-2: chỉ tới đây mới tải + parse + normalize (file đã đổi)
+        rows = fetch_content(fid)
+        project = project_from_filename(src.get('label', '') or meta.get('name', ''))
+        norm = normalize(rows, project=project, service=src.get('service', ''))
+        cur_bugs = {b['key']: b for b in norm['bugs'] if b.get('key')}
+        return {'fid': fid, 'meta': meta, 'project': project,
+                'norm': norm, 'cur_bugs': cur_bugs}
+    except Exception as e:   # noqa: BLE001 — soft-fail per-file (RuntimeError + lỗi lạ)
+        return {'fid': fid, 'error': _safe(e)}
+
+
 def scan():
     """Quét tất cả nguồn Drive 1 lượt. Trả dict tổng kết:
        {ok, synced_at, count, changed, unmapped, errors}.
 
     Tầng-1: nếu file (modifiedTime,md5) y lần trước -> bỏ qua tải. Tầng-2: tải+parse+
     normalize -> diff -> gom event. Ghi cache + sync property 1 lần ở cuối.
+
+    Các file fetch+parse SONG SONG (_scan_one, không đụng state chung); MERGE/diff chạy
+    TUẦN TỰ theo đúng thứ tự `sources` -> không race, thứ tự activity event ổn định.
     Lỗi 1 file KHÔNG chặn file khác; lỗi chung -> giữ cache cũ."""
     with _scan_lock:
         result = {'ok': True, 'synced_at': '', 'count': 0, 'changed': 0,
@@ -331,28 +362,27 @@ def scan():
         new_events = []
         dirty = False
 
-        for src in sources:
-            fid = src.get('id')
-            if not fid:
+        # PHẦN THUẦN — fetch + parse song song (I/O mạng Drive). Key = index để KHÔNG gộp
+        # nhầm khi 2 nguồn trùng id; _scan_one tự bắt lỗi nên run_parallel không re-raise.
+        jobs = {str(i): (lambda s=src, p=files.get(src.get('id'), {}): _scan_one(s, p))
+                for i, src in enumerate(sources)}
+        parallel = run_parallel(jobs) if jobs else {}
+
+        # MERGE TUẦN TỰ theo thứ tự sources (giữ nguyên thứ tự activity event như bản cũ).
+        for i, src in enumerate(sources):
+            r = parallel.get(str(i))
+            if not r:
                 continue
+            if r.get('error'):
+                result['errors'].append(r['error'])
+                continue
+            fid = r['fid']
+            if r.get('unchanged'):
+                result['count'] += r.get('count', 0)   # vẫn cộng để tổng kết đúng thực tế
+                continue
+            # Tầng-2 đã làm trong _scan_one; ở đây chỉ diff + ghi state chung
             prev = files.get(fid, {})
-            try:
-                rows, meta = fetch_rows(fid)
-            except RuntimeError as e:
-                result['errors'].append(_safe(e))
-                continue
-            # Tầng-1: không đổi -> bỏ qua (vẫn cộng count để tổng kết phản ánh thực tế)
-            unchanged = (prev.get('modifiedTime') == meta.get('modifiedTime')
-                         and prev.get('md5Checksum') == meta.get('md5Checksum')
-                         and 'bugs' in prev
-                         and prev.get('_version') == 3)
-            if unchanged:
-                result['count'] += len(prev.get('bugs', {}))
-                continue
-            # Tầng-2: normalize + diff
-            project = project_from_filename(src.get('label', '') or meta.get('name', ''))
-            norm = normalize(rows, project=project, service=src.get('service', ''))
-            cur_bugs = {b['key']: b for b in norm['bugs'] if b.get('key')}
+            meta, norm, cur_bugs = r['meta'], r['norm'], r['cur_bugs']
             new_events.extend(_diff_events(prev.get('bugs', {}), cur_bugs))
             if _count_reopens(reopen, prev.get('bugs', {}), cur_bugs):
                 dirty = True
@@ -362,7 +392,7 @@ def scan():
                 'modifiedTime': meta.get('modifiedTime', ''),
                 'md5Checksum': meta.get('md5Checksum', ''),
                 'name': meta.get('name', ''),
-                'project': project,
+                'project': r['project'],
                 'bugs': cur_bugs,
                 'count': len(cur_bugs),
                 'unmapped': len(norm['unmapped']),
