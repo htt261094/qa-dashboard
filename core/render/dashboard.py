@@ -104,7 +104,7 @@ def render_admin_v2(data, new_keys, activities, cmap, user, bug_log_data=None):
             'updated': upd_date, 'updatedDisp': upd_date or '—',
             'created': (i_created(iss) or '')[:10], 'createdDisp': (i_created(iss) or '')[:10] or '—',
             'overdue': overdue, 'stuck': stuck,
-            'isNew': is_new,
+            'isNew': is_new, 'active': True,
             'jiraUrl': f'{JIRA_URL}/browse/{key}',
         })
 
@@ -128,13 +128,15 @@ def render_admin_v2(data, new_keys, activities, cmap, user, bug_log_data=None):
             'updated': upd_date, 'updatedDisp': upd_date or '—',
             'created': (i_created(iss) or '')[:10], 'createdDisp': (i_created(iss) or '')[:10] or '—',
             'overdue': False, 'stuck': False,
-            'isNew': (i_created(iss) or '')[:10] == today_str,
+            'isNew': (i_created(iss) or '')[:10] == today_str, 'active': False,
             'jiraUrl': f'{JIRA_URL}/browse/{key}',
         })
 
     # Pill counts
     n_todo = sum(1 for t in tasks if t['jira'] == 'TO DO' and not t['isNew'] and not t['overdue'])
-    n_prog = sum(1 for t in tasks if t['jira'] in ('In Progress', 'PENDING') and not t['stuck'] and not t['overdue'])
+    # "In Progress" = MỌI task active không phải TO DO (In Progress, PENDING, và bất kỳ
+    # status active mới nào) → todo ∪ progress phủ trọn bucket active, không status nào lọt (issue #39).
+    n_prog = sum(1 for t in tasks if t['active'] and t['jira'] != 'TO DO' and not t['stuck'] and not t['overdue'])
     n_new = sum(1 for t in tasks if t['isNew'])
     n_stuck = sum(1 for t in tasks if t['stuck'])
     n_over = sum(1 for t in tasks if t['overdue'])

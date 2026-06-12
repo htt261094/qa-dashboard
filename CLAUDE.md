@@ -315,7 +315,7 @@ Hiền THƯỜNG là reporter trong các task QA team được giao — vì cô 
 |---|---|---|
 | #37 (bug) | Path uploads hardcode macOS — chặn upload trên máy không phải Mac host (Decision #23) | `fix/uploads-hardcode-path-37` |
 | #38 (enh) | Pagination cap cứng (300/50/100) — mất task ngầm khi team mở rộng | `feat/pagination-cap-warning-38` |
-| #39 (enh) | Workload matrix giả định 3 status active — status mới rơi bucket fallback | `feat/workload-dynamic-status-39` |
+| ~~#39 (enh)~~ ✅ | Pills phân loại status động — pill In Progress bắt mọi status active ≠ TO DO (status mới không lọt) | `feat/workload-dynamic-status-39` |
 | #14 (feat) | Auto-launch browser khi chạy script | (chưa tạo branch) |
 | #19 (feat) | Email digest mode cho daily standup | (chưa tạo branch) |
 
@@ -367,7 +367,7 @@ User có strict OPSEC discipline. KHÔNG được:
 - Single-threaded server (`socketserver.TCPServer`). 1 request blocks 1 user. OK cho 1-5 user, không scale to >10.
 - No HTTPS — chỉ chạy localhost, không expose ra ngoài.
 - Display name hardcoded trong `DEFAULT_DISPLAY_NAMES`. Thêm người mới phải edit code (hoặc override qua `JIRA_DISPLAY_NAMES` JSON env var — already implemented).
-- Workload matrix giả định 3 status active: `TO DO`, `In Progress`, `PENDING`. Status mới → bucket fallback.
+- ~~Workload matrix giả định 3 status active: `TO DO`, `In Progress`, `PENDING`. Status mới → bucket fallback.~~ ✅ FIXED (issue #39, 2026-06-12): UI v2 không còn workload matrix; pills phân loại động — pill **In Progress** = MỌI task active không phải `TO DO` (gồm status active mới) nên `todo ∪ progress` phủ trọn bucket active, không status nào lọt. Mỗi task mang cờ `active` (theo bucket) để tách chắc với done. Sửa ở `core/render/dashboard.py` (n_prog) + `assets/app_v2.js` (`pillMatch`/`updateCounts`).
 
 ## Likely Next Features (user có thể yêu cầu)
 

@@ -346,8 +346,9 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       if(v==='CANCELLED') return 'b-critical'; return 'b-todo'; }
 
     function pillMatch(t){
-      if(curPill==='todo') return t.jira==='TO DO' && !t.isNew && !t.overdue;
-      if(curPill==='progress') return (t.jira==='In Progress'||t.jira==='PENDING') && !t.stuck && !t.overdue;
+      if(curPill==='todo') return t.active && t.jira==='TO DO' && !t.isNew && !t.overdue;
+      // In Progress = MỌI task active không phải TO DO (gồm status active mới) → không status nào lọt (issue #39)
+      if(curPill==='progress') return t.active && t.jira!=='TO DO' && !t.stuck && !t.overdue;
       if(curPill==='new') return t.isNew;
       if(curPill==='stuck') return t.stuck;
       if(curPill==='overdue') return t.overdue;
@@ -416,8 +417,8 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
         if(t.isNew) counts['new']++;
         if(t.overdue) counts.overdue++;
         if(t.stuck) counts.stuck++;
-        if(t.jira==='TO DO' && !t.isNew && !t.overdue) counts.todo++;
-        if((t.jira==='In Progress'||t.jira==='PENDING') && !t.stuck && !t.overdue) counts.progress++;
+        if(t.active && t.jira==='TO DO' && !t.isNew && !t.overdue) counts.todo++;
+        if(t.active && t.jira!=='TO DO' && !t.stuck && !t.overdue) counts.progress++;
         if(t.jira.toUpperCase()==='DONE') counts.done++;
       });
       ['todo','progress','new','stuck','overdue','done'].forEach(function(k){
