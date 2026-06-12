@@ -443,19 +443,35 @@ def _resolve_file_id(file_id):
     return sources[0]['id']
 
 
+def fetch_meta(file_id=None):
+    """Chỉ lấy metadata (Tầng-1, rẻ) -> meta {fileId, name, modifiedTime, md5Checksum}.
+
+    Dùng để check file có đổi không TRƯỚC khi tải binary (tránh download lãng phí khi
+    file y nguyên). file_id=None -> nguồn đầu tiên trong cấu hình."""
+    fid = _resolve_file_id(file_id)
+    m = file_metadata(fid)
+    return {
+        'fileId': fid,
+        'name': m.get('name', ''),
+        'modifiedTime': m.get('modifiedTime', ''),
+        'md5Checksum': m.get('md5Checksum', ''),
+    }
+
+
+def fetch_content(file_id=None):
+    """Tải binary + parse 1 file bug log -> rows. CHỈ gọi khi đã biết file đổi (Tầng-2)."""
+    fid = _resolve_file_id(file_id)
+    return parse_xlsx(download_file(fid))
+
+
 def fetch_rows(file_id=None):
     """Tải + parse 1 file bug log. Trả (rows, meta).
 
     file_id=None -> lấy nguồn đầu tiên trong cấu hình. Raise RuntimeError (đã redact token)
-    nếu chưa kết nối Drive / chưa cấu hình nguồn / file lỗi — caller (#54) bắt để báo mềm."""
+    nếu chưa kết nối Drive / chưa cấu hình nguồn / file lỗi — caller (#54) bắt để báo mềm.
+
+    Giữ để tương thích; scan() (#54) nay dùng fetch_meta + fetch_content (Tầng-1/Tầng-2)."""
     fid = _resolve_file_id(file_id)
-    meta = file_metadata(fid)
-    data = download_file(fid)
-    rows = parse_xlsx(data)
-    meta = {
-        'fileId': fid,
-        'name': meta.get('name', ''),
-        'modifiedTime': meta.get('modifiedTime', ''),
-        'md5Checksum': meta.get('md5Checksum', ''),
-    }
+    meta = fetch_meta(fid)
+    rows = fetch_content(fid)
     return rows, meta
