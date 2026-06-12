@@ -1124,3 +1124,5 @@ html[data-theme="dark"] .rk-bug-n { color: #ff7b72; }
 .bm-hchip{display:inline-flex;align-items:center;gap:5px;color:var(--on-surface-variant)}
 .bm-empty{color:var(--on-surface-variant);font-size:13px;padding:8px 0}
 .bm-sub{padding:10px 20px 16px;font-size:12px;color:var(--on-surface-variant)}
+
+@keyframes spin{to{transform:rotate(360deg)}}
