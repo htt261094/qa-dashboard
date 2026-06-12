@@ -2802,6 +2802,34 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     return;
   }
 
+  // ----- File vừa update lên đầu + chấm ● đánh dấu file đổi, mất khi đã xem -----
+  // "đổi" = mốc sync mới nhất của file khác với mốc đã xem (lưu localStorage qa-bm-seen).
+  // Lần đầu (chưa có localStorage) -> seed tất cả là đã xem, tránh highlight loạn (như NEW badge).
+  function fileLatestAt(fid){
+    var sheets = METRICS[fid] || {}, max = '';
+    Object.keys(sheets).forEach(function(m){
+      var arr = sheets[m] || [];
+      if(arr.length){ var at = arr[arr.length-1].at || ''; if(at > max) max = at; }
+    });
+    return max;
+  }
+  var SEEN_KEY = 'qa-bm-seen', SEEN = {};
+  (function(){
+    var raw = null; try{ raw = localStorage.getItem(SEEN_KEY); }catch(e){}
+    if(raw == null){   // lần đầu -> baseline, không highlight gì
+      FILES.forEach(function(f){ SEEN[f.fid] = fileLatestAt(f.fid); });
+      try{ localStorage.setItem(SEEN_KEY, JSON.stringify(SEEN)); }catch(e){}
+    } else { try{ SEEN = JSON.parse(raw) || {}; }catch(e){ SEEN = {}; } }
+  })();
+  function isChanged(fid){ var at = fileLatestAt(fid); return !!at && at !== SEEN[fid]; }
+  function saveSeen(){ try{ localStorage.setItem(SEEN_KEY, JSON.stringify(SEEN)); }catch(e){} }
+  // file đổi gần nhất lên đầu (chuỗi ISO so sánh trực tiếp); tie -> theo tên
+  FILES.sort(function(a,b){
+    var x = fileLatestAt(a.fid), y = fileLatestAt(b.fid);
+    if(x !== y) return x < y ? 1 : -1;
+    return (a.label||'').toLowerCase().localeCompare((b.label||'').toLowerCase());
+  });
+
   // Status được track ở CẢ card + lịch sử (tổng bug vẫn tính trên tất cả status).
   var TRACKED = ['New','Fixed','Closed','Reopen'];
   function isTracked(k){ return TRACKED.indexOf(k) >= 0; }
@@ -2867,12 +2895,23 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       return '<option value="'+esc(m)+'">'+esc(m)+'</option>'; }).join('');
   }
 
-  fileSel.innerHTML = FILES.map(function(f){
-    return '<option value="'+esc(f.fid)+'">'+esc(f.label)+'</option>'; }).join('');
-  fileSel.addEventListener('change', function(){ fillSheets(); render(); });
+  function buildFileOpts(){          // chấm ● cho file đổi; giữ nguyên lựa chọn hiện tại
+    var cur = fileSel.value;
+    fileSel.innerHTML = FILES.map(function(f){
+      return '<option value="'+esc(f.fid)+'">'+(isChanged(f.fid)?'● ':'')+esc(f.label)+'</option>';
+    }).join('');
+    if(cur) fileSel.value = cur;
+  }
+  function markSeen(fid){            // đã xem file -> cập nhật mốc + bỏ chấm highlight
+    var at = fileLatestAt(fid);
+    if(at && SEEN[fid] !== at){ SEEN[fid] = at; saveSeen(); buildFileOpts(); }
+  }
+  buildFileOpts();
+  fileSel.addEventListener('change', function(){ markSeen(fileSel.value); fillSheets(); render(); });
   sheetSel.addEventListener('change', render);
   if(syncedBox) syncedBox.textContent = 'Đã đồng bộ: '+(DATA.syncedAt||'—');
   fillSheets(); render();
+  markSeen(fileSel.value);           // file đang hiển thị mặc định = đã xem
 })();
 
 })();   // ===== đóng IIFE ngoài cùng (shared scope) — bug-metrics block nằm TRONG để dùng $/esc/readJSON
