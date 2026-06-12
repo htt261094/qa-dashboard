@@ -67,9 +67,18 @@ def _load_env():
 
 
 CFG = _load_env()
+# OFFLINE mode (Decision: tách Bug Log chạy standalone khi không vào được Jira/VPN).
+# Bật bằng env OFFLINE=1 -> KHÔNG bắt buộc JIRA creds + jira_api ngắt mọi call property
+# (fallback cache local tức thì). Đặt env này TRƯỚC khi import config (xem bug_log_offline.py).
+OFFLINE = (CFG.get('OFFLINE') or os.environ.get('OFFLINE') or '').strip().lower() in ('1', 'true', 'yes')
+
 if not CFG.get('JIRA_URL') or not CFG.get('JIRA_PAT'):
-    print("ERROR: Thiếu JIRA_URL hoặc JIRA_PAT. Tạo file .env theo .env.example.", file=sys.stderr)
-    sys.exit(1)
+    if not OFFLINE:
+        print("ERROR: Thiếu JIRA_URL hoặc JIRA_PAT. Tạo file .env theo .env.example.", file=sys.stderr)
+        sys.exit(1)
+    # OFFLINE: không cần Jira -> giá trị dummy để các `from config import JIRA_URL, PAT` không vỡ.
+    CFG.setdefault('JIRA_URL', 'http://offline.invalid')
+    CFG.setdefault('JIRA_PAT', 'offline')
 
 JIRA_URL = CFG['JIRA_URL'].rstrip('/')
 PAT = CFG['JIRA_PAT']

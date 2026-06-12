@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
 from config import (JIRA_URL, PAT, USERS, TASK_PTSP_TYPE_ID, actor_name,
-                    LEADER_EVAL_NUM_FIELD, LEADER_EVAL_TEXT_FIELD)
+                    LEADER_EVAL_NUM_FIELD, LEADER_EVAL_TEXT_FIELD, OFFLINE)
 from issues import parse_date
 
 try:
@@ -507,6 +507,8 @@ def dismiss_activities(user, ids, prune_days=14):
 
 def load_property(key, default=None):
     """Đọc JSON value từ Jira user property `key` (kho shared cross-device). default nếu 404."""
+    if OFFLINE:
+        raise RuntimeError('offline')   # ngắt mọi call Jira -> caller fallback cache local
     try:
         r = _SESSION.get(f"{JIRA_URL}/rest/api/2/user/properties/{key}",
                          headers=_auth_headers(), params={'username': _current_username()}, timeout=15)
@@ -520,6 +522,8 @@ def load_property(key, default=None):
 
 def save_property(key, value):
     """Ghi JSON value vào Jira user property `key`. Raise nếu Jira từ chối/lỗi mạng."""
+    if OFFLINE:
+        raise RuntimeError('offline')   # ngắt ghi Jira -> caller giữ cache local
     try:
         r = _SESSION.put(f"{JIRA_URL}/rest/api/2/user/properties/{key}",
                          headers=_auth_headers({'Content-Type': 'application/json'}),
