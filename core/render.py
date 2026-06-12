@@ -9,7 +9,7 @@ import urllib.parse
 from collections import defaultdict
 from datetime import datetime, timedelta
 
-from config import ASSETS_DIR, JIRA_URL, USERS, STUCK_DAYS, display_name, username_from_email
+from config import ASSETS_DIR, JIRA_URL, USERS, STUCK_DAYS, display_name, username_from_email, normalize_tester
 from issues import (parse_date, i_assignee, i_reporter, i_assignee_name, i_reporter_name,
                     i_status, i_summary, i_duedate,
                     i_created, i_resolved, i_updated, i_type, days_overdue, days_since_update,
@@ -907,7 +907,7 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
                 'status': b.get('status', ''),
                 'project': b.get('project', ''),
                 'month': month,
-                'qa': b.get('qa_pic', ''),
+                'qa': normalize_tester(b.get('qa_pic', '')),
                 'dev': b.get('dev_pic', ''),
                 'created': (b.get('created', '') or '')[:10],
                 'tasks': tasks_of(link),

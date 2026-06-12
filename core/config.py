@@ -114,6 +114,77 @@ def display_name(username):
     return DEFAULT_DISPLAY_NAMES.get(username, username)
 
 
+# Canonical QA tester name theo ALIAS đầu (ascii, lowercase). Dùng để gom các biến
+# thể typo của cột "Tester" (qa_pic) trong file bug Drive về 1 tên chuẩn:
+# NhungNH/NhungNH -> Nhung, ThoLT/TholT/ThoLt -> Thơ, Phuong -> Phương, ...
+# 'thanh' và 'tho' prefix khác nhau nên không xung đột; chỉ cần liệt kê đủ team.
+_TESTER_ALIASES = (
+    ('thanh', 'Thành'),
+    ('phuong', 'Phương'),
+    ('nhung', 'Nhung'),
+    ('quang', 'Quang'),
+    ('hien', 'Hiền'),
+    ('tho', 'Thơ'),
+)
+
+
+def _ascii_key(s):
+    """lowercase + bỏ dấu tiếng Việt + chỉ giữ chữ cái — để so khớp tên không phụ thuộc
+    hoa/thường, dấu, khoảng trắng, hậu tố initials."""
+    import unicodedata
+    s = unicodedata.normalize('NFD', s or '')
+    s = ''.join(c for c in s if unicodedata.category(c) != 'Mn')
+    return ''.join(c for c in s.lower() if c.isalpha())
+
+
+def _damerau(a, b):
+    """Optimal-string-alignment distance: như Levenshtein nhưng đổi chỗ 2 ký tự liền
+    kề tính là 1 (nên 'nhung' vs 'nhugn' = 1, không phải 2)."""
+    la, lb = len(a), len(b)
+    d = [[0] * (lb + 1) for _ in range(la + 1)]
+    for i in range(la + 1):
+        d[i][0] = i
+    for j in range(lb + 1):
+        d[0][j] = j
+    for i in range(1, la + 1):
+        for j in range(1, lb + 1):
+            cost = 0 if a[i - 1] == b[j - 1] else 1
+            d[i][j] = min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost)
+            if i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]:
+                d[i][j] = min(d[i][j], d[i - 2][j - 2] + 1)
+    return d[la][lb]
+
+
+def normalize_tester(raw):
+    """Map giá trị free-text cột Tester (qa_pic) về tên QA chuẩn của team.
+    Gom các biến thể typo (NhungNH -> Nhung, ThoLT/TholT/ThoLt -> Thơ, ...).
+    Khớp 2 tầng: (1) prefix chính xác; (2) fuzzy — phần đầu tên sai ≤1 lỗi gõ
+    (gồm đổi chỗ 2 ký tự, vd 'Nhugn' -> Nhung). Không khớp -> trả chuỗi gốc trim."""
+    k = _ascii_key(raw)
+    if not k:
+        return ''
+    # tầng 1: prefix chính xác (rẻ, bắt phần lớn ca)
+    for prefix, name in _TESTER_ALIASES:
+        if k.startswith(prefix):
+            return name
+    # tầng 2: fuzzy phần đầu — bỏ qua alias quá ngắn (<4) để tránh khớp bừa.
+    # so từng độ dài lát cắt quanh len(prefix) (cho thêm/bớt 1 ký tự) rồi lấy min distance.
+    best_name, best = '', 99
+    for prefix, name in _TESTER_ALIASES:
+        if len(prefix) < 4:
+            continue
+        for plen in (len(prefix) - 1, len(prefix), len(prefix) + 1):
+            seg = k[:plen]
+            if not seg:
+                continue
+            dist = _damerau(prefix, seg)
+            if dist < best:
+                best, best_name = dist, name
+    if best <= 1:
+        return best_name
+    return (raw or '').strip()
+
+
 def actor_name(author_obj):
     """Pretty name of a Jira actor: short name for QA team, else displayName/username."""
     a = author_obj or {}
