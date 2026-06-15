@@ -10,7 +10,7 @@ import json
 import re
 
 from config import BUG_LOG_SOURCE_FILE
-from jira_api import load_property, save_property
+from remote_store import synced_load, synced_save
 
 BUG_LOG_SOURCE_PROP = 'qa-dashboard-bug-log-source'
 
@@ -70,25 +70,11 @@ def _write_cache(data):
 
 
 def load_sources():
-    """Source of truth = Jira property; local file = cache fallback. [] nếu chưa cấu hình."""
-    try:
-        data = load_property(BUG_LOG_SOURCE_PROP)
-        if data is not None and valid_sources(data):
-            _write_cache(data)
-            return data
-    except RuntimeError:
-        pass
-    cached = _read_cache()
-    return cached if cached is not None else []
+    """Kho chung = Cloudflare KV (sync chéo máy, không cần VPN); local file = fallback offline.
+    [] nếu chưa cấu hình."""
+    return synced_load(BUG_LOG_SOURCE_PROP, _read_cache, _write_cache, valid_sources, [])
 
 
 def save_sources(data):
-    """Ghi Jira property (primary) + cache local. Chỉ True khi Jira nhận."""
-    if not valid_sources(data):
-        return False
-    try:
-        save_property(BUG_LOG_SOURCE_PROP, data)
-    except RuntimeError:
-        return False
-    _write_cache(data)
-    return True
+    """Local-first: ghi local trước (luôn OK) rồi đẩy KV best-effort."""
+    return synced_save(BUG_LOG_SOURCE_PROP, data, _write_cache, valid_sources)

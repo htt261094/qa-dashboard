@@ -8,7 +8,7 @@ Edit thật diễn ra ở Google (click link mở tab mới); workspace chỉ gi
 import json
 
 from config import DOCS_FILE
-from jira_api import load_property, save_property
+from remote_store import synced_load, synced_save
 
 DOCS_PROP = 'qa-dashboard-docs'  # Jira user property = kho sync chéo máy
 
@@ -62,25 +62,12 @@ def _write_cache(data):
 
 
 def load_docs():
-    """Source of truth = Jira property (sync chéo máy); local file = cache fallback khi Jira lỗi."""
-    try:
-        data = load_property(DOCS_PROP)
-        if data is not None and valid_tree(data):
-            _write_cache(data)
-            return data
-    except RuntimeError:
-        pass  # Jira không với tới -> dùng cache local
-    cached = _read_cache()
-    return cached if cached is not None else DOCS_DEFAULT
+    """Kho chung = Cloudflare KV (sync chéo máy, không cần VPN); file local = fallback offline.
+    Xem remote_store."""
+    return synced_load(DOCS_PROP, _read_cache, _write_cache, valid_tree, DOCS_DEFAULT)
 
 
 def save_docs(data):
-    """Ghi Jira property (primary). Chỉ True khi Jira nhận; đồng thời cache local."""
-    if not valid_tree(data):
-        return False
-    try:
-        save_property(DOCS_PROP, data)
-    except RuntimeError:
-        return False
-    _write_cache(data)
-    return True
+    """Local-first: ghi local trước (luôn OK) rồi đẩy KV best-effort. True nếu data đã an toàn
+    ở local (kể cả khi KV/VPN down)."""
+    return synced_save(DOCS_PROP, data, _write_cache, valid_tree)

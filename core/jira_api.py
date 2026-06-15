@@ -499,34 +499,23 @@ def _ukey(user):
 
 
 def _load_read_map():
-    """Toàn bộ map per-user {email: {activity_id: ts}} từ Jira property.
-    Format cũ (flat shared {id: ts}) -> bỏ qua (trả {}), bắt đầu lại per-user."""
-    try:
-        r = _SESSION.get(f"{JIRA_URL}/rest/api/2/user/properties/{_READ_PROP}",
-                         headers=_auth_headers(), params={'username': _current_username()}, timeout=15)
-        if r.status_code == 404:
-            return {}
-        r.raise_for_status()
-        val = r.json().get('value') or {}
-        d = val.get('dismissed') if isinstance(val, dict) else None
-        if not isinstance(d, dict) or not d:
-            return {}
-        # mới = mỗi value là dict (bucket per-user); cũ = value là string ts -> bỏ
-        if all(isinstance(v, dict) for v in d.values()):
-            return d
+    """Toàn bộ map per-user {email: {activity_id: ts}} từ kho chung (KV, sync không cần VPN).
+    Format cũ (flat shared {id: ts}) -> bỏ qua (trả {}), bắt đầu lại per-user.
+    remote_get nạp lazy để tránh vòng import (remote_store có thể fallback jira_api)."""
+    from remote_store import remote_get
+    val = remote_get(_READ_PROP) or {}   # raise RuntimeError nếu kho không với tới
+    d = val.get('dismissed') if isinstance(val, dict) else None
+    if not isinstance(d, dict) or not d:
         return {}
-    except requests.RequestException as e:
-        raise RuntimeError(f"Network error: {str(e).replace(PAT, '<REDACTED>')}")
+    # mới = mỗi value là dict (bucket per-user); cũ = value là string ts -> bỏ
+    if all(isinstance(v, dict) for v in d.values()):
+        return d
+    return {}
 
 
 def _save_read_map(read_map):
-    body = json.dumps({'dismissed': read_map, 'updated': datetime.now().isoformat()})
-    try:
-        _SESSION.put(f"{JIRA_URL}/rest/api/2/user/properties/{_READ_PROP}",
-                     headers=_auth_headers({'Content-Type': 'application/json'}),
-                     params={'username': _current_username()}, data=body, timeout=15)
-    except requests.RequestException as e:
-        raise RuntimeError(f"Network error: {str(e).replace(PAT, '<REDACTED>')}")
+    from remote_store import remote_put
+    remote_put(_READ_PROP, {'dismissed': read_map, 'updated': datetime.now().isoformat()})
 
 
 def load_dismissed(user=None):

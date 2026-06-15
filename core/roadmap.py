@@ -14,7 +14,7 @@ import json
 from datetime import datetime
 
 from config import ROADMAP_FILE, USERS, display_name
-from jira_api import load_property, save_property
+from remote_store import synced_load, synced_save
 
 ROADMAP_PROP = 'qa-dashboard-roadmap'  # Jira user property = kho sync chéo máy
 
@@ -223,26 +223,13 @@ def _write_cache(data):
 
 
 def load_roadmap():
-    """Source of truth = Jira property (sync chéo máy); local file = cache fallback khi Jira lỗi.
-    Data schema cũ được migrate tự động trước khi dùng."""
-    try:
-        data = _coerce(load_property(ROADMAP_PROP))
-        if data is not None:
-            _write_cache(data)
-            return data
-    except RuntimeError:
-        pass  # Jira không với tới -> dùng cache local
-    cached = _read_cache()
-    return cached if cached is not None else ROADMAP_DEFAULT
+    """Kho chung = Cloudflare KV (sync chéo máy, không cần VPN); file local = fallback offline.
+    Data schema cũ được migrate tự động (_coerce) trước khi dùng. Xem remote_store."""
+    return synced_load(ROADMAP_PROP, _read_cache, _write_cache,
+                       valid_roadmap, ROADMAP_DEFAULT, coerce=_coerce)
 
 
 def save_roadmap(data):
-    """Ghi Jira property (primary). Chỉ True khi Jira nhận → tránh mất data thầm lặng; đồng thời cache local."""
-    if not valid_roadmap(data):
-        return False
-    try:
-        save_property(ROADMAP_PROP, data)
-    except RuntimeError:
-        return False
-    _write_cache(data)
-    return True
+    """Local-first: ghi file local trước (luôn OK) rồi đẩy KV best-effort. True nếu data đã an
+    toàn ở local (kể cả khi KV/VPN down) — không còn fail vì mạng."""
+    return synced_save(ROADMAP_PROP, data, _write_cache, valid_roadmap)
