@@ -18,7 +18,7 @@ from auth import (SESSION_COOKIE, STATE_COOKIE, DRIVE_STATE_COOKIE, SESSION_TTL,
                   make_session_token, make_state_token, state_valid,
                   drive_login_url, exchange_code_tokens)
 from drive_token import save_refresh_token
-from render import render_error_page
+from render import render_error_page, render_login_page
 
 
 class OAuthMixin:
@@ -43,6 +43,13 @@ class OAuthMixin:
 
     # ----- OAuth routes -----
     def _do_login(self):
+        # Mặc định: hiện màn hình đăng nhập (nút "Đăng nhập với Google"). CHỈ khi user
+        # bấm nút (-> ?go=1) mới set state cookie + 302 sang Google. Trước đây 302 thẳng
+        # nên không có màn login nào hiện ra.
+        q = parse_qs(urlparse(self.path).query)
+        if (q.get('go') or [''])[0] != '1':
+            self._html(render_login_page())
+            return
         state = make_state_token()
         secure = self._secure_cookie()
         url = login_url(self._base_url() + '/oauth/callback', state)
