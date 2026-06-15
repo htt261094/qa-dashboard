@@ -23,6 +23,8 @@ ENV_FILE = SCRIPT_DIR / '.env'
 STATE_FILE = SCRIPT_DIR / '.last_seen.json'
 DOCS_FILE = SCRIPT_DIR / '.docs_config.json'
 ROADMAP_FILE = SCRIPT_DIR / '.roadmap_config.json'
+SYNC_META_FILE = SCRIPT_DIR / '.sync_meta.json'         # dirty-flag per key (remote_store flush)
+PAT_CACHE_FILE = SCRIPT_DIR / '.pat_store.json'         # cache map {email: enc_pat} (ĐÃ mã hoá)
 DRIVE_TOKEN_FILE = SCRIPT_DIR / '.drive_token.json'      # cache refresh token (mã hoá) fallback
 BUG_LOG_SOURCE_FILE = SCRIPT_DIR / '.bug_log_source.json'  # cache file Drive nguồn bug log
 BUG_LOG_FILE = SCRIPT_DIR / '.bug_log.json'              # cache snapshot bug log (fallback + render nhanh)
@@ -60,7 +62,8 @@ def _load_env():
     for k in ('JIRA_URL', 'JIRA_PAT', 'JIRA_USERS', 'JIRA_PORT',
               'JIRA_ADMIN_EMAIL', 'JIRA_ALLOWED_DOMAIN',
               'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'SESSION_SECRET',
-              'PUBLIC_BASE_URL', 'BUG_LOG_POLL_SECONDS'):
+              'PUBLIC_BASE_URL', 'BUG_LOG_POLL_SECONDS',
+              'CF_ACCOUNT_ID', 'CF_KV_NAMESPACE_ID', 'CF_API_TOKEN'):
         if os.environ.get(k):
             cfg[k] = os.environ[k]
     return cfg
@@ -112,6 +115,15 @@ SESSION_SECRET = CFG.get('SESSION_SECRET', '').strip()  # khoá ký session cook
 # (chống Host-header injection — issue #49). Bỏ trống => suy từ request (local dev).
 PUBLIC_BASE_URL = CFG.get('PUBLIC_BASE_URL', '').strip().rstrip('/')
 AUTH_ENABLED = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
+
+# ----- Cloudflare Workers KV = kho sync chéo máy KHÔNG cần VPN (thay Jira property) -----
+# Cả 3 giá trị có mặt => KV_ENABLED: remote_store dùng KV làm kho chung (reachable qua
+# api.cloudflare.com trên internet công cộng, sống cả khi Jira/VPN down). Bỏ trống =>
+# fallback về Jira property như cũ (nhưng vẫn local-first nên save không còn fail vì mạng).
+CF_ACCOUNT_ID = CFG.get('CF_ACCOUNT_ID', '').strip()
+CF_KV_NAMESPACE_ID = CFG.get('CF_KV_NAMESPACE_ID', '').strip()
+CF_API_TOKEN = CFG.get('CF_API_TOKEN', '').strip()
+KV_ENABLED = bool(CF_ACCOUNT_ID and CF_KV_NAMESPACE_ID and CF_API_TOKEN)
 if AUTH_ENABLED and not SESSION_SECRET:
     print("ERROR: Bật Google OAuth nhưng thiếu SESSION_SECRET trong .env.\n"
           "       Tạo bằng: python3 -c \"import secrets;print(secrets.token_urlsafe(48))\"",

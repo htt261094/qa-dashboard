@@ -27,7 +27,11 @@ import time
 from datetime import datetime, timedelta
 
 from config import BUG_LOG_FILE, BUG_LOG_POLL_SECONDS
-from jira_api import load_property, save_property, run_parallel
+from jira_api import run_parallel
+# Metrics (reopen/metrics/activity) dùng union-merge MONOTONIC chéo máy -> KHÔNG dùng local-first
+# LWW của synced_* (sẽ làm tụt count). Chỉ đổi backend Jira->KV qua remote_get/remote_put, GIỮ
+# nguyên merge-before-write. KV value tới 25MB (Jira ~32KB) nên light-split ít khi cần nhưng giữ.
+from remote_store import remote_get as load_property, remote_put as save_property
 from bug_log import fetch_meta, fetch_content, normalize, project_from_filename, _redact
 from bug_log_source import load_sources
 from drive_token import has_drive_token, load_refresh_token

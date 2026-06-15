@@ -6,6 +6,8 @@ gcp-service-account.json
 .docs_config.json
 .roadmap_config.json
 .custom_status.json
+.sync_meta.json
+.pat_store.json
 .crypto_key
 .drive_token.json
 .bug_log_source.json

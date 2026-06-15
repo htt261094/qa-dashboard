@@ -18,7 +18,7 @@ import re
 from datetime import datetime
 
 from config import BUG_TASK_LINK_FILE, username_from_email
-from jira_api import load_property, save_property
+from remote_store import synced_load, synced_save
 
 LINK_PROP = 'qa-dashboard-bug-task-link'
 _KEY_RE = re.compile(r'^[A-Za-z][A-Za-z0-9]*-\d+$')   # PROJ-123 (key Jira hợp lệ)
@@ -48,16 +48,13 @@ def _empty():
     return {'links': {}}
 
 
+def _valid_data(d):
+    return isinstance(d, dict) and 'links' in d
+
+
 def _load_data():
-    try:
-        data = load_property(LINK_PROP)
-        if isinstance(data, dict) and 'links' in data:
-            _write_cache(data)
-            return data
-    except RuntimeError:
-        pass
-    cached = _read_cache()
-    return cached if cached is not None else _empty()
+    """Kho chung = Cloudflare KV (sync chéo máy, không cần VPN); cache local = fallback offline."""
+    return synced_load(LINK_PROP, _read_cache, _write_cache, _valid_data, _empty())
 
 
 def load_links():
@@ -127,9 +124,6 @@ def set_task_links(email, bug_keys, task_key, op='add'):
         out[k] = cur
     if not out:
         return None
-    try:
-        save_property(LINK_PROP, data)
-    except RuntimeError:
-        return None
-    _write_cache(data)
+    # Local-first: luôn an toàn ở local, đẩy KV best-effort (không còn fail vì mạng).
+    synced_save(LINK_PROP, data, _write_cache, _valid_data)
     return out

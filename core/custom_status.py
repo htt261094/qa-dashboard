@@ -19,7 +19,7 @@ import json
 from datetime import datetime, timedelta
 
 from config import SCRIPT_DIR, username_from_email, display_name
-from jira_api import load_property, save_property
+from remote_store import synced_load, synced_save
 
 CUSTOM_PROP = 'qa-dashboard-custom-status'
 CACHE_FILE = SCRIPT_DIR / '.custom_status.json'
@@ -86,17 +86,13 @@ def _empty():
     return {'status': {}, 'activity': []}
 
 
+def _valid_data(d):
+    return isinstance(d, dict) and 'status' in d
+
+
 def _load_data():
-    """Source of truth = Jira property; fallback cache local khi Jira lỗi."""
-    try:
-        data = load_property(CUSTOM_PROP)
-        if isinstance(data, dict) and 'status' in data:
-            _write_cache(data)
-            return data
-    except RuntimeError:
-        pass
-    cached = _read_cache()
-    return cached if cached is not None else _empty()
+    """Kho chung = Cloudflare KV (sync chéo máy, không cần VPN); file local = fallback offline."""
+    return synced_load(CUSTOM_PROP, _read_cache, _write_cache, _valid_data, _empty())
 
 
 def load_overlay():
@@ -144,11 +140,9 @@ def set_custom_status(email, key, value, summary=''):
     # prune theo thời gian + cap số lượng
     cutoff = (now - timedelta(days=_ACT_PRUNE_DAYS)).isoformat()
     data['activity'] = [a for a in activity if a.get('when', '') >= cutoff][:_ACT_CAP]
-    try:
-        save_property(CUSTOM_PROP, data)
-    except RuntimeError:
-        return None
-    _write_cache(data)
+    # Local-first: ghi local + đẩy KV best-effort. synced_save trả True kể cả khi KV down
+    # (data đã an toàn ở local) -> không còn fail vì mạng.
+    synced_save(CUSTOM_PROP, data, _write_cache, _valid_data)
     return cur
 
 
