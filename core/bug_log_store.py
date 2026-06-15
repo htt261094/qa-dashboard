@@ -90,7 +90,23 @@ def _light(data):
 
 
 def _sync_property(data):
-    """Sync lên Jira property (full nếu vừa, nhẹ nếu to). Trả True nếu Jira nhận."""
+    """Sync lên Jira property (full nếu vừa, nhẹ nếu to). Trả True nếu Jira nhận.
+
+    MERGE-before-write: union accumulator (reopen/metrics/activity) với property HIỆN TẠI
+    trên Jira NGAY TRƯỚC khi ghi -> không bao giờ đè mất entry mà host khác vừa thêm. Đây
+    là cái chốt chống clobber: kể cả khi baseline lúc load đọc property hụt (RuntimeError ->
+    rơi về cache cũ thiếu entry), bước re-read này kéo lại các entry còn trên Jira trước khi
+    save. Write chỉ thành công khi Jira đang sống -> read ngay trước đó gần như chắc cũng
+    sống -> entry host khác được khôi phục. Read hụt ở đây -> bỏ qua, vẫn an toàn vì union
+    lúc load là lớp bảo vệ thứ hai. Mutate `data` tại chỗ để caller ghi cache khớp property."""
+    try:
+        cur = load_property(BUG_LOG_PROP)
+        if isinstance(cur, dict) and 'files' in cur:
+            data['reopen'] = _merge_reopen(data.get('reopen', {}), cur.get('reopen', {}))
+            data['metrics'] = _merge_metrics(data.get('metrics', {}), cur.get('metrics', {}))
+            data['activity'] = _merge_activity(data.get('activity', []), cur.get('activity', []))
+    except RuntimeError:
+        pass
     payload = data
     if len(json.dumps(data, ensure_ascii=False).encode('utf-8')) > _PROP_MAX_BYTES:
         payload = _light(data)
@@ -101,22 +117,75 @@ def _sync_property(data):
         return False
 
 
-_ACCUM_KEYS = ('reopen', 'metrics', 'activity')   # accumulator sync chéo máy (truth = property)
+# ===== Union-merge accumulator chéo máy (max per key) — chống clobber =====
+# reopen/metrics đều MONOTONIC (chỉ tăng) nên gộp bằng max theo key vừa an toàn vừa
+# idempotent: host có view cũ chỉ có thể THÊM entry, KHÔNG bao giờ xoá entry host khác.
+# (Thay mô hình cũ "thay nguyên cục, last-write-wins" — chính chỗ làm count tụt 6->5 khi
+#  2 host thay phiên + 1 host đọc property hụt rồi ghi đè bản thiếu.)
+def _merge_reopen(a, b):
+    """Union 2 reopen-map theo key. count/fix lấy max; metadata (last/dev/project/month)
+    lấy từ entry có `last` mới hơn."""
+    out = {}
+    for key in set(a) | set(b):
+        ea, eb = a.get(key), b.get(key)
+        if ea is None:
+            out[key] = dict(eb); continue
+        if eb is None:
+            out[key] = dict(ea); continue
+        base = dict(ea if (ea.get('last', '') >= eb.get('last', '')) else eb)
+        base['count'] = max(int(ea.get('count', 0)), int(eb.get('count', 0)))
+        base['fix'] = max(int(ea.get('fix', 1)), int(eb.get('fix', 1)))
+        out[key] = base
+    return out
+
+
+def _merge_metrics(a, b):
+    """Union lịch sử metric (fid -> month -> [snapshot]). Gộp snapshot theo mốc `at`
+    (dedup), sort tăng dần, cắt còn `_METRIC_HISTORY_CAP` mốc gần nhất mỗi sheet."""
+    out = {}
+    for fid in set(a) | set(b):
+        fa, fb = a.get(fid, {}), b.get(fid, {})
+        fm = {}
+        for month in set(fa) | set(fb):
+            seen = {}
+            for snap in list(fa.get(month, [])) + list(fb.get(month, [])):
+                at = snap.get('at', '')
+                seen.setdefault(at, snap)
+            merged = sorted(seen.values(), key=lambda s: s.get('at', ''))
+            fm[month] = merged[-_METRIC_HISTORY_CAP:] if len(merged) > _METRIC_HISTORY_CAP else merged
+        out[fid] = fm
+    return out
+
+
+def _merge_activity(a, b):
+    """Union activity theo `id` (mỗi event có id ổn định), sort mới->cũ, prune+cap."""
+    seen = {}
+    for ev in list(a) + list(b):
+        i = ev.get('id')
+        if i and i not in seen:
+            seen[i] = ev
+    merged = sorted(seen.values(), key=lambda e: e.get('when', ''), reverse=True)
+    return _prune_activity(merged)
 
 
 def _load_data():
-    """Source of truth = Jira property; fallback cache local.
+    """Source of truth = Jira property; cache local = fallback. Accumulator (reopen/metrics/
+    activity) UNION-merge từ CẢ property + cache (max per key) -> chéo máy không mất count.
 
-    Property bản nhẹ (light) bỏ `bugs` rows để < ~32KB nhưng GIỮ reopen/metrics/activity.
-    Khi đó: `bugs` rows lấy từ cache local (full — cần cho render + làm prev-snapshot dò
-    transition), NHƯNG reopen/metrics/activity là **accumulator sync chéo máy** nên LẤY TỪ
-    PROPERTY (truth). Nhờ vậy đổi host qua lại (Win<->Mac) KHÔNG mất count dù máy nhận còn
-    cache cũ — trước đây `_load_data` trả thẳng cache local nên reopen máy kia ghi lên
-    property bị bỏ, count bị reset/mất (bug bounce-host).
+    Cấu trúc `files`/`bugs` (cần full để dò transition lúc scan) lấy từ nguồn FULL: property
+    full > cache > property light. Property bản nhẹ (light) bỏ `bugs` để < ~32KB nhưng vẫn
+    mang reopen/metrics/activity -> khi light thì bugs lấy từ cache, accumulator vẫn union.
 
-    Đánh đổi (hướng A): nếu CÙNG một transition được CẢ hai máy quan sát (cache lệch nhau
-    lúc handoff) thì reopen có thể +1 dư cho đúng bug đó. Chấp nhận để KHÔNG mất dữ liệu;
-    muốn idempotent tuyệt đối cần gắn id transition (việc lớn hơn — chưa làm)."""
+    Vì sao union thay vì lấy thẳng property: trước đây full-property branch trả nguyên prop
+    (vứt accumulator cache) còn fallback khi property đọc hụt lại trả nguyên cache cũ -> 2
+    host thay phiên + 1 lần đọc property timeout là đủ để bản thiếu ghi đè bản đủ (count
+    6->5). Union max đảm bảo entry chỉ tăng, host nào có count cao hơn sẽ tự chữa lại property
+    ở lần sync kế (qua merge-before-write trong `_sync_property`).
+
+    Đánh đổi (giữ nguyên hướng A cũ): nếu CÙNG một transition được CẢ hai máy quan sát thì
+    count có thể +1 dư cho đúng bug đó. Chấp nhận để KHÔNG mất dữ liệu; idempotent tuyệt đối
+    cần gắn id transition (việc lớn hơn — chưa làm). Union max KHÔNG làm chỗ này tệ hơn (lấy
+    max chứ không cộng)."""
     prop = None
     try:
         d = load_property(BUG_LOG_PROP)
@@ -125,25 +194,33 @@ def _load_data():
     except RuntimeError:
         pass
     cached = _read_cache()
+
+    # Base cấu trúc (files/bugs): nguồn FULL freshest -> property full > cache > property light.
     if prop is not None and not prop.get('light'):
-        _write_cache(prop)
-        return prop
-    # property nhẹ -> bugs từ cache local, accumulator từ property (truth chéo máy)
-    if cached is not None:
-        if prop is not None:
-            merged = dict(cached)
-            for k in _ACCUM_KEYS:
-                if k in prop:
-                    merged[k] = prop[k]
-            # synced_at lấy mốc mới hơn để "Đã đồng bộ" không lùi khi máy kia vừa sync
-            merged['synced_at'] = max(cached.get('synced_at', '') or '',
-                                      prop.get('synced_at', '') or '')
-            _write_cache(merged)   # cache thành truth đã graft -> sống cả khi Jira tạm hỏng
-            return merged
-        return cached
-    if prop is not None:
-        return prop
-    return _empty()
+        base = dict(prop)
+    elif cached is not None:
+        base = dict(cached)
+    elif prop is not None:
+        base = dict(prop)              # chỉ có light (chưa có cache full) -> bugs thiếu, chịu
+    else:
+        return _empty()
+    if base.get('light') and cached is not None:
+        base['files'] = cached.get('files', {})   # light + có cache full -> lấy bugs từ cache
+    base.pop('light', None)
+
+    # Union accumulator từ cả 2 nguồn (max) — không phụ thuộc nguồn nào làm base.
+    cr = cached.get('reopen', {}) if cached else {}
+    pr = prop.get('reopen', {}) if prop else {}
+    base['reopen'] = _merge_reopen(cr, pr)
+    base['metrics'] = _merge_metrics(cached.get('metrics', {}) if cached else {},
+                                     prop.get('metrics', {}) if prop else {})
+    base['activity'] = _merge_activity(cached.get('activity', []) if cached else [],
+                                       prop.get('activity', []) if prop else [])
+    base['synced_at'] = max((cached or {}).get('synced_at', '') or '',
+                            (prop or {}).get('synced_at', '') or '',
+                            base.get('synced_at', '') or '')
+    _write_cache(base)   # cache = truth đã graft -> sống cả khi Jira tạm hỏng
+    return base
 
 
 def load_bug_log():
@@ -411,10 +488,14 @@ def scan():
         # bấm nút / auto-sync. Luôn ghi cache local (rẻ, nguồn render). CHỈ sync property
         # lên Jira khi có thay đổi thật (tránh ghi property mỗi 10p chỉ vì đổi timestamp).
         data['synced_at'] = _now_iso()
-        _write_cache(data)
         if dirty or new_events:
+            # _sync_property merge accumulator remote vào `data` (chống clobber) RỒI ghi
+            # property. Ghi cache SAU đó để cache khớp đúng cái vừa đẩy lên Jira.
             if not _sync_property(data):
                 result['errors'].append('Không sync được lên Jira (giữ cache local).')
+            _write_cache(data)
+        else:
+            _write_cache(data)   # chỉ bump synced_at, không đụng property
         result['synced_at'] = data.get('synced_at', '')
         result['ok'] = not result['errors'] or result['count'] > 0
         return result
