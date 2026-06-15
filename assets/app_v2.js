@@ -325,6 +325,9 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   document.addEventListener('visibilitychange', function(){ if(!document.hidden) poll(); });
 
   render();
+  // Poll NGAY sau khi render (không chờ 60s): chuông embed lúc load có thể là data SWR cũ
+  // (server không block trên feed nặng) -> poll async kéo về bản mới, KHÔNG chặn điều hướng.
+  setTimeout(poll, 300);
 })();
 
 // ================= DASHBOARD (guard #rows) =================
