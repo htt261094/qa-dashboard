@@ -17,21 +17,45 @@ from issues import (parse_date, i_assignee, i_assignee_name, i_status, i_summary
 from custom_status import CUSTOM_STATUSES, values_of
 
 from render.base import _json_script
-from render.shell import _avatar, _document_v2
+from render.shell import _avatar, _document_v2, _conn_error_card
+
+
+# Markup card "Metric Bug" — KHÔNG cần Jira (nguồn = bug_log_store cache local). Tách
+# riêng để dùng được cả nhánh bình thường lẫn nhánh jira_error (giữ block này khi Jira down).
+def _bug_metric_card_html():
+    return (
+        '<div class="card bug-metric-card" id="bugMetricCard">'
+        '<div class="table-header"><div class="table-title">'
+        '<span class="material-symbols-rounded">bug_report</span>'
+        '<span>Metric Bug — Tổng &amp; theo Status</span></div>'
+        '<div class="bm-filters">'
+        '<span class="material-symbols-rounded mi-sm">description</span>'
+        '<select id="bmFile" class="bm-sel"></select>'
+        '<span class="material-symbols-rounded mi-sm">tab</span>'
+        '<select id="bmSheet" class="bm-sel"></select></div></div>'
+        '<div class="bm-body">'
+        '<div class="bm-current" id="bmCurrent"></div>'
+        '<div class="bm-history-wrap"><div class="bm-history-head">'
+        '<span class="material-symbols-rounded mi-sm">history</span> '
+        'Lịch sử thay đổi qua mỗi lần sync</div>'
+        '<div class="bm-history" id="bmHistory"></div></div></div>'
+        '<div class="bm-sub" id="bmSynced"></div></div>'
+    )
 
 
 # ===== Full page =====
 def render_page(data, new_keys, first_run, activities, activity_days=7, roadmap_data=None,
-                user=None, custom_overlay=None, bug_log_data=None):
+                user=None, custom_overlay=None, bug_log_data=None, jira_error=False):
     is_admin = user[1] if (user and len(user) > 1) else True
 
     # QA thường (non-admin): data đã auto-scope về chính họ -> UI v2 (shell sidebar Stitch).
     if not is_admin:
-        return render_qa_v2(data, new_keys, activities, custom_overlay, user)
+        return render_qa_v2(data, new_keys, activities, custom_overlay, user,
+                            jira_error=jira_error)
 
     # Admin -> new v2 dashboard (pills + member filter + 5-col table + KPI cards)
     return render_admin_v2(data, new_keys, activities, custom_overlay, user,
-                           bug_log_data=bug_log_data)
+                           bug_log_data=bug_log_data, jira_error=jira_error)
 
 
 def _bug_metrics_payload(bug_log_data):
@@ -62,10 +86,25 @@ def _bug_metrics_payload(bug_log_data):
 
 
 # ===== Admin Dashboard v2 (team-wide — pills + member filter + 5-col table + KPI cards) =====
-def render_admin_v2(data, new_keys, activities, cmap, user, bug_log_data=None):
+def render_admin_v2(data, new_keys, activities, cmap, user, bug_log_data=None, jira_error=False):
     """Admin dashboard v2: team-wide view with status pills, member dropdown, paginated
     5-column table, 3 KPI cards, and a task detail drawer. Data is embedded as JSON and
-    rendered entirely client-side by the admin controller in app_v2.js."""
+    rendered entirely client-side by the admin controller in app_v2.js.
+
+    jira_error=True -> Jira không với tới được: chỉ vùng task (pills/bảng/KPI, nguồn Jira)
+    đổi sang card lỗi; KHÔNG drop #rows table thật -> dashboard controller bail (guard #rows).
+    Block Metric Bug (cache local) VẪN render + hoạt động bình thường."""
+    if jira_error:
+        content = (
+            '<div class="page-head"><div>'
+            '<h2 class="page-title">Task Management</h2></div></div>'
+            + _conn_error_card()
+            + _bug_metric_card_html()
+            + _json_script('bugMetrics', _bug_metrics_payload(bug_log_data))
+        )
+        return _document_v2(content, 'dashboard', user, activities,
+                            title='QA Workspace — Task Management')
+
     active = data['active']
     done = data['done_week']
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -218,24 +257,9 @@ def render_admin_v2(data, new_keys, activities, cmap, user, bug_log_data=None):
         '<div class="kpi-trend down"><span class="material-symbols-rounded">warning</span>'
         '<span>need attention</span></div></div></div></div>'
         # ===== Metric Bug (nguồn = bug_log_store; chọn theo file + sheet; lịch sử mỗi sync)
-        '<div class="card bug-metric-card" id="bugMetricCard">'
-        '<div class="table-header"><div class="table-title">'
-        '<span class="material-symbols-rounded">bug_report</span>'
-        '<span>Metric Bug — Tổng &amp; theo Status</span></div>'
-        '<div class="bm-filters">'
-        '<span class="material-symbols-rounded mi-sm">description</span>'
-        '<select id="bmFile" class="bm-sel"></select>'
-        '<span class="material-symbols-rounded mi-sm">tab</span>'
-        '<select id="bmSheet" class="bm-sel"></select></div></div>'
-        '<div class="bm-body">'
-        '<div class="bm-current" id="bmCurrent"></div>'
-        '<div class="bm-history-wrap"><div class="bm-history-head">'
-        '<span class="material-symbols-rounded mi-sm">history</span> '
-        'Lịch sử thay đổi qua mỗi lần sync</div>'
-        '<div class="bm-history" id="bmHistory"></div></div></div>'
-        '<div class="bm-sub" id="bmSynced"></div></div>'
+        + _bug_metric_card_html()
         # Status menu (drawer DOM nằm ở shell _document_v2 -> mọi trang dùng chung)
-        '<div class="smenu" id="smenu"></div>'
+        + '<div class="smenu" id="smenu"></div>'
         + _json_script('bugMetrics', _bug_metrics_payload(bug_log_data))
         + _json_script('qaData', {'tasks': tasks, 'meta': meta})
         + f'<script>window.QA_CUSTOM_STATUSES={json.dumps(CUSTOM_STATUSES, ensure_ascii=False)};</script>'
@@ -247,7 +271,17 @@ def render_admin_v2(data, new_keys, activities, cmap, user, bug_log_data=None):
 # ===== Dashboard QA v2 (lens cá nhân — 1 bảng + tabs + KPI + drawer) =====
 # Dùng chung cho QA member (`/`, nav_active='dashboard') và admin xem việc mình
 # (`/my-work`, nav_active='mywork') — UI hệt nhau, chỉ khác tab sidebar được highlight.
-def render_qa_v2(data, new_keys, activities, cmap, user, nav_active='dashboard'):
+def render_qa_v2(data, new_keys, activities, cmap, user, nav_active='dashboard', jira_error=False):
+    # Lens cá nhân = 100% data Jira (không có block local nào) -> Jira down thì cả vùng
+    # nội dung báo lỗi, giữ skeleton sidebar/topbar.
+    if jira_error:
+        content = (
+            '<div class="page-head"><div class="page-title">Tổng quan — Việc của tôi</div></div>'
+            + _conn_error_card()
+        )
+        return _document_v2(content, nav_active, user, activities,
+                            title='QA Dashboard — Việc của tôi')
+
     active = data['active']
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     week_start = today - timedelta(days=today.weekday())

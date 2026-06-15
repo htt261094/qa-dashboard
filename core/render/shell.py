@@ -36,6 +36,18 @@ def _avatar(username, name):
     return init, cls
 
 
+def _conn_error_card(msg='Không thể kết nối tới Jira. Vui lòng thử lại.'):
+    """Card lỗi kết nối Jira — dùng inline thay cho vùng nội dung cần Jira (giữ
+    skeleton + các block KHÔNG cần Jira xung quanh). Xem render_shell_error (cả
+    trang) và render_admin_v2(jira_error=True) (chỉ vùng task, giữ bug-metric)."""
+    return ('<div class="conn-error">'
+            '<span class="material-symbols-rounded ce-ic">cloud_off</span>'
+            f'<div class="ce-msg">{esc(msg)}</div>'
+            '<button type="button" class="ce-retry" onclick="location.reload()">'
+            '<span class="material-symbols-rounded mi-sm">refresh</span> Thử lại</button>'
+            '</div>')
+
+
 def render_sidebar_v2(active, user):
     is_admin = user[1] if (user and len(user) > 1) else True
     email = user[0] if (user and user[0]) else ''

@@ -510,6 +510,11 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
                     msg="Tài khoản của bạn chưa được gắn với QA nào trong hệ thống. "
                         "Liên hệ admin (Thành) để cấp quyền."))
                 return
+        # Block KHÔNG cần Jira (bug-metric / roadmap-alert) — load riêng, đọc cache local khi
+        # Jira hỏng (load_bug_log/load_roadmap tự fallback cache, KHÔNG raise). Tách khỏi try
+        # Jira để khi Jira down vẫn render được các block này (chỉ vùng task báo lỗi).
+        buglog = load_bug_log()
+        roadmap = load_roadmap()
         try:
             # các call độc lập -> chạy song song (fetch_all tự song song 5 call bên trong)
             res = run_parallel({
@@ -518,8 +523,6 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
                 'dismissed': lambda: load_dismissed(email),
                 # 1 lần đọc property -> (nhãn custom hiện tại, sự kiện đổi nhãn để báo admin)
                 'custom': lambda: load_bundle(scope, ACTIVITY_DAYS),
-                # bug log = cache local (+1 property read) -> metric bug trên dashboard admin
-                'buglog': load_bug_log,
             })
             data, feed, dismissed = res['data'], res['feed'], res['dismissed']
             overlay, cust_act = res['custom']
@@ -531,11 +534,14 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             for a in merged:
                 a['is_unread'] = a['id'] not in dismissed
             html_out = render_page(data, new_keys, first_run, merged, ACTIVITY_DAYS,
-                                   roadmap_data=load_roadmap(), user=self._user_ctx(),
-                                   custom_overlay=overlay, bug_log_data=res['buglog'])
+                                   roadmap_data=roadmap, user=self._user_ctx(),
+                                   custom_overlay=overlay, bug_log_data=buglog)
         except RuntimeError:
-            html_out = render_shell_error('dashboard', self._user_ctx(),
-                                          title='QA Workspace')
+            # Jira down: giữ skeleton + block local (bug-metric vẫn dùng được), CHỈ vùng task
+            # (pills/bảng/KPI từ Jira) đổi sang card "Không thể kết nối tới Jira".
+            html_out = render_page(None, None, False, [], ACTIVITY_DAYS,
+                                   roadmap_data=roadmap, user=self._user_ctx(),
+                                   custom_overlay=None, bug_log_data=buglog, jira_error=True)
         self._html(html_out)
 
     def _html(self, html_out):
