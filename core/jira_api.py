@@ -5,13 +5,15 @@ PAT is read from config and never logged: network errors are redacted before rai
 import sys
 import json
 import time
+import hashlib
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
 from config import (JIRA_URL, PAT, USERS, TASK_PTSP_TYPE_ID, actor_name,
                     LEADER_EVAL_NUM_FIELD, LEADER_EVAL_TEXT_FIELD, OFFLINE)
-from issues import parse_date
+from issues import parse_date, i_assignee, i_reporter
+from remote_store import remote_get, remote_put
 
 try:
     import requests
@@ -643,6 +645,124 @@ def _compute_fetch_all(scope_user):
     })
     data['fetched_at'] = datetime.now()
     return data
+
+
+# ===== Snapshot chéo máy (L2): Cloudflare KV vừa làm cache CHUNG vừa làm kho OFFLINE =====
+# Mục tiêu (kết tiếp Decision cloudflare-kv-store):
+#  - Ai có VPN fetch full team -> ghi snapshot KV. Người sau (dù có VPN) thấy KV còn tươi
+#    (<_CACHE_TTL) -> view THẲNG, KHÔNG gọi Jira -> 1 lượt full fetch/cửa sổ phục vụ cả team.
+#  - Mất VPN -> đọc snapshot KV (cũ mấy cũng lấy) -> caller render READ-ONLY.
+#  - hash nội dung trùng bản đã đẩy -> KHÔNG PUT (đỡ quota write Cloudflare).
+# L1 = _cache RAM (key 'fetch_all:None'); L2 = KV. Luôn full team (__all__); caller scope_data.
+_SNAP_KEY = 'qa-snapshot'
+_snap_last_hash = None          # hash payload đã PUT gần nhất (per-process) -> dedup PUT
+_snap_hash_lock = threading.Lock()
+
+
+def _snap_serialize(data):
+    """fetch_all data -> dict JSON-able cho KV (fetched_at datetime -> ISO)."""
+    d = dict(data)
+    fa = d.get('fetched_at')
+    d['fetched_at'] = fa.isoformat() if hasattr(fa, 'isoformat') else fa
+    return d
+
+
+def _snap_deserialize(raw):
+    """KV dict -> fetch_all data (fetched_at ISO -> datetime; hỏng -> now)."""
+    d = dict(raw)
+    fa = d.get('fetched_at')
+    try:
+        d['fetched_at'] = datetime.fromisoformat(fa) if isinstance(fa, str) else datetime.now()
+    except (TypeError, ValueError):
+        d['fetched_at'] = datetime.now()
+    return d
+
+
+def _snap_age(data):
+    """Tuổi snapshot theo giây (lớn vô cực nếu thiếu fetched_at)."""
+    fa = data.get('fetched_at')
+    if not hasattr(fa, 'timestamp'):
+        return float('inf')
+    return (datetime.now() - fa).total_seconds()
+
+
+def _snap_payload_hash(data):
+    """Hash phần NỘI DUNG (bỏ fetched_at/fetched_by volatile) để dedup PUT."""
+    core = {k: data.get(k) for k in
+            ('active', 'new24', 'done_week', 'created_week', 'resolved_week')}
+    return hashlib.sha256(
+        json.dumps(core, sort_keys=True, default=str).encode('utf-8')).hexdigest()
+
+
+def _write_snapshot_async(data):
+    """Ghi snapshot lên KV ở NỀN. hash trùng -> bỏ qua PUT; KV lỗi -> nuốt (thử lại sau)."""
+    h = _snap_payload_hash(data)
+    payload = _snap_serialize(data)
+
+    def _run():
+        global _snap_last_hash
+        with _snap_hash_lock:
+            if h == _snap_last_hash:
+                return                      # nội dung y bản đã đẩy -> KHỎI PUT (đỡ quota)
+        try:
+            remote_put(_SNAP_KEY, payload)
+            with _snap_hash_lock:
+                _snap_last_hash = h
+        except RuntimeError:
+            pass                            # KV không với tới -> để lần sau
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def fetch_all_shared(fetched_by=None):
+    """Pull full team data qua tầng L1 RAM -> L2 KV(tươi) -> live fetch -> KV(offline).
+
+    Trả (data, stale): stale=True nghĩa là Jira KHÔNG với tới, đang phục vụ snapshot KV cũ
+    (caller render read-only + banner). stale=False = data đủ tươi (live/cache/KV-fresh).
+    data luôn là FULL team (__all__); caller dùng scope_data() để lọc theo người xem.
+    """
+    key = 'fetch_all:None'
+    # L1 — RAM cache còn tươi -> trả ngay (nhanh nhất, không chạm KV)
+    with _cache_lock:
+        entry = _cache.get(key)
+    if entry and (time.monotonic() - entry[1]) < _CACHE_TTL:
+        return entry[0], False
+    # L2 — snapshot KV còn tươi -> view thẳng, KHÔNG gọi Jira (tối ưu #1)
+    snap = None
+    try:
+        raw = remote_get(_SNAP_KEY)
+        if raw:
+            snap = _snap_deserialize(raw)
+    except RuntimeError:
+        snap = None                          # KV không với tới
+    if snap is not None and _snap_age(snap) < _CACHE_TTL:
+        _cache_set(key, snap)
+        return snap, False
+    # cần data tươi -> live fetch full team
+    try:
+        data = _compute_fetch_all(None)
+    except RuntimeError:
+        if snap is not None:
+            return snap, True                # mất VPN -> snapshot cũ, read-only
+        raise                                # KV cũng trống -> trang lỗi như cũ
+    data['fetched_by'] = fetched_by
+    _cache_set(key, data)
+    _write_snapshot_async(data)              # ghi KV nền + dedup hash (tối ưu #2)
+    return data, False
+
+
+def scope_data(data, scope_user):
+    """Lọc full-team data xuống đúng view của 1 người (assignee cho active/done, reporter
+    cho new24). scope_user=None -> trả nguyên (admin xem cả team). Bỏ weekly count (chỉ
+    admin/team dùng -> không lọc được theo người từ count-only query). KHÔNG mutate `data`."""
+    if scope_user is None:
+        return data
+    out = dict(data)
+    out['active'] = [i for i in data.get('active', []) if i_assignee(i) == scope_user]
+    out['done_week'] = [i for i in data.get('done_week', []) if i_assignee(i) == scope_user]
+    out['new24'] = [i for i in data.get('new24', []) if i_reporter(i) == scope_user]
+    out['created_week'] = 0
+    out['resolved_week'] = 0
+    return out
 
 
 def fetch_project_categories():

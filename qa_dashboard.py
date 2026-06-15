@@ -27,7 +27,7 @@ from bug_log_store import (scan as bug_log_scan, start_scheduler as start_bug_lo
                            load_bug_log)
 from bug_log_source import load_sources, save_sources, extract_file_id, MAX_SOURCES
 from task_link import load_links, set_task_links, tasks_of
-from jira_api import (fetch_all, fetch_activity_feed, load_dismissed,
+from jira_api import (fetch_all_shared, scope_data, fetch_activity_feed, load_dismissed,
                       dismiss_activities, run_parallel, fetch_issue_detail,
                       search_parent_ptsp, search_people, search_qa_tasks, global_search)
 from state import load_snapshots, save_snapshots, build_snapshot
@@ -312,24 +312,27 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             self._redirect('/')
             return
         scope = self._self_username()
+        # data full team qua snapshot chéo máy rồi scope về chính admin (xem Decision offline-snapshot).
         try:
-            # data trang = task của chính admin (scope self); chuông notif = _bell_activities()
-            # (đồng nhất mọi tab). overlay nhãn custom là scope-independent -> lấy từ bundle(self).
-            res = run_parallel({
-                'data': lambda: fetch_all(scope),
-                'custom': lambda: load_bundle(scope, ACTIVITY_DAYS),
-                'bell': self._bell_activities,
-            })
-            data = res['data']
-            overlay, _cust_act = res['custom']
-            new_keys, _first_run = _build_view(data, scope)
-            # UI hệt QA member (render_qa_v2), chỉ highlight tab "Việc của tôi" ở sidebar
-            html_out = render_qa_v2(data, new_keys, res['bell'], overlay,
-                                    self._user_ctx(), nav_active='mywork')
+            full, stale = fetch_all_shared(fetched_by=self._user_email())
         except RuntimeError:
-            html_out = render_shell_error('mywork', self._user_ctx(),
-                                          title='Việc của tôi — QA Workspace')
-        self._html(html_out)
+            self._html(render_shell_error('mywork', self._user_ctx(),
+                                          title='Việc của tôi — QA Workspace'))
+            return
+        data = scope_data(full, scope)
+        new_keys, _first_run = _build_view(data, scope)
+        # overlay nhãn custom qua KV -> sống offline; chuông notif qua Jira -> có thể fail.
+        try:
+            overlay, _cust_act = load_bundle(scope, ACTIVITY_DAYS)
+        except RuntimeError:
+            overlay = None
+        try:
+            bell = self._bell_activities()
+        except RuntimeError:
+            bell = []
+        # UI hệt QA member (render_qa_v2), chỉ highlight tab "Việc của tôi" ở sidebar
+        self._html(render_qa_v2(data, new_keys, bell, overlay, self._user_ctx(),
+                                nav_active='mywork', stale=stale))
 
     def _get_leader_eval(self):
         if not self._is_admin():
@@ -515,34 +518,40 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         # Jira để khi Jira down vẫn render được các block này (chỉ vùng task báo lỗi).
         buglog = load_bug_log()
         roadmap = load_roadmap()
+        # Task data qua tầng snapshot chéo máy: ai có VPN fetch full team -> ghi KV; người
+        # sau (kể cả mất VPN) đọc snapshot KV. stale=True -> Jira không với tới, đang phục vụ
+        # snapshot cũ -> render read-only. data LUÔN full team -> scope_data lọc theo người xem.
         try:
-            # các call độc lập -> chạy song song (fetch_all tự song song 5 call bên trong)
+            full, stale = fetch_all_shared(fetched_by=email)
+        except RuntimeError:
+            # Jira không với tới + KV cũng trống -> không có gì hiện vùng task (skeleton + lỗi).
+            self._html(render_page(None, None, False, [], ACTIVITY_DAYS,
+                                   roadmap_data=roadmap, user=self._user_ctx(),
+                                   custom_overlay=None, bug_log_data=buglog, jira_error=True))
+            return
+        data = scope_data(full, scope)
+        new_keys, first_run = _build_view(data, scope)
+        # nhãn custom qua KV -> sống cả khi offline; feed/dismissed qua Jira -> có thể fail.
+        try:
+            overlay, cust_act = load_bundle(scope, ACTIVITY_DAYS)
+        except RuntimeError:
+            overlay, cust_act = None, []
+        try:
+            # CHÚ Ý: phải GIỐNG _bell_activities() (nguồn chuông cho /my-work,/docs,/roadmap)
+            # để notif đồng nhất mọi tab — `/` canonical nên tự tính tại đây (đỡ fetch 2 lần).
             res = run_parallel({
-                'data': lambda: fetch_all(scope),
                 'feed': lambda: fetch_activity_feed(days=ACTIVITY_DAYS, scope_user=scope),
                 'dismissed': lambda: load_dismissed(email),
-                # 1 lần đọc property -> (nhãn custom hiện tại, sự kiện đổi nhãn để báo admin)
-                'custom': lambda: load_bundle(scope, ACTIVITY_DAYS),
             })
-            data, feed, dismissed = res['data'], res['feed'], res['dismissed']
-            overlay, cust_act = res['custom']
-            new_keys, first_run = _build_view(data, scope)
-            # gộp custom-status events vào feed Jira, sort mới->cũ.
-            # CHÚ Ý: phải GIỐNG _bell_activities() (nguồn chuông cho /my-work,/docs,/roadmap)
-            # để notif đồng nhất mọi tab — `/` đã canonical nên tự tính tại đây (đỡ fetch 2 lần).
-            merged = sorted(feed + cust_act, key=lambda a: a.get('when') or '', reverse=True)
-            for a in merged:
-                a['is_unread'] = a['id'] not in dismissed
-            html_out = render_page(data, new_keys, first_run, merged, ACTIVITY_DAYS,
-                                   roadmap_data=roadmap, user=self._user_ctx(),
-                                   custom_overlay=overlay, bug_log_data=buglog)
+            feed, dismissed = res['feed'], res['dismissed']
         except RuntimeError:
-            # Jira down: giữ skeleton + block local (bug-metric vẫn dùng được), CHỈ vùng task
-            # (pills/bảng/KPI từ Jira) đổi sang card "Không thể kết nối tới Jira".
-            html_out = render_page(None, None, False, [], ACTIVITY_DAYS,
-                                   roadmap_data=roadmap, user=self._user_ctx(),
-                                   custom_overlay=None, bug_log_data=buglog, jira_error=True)
-        self._html(html_out)
+            feed, dismissed = [], {}     # offline -> chuông rỗng, trang vẫn render
+        merged = sorted(feed + cust_act, key=lambda a: a.get('when') or '', reverse=True)
+        for a in merged:
+            a['is_unread'] = a['id'] not in dismissed
+        self._html(render_page(data, new_keys, first_run, merged, ACTIVITY_DAYS,
+                               roadmap_data=roadmap, user=self._user_ctx(),
+                               custom_overlay=overlay, bug_log_data=buglog, stale=stale))
 
     def _html(self, html_out):
         self.send_response(200)

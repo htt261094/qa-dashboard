@@ -45,17 +45,17 @@ def _bug_metric_card_html():
 
 # ===== Full page =====
 def render_page(data, new_keys, first_run, activities, activity_days=7, roadmap_data=None,
-                user=None, custom_overlay=None, bug_log_data=None, jira_error=False):
+                user=None, custom_overlay=None, bug_log_data=None, jira_error=False, stale=False):
     is_admin = user[1] if (user and len(user) > 1) else True
 
     # QA thường (non-admin): data đã auto-scope về chính họ -> UI v2 (shell sidebar Stitch).
     if not is_admin:
         return render_qa_v2(data, new_keys, activities, custom_overlay, user,
-                            jira_error=jira_error)
+                            jira_error=jira_error, stale=stale)
 
     # Admin -> new v2 dashboard (pills + member filter + 5-col table + KPI cards)
     return render_admin_v2(data, new_keys, activities, custom_overlay, user,
-                           bug_log_data=bug_log_data, jira_error=jira_error)
+                           bug_log_data=bug_log_data, jira_error=jira_error, stale=stale)
 
 
 def _bug_metrics_payload(bug_log_data):
@@ -86,7 +86,16 @@ def _bug_metrics_payload(bug_log_data):
 
 
 # ===== Admin Dashboard v2 (team-wide — pills + member filter + 5-col table + KPI cards) =====
-def render_admin_v2(data, new_keys, activities, cmap, user, bug_log_data=None, jira_error=False):
+def _snap_note(data):
+    """Mô tả nguồn snapshot cho banner offline: 'dữ liệu lúc HH:MM dd/mm (fetch bởi X)'."""
+    fa = (data or {}).get('fetched_at')
+    when = fa.strftime('%H:%M %d/%m') if hasattr(fa, 'strftime') else '?'
+    by = (data or {}).get('fetched_by') or 'máy khác'
+    return f'dữ liệu lúc {when} (fetch bởi {by})'
+
+
+def render_admin_v2(data, new_keys, activities, cmap, user, bug_log_data=None,
+                    jira_error=False, stale=False):
     """Admin dashboard v2: team-wide view with status pills, member dropdown, paginated
     5-column table, 3 KPI cards, and a task detail drawer. Data is embedded as JSON and
     rendered entirely client-side by the admin controller in app_v2.js.
@@ -265,13 +274,15 @@ def render_admin_v2(data, new_keys, activities, cmap, user, bug_log_data=None, j
         + f'<script>window.QA_CUSTOM_STATUSES={json.dumps(CUSTOM_STATUSES, ensure_ascii=False)};</script>'
     )
     return _document_v2(content, 'dashboard', user, activities,
-                        title='QA Workspace — Task Management')
+                        title='QA Workspace — Task Management',
+                        stale=stale, stale_note=_snap_note(data) if stale else '')
 
 
 # ===== Dashboard QA v2 (lens cá nhân — 1 bảng + tabs + KPI + drawer) =====
 # Dùng chung cho QA member (`/`, nav_active='dashboard') và admin xem việc mình
 # (`/my-work`, nav_active='mywork') — UI hệt nhau, chỉ khác tab sidebar được highlight.
-def render_qa_v2(data, new_keys, activities, cmap, user, nav_active='dashboard', jira_error=False):
+def render_qa_v2(data, new_keys, activities, cmap, user, nav_active='dashboard',
+                 jira_error=False, stale=False):
     # Lens cá nhân = 100% data Jira (không có block local nào) -> Jira down thì cả vùng
     # nội dung báo lỗi, giữ skeleton sidebar/topbar.
     if jira_error:
@@ -351,4 +362,5 @@ def render_qa_v2(data, new_keys, activities, cmap, user, nav_active='dashboard',
         + _json_script('qaData', {'tasks': tasks, 'meta': meta})
         + f'<script>window.QA_CUSTOM_STATUSES={json.dumps(CUSTOM_STATUSES, ensure_ascii=False)};</script>'
     )
-    return _document_v2(content, nav_active, user, activities, title='QA Dashboard — Việc của tôi')
+    return _document_v2(content, nav_active, user, activities, title='QA Dashboard — Việc của tôi',
+                        stale=stale, stale_note=_snap_note(data) if stale else '')
