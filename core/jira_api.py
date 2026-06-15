@@ -44,23 +44,67 @@ def _request_short_connect(method, url, **kw):
 
 _SESSION.request = _request_short_connect
 
-# In-memory cache với TTL 2 phút: giảm số call Jira khi F5 nhanh hoặc nhiều tab.
-_CACHE_TTL = 120  # giây
-_cache: dict = {}
+# In-memory cache: giảm số call Jira khi F5 nhanh hoặc nhiều tab.
+# - Trong _CACHE_TTL (fresh): trả ngay.
+# - _CACHE_TTL..._CACHE_STALE_TTL (stale): trả NGAY data cũ + refresh nền (SWR) -> chuyển
+#   tab không block trên call Jira nặng (feed expand=changelog / fetch_all 5 call).
+# - Quá _CACHE_STALE_TTL hoặc miss: tính đồng bộ (raise như cũ nếu Jira lỗi).
+_CACHE_TTL = 120        # giây — cửa sổ "tươi"
+_CACHE_STALE_TTL = 900  # giây — vẫn phục vụ data cũ trong lúc refresh nền (tối đa 15')
+_cache: dict = {}       # key -> (data, set_at_monotonic)
 _cache_lock = threading.Lock()
+_cache_inflight: set = set()   # key đang refresh nền -> chống stampede (nhiều tab cùng lúc)
 
 
 def _cache_get(key):
+    """Fresh-only get (giữ tương thích caller cũ): (data, True) nếu còn trong TTL."""
     with _cache_lock:
         entry = _cache.get(key)
-        if entry and entry[1] > time.monotonic():
+        if entry and entry[1] + _CACHE_TTL > time.monotonic():
             return entry[0], True
         return None, False
 
 
 def _cache_set(key, data):
     with _cache_lock:
-        _cache[key] = (data, time.monotonic() + _CACHE_TTL)
+        _cache[key] = (data, time.monotonic())
+
+
+def _refresh_async(key, producer):
+    """Spawn 1 thread refresh cache cho `key` (dedup theo key). Lỗi nền -> nuốt, giữ stale."""
+    with _cache_lock:
+        if key in _cache_inflight:
+            return
+        _cache_inflight.add(key)
+
+    def _run():
+        try:
+            _cache_set(key, producer())
+        except Exception:
+            pass   # refresh nền hỏng (Jira down...) -> giữ data stale, thử lại lần sau
+        finally:
+            with _cache_lock:
+                _cache_inflight.discard(key)
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def _cached_swr(key, producer):
+    """Stale-while-revalidate. producer() -> data (sẽ được cache).
+    fresh -> trả ngay; stale -> trả data cũ NGAY + refresh nền; miss/quá-cũ -> tính đồng bộ."""
+    now = time.monotonic()
+    with _cache_lock:
+        entry = _cache.get(key)
+    if entry:
+        data, set_at = entry
+        age = now - set_at
+        if age < _CACHE_TTL:
+            return data                       # fresh
+        if age < _CACHE_STALE_TTL:
+            _refresh_async(key, producer)     # stale -> làm tươi ở nền, KHÔNG block
+            return data
+    data = producer()                         # miss/quá cũ -> đồng bộ (raise như cũ nếu lỗi)
+    _cache_set(key, data)
+    return data
 
 _DEFAULT_FIELDS = ('summary,status,assignee,reporter,duedate,created,'
                    'resolutiondate,updated,issuetype,comment,priority')
@@ -135,12 +179,17 @@ def fetch_activity_feed(days=7, cap=300, max_issues=120, scope_user=None, with_s
     """
     # Cache độc lập với with_status (luôn lưu tuple (acts, statuses)) -> bell embed (no patch)
     # và poll (patch) DÙNG CHUNG 1 lần fetch changelog (call nặng nhất), không gọi đôi.
-    cache_key = f'activity:{days}:{scope_user}'
-    cached, hit = _cache_get(cache_key)
-    if hit:
-        return cached if with_status else cached[0]
+    # SWR: stale -> trả ngay + refresh nền (chuyển tab KHÔNG block trên call này).
     if scope_user is not None and scope_user not in USERS:
         raise ValueError('unknown scope_user')
+    cache_key = f'activity:{days}:{scope_user}'
+    result = _cached_swr(
+        cache_key, lambda: _compute_activity_feed(days, cap, max_issues, scope_user))
+    return result if with_status else result[0]
+
+
+def _compute_activity_feed(days, cap, max_issues, scope_user):
+    """Build (acts[:cap], {key:status}) từ Jira changelog. KHÔNG cache (wrapper SWR lo)."""
     start = datetime.now() - timedelta(days=days)
     fallback = None
     if scope_user:
@@ -228,9 +277,7 @@ def fetch_activity_feed(days=7, cap=300, max_issues=120, scope_user=None, with_s
                          'when': c.get('created'), 'comment_delta': 1,
                          'mention': mention, 'body': _comment_snippet(raw)})
     acts.sort(key=lambda a: a.get('when') or '', reverse=True)
-    result = (acts[:cap], statuses)        # luôn cache tuple; non-patch caller lấy result[0]
-    _cache_set(cache_key, result)
-    return result if with_status else result[0]
+    return (acts[:cap], statuses)          # tuple: (activities, {key:status})
 
 
 def _ptsp_index():
@@ -576,14 +623,16 @@ def fetch_all(scope_user=None):
     scope_user=None  -> toàn team (admin).
     scope_user='quangbm' -> CHỈ task của user đó (QA thường xem phần mình). Lọc ngay
     ở JQL nên Jira không trả data người khác (server-side, không lộ qua page source).
-    Cache TTL 2 phút: F5 liên tiếp trong 2p trả cache, tránh spam Jira.
+    Cache SWR: fresh trong 2 phút; stale -> trả ngay + refresh nền (chuyển tab/F5 KHÔNG
+    block trên 5 call Jira), data tươi lại ở lần load kế tiếp.
     """
-    cache_key = f'fetch_all:{scope_user}'
-    cached, hit = _cache_get(cache_key)
-    if hit:
-        return cached
     if scope_user is not None and scope_user not in USERS:
         raise ValueError('unknown scope_user')
+    return _cached_swr(f'fetch_all:{scope_user}', lambda: _compute_fetch_all(scope_user))
+
+
+def _compute_fetch_all(scope_user):
+    """5 call Jira (3 search + 2 count) song song. KHÔNG cache (wrapper SWR lo)."""
     if scope_user:
         a_clause = f'assignee = {scope_user}'
         rep_clause = f'reporter = {scope_user}'
@@ -604,7 +653,6 @@ def fetch_all(scope_user=None):
             f'{a_clause} AND status CHANGED TO "DONE" AFTER startOfWeek()'),
     })
     data['fetched_at'] = datetime.now()
-    _cache_set(cache_key, data)
     return data
 
 
