@@ -12,9 +12,9 @@ import lại ở đây để chỗ gọi (qa_dashboard.py, scripts) không phả
 from render.base import load_css, load_css_v2, load_js_v2, _json_script
 # Shell chrome (sidebar/topbar/modals/_document_v2) extracted to render.shell;
 # re-exported so existing callers keep working. See issue #104 / #86.
-from render.shell import (_FONTS_V2, _AV_CLS, _avatar, render_sidebar_v2,
-                          render_topbar_v2, _settings_modal_v2, _subtask_modal_v2,
-                          _document_v2)
+from render.shell import (_FONTS_V2, _AV_CLS, _avatar, _conn_error_card,
+                          render_sidebar_v2, render_topbar_v2, _settings_modal_v2,
+                          _subtask_modal_v2, _document_v2)
 # Trang phụ (403/settings/drive card/error) tách sang render.misc; re-export để
 # chỗ gọi (qa_dashboard.py) không phải đổi import. See issue #105 / #86.
 from render.misc import (render_403, _render_drive_card, render_settings_page,

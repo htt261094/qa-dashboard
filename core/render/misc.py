@@ -6,7 +6,7 @@ chuyển định nghĩa, re-export ở __init__ để chỗ gọi không phải 
 from config import JIRA_URL
 from issues import esc
 from render.base import load_css
-from render.shell import _document_v2
+from render.shell import _document_v2, _conn_error_card
 
 
 def render_403():
@@ -99,12 +99,7 @@ def render_shell_error(active='dashboard', user=None,
     inner = (
         '<div class="page-head"><div>'
         '<h2 class="page-title">Bảng điều khiển</h2></div></div>'
-        '<div class="conn-error">'
-        '<span class="material-symbols-rounded ce-ic">cloud_off</span>'
-        f'<div class="ce-msg">{esc(msg)}</div>'
-        '<button type="button" class="ce-retry" onclick="location.reload()">'
-        '<span class="material-symbols-rounded mi-sm">refresh</span> Thử lại</button>'
-        '</div>'
+        + _conn_error_card(msg)
     )
     return _document_v2(inner, active, user, [], title=title)
 
