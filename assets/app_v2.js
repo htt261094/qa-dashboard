@@ -8,7 +8,14 @@ function esc(s){ return (s==null?'':String(s))
   .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function $(id){ return document.getElementById(id); }
 function readJSON(id){ var el=$(id); if(!el) return null; try{ return JSON.parse(el.textContent); }catch(e){ return null; } }
+// Write cần Jira -> chặn khi đang xem snapshot OFFLINE (window.__stale). /set-custom-status
+// ghi Cloudflare KV nên VẪN cho (sống offline); /dismiss cũng KV -> không chặn.
+var JIRA_WRITE = { '/do-transition':1, '/create-subtask':1 };
 function postJSON(url, body, ms){
+  if (window.__stale && JIRA_WRITE[url]) {
+    try { toast('Đang xem offline (mất kết nối Jira) — không đổi được task. Bật VPN rồi thử lại.'); } catch(e){}
+    return Promise.reject(new Error('offline'));
+  }
   var ctrl = new AbortController();
   var to = setTimeout(function(){ ctrl.abort(); }, ms||20000);
   return fetch(url, { method:'POST', headers:{'Content-Type':'application/json'},

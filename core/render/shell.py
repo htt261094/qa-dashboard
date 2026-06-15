@@ -194,9 +194,25 @@ def _subtask_modal_v2():
     )
 
 
-def _document_v2(content_inner, active, user, activities, title='QA Suite'):
+def _stale_banner(note):
+    """Banner OFFLINE: đang phục vụ snapshot KV cũ (Jira không với tới). `note` = mô tả nguồn."""
+    return (
+        '<div style="background:#fff4e5;border:1px solid #ffb74d;color:#7a4b00;'
+        'border-radius:10px;padding:10px 14px;margin:0 0 16px;font-size:13px;'
+        'display:flex;gap:8px;align-items:center">'
+        '<span style="font-size:16px">🔌</span><span>'
+        f'<b>Đang xem OFFLINE</b> — {esc(note)}. '
+        'Không đổi được task (đổi trạng thái / tạo sub-task) tới khi có kết nối Jira.'
+        '</span></div>')
+
+
+def _document_v2(content_inner, active, user, activities, title='QA Suite',
+                 stale=False, stale_note=''):
     """Shell sidebar Material-3 cho dashboard QA + roadmap. Inline styles_v2.css + app_v2.js.
-    `activities` = feed (đã lọc dismissed) cho chuông notif (embed JSON #qaNotif)."""
+    `activities` = feed (đã lọc dismissed) cho chuông notif (embed JSON #qaNotif).
+    stale=True -> Jira không với tới, đang phục vụ snapshot KV cũ: banner + window.__stale
+    (app_v2.js chặn write /do-transition + /create-subtask)."""
+    banner = _stale_banner(stale_note) if stale else ''
     return f"""<!DOCTYPE html>
 <html lang="vi"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -207,12 +223,12 @@ def _document_v2(content_inner, active, user, activities, title='QA Suite'):
 <body>
 <div class="app">{render_sidebar_v2(active, user)}
 <div class="main">{render_topbar_v2()}
-<div class="content">{content_inner}</div></div></div>
+<div class="content">{banner}{content_inner}</div></div></div>
 {_settings_modal_v2(user)}
 {_subtask_modal_v2()}
 <div class="toast" id="toast"></div>
 <div class="drawer-ov" id="drawerOv"></div><aside class="drawer" id="drawer"></aside>
 {_json_script('qaNotif', activities)}
-<script>window.__jiraBase={json.dumps(JIRA_URL)};</script>
+<script>window.__jiraBase={json.dumps(JIRA_URL)};window.__stale={json.dumps(bool(stale))};</script>
 <script>{load_js_v2()}</script>
 </body></html>"""
