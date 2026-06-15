@@ -201,6 +201,17 @@ tr.overdue-row{background:var(--error-bg)}
 .title.clickable:hover{color:var(--primary)}
 .empty{padding:48px;text-align:center;color:var(--on-surface-variant)}
 
+/* ===== Lỗi kết nối Jira — giữ skeleton, chỉ đổi nội dung ===== */
+.conn-error{background:var(--card);border:1px solid var(--outline-variant);
+  border-radius:var(--r-lg);padding:56px 32px;text-align:center;
+  display:flex;flex-direction:column;align-items:center;gap:14px}
+.conn-error .ce-ic{font-size:56px;color:var(--error)}
+.conn-error .ce-msg{font-size:16px;font-weight:600;color:var(--on-surface);max-width:480px}
+.conn-error .ce-retry{display:inline-flex;align-items:center;gap:6px;margin-top:4px;
+  padding:9px 18px;border-radius:var(--r-md,8px);border:1px solid var(--primary);
+  background:var(--primary);color:var(--on-primary);font-size:14px;font-weight:600;cursor:pointer}
+.conn-error .ce-retry:hover{background:var(--primary-strong)}
+
 /* ===== Badges ===== */
 .badge{display:inline-flex;align-items:center;gap:4px;padding:4px 9px;border-radius:var(--r-badge);
        font-size:11px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;white-space:nowrap}

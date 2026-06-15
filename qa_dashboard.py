@@ -37,7 +37,8 @@ from pat_store import save_user_pat, has_pat, delete_user_pat, load_user_pat
 from custom_status import (load_bundle, values_of)
 from render import (render_page, render_qa_v2, render_docs_page,
                     render_roadmap_v2, render_bug_log_v2,
-                    render_settings_page, render_error_page, render_403)
+                    render_settings_page, render_error_page, render_403,
+                    render_shell_error)
 from routes.oauth import OAuthMixin
 from routes.write import WriteMixin
 from routes.uploads import UploadsMixin
@@ -325,8 +326,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             # UI hệt QA member (render_qa_v2), chỉ highlight tab "Việc của tôi" ở sidebar
             html_out = render_qa_v2(data, new_keys, res['bell'], overlay,
                                     self._user_ctx(), nav_active='mywork')
-        except RuntimeError as e:
-            html_out = render_error_page(str(e))
+        except RuntimeError:
+            html_out = render_shell_error('mywork', self._user_ctx(),
+                                          title='Việc của tôi — QA Workspace')
         self._html(html_out)
 
     def _get_leader_eval(self):
@@ -358,8 +360,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             self._html(render_leader_eval_page(res['tasks'], y, m, user=self._user_ctx(), activities=res['bell'],
                                                categories=res['categories'],
                                                sel_category=category, sel_leader=leader, sel_assignees=sel_assignees))
-        except RuntimeError as e:
-            self._html(render_error_page(str(e)))
+        except RuntimeError:
+            self._html(render_shell_error('leadereval', self._user_ctx(),
+                                          title='Đánh giá — QA Workspace'))
 
     def _get_docs(self):
         # tài liệu training: load song song tài liệu và chuông notif (đồng nhất mọi tab)
@@ -490,8 +493,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             self._html(render_settings_page(has_pat(self._user_email()), user=self._user_ctx(),
                                              has_drive=hd, auth_enabled=AUTH_ENABLED,
                                              activities=self._bell_activities()))
-        except RuntimeError as e:
-            self._html(render_error_page(str(e)))
+        except RuntimeError:
+            self._html(render_shell_error('settings', self._user_ctx(),
+                                          title='Cài đặt — QA Workspace'))
 
     def _get_dashboard(self):
         email = self._user_email()  # dismiss tách theo người đăng nhập
@@ -501,9 +505,10 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         else:
             scope = username_from_email(email)
             if scope is None:   # non-admin không khớp QA nào -> không cho xem data team
-                self._html(render_error_page(
-                    "Tài khoản của bạn chưa được gắn với QA nào trong hệ thống. "
-                    "Liên hệ admin (Thành) để cấp quyền."))
+                self._html(render_shell_error(
+                    'dashboard', self._user_ctx(),
+                    msg="Tài khoản của bạn chưa được gắn với QA nào trong hệ thống. "
+                        "Liên hệ admin (Thành) để cấp quyền."))
                 return
         try:
             # các call độc lập -> chạy song song (fetch_all tự song song 5 call bên trong)
@@ -528,8 +533,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             html_out = render_page(data, new_keys, first_run, merged, ACTIVITY_DAYS,
                                    roadmap_data=load_roadmap(), user=self._user_ctx(),
                                    custom_overlay=overlay, bug_log_data=res['buglog'])
-        except RuntimeError as e:
-            html_out = render_error_page(str(e))
+        except RuntimeError:
+            html_out = render_shell_error('dashboard', self._user_ctx(),
+                                          title='QA Workspace')
         self._html(html_out)
 
     def _html(self, html_out):
