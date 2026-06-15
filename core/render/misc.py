@@ -89,6 +89,26 @@ def render_settings_page(has_pat, user=None, has_drive=False, auth_enabled=False
     return _document_v2(inner, 'settings', user, activities or [], title='Cài đặt — QA Dashboard')
 
 
+def render_shell_error(active='dashboard', user=None,
+                       msg='Không thể kết nối tới Jira. Vui lòng thử lại.',
+                       title='QA Workspace'):
+    """Lỗi GIỮ NGUYÊN skeleton v2 (sidebar + topbar) — chỉ phần nội dung cần Jira
+    đổi sang thông báo lỗi. Dùng khi Jira timeout/không với tới ở các route fetch
+    Jira (`/`, /my-work, /leader-eval, /settings). Khác render_error_page (trang
+    trắng, mất chrome). Chuông notif rỗng (`[]`) vì Jira đang down."""
+    inner = (
+        '<div class="page-head"><div>'
+        '<h2 class="page-title">Bảng điều khiển</h2></div></div>'
+        '<div class="conn-error">'
+        '<span class="material-symbols-rounded ce-ic">cloud_off</span>'
+        f'<div class="ce-msg">{esc(msg)}</div>'
+        '<button type="button" class="ce-retry" onclick="location.reload()">'
+        '<span class="material-symbols-rounded mi-sm">refresh</span> Thử lại</button>'
+        '</div>'
+    )
+    return _document_v2(inner, active, user, [], title=title)
+
+
 def render_error_page(msg):
     return f"""<!DOCTYPE html><html lang="vi"><head><meta charset="UTF-8"><title>Error</title>
 <script>(function(){{try{{var t=localStorage.getItem('qa-theme');if(t)document.documentElement.setAttribute('data-theme',t);}}catch(e){{}}}})();</script>
