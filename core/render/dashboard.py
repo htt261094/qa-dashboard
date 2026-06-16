@@ -44,17 +44,17 @@ def _bug_metric_card_html():
 
 
 # ===== Full page =====
-def render_page(data, new_keys, first_run, activities, activity_days=7, roadmap_data=None,
+def render_page(data, activities, activity_days=7, roadmap_data=None,
                 user=None, custom_overlay=None, bug_log_data=None, jira_error=False, stale=False):
     is_admin = user[1] if (user and len(user) > 1) else True
 
     # QA thường (non-admin): data đã auto-scope về chính họ -> UI v2 (shell sidebar Stitch).
     if not is_admin:
-        return render_qa_v2(data, new_keys, activities, custom_overlay, user,
+        return render_qa_v2(data, activities, custom_overlay, user,
                             jira_error=jira_error, stale=stale)
 
     # Admin -> new v2 dashboard (pills + member filter + 5-col table + KPI cards)
-    return render_admin_v2(data, new_keys, activities, custom_overlay, user,
+    return render_admin_v2(data, activities, custom_overlay, user,
                            bug_log_data=bug_log_data, jira_error=jira_error, stale=stale)
 
 
@@ -94,7 +94,7 @@ def _snap_note(data):
     return f'dữ liệu lúc {when} (fetch bởi {by})'
 
 
-def render_admin_v2(data, new_keys, activities, cmap, user, bug_log_data=None,
+def render_admin_v2(data, activities, cmap, user, bug_log_data=None,
                     jira_error=False, stale=False):
     """Admin dashboard v2: team-wide view with status pills, member dropdown, paginated
     5-column table, 3 KPI cards, and a task detail drawer. Data is embedded as JSON and
@@ -118,7 +118,6 @@ def render_admin_v2(data, new_keys, activities, cmap, user, bug_log_data=None,
     done = data['done_week']
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     today_str = today.strftime('%Y-%m-%d')
-    new_keys = new_keys or set()
 
     tasks = []
     seen = set()
@@ -281,7 +280,7 @@ def render_admin_v2(data, new_keys, activities, cmap, user, bug_log_data=None,
 # ===== Dashboard QA v2 (lens cá nhân — 1 bảng + tabs + KPI + drawer) =====
 # Dùng chung cho QA member (`/`, nav_active='dashboard') và admin xem việc mình
 # (`/my-work`, nav_active='mywork') — UI hệt nhau, chỉ khác tab sidebar được highlight.
-def render_qa_v2(data, new_keys, activities, cmap, user, nav_active='dashboard',
+def render_qa_v2(data, activities, cmap, user, nav_active='dashboard',
                  jira_error=False, stale=False):
     # Lens cá nhân = 100% data Jira (không có block local nào) -> Jira down thì cả vùng
     # nội dung báo lỗi, giữ skeleton sidebar/topbar.
@@ -297,7 +296,6 @@ def render_qa_v2(data, new_keys, activities, cmap, user, nav_active='dashboard',
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     week_start = today - timedelta(days=today.weekday())
     week_end = week_start + timedelta(days=7)
-    new_keys = new_keys or set()
 
     tasks = []
     n_over = n_stuck = n_dueweek = 0
@@ -325,7 +323,6 @@ def render_qa_v2(data, new_keys, activities, cmap, user, nav_active='dashboard',
             'due': i_duedate(iss) or '', 'dueDisp': i_duedate(iss) or 'Chưa đặt hạn',
             'dueCls': duecls, 'overdue': overdue, 'stuck': stuck, 'dueWeek': dueweek,
             'created': (i_created(iss) or '')[:10], 'createdDisp': (i_created(iss) or '')[:10] or '—',
-            'isNew': iss['key'] in new_keys,
             'jiraUrl': f'{JIRA_URL}/browse/{iss["key"]}',
         })
     meta = {'active': len(active), 'overdue': n_over, 'stuck': n_stuck,

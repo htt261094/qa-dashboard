@@ -18,7 +18,7 @@ from urllib.parse import urlparse, parse_qs
 # imports (`from config import ...`) keep working unchanged.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'core'))
 
-from config import (JIRA_URL, USERS, PORT, STATE_FILE, ADMIN_EMAIL, ALLOWED_DOMAIN,
+from config import (JIRA_URL, USERS, PORT, ADMIN_EMAIL, ALLOWED_DOMAIN,
                     AUTH_ENABLED, SELF_USER, PUBLIC_BASE_URL,
                     display_name, username_from_email)
 from auth import SESSION_COOKIE, email_from_session
@@ -30,7 +30,6 @@ from task_link import load_links, set_task_links, tasks_of
 from jira_api import (fetch_all_shared, scope_data, fetch_activity_feed, load_dismissed,
                       dismiss_activities, run_parallel, fetch_issue_detail,
                       search_parent_ptsp, search_people, search_qa_tasks, global_search)
-from state import load_snapshots, save_snapshots, build_snapshot
 from docs import load_docs, save_docs, valid_tree
 from roadmap import load_roadmap, save_roadmap, valid_roadmap
 from pat_store import save_user_pat, has_pat, delete_user_pat, load_user_pat
@@ -44,24 +43,6 @@ from routes.write import WriteMixin
 from routes.uploads import UploadsMixin
 
 ACTIVITY_DAYS = 7  # cửa sổ activity feed kéo từ Jira changelog
-
-
-def _build_view(data, scope):
-    """Snapshot diff để highlight task mới (new_keys). Activity giờ kéo từ Jira feed
-    (device-independent), không còn dùng local diff/pending.
-
-    Baseline RIÊNG cho từng scope (admin='__all__', QA=username): data của scope này
-    KHÔNG ghi đè baseline scope khác. Trước đây dùng chung 1 snapshot -> admin (toàn team)
-    và QA (1 người) giẫm baseline nhau, khiến task cũ bị gắn NEW oan rồi nhấp nháy."""
-    cur_snapshot = build_snapshot(data)
-    scope_key = scope or '__all__'
-    snaps = load_snapshots()
-    prev_snap = snaps.get(scope_key)
-    first_run = prev_snap is None
-    new_keys = set() if first_run else (set(cur_snapshot) - set(prev_snap.keys()))
-    snaps[scope_key] = cur_snapshot
-    save_snapshots(snaps)
-    return new_keys, first_run
 
 
 # ===== HTTP server =====
@@ -320,7 +301,6 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
                                           title='Việc của tôi — QA Workspace'))
             return
         data = scope_data(full, scope)
-        new_keys, _first_run = _build_view(data, scope)
         # overlay nhãn custom qua KV -> sống offline; chuông notif qua Jira -> có thể fail.
         try:
             overlay, _cust_act = load_bundle(scope, ACTIVITY_DAYS)
@@ -331,7 +311,7 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         except RuntimeError:
             bell = []
         # UI hệt QA member (render_qa_v2), chỉ highlight tab "Việc của tôi" ở sidebar
-        self._html(render_qa_v2(data, new_keys, bell, overlay, self._user_ctx(),
+        self._html(render_qa_v2(data, bell, overlay, self._user_ctx(),
                                 nav_active='mywork', stale=stale))
 
     def _get_leader_eval(self):
@@ -525,12 +505,11 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             full, stale = fetch_all_shared(fetched_by=email)
         except RuntimeError:
             # Jira không với tới + KV cũng trống -> không có gì hiện vùng task (skeleton + lỗi).
-            self._html(render_page(None, None, False, [], ACTIVITY_DAYS,
+            self._html(render_page(None, [], ACTIVITY_DAYS,
                                    roadmap_data=roadmap, user=self._user_ctx(),
                                    custom_overlay=None, bug_log_data=buglog, jira_error=True))
             return
         data = scope_data(full, scope)
-        new_keys, first_run = _build_view(data, scope)
         # nhãn custom qua KV -> sống cả khi offline; feed/dismissed qua Jira -> có thể fail.
         try:
             overlay, cust_act = load_bundle(scope, ACTIVITY_DAYS)
@@ -549,7 +528,7 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         merged = sorted(feed + cust_act, key=lambda a: a.get('when') or '', reverse=True)
         for a in merged:
             a['is_unread'] = a['id'] not in dismissed
-        self._html(render_page(data, new_keys, first_run, merged, ACTIVITY_DAYS,
+        self._html(render_page(data, merged, ACTIVITY_DAYS,
                                roadmap_data=roadmap, user=self._user_ctx(),
                                custom_overlay=overlay, bug_log_data=buglog, stale=stale))
 
@@ -824,7 +803,6 @@ def main():
     print(f"  Jira:      {JIRA_URL}")
     print(f"  Tracking:  {', '.join(display_name(u) for u in USERS)}")
     print(f"  Dashboard: http://localhost:{PORT}/")
-    print(f"  State:     {STATE_FILE.name}")
     print("  Ctrl+C để stop\n")
 
     start_bug_log_scheduler()   # daemon thread poll Drive 10p (no-op nếu chưa kết nối Drive)
