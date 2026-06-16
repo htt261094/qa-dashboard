@@ -425,7 +425,7 @@ def _scan_one(src, prev):
         unchanged = (prev.get('modifiedTime') == meta.get('modifiedTime')
                      and prev.get('md5Checksum') == meta.get('md5Checksum')
                      and 'bugs' in prev
-                     and prev.get('_version') == 3)
+                     and prev.get('_version') == 4)
         if unchanged:
             return {'fid': fid, 'unchanged': True, 'count': len(prev.get('bugs', {}))}
         # Tầng-2: chỉ tới đây mới tải + parse + normalize (file đã đổi). Truyền mimeType từ
@@ -512,7 +512,7 @@ def scan():
                 'count': len(cur_bugs),
                 'unmapped': len(norm['unmapped']),
                 'scanned_at': _now_iso(),
-                '_version': 3,   # 3: thêm bug['status_raw'] + seed metric snapshot
+                '_version': 4,   # 4: _lifecycle_status tin cột master (Reject→Rejected). 3: +status_raw
             }
             result['count'] += len(cur_bugs)
             result['unmapped'] += len(norm['unmapped'])

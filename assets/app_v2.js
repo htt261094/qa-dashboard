@@ -2434,353 +2434,9 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     }).catch(function(){ toast('Lỗi mạng khi liên kết', false); });
   }
 
-  // ===== Metric Stacked Bar Chart =====
-  var metricMonthSel = $('blMetricMonth'), metricCharts = $('blMetricCharts');
-  
-  var PIE_COLORS = ['#4c9aff', '#36b37e', '#ffab00', '#ff5630', '#6554c0', '#00b8d9', '#ff7452', '#57d9a3', '#8777d9', '#ff8b00', '#2684ff', '#172b4d'];
-  
-  function renderMetric() {
-    if(!metricMonthSel || !metricCharts) return;
-    var selectedMonth = metricMonthSel.value;
-    if(!selectedMonth) {
-      metricCharts.innerHTML = '<div style="color:var(--on-surface-variant); width:100%; text-align:center;">Không có dữ liệu</div>';
-      return;
-    }
-    
-    // Lấy bugs của tháng
-    var mBugs = BUGS.filter(function(b){ return getCreatedMonthYear(b.created) === selectedMonth; });
-    
-    // Tập hợp dev và project
-    var devs = {}; // dev -> { total: number, projs: { proj -> count } }
-    var projSet = {};
-    
-    mBugs.forEach(function(b) {
-      var devStr = (b.dev || 'Chưa gán').trim();
-      var devList = devStr.split(/[,;+&]/).map(function(s){ return s.trim(); }).filter(Boolean);
-      if(devList.length === 0) devList = ['Chưa gán'];
-      var fraction = 1 / devList.length;
-      var p = (b.project || 'Khác').trim();
-      
-      devList.forEach(function(d){
-        if(!devs[d]) devs[d] = { total: 0, projs: {} };
-        if(!devs[d].projs[p]) devs[d].projs[p] = 0;
-        devs[d].projs[p] += fraction;
-        devs[d].total += fraction;
-      });
-      projSet[p] = true;
-    });
-    
-    var devList = Object.keys(devs).sort(function(a,b){ return devs[b].total - devs[a].total; });
-    var projList = Object.keys(projSet).sort();
-    
-    if(devList.length === 0) {
-      metricCharts.innerHTML = '<div style="color:var(--on-surface-variant); width:100%; text-align:center;">Không có dữ liệu trong tháng này</div>';
-      return;
-    }
-    
-    var maxTotal = 0;
-    devList.forEach(function(d){ if(devs[d].total > maxTotal) maxTotal = devs[d].total; });
-    var yMax = Math.max(5, Math.ceil(maxTotal / 5) * 5);
-    
-    var steps = 5;
-    var chartHeight = 260;
-    var ticksHtml = '';
-    var gridHtml = '';
-    for(var i=0; i<=steps; i++) {
-      var val = Math.round((yMax / steps) * i);
-      var bottomPct = (i / steps) * 100;
-      ticksHtml += '<div style="position:absolute; bottom:'+bottomPct+'%; right:8px; transform:translateY(50%); font-size:11px; color:var(--on-surface-variant);">'+val+'</div>';
-      // Bỏ dòng gạch ngang (gridHtml) để không chèn lên chữ
-    }
-    
-    var barsHtml = '';
-    devList.forEach(function(d) {
-      var dData = devs[d];
-      var segmentsHtml = '';
-      
-      projList.forEach(function(p, idx) {
-        var count = dData.projs[p];
-        if(count) {
-          var pct = (count / yMax) * 100;
-          var color = PIE_COLORS[idx % PIE_COLORS.length];
-          var displayCount = +(count.toFixed(2));
-          // segments stack upwards, so prepend
-          segmentsHtml = '<div style="width:100%; height:'+pct+'%; background:'+color+'; display:flex; align-items:center; justify-content:center; color:#fff; font-size:11px; font-weight:600; overflow:hidden;" title="'+esc(p)+': '+displayCount+'">' + (pct > 6 ? displayCount : '') + '</div>' + segmentsHtml;
-        }
-      });
-      
-      var displayTotal = +(dData.total.toFixed(2));
-      barsHtml += '<div style="display:flex; flex-direction:column; align-items:center; width:48px; margin:0 12px; z-index:1;">' +
-        '<div style="font-size:12.5px; font-weight:700; color:var(--on-surface); margin-bottom:6px;">'+displayTotal+'</div>' +
-        '<div style="width:100%; height:'+chartHeight+'px; display:flex; flex-direction:column; justify-content:flex-end; border-radius:4px 4px 0 0; overflow:hidden;">' + segmentsHtml + '</div>' +
-        '<div style="font-size:12px; margin-top:10px; text-align:center; word-break:break-word; color:var(--on-surface-variant); width:64px; line-height:1.3;">'+esc(d)+'</div>' +
-        '</div>';
-    });
-    
-    var legendHtml = '';
-    projList.forEach(function(p, idx) {
-      var color = PIE_COLORS[idx % PIE_COLORS.length];
-      legendHtml += '<div style="display:flex; align-items:center; margin-right:16px; margin-bottom:8px; font-size:13.5px;">' +
-        '<span style="display:inline-block; width:14px; height:14px; background:'+color+'; border-radius:3px; margin-right:6px;"></span>' +
-        '<span style="color:var(--on-surface);">'+esc(p)+'</span>' +
-        '</div>';
-    });
-    
-    var html = '<div style="width:100%; display:flex; flex-direction:column; padding: 10px 0;">' +
-      '<div style="display:flex; justify-content:center; flex-wrap:wrap; margin-bottom:24px;">' + legendHtml + '</div>' +
-      '<div style="display:flex; align-items:flex-start;">' +
-        // Y-axis labels
-        '<div style="position:relative; height:'+chartHeight+'px; width:40px; flex-shrink:0;">' +
-          ticksHtml + 
-        '</div>' +
-        // Chart Area
-        '<div class="hide-scrollbar" style="position:relative; flex:1; height:'+(chartHeight+50)+'px; display:flex; align-items:flex-start; overflow-x:auto; border-bottom:1px solid var(--outline-variant);">' +
-          gridHtml +
-          '<div style="display:flex; height:'+(chartHeight+40)+'px; padding-top:0;">' + barsHtml + '</div>' +
-        '</div>' +
-      '</div>' +
-      '</div>';
-    
-    metricCharts.innerHTML = html;
-  }
-  
-  // ----- Reopen metric (issue #69): % bug bị reopen + số lần fix theo dev + drill-down -----
-  var reopenMonthSel = $('blReopenMonth'), reopenKpi = $('blReopenKpi'),
-      reopenHead = $('blReopenHead'), reopenRows = $('blReopenRows');
-  var reopenExpanded = {};   // dev -> đang xổ chi tiết hay không
-
-  function reopenPct(n, d){ if(d <= 0) return null; var p = n / d * 100; return (p % 1 === 0 ? p.toFixed(0) : p.toFixed(1)); }
-  function fixOf(r){ return (r && r.fix != null) ? (+r.fix || 0) : ((+(r && r.count) || 0) + 1); }  // migration: entry cũ thiếu fix -> reopen+1
-
-  function renderReopen() {
-    if(!reopenMonthSel || !reopenHead || !reopenRows) return;
-    var selectedMonth = reopenMonthSel.value;
-    if(!selectedMonth) {
-      if(reopenKpi) reopenKpi.innerHTML = '';
-      reopenHead.innerHTML = '';
-      reopenRows.innerHTML = '<tr><td style="text-align:center;color:var(--on-surface-variant);padding:30px">Không có dữ liệu</td></tr>';
-      return;
-    }
-    // bug của tháng theo dev (mẫu số tỷ lệ) + tra bug theo key
-    var mBugs = BUGS.filter(function(b){ return getCreatedMonthYear(b.created) === selectedMonth; });
-    var bugsPerDev = {}, totalBugs = mBugs.length, bugByKey = {};
-    mBugs.forEach(function(b){
-      var devStr = (b.dev || 'Chưa gán').trim();
-      var devList = devStr.split(/[,;+&]/).map(function(s){ return s.trim(); }).filter(Boolean);
-      if(devList.length === 0) devList = ['Chưa gán'];
-      var fraction = 1 / devList.length;
-      devList.forEach(function(d){
-        bugsPerDev[d] = (bugsPerDev[d] || 0) + fraction;
-      });
-      if(b.key) bugByKey[b.key] = b;
-    });
-    // reopen của tháng: distinct bug + tổng lần fix, theo dev; gom chi tiết per-dev cho drill-down
-    var distinctPerDev = {}, fixPerDev = {}, detailPerDev = {}, distinctTotal = 0;
-    Object.keys(REOPEN).forEach(function(key){
-      var r = REOPEN[key] || {}; var cnt = +r.count || 0; if(cnt <= 0) return;
-      var b = bugByKey[key];
-      if (!b) {
-        var rm = r.month || '';
-        var p = rm.split('-');
-        var fm = p.length >= 2 ? (p[1] + '/' + p[0]) : rm;
-        if(fm !== selectedMonth) return;
-      }
-      var devStr = ((b ? b.dev : r.dev) || 'Chưa gán').trim();
-      var fx = fixOf(r);
-      
-      var devList = devStr.split(/[,;+&]/).map(function(s){ return s.trim(); }).filter(Boolean);
-      if(devList.length === 0) devList = ['Chưa gán'];
-      var fraction = 1 / devList.length;
-      distinctTotal++;
-      
-      devList.forEach(function(d){
-        distinctPerDev[d] = (distinctPerDev[d] || 0) + fraction;
-        fixPerDev[d] = (fixPerDev[d] || 0) + (fx * fraction);
-        (detailPerDev[d] = detailPerDev[d] || []).push({
-          id: b ? b.id : key, summary: b ? b.summary : '', reopen: cnt * fraction, fix: fx * fraction
-        });
-      });
-    });
-    // KPI headline
-    if(reopenKpi) {
-      var hp = reopenPct(distinctTotal, totalBugs);
-      reopenKpi.innerHTML = hp === null
-        ? '<span class="rk-sub">Không có bug trong tháng này.</span>'
-        : '<span class="rk-pct">' + hp + '%</span> bug bị reopen';
-    }
-    reopenHead.innerHTML = '<th>Developer</th><th>Bug bị reopen</th>'
-      + '<th>Tổng số lần fix bug</th><th>Tỷ lệ reopen</th>';
-    var devList = Object.keys(distinctPerDev).sort(function(a,b){
-      return distinctPerDev[b] - distinctPerDev[a];
-    });
-    if(devList.length === 0) {
-      reopenRows.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--on-surface-variant);padding:30px">Chưa ghi nhận reopen nào trong tháng này 🎉</td></tr>';
-      return;
-    }
-    function rateCell(nb, denom){
-      var r = reopenPct(nb, denom);
-      return r === null ? '—' : r + '%';
-    }
-    function detailRow(dev){
-      var items = (detailPerDev[dev] || []).slice().sort(function(a,b){ return b.reopen - a.reopen; });
-      var li = items.map(function(it){
-        var reopenDisp = +(it.reopen.toFixed(2));
-        var fixDisp = +(it.fix.toFixed(2));
-        return '<div class="rk-bug"><span class="rk-bug-id">' + esc(it.id) + '</span>'
-          + '<span class="rk-bug-sum">' + esc(it.summary || '(không mô tả)') + '</span>'
-          + '<span class="rk-bug-n">' + reopenDisp + ' lần reopen · ' + fixDisp + ' lần fix</span></div>';
-      }).join('');
-      return '<tr class="rk-detail"><td colspan="4"><div class="rk-detail-box">'
-        + '<div class="rk-detail-hd">Chi tiết bug bị reopen của ' + esc(dev) + '</div>' + li
-        + '</div></td></tr>';
-    }
-    var body = devList.map(function(d){
-      var nb = distinctPerDev[d], fx = fixPerDev[d], denom = bugsPerDev[d] || 0;
-      var open = !!reopenExpanded[d];
-      var row = '<tr class="rk-row' + (open ? ' open' : '') + '" data-dev="' + esc(d) + '">'
-        + '<td><span class="rk-caret material-symbols-rounded">' + (open ? 'expand_more' : 'chevron_right') + '</span>' + esc(d) + '</td>'
-        + '<td>' + +(nb.toFixed(2)) + '</td><td>' + +(fx.toFixed(2)) + '</td>'
-        + '<td class="col-total">' + rateCell(nb, denom) + '</td></tr>';
-      if(open) row += detailRow(d);
-      return row;
-    }).join('');
-    reopenRows.innerHTML = body;
-  }
-
-  // bấm dòng dev -> xổ/đóng chi tiết
-  if(reopenRows) reopenRows.addEventListener('click', function(e){
-    var tr = e.target.closest('.rk-row'); if(!tr) return;
-    var dev = tr.getAttribute('data-dev'); if(!dev) return;
-    reopenExpanded[dev] = !reopenExpanded[dev];
-    renderReopen();
-  });
-
-  if(metricMonthSel) {
-    if(FULL_MONTH_YEARS.length > 0) {
-      metricMonthSel.innerHTML = FULL_MONTH_YEARS.map(function(m){
-        return '<option value="' + esc(m) + '">Tháng ' + esc(m) + '</option>';
-      }).join('');
-      metricMonthSel.value = curMetricMonth;
-    } else {
-      metricMonthSel.innerHTML = '<option value="">Chưa có dữ liệu</option>';
-    }
-    metricMonthSel.addEventListener('change', renderMetric);
-    var btnExportMetricChart = $('btnExportMetricChart');
-    if (btnExportMetricChart) {
-      btnExportMetricChart.addEventListener('click', function() {
-        if(!metricCharts || !metricCharts.innerHTML || metricCharts.innerHTML.indexOf('Không có dữ liệu') >= 0) {
-          toast('Không có dữ liệu để export', false);
-          return;
-        }
-        var origText = btnExportMetricChart.innerHTML;
-        btnExportMetricChart.innerHTML = '<span class="material-symbols-rounded mi-sm">sync</span> Đang xuất...';
-        btnExportMetricChart.disabled = true;
-
-        function doExport() {
-          var titleText = 'Số lượng bug theo từng dev (tháng ' + (metricMonthSel.value || '') + ')';
-          var titleEl = document.createElement('div');
-          titleEl.style.fontSize = '24px';
-          titleEl.style.fontWeight = 'bold';
-          titleEl.style.color = getComputedStyle(document.body).getPropertyValue('--on-surface') || '#000000';
-          titleEl.style.textAlign = 'center';
-          titleEl.style.width = '100%';
-          titleEl.style.marginBottom = '20px';
-          titleEl.textContent = titleText;
-          
-          metricCharts.insertBefore(titleEl, metricCharts.firstChild);
-
-          // Xử lý để html2canvas không bị cắt phần scroll
-          var innerScroll = metricCharts.querySelector('div[style*="overflow-x:auto"]') || metricCharts.querySelector('div[style*="overflow-x: auto"]');
-          var origInnerOverflow = '';
-          if (innerScroll) {
-             origInnerOverflow = innerScroll.style.overflowX;
-             innerScroll.style.overflowX = 'visible';
-          }
-          var origWidth = metricCharts.style.width;
-          metricCharts.style.width = Math.max(metricCharts.scrollWidth, 1200) + 'px';
-
-          html2canvas(metricCharts, { scale: 2, backgroundColor: getComputedStyle(document.body).getPropertyValue('--surface') || '#ffffff' }).then(function(canvas) {
-            titleEl.remove();
-            if (innerScroll) innerScroll.style.overflowX = origInnerOverflow;
-            metricCharts.style.width = origWidth;
-
-            var imgData = canvas.toDataURL('image/png');
-            window.__lastExportedImage = imgData;
-            var pdf = new window.jspdf.jsPDF('l', 'mm', 'a4');
-            var pdfWidth = pdf.internal.pageSize.getWidth();
-            var pdfHeight = pdf.internal.pageSize.getHeight();
-            var imgProps = pdf.getImageProperties(imgData);
-            var margin = 10;
-            var imgWidth = pdfWidth - margin * 2;
-            var imgHeight = (imgProps.height * imgWidth) / imgProps.width;
-            
-            if (imgHeight > pdfHeight - margin * 2) {
-               imgHeight = pdfHeight - margin * 2;
-               imgWidth = (imgProps.width * imgHeight) / imgProps.height;
-            }
-            
-            // Căn giữa canvas trong PDF
-            var xPos = margin + (pdfWidth - margin * 2 - imgWidth) / 2;
-            var yPos = margin + (pdfHeight - margin * 2 - imgHeight) / 2;
-            pdf.addImage(imgData, 'PNG', xPos, yPos, imgWidth, imgHeight);
-            pdf.save('Bug_Metric_' + (metricMonthSel.value || 'chart') + '.pdf');
-            
-            btnExportMetricChart.innerHTML = origText;
-            btnExportMetricChart.disabled = false;
-            toast('Export PDF thành công ✓', true);
-          }).catch(function(err) {
-            titleEl.remove();
-            if (innerScroll) innerScroll.style.overflowX = origInnerOverflow;
-            metricCharts.style.width = origWidth;
-            btnExportMetricChart.innerHTML = origText;
-            btnExportMetricChart.disabled = false;
-            toast('Lỗi export PDF', false);
-            console.error(err);
-          });
-        }
-
-        if(!window.html2canvas || !window.jspdf) {
-          var p1 = new Promise(function(resolve, reject) {
-            var s = document.createElement('script');
-            s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
-            s.onload = resolve; s.onerror = reject; document.head.appendChild(s);
-          });
-          var p2 = new Promise(function(resolve, reject) {
-            var s = document.createElement('script');
-            s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
-            s.onload = resolve; s.onerror = reject; document.head.appendChild(s);
-          });
-          Promise.all([p1, p2]).then(doExport).catch(function() {
-            btnExportMetricChart.innerHTML = origText;
-            btnExportMetricChart.disabled = false;
-            toast('Lỗi tải thư viện PDF', false);
-          });
-        } else {
-          doExport();
-        }
-      });
-    }
-  }
-
-  if(reopenMonthSel) {
-    if(FULL_MONTH_YEARS.length > 0) {
-      reopenMonthSel.innerHTML = FULL_MONTH_YEARS.map(function(m){
-        return '<option value="' + esc(m) + '">Tháng ' + esc(m) + '</option>';
-      }).join('');
-      reopenMonthSel.value = curMetricMonth;
-    } else {
-      reopenMonthSel.innerHTML = '<option value="">Chưa có dữ liệu</option>';
-    }
-    reopenMonthSel.addEventListener('change', renderReopen);
-  }
-
-  tabs.addEventListener('click', function(e){
-    var t=e.target.closest('.bl-tab'); if(!t) return;
-    // metricMonthSel và reopenMonthSel giờ độc lập không theo tab nữa
-  });
 
   if(activeFid){ var av0=availMonths(); if(av0.indexOf(curMonth)<0) curMonth = av0.length?av0[0]:''; }
-  renderTabs(); render(); renderMetric(); renderReopen(); updateActiveChip(); updateSrcLine();
+  renderTabs(); render(); updateActiveChip(); updateSrcLine();
 })();
 
 // ================= BUG METRICS (dashboard admin, guard #bugMetrics) =================
@@ -2942,6 +2598,262 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   if(syncedBox) syncedBox.textContent = 'Đã đồng bộ: '+(DATA.syncedAt||'—');
   fillSheets(); render();
   markSeen(fileSel.value);           // file đang hiển thị mặc định = đã xem
+})();
+
+// ================= ANALYTICS (guard #analyticsData, issue #158) =================
+// Gom metric bug: Valid Bug Rate + chart bug theo dev/dự án + Tỷ lệ Reopen.
+// Data nguồn = analyticsData (bug_log cache). Dùng $/esc/toast/readJSON ở scope chung.
+(function(){
+  var DATA = readJSON('analyticsData'); if(!DATA) return;
+  var BUGS = DATA.bugs||[], REOPEN = DATA.reopen||{};
+  var PIE_COLORS = ['#4c9aff','#36b37e','#ffab00','#ff5630','#6554c0','#00b8d9','#ff7452','#57d9a3','#8777d9','#ff8b00','#2684ff','#172b4d'];
+
+  function getCreatedMonthYear(iso){
+    if(!iso) return '';
+    var p = iso.split('-');
+    return p.length>=2 ? p[1]+'/'+p[0] : '';
+  }
+  // danh sách tháng/năm để fill dropdown (năm hiện tại + năm có trong data)
+  var FULL_MONTH_YEARS = (function(){
+    var years = {}; years[new Date().getFullYear()] = true;
+    BUGS.forEach(function(b){ if(b.created){ var p=b.created.split('-'); if(p[0]) years[parseInt(p[0],10)]=true; } });
+    var out = [];
+    Object.keys(years).sort().reverse().forEach(function(y){
+      if(y && !isNaN(y)) for(var i=1;i<=12;i++){ var mm=i<10?'0'+i:''+i; out.push(mm+'/'+y); }
+    });
+    return out;
+  })();
+  var curMonth = (function(){ var d=new Date(), m=d.getMonth()+1; return (m<10?'0'+m:m)+'/'+d.getFullYear(); })();
+
+  function fillMonth(sel){
+    if(!sel) return;
+    if(FULL_MONTH_YEARS.length){
+      sel.innerHTML = FULL_MONTH_YEARS.map(function(m){ return '<option value="'+esc(m)+'">Tháng '+esc(m)+'</option>'; }).join('');
+      sel.value = curMonth;
+    } else sel.innerHTML = '<option value="">Chưa có dữ liệu</option>';
+  }
+
+  // ---------- Valid Bug Rate = Closed / (Tổng bug − Reject) ----------
+  var validMonthSel = $('anValidMonth'), validBox = $('anValidBox');
+  function isReject(s){ return /reject/i.test(s||''); }
+  function isClosed(s){ return /closed|đã đóng/i.test(s||''); }
+  function renderValid(){
+    if(!validMonthSel || !validBox) return;
+    var m = validMonthSel.value;
+    var mBugs = BUGS.filter(function(b){ return getCreatedMonthYear(b.created) === m; });
+    var total = mBugs.length;
+    var reject = mBugs.filter(function(b){ return isReject(b.status); }).length;
+    var closed = mBugs.filter(function(b){ return isClosed(b.status); }).length;
+    var denom = total - reject;
+    if(total === 0){
+      validBox.innerHTML = '<div class="an-empty">Không có bug trong tháng này</div>';
+      return;
+    }
+    var pct = denom > 0 ? (closed/denom*100) : null;
+    var pctDisp = pct === null ? '—' : (pct%1===0 ? pct.toFixed(0) : pct.toFixed(1)) + '%';
+    validBox.innerHTML =
+      '<div class="an-valid-main"><span class="an-valid-pct">'+pctDisp+'</span>'
+      + '<span class="an-valid-cap">bug hợp lệ đã đóng</span></div>'
+      + '<div class="an-valid-break">'
+      +   '<div class="an-stat"><span class="an-stat-n">'+closed+'</span><span class="an-stat-l">Closed</span></div>'
+      +   '<div class="an-stat-op">/</div>'
+      +   '<div class="an-stat"><span class="an-stat-n">'+denom+'</span><span class="an-stat-l">Tổng '+total+' − Reject '+reject+'</span></div>'
+      + '</div>';
+  }
+
+  // ---------- Bar chart: bug của dev theo dự án ----------
+  var metricMonthSel = $('anMetricMonth'), metricCharts = $('anMetricCharts');
+  function renderMetric(){
+    if(!metricMonthSel || !metricCharts) return;
+    var selectedMonth = metricMonthSel.value;
+    if(!selectedMonth){ metricCharts.innerHTML = '<div class="an-empty">Không có dữ liệu</div>'; return; }
+    var mBugs = BUGS.filter(function(b){ return getCreatedMonthYear(b.created) === selectedMonth; });
+    var devs = {}, projSet = {};
+    mBugs.forEach(function(b){
+      var devList = (b.dev||'Chưa gán').trim().split(/[,;+&]/).map(function(s){ return s.trim(); }).filter(Boolean);
+      if(!devList.length) devList = ['Chưa gán'];
+      var fraction = 1/devList.length, p = (b.project||'Khác').trim();
+      devList.forEach(function(d){
+        if(!devs[d]) devs[d] = { total:0, projs:{} };
+        devs[d].projs[p] = (devs[d].projs[p]||0) + fraction;
+        devs[d].total += fraction;
+      });
+      projSet[p] = true;
+    });
+    var devList = Object.keys(devs).sort(function(a,b){ return devs[b].total - devs[a].total; });
+    var projList = Object.keys(projSet).sort();
+    if(!devList.length){ metricCharts.innerHTML = '<div class="an-empty">Không có dữ liệu trong tháng này</div>'; return; }
+    var maxTotal = 0; devList.forEach(function(d){ if(devs[d].total>maxTotal) maxTotal = devs[d].total; });
+    var yMax = Math.max(5, Math.ceil(maxTotal/5)*5), steps = 5, chartHeight = 260;
+    var ticksHtml = '';
+    for(var i=0;i<=steps;i++){
+      var val = Math.round((yMax/steps)*i), bottomPct = (i/steps)*100;
+      ticksHtml += '<div style="position:absolute; bottom:'+bottomPct+'%; right:8px; transform:translateY(50%); font-size:11px; color:var(--on-surface-variant);">'+val+'</div>';
+    }
+    var barsHtml = '';
+    devList.forEach(function(d){
+      var dData = devs[d], segmentsHtml = '';
+      projList.forEach(function(p, idx){
+        var count = dData.projs[p];
+        if(count){
+          var pct = (count/yMax)*100, color = PIE_COLORS[idx%PIE_COLORS.length], displayCount = +(count.toFixed(2));
+          segmentsHtml = '<div style="width:100%; height:'+pct+'%; background:'+color+'; display:flex; align-items:center; justify-content:center; color:#fff; font-size:11px; font-weight:600; overflow:hidden;" title="'+esc(p)+': '+displayCount+'">' + (pct>6?displayCount:'') + '</div>' + segmentsHtml;
+        }
+      });
+      var displayTotal = +(dData.total.toFixed(2));
+      barsHtml += '<div style="display:flex; flex-direction:column; align-items:center; width:48px; margin:0 12px; z-index:1;">'
+        + '<div style="font-size:12.5px; font-weight:700; color:var(--on-surface); margin-bottom:6px;">'+displayTotal+'</div>'
+        + '<div style="width:100%; height:'+chartHeight+'px; display:flex; flex-direction:column; justify-content:flex-end; border-radius:4px 4px 0 0; overflow:hidden;">' + segmentsHtml + '</div>'
+        + '<div style="font-size:12px; margin-top:10px; text-align:center; word-break:break-word; color:var(--on-surface-variant); width:64px; line-height:1.3;">'+esc(d)+'</div>'
+        + '</div>';
+    });
+    var legendHtml = '';
+    projList.forEach(function(p, idx){
+      var color = PIE_COLORS[idx%PIE_COLORS.length];
+      legendHtml += '<div style="display:flex; align-items:center; margin-right:16px; margin-bottom:8px; font-size:13.5px;">'
+        + '<span style="display:inline-block; width:14px; height:14px; background:'+color+'; border-radius:3px; margin-right:6px;"></span>'
+        + '<span style="color:var(--on-surface);">'+esc(p)+'</span></div>';
+    });
+    metricCharts.innerHTML = '<div style="width:100%; display:flex; flex-direction:column; padding:10px 0;">'
+      + '<div style="display:flex; justify-content:center; flex-wrap:wrap; margin-bottom:24px;">' + legendHtml + '</div>'
+      + '<div style="display:flex; align-items:flex-start;">'
+      +   '<div style="position:relative; height:'+chartHeight+'px; width:40px; flex-shrink:0;">' + ticksHtml + '</div>'
+      +   '<div class="hide-scrollbar" style="position:relative; flex:1; height:'+(chartHeight+50)+'px; display:flex; align-items:flex-start; overflow-x:auto; border-bottom:1px solid var(--outline-variant);">'
+      +     '<div style="display:flex; height:'+(chartHeight+40)+'px; padding-top:0;">' + barsHtml + '</div>'
+      +   '</div></div></div>';
+  }
+
+  // ---------- Reopen table ----------
+  var reopenMonthSel = $('anReopenMonth'), reopenKpi = $('anReopenKpi'),
+      reopenHead = $('anReopenHead'), reopenRows = $('anReopenRows');
+  var reopenExpanded = {};
+  function reopenPct(n, d){ if(d<=0) return null; var p = n/d*100; return (p%1===0 ? p.toFixed(0) : p.toFixed(1)); }
+  function fixOf(r){ return (r && r.fix!=null) ? (+r.fix||0) : ((+(r&&r.count)||0)+1); }
+  function renderReopen(){
+    if(!reopenMonthSel || !reopenHead || !reopenRows) return;
+    var selectedMonth = reopenMonthSel.value;
+    if(!selectedMonth){
+      if(reopenKpi) reopenKpi.innerHTML = '';
+      reopenHead.innerHTML = '';
+      reopenRows.innerHTML = '<tr><td style="text-align:center;color:var(--on-surface-variant);padding:30px">Không có dữ liệu</td></tr>';
+      return;
+    }
+    var mBugs = BUGS.filter(function(b){ return getCreatedMonthYear(b.created) === selectedMonth; });
+    var bugsPerDev = {}, totalBugs = mBugs.length, bugByKey = {};
+    mBugs.forEach(function(b){
+      var devList = (b.dev||'Chưa gán').trim().split(/[,;+&]/).map(function(s){ return s.trim(); }).filter(Boolean);
+      if(!devList.length) devList = ['Chưa gán'];
+      var fraction = 1/devList.length;
+      devList.forEach(function(d){ bugsPerDev[d] = (bugsPerDev[d]||0) + fraction; });
+      if(b.key) bugByKey[b.key] = b;
+    });
+    var distinctPerDev = {}, fixPerDev = {}, detailPerDev = {}, distinctTotal = 0;
+    Object.keys(REOPEN).forEach(function(key){
+      var r = REOPEN[key]||{}, cnt = +r.count||0; if(cnt<=0) return;
+      var b = bugByKey[key];
+      if(!b){ var rm = r.month||'', p = rm.split('-'), fm = p.length>=2 ? (p[1]+'/'+p[0]) : rm; if(fm !== selectedMonth) return; }
+      var devStr = ((b ? b.dev : r.dev)||'Chưa gán').trim(), fx = fixOf(r);
+      var devList = devStr.split(/[,;+&]/).map(function(s){ return s.trim(); }).filter(Boolean);
+      if(!devList.length) devList = ['Chưa gán'];
+      var fraction = 1/devList.length; distinctTotal++;
+      devList.forEach(function(d){
+        distinctPerDev[d] = (distinctPerDev[d]||0) + fraction;
+        fixPerDev[d] = (fixPerDev[d]||0) + (fx*fraction);
+        (detailPerDev[d] = detailPerDev[d]||[]).push({ id: b?b.id:key, summary: b?b.summary:'', reopen: cnt*fraction, fix: fx*fraction });
+      });
+    });
+    if(reopenKpi){
+      var hp = reopenPct(distinctTotal, totalBugs);
+      reopenKpi.innerHTML = hp === null ? '<span class="rk-sub">Không có bug trong tháng này.</span>'
+        : '<span class="rk-pct">'+hp+'%</span> bug bị reopen';
+    }
+    reopenHead.innerHTML = '<th>Developer</th><th>Bug bị reopen</th><th>Tổng số lần fix bug</th><th>Tỷ lệ reopen</th>';
+    var devList = Object.keys(distinctPerDev).sort(function(a,b){ return distinctPerDev[b] - distinctPerDev[a]; });
+    if(!devList.length){
+      reopenRows.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--on-surface-variant);padding:30px">Chưa ghi nhận reopen nào trong tháng này 🎉</td></tr>';
+      return;
+    }
+    function rateCell(nb, denom){ var r = reopenPct(nb, denom); return r === null ? '—' : r+'%'; }
+    function detailRow(dev){
+      var items = (detailPerDev[dev]||[]).slice().sort(function(a,b){ return b.reopen - a.reopen; });
+      var li = items.map(function(it){
+        return '<div class="rk-bug"><span class="rk-bug-id">'+esc(it.id)+'</span>'
+          + '<span class="rk-bug-sum">'+esc(it.summary||'(không mô tả)')+'</span>'
+          + '<span class="rk-bug-n">'+(+(it.reopen.toFixed(2)))+' lần reopen · '+(+(it.fix.toFixed(2)))+' lần fix</span></div>';
+      }).join('');
+      return '<tr class="rk-detail"><td colspan="4"><div class="rk-detail-box">'
+        + '<div class="rk-detail-hd">Chi tiết bug bị reopen của '+esc(dev)+'</div>' + li + '</div></td></tr>';
+    }
+    reopenRows.innerHTML = devList.map(function(d){
+      var nb = distinctPerDev[d], fx = fixPerDev[d], denom = bugsPerDev[d]||0, open = !!reopenExpanded[d];
+      var row = '<tr class="rk-row'+(open?' open':'')+'" data-dev="'+esc(d)+'">'
+        + '<td><span class="rk-caret material-symbols-rounded">'+(open?'expand_more':'chevron_right')+'</span>'+esc(d)+'</td>'
+        + '<td>'+(+(nb.toFixed(2)))+'</td><td>'+(+(fx.toFixed(2)))+'</td>'
+        + '<td class="col-total">'+rateCell(nb, denom)+'</td></tr>';
+      if(open) row += detailRow(d);
+      return row;
+    }).join('');
+  }
+  if(reopenRows) reopenRows.addEventListener('click', function(e){
+    var tr = e.target.closest('.rk-row'); if(!tr) return;
+    var dev = tr.getAttribute('data-dev'); if(!dev) return;
+    reopenExpanded[dev] = !reopenExpanded[dev];
+    renderReopen();
+  });
+
+  // ---------- Export PDF (bar chart) ----------
+  var btnExport = $('anExportChart');
+  if(btnExport) btnExport.addEventListener('click', function(){
+    if(!metricCharts || !metricCharts.innerHTML || metricCharts.innerHTML.indexOf('an-empty') >= 0){ toast('Không có dữ liệu để export', false); return; }
+    var origText = btnExport.innerHTML;
+    btnExport.innerHTML = '<span class="material-symbols-rounded mi-sm">sync</span> Đang xuất...';
+    btnExport.disabled = true;
+    function doExport(){
+      var titleEl = document.createElement('div');
+      titleEl.style.cssText = 'font-size:24px; font-weight:bold; text-align:center; width:100%; margin-bottom:20px;';
+      titleEl.style.color = getComputedStyle(document.body).getPropertyValue('--on-surface') || '#000';
+      titleEl.textContent = 'Số lượng bug theo từng dev (tháng '+(metricMonthSel.value||'')+')';
+      metricCharts.insertBefore(titleEl, metricCharts.firstChild);
+      var innerScroll = metricCharts.querySelector('div[style*="overflow-x:auto"]') || metricCharts.querySelector('div[style*="overflow-x: auto"]');
+      var origInnerOverflow = '';
+      if(innerScroll){ origInnerOverflow = innerScroll.style.overflowX; innerScroll.style.overflowX = 'visible'; }
+      var origWidth = metricCharts.style.width;
+      metricCharts.style.width = Math.max(metricCharts.scrollWidth, 1200)+'px';
+      html2canvas(metricCharts, { scale:2, backgroundColor: getComputedStyle(document.body).getPropertyValue('--surface')||'#fff' }).then(function(canvas){
+        titleEl.remove();
+        if(innerScroll) innerScroll.style.overflowX = origInnerOverflow;
+        metricCharts.style.width = origWidth;
+        var imgData = canvas.toDataURL('image/png');
+        var pdf = new window.jspdf.jsPDF('l','mm','a4');
+        var pdfWidth = pdf.internal.pageSize.getWidth(), pdfHeight = pdf.internal.pageSize.getHeight();
+        var imgProps = pdf.getImageProperties(imgData), margin = 10;
+        var imgWidth = pdfWidth - margin*2, imgHeight = (imgProps.height*imgWidth)/imgProps.width;
+        if(imgHeight > pdfHeight - margin*2){ imgHeight = pdfHeight - margin*2; imgWidth = (imgProps.width*imgHeight)/imgProps.height; }
+        var xPos = margin + (pdfWidth - margin*2 - imgWidth)/2, yPos = margin + (pdfHeight - margin*2 - imgHeight)/2;
+        pdf.addImage(imgData, 'PNG', xPos, yPos, imgWidth, imgHeight);
+        pdf.save('Bug_Metric_'+(metricMonthSel.value||'chart')+'.pdf');
+        btnExport.innerHTML = origText; btnExport.disabled = false;
+        toast('Export PDF thành công ✓', true);
+      }).catch(function(err){
+        titleEl.remove();
+        if(innerScroll) innerScroll.style.overflowX = origInnerOverflow;
+        metricCharts.style.width = origWidth;
+        btnExport.innerHTML = origText; btnExport.disabled = false;
+        toast('Lỗi export PDF', false); console.error(err);
+      });
+    }
+    if(!window.html2canvas || !window.jspdf){
+      var p1 = new Promise(function(res, rej){ var s=document.createElement('script'); s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js'; s.onload=res; s.onerror=rej; document.head.appendChild(s); });
+      var p2 = new Promise(function(res, rej){ var s=document.createElement('script'); s.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'; s.onload=res; s.onerror=rej; document.head.appendChild(s); });
+      Promise.all([p1,p2]).then(doExport).catch(function(){ btnExport.innerHTML=origText; btnExport.disabled=false; toast('Lỗi tải thư viện PDF', false); });
+    } else doExport();
+  });
+
+  fillMonth(validMonthSel); fillMonth(metricMonthSel); fillMonth(reopenMonthSel);
+  if(validMonthSel) validMonthSel.addEventListener('change', renderValid);
+  if(metricMonthSel) metricMonthSel.addEventListener('change', renderMetric);
+  if(reopenMonthSel) reopenMonthSel.addEventListener('change', renderReopen);
+  renderValid(); renderMetric(); renderReopen();
 })();
 
 })();   // ===== đóng IIFE ngoài cùng (shared scope) — bug-metrics block nằm TRONG để dùng $/esc/readJSON

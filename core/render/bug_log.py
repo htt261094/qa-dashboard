@@ -142,34 +142,8 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
         '<th style="width:160px">Liên kết Task</th>'
         '</tr></thead><tbody id="blRows"></tbody></table></div>'
         '<div class="pager" id="blPager"></div></div>'
-        # metric cards container
-        '<div class="metrics-row" style="display: flex; gap: 24px; align-items: flex-start; margin-top: 24px; flex-wrap: wrap;">'
-
-        # metric card 1 (Pie charts)
-        '<div class="card metric-card" style="flex: 1; min-width: 400px; margin-top: 0;">'
-        '<div class="metric-header">'
-        '<div class="table-title"><span>Metric đo bug của Dev theo dự án (Tháng)</span></div>'
-        '<div class="metric-filter" style="display:flex; align-items:center; gap:8px;">'
-        '<button class="lbtn ghost" id="btnExportMetricChart" title="Export PDF ảnh chart" style="padding: 4px 8px; font-size: 13px;">'
-        '<span class="material-symbols-rounded mi-sm">picture_as_pdf</span> Export PDF</button>'
-        '<span class="material-symbols-rounded mi-sm">calendar_month</span> <select id="blMetricMonth"></select></div>'
-        '</div>'
-        '<div id="blMetricCharts" style="padding: 20px; display: flex; gap: 24px; flex-wrap: wrap; justify-content: center;"></div>'
-        '</div>'
-
-        # reopen metric card — chất lượng fix của dev (Decision: issue #69)
-        '<div class="card metric-card" style="flex: 1; min-width: 400px; margin-top: 0;">'
-        '<div class="metric-header">'
-        '<div class="table-title"><span>Tỷ lệ Reopen — chất lượng fix của dev (Tháng)</span></div>'
-        '<div class="metric-filter"><span class="material-symbols-rounded mi-sm">calendar_month</span> <select id="blReopenMonth"></select></div>'
-        '</div>'
-        '<div class="bl-reopen-kpi" id="blReopenKpi"></div>'
-        '<div style="overflow-x:auto"><table class="bl-table metric-table"><thead><tr id="blReopenHead"></tr></thead><tbody id="blReopenRows"></tbody></table></div>'
-        '<div class="bl-reopen-note">Bug đang ở Reopen được tính tối thiểu 1 lần; số dội trước khi bật theo dõi có thể thấp hơn thực tế. '
-        'Round-trip Fixed→Reopen→Fixed gọn trong 10 phút có thể bị sót.</div>'
-        '</div>'
-
-        '</div>' # end metrics-row
+        # Các metric (chart bug theo dev/dự án + Tỷ lệ Reopen + Valid Bug Rate) đã
+        # chuyển sang màn Analytics (/analytics) — issue #158.
         + (_bug_log_source_modals() if editable else '')
         + _json_script('bugLogData', {
             'bugs': bugs, 'months': month_list, 'editable': bool(editable),

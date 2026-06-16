@@ -360,23 +360,39 @@ _FIELD_MAP = {
 def _lifecycle_status(total, test, dev):
     """Gộp 3 status → 1 vòng đời (New→Fixing→Fixed→Closed, nhánh Reopen/Rejected).
 
-    Status tổng = MASTER (QA chốt). Test status chỉ fallback khi Status tổng trống.
-    Dev status tô chi tiết (Rejected/Fixed/Fixing) khi Status tổng còn New. Ưu tiên trên→dưới."""
-    total = (total or '').strip()
-    if not total:
-        total = (test or '').strip()   # Test status fallback khi Status tổng trống
-    t = total.lower()
-    d = (dev or '').strip().lower()
+    Cột "Status" tổng (total) là MASTER và trong file Bảo Kim NÓ ĐÃ là công thức gộp sẵn
+    Test status (O) + Dev status (S):
+        Closed (O=Closed & S=Fixed) · Reject (S=Reject) · Reopen (O=Reopen) ·
+        Fixing (S=Fixing) · Fixed (S=Fixed) · New (O=New) · '' (chưa set)
+    Nên TIN cột master trước, map thẳng từng giá trị nó sinh ra. Chỉ fallback heuristic
+    Test/Dev khi master TRỐNG (file cũ chưa có công thức / cột master để rỗng).
+    `Reject`/`Rejected` ở master = dev từ chối bug → 'Rejected' ("Bị từ chối")."""
+    t = (total or '').strip().lower()
     if t == 'closed':
-        return 'Closed'                # QA chốt — thắng cả Rejected
+        return 'Closed'
+    if t in ('reject', 'rejected'):
+        return 'Rejected'              # dev từ chối bug
     if t == 'reopen':
         return 'Reopen'
-    if t == 'new' and d == 'rejected':
-        return 'Rejected'              # dev reject, QA chưa finalize
+    if t == 'fixed':
+        return 'Fixed'
+    if t == 'fixing':
+        return 'Fixing'
+    if t == 'new':
+        return 'New'
+    # master trống / giá trị lạ -> fallback heuristic theo Test/Dev (tương thích file cũ).
+    d = (dev or '').strip().lower()
+    tt = (test or '').strip().lower()
+    if d in ('reject', 'rejected'):
+        return 'Rejected'
     if d == 'fixed':
-        return 'Fixed'                 # chờ QA retest
+        return 'Fixed'
     if d == 'fixing':
         return 'Fixing'
+    if tt == 'closed':
+        return 'Closed'
+    if tt == 'reopen':
+        return 'Reopen'
     return 'New'
 
 
