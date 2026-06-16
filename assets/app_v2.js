@@ -3312,9 +3312,9 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   };
 
   // ---- Liên kết bộ ↔ task Jira (#155): link bar + modal type-ahead ----
-  function isTopFolder(fid){
+  function folderExists(fid){
     if(!fid) return false;
-    for(var i=0;i<folders.length;i++){ if(folders[i].id===fid) return !folders[i].parent_id; }
+    for(var i=0;i<folders.length;i++){ if(folders[i].id===fid) return true; }
     return false;
   }
   function folderName(fid){
@@ -3329,8 +3329,9 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   }
   function renderLinkBar(){
     var bar=$('tcLinkBar'); if(!bar) return;
-    // Chỉ hiện ở 1 bộ gốc (folder top) đang chọn — link ở mức CẢ BỘ (#155).
-    if(!isTopFolder(curFolder)){ bar.style.display='none'; return; }
+    // Hiện ở BẤT KỲ folder nào đang chọn (gồm sub-folder) — mỗi sub-folder = 1 bộ test
+    // viết khi nhận task nên link theo folder đang chọn (#155, fix sub-folder).
+    if(!folderExists(curFolder)){ bar.style.display='none'; return; }
     bar.style.display='';
     var ts=tasksOf(curFolder);
     var chips = ts.length ? ts.map(function(k){ return taskChip(curFolder,k); }).join('')
@@ -3338,7 +3339,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     var btn = editable ? '<button class="tc-link-add" id="tcLinkAdd">'
       +'<span class="material-symbols-rounded mi-sm">add_link</span> Liên kết task</button>' : '';
     bar.innerHTML = '<span class="tc-link-lbl"><span class="material-symbols-rounded mi-sm">link</span> '
-      +'Task Jira của bộ <b>'+esc(folderName(curFolder))+'</b>:</span>'
+      +'Task Jira của <b>'+esc(folderName(curFolder))+'</b>:</span>'
       +'<span class="tc-link-tasks">'+chips+'</span>'+btn;
     var add=$('tcLinkAdd'); if(add) add.addEventListener('click', openLinkModal);
     // chip: click key -> mở drawer/Jira; click ✕ -> gỡ link
