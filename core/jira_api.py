@@ -11,7 +11,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
 from config import (JIRA_URL, PAT, USERS, TASK_PTSP_TYPE_ID, actor_name,
-                    LEADER_EVAL_NUM_FIELD, LEADER_EVAL_TEXT_FIELD, OFFLINE)
+                    LEADER_EVAL_NUM_FIELD, LEADER_EVAL_TEXT_FIELD, OFFLINE,
+                    SNAPSHOT_CACHE_FILE)
 from issues import parse_date, i_assignee, i_reporter
 from remote_store import remote_get, remote_put
 
@@ -647,13 +648,15 @@ def _compute_fetch_all(scope_user):
     return data
 
 
-# ===== Snapshot chéo máy (L2): Cloudflare KV vừa làm cache CHUNG vừa làm kho OFFLINE =====
+# ===== Snapshot chéo máy: Cloudflare KV vừa làm cache CHUNG vừa làm kho OFFLINE =====
 # Mục tiêu (kết tiếp Decision cloudflare-kv-store):
 #  - Ai có VPN fetch full team -> ghi snapshot KV. Người sau (dù có VPN) thấy KV còn tươi
 #    (<_CACHE_TTL) -> view THẲNG, KHÔNG gọi Jira -> 1 lượt full fetch/cửa sổ phục vụ cả team.
 #  - Mất VPN -> đọc snapshot KV (cũ mấy cũng lấy) -> caller render READ-ONLY.
 #  - hash nội dung trùng bản đã đẩy -> KHÔNG PUT (đỡ quota write Cloudflare).
-# L1 = _cache RAM (key 'fetch_all:None'); L2 = KV. Luôn full team (__all__); caller scope_data.
+# 3 tầng: L1 = _cache RAM (key 'fetch_all:None'); L2 = Cloudflare KV (chéo máy, cần internet
+# công cộng); L3 = cache đĩa local .snapshot_cache.json (#137 — KV không với tới + RAM lạnh
+# vẫn serve được, không ra trang lỗi). Luôn full team (__all__); caller scope_data.
 _SNAP_KEY = 'qa-snapshot'
 _snap_last_hash = None          # hash payload đã PUT gần nhất (per-process) -> dedup PUT
 _snap_hash_lock = threading.Lock()
@@ -694,13 +697,47 @@ def _snap_payload_hash(data):
         json.dumps(core, sort_keys=True, default=str).encode('utf-8')).hexdigest()
 
 
+# L3 = cache đĩa local: KV không với tới (mất internet công cộng) + RAM lạnh (mới restart) ->
+# vẫn còn bản snapshot trên đĩa để serve read-only thay vì trang lỗi. Đúng pattern Bug Log.
+_snap_file_lock = threading.Lock()
+
+
+def _snap_read_local():
+    """Đọc snapshot serialize (fetched_at = ISO str) từ đĩa. None nếu chưa có/hỏng."""
+    if SNAPSHOT_CACHE_FILE.exists():
+        try:
+            d = json.loads(SNAPSHOT_CACHE_FILE.read_text(encoding='utf-8'))
+            if isinstance(d, dict) and 'active' in d:
+                return d
+        except (json.JSONDecodeError, OSError):
+            pass
+    return None
+
+
+def _snap_write_local(payload):
+    """Ghi snapshot xuống đĩa atomic (tmp + rename) — không bao giờ để lại file rách."""
+    with _snap_file_lock:
+        tmp = SNAPSHOT_CACHE_FILE.with_suffix('.json.tmp')
+        try:
+            tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding='utf-8')
+            tmp.replace(SNAPSHOT_CACHE_FILE)
+        except OSError:
+            try:
+                if tmp.exists():
+                    tmp.unlink()
+            except OSError:
+                pass
+
+
 def _write_snapshot_async(data):
-    """Ghi snapshot lên KV ở NỀN. hash trùng -> bỏ qua PUT; KV lỗi -> nuốt (thử lại sau)."""
+    """Ghi snapshot ở NỀN: LUÔN ghi đĩa local (L3, rẻ, không dedup) + đẩy KV (hash trùng ->
+    bỏ qua PUT đỡ quota; KV lỗi -> nuốt, thử lại sau)."""
     h = _snap_payload_hash(data)
     payload = _snap_serialize(data)
 
     def _run():
         global _snap_last_hash
+        _snap_write_local(payload)          # L3 luôn cập nhật, kể cả khi KV PUT bị dedup/lỗi
         with _snap_hash_lock:
             if h == _snap_last_hash:
                 return                      # nội dung y bản đã đẩy -> KHỎI PUT (đỡ quota)
@@ -714,10 +751,11 @@ def _write_snapshot_async(data):
 
 
 def fetch_all_shared(fetched_by=None):
-    """Pull full team data qua tầng L1 RAM -> L2 KV(tươi) -> live fetch -> KV(offline).
+    """Pull full team data qua tầng L1 RAM -> L2 KV(tươi) -> L3 đĩa local -> live fetch -> stale.
 
-    Trả (data, stale): stale=True nghĩa là Jira KHÔNG với tới, đang phục vụ snapshot KV cũ
-    (caller render read-only + banner). stale=False = data đủ tươi (live/cache/KV-fresh).
+    Trả (data, stale): stale=True nghĩa là Jira KHÔNG với tới, đang phục vụ snapshot cũ (KV
+    hoặc đĩa local) -> caller render read-only + banner. stale=False = data đủ tươi
+    (live/cache/KV-fresh/đĩa-fresh).
     data luôn là FULL team (__all__); caller dùng scope_data() để lọc theo người xem.
     """
     key = 'fetch_all:None'
@@ -734,6 +772,11 @@ def fetch_all_shared(fetched_by=None):
             snap = _snap_deserialize(raw)
     except RuntimeError:
         snap = None                          # KV không với tới
+    # L3 — KV trống/không với tới -> cache đĩa local (offline + RAM lạnh vẫn có cái để serve)
+    if snap is None:
+        local_raw = _snap_read_local()
+        if local_raw:
+            snap = _snap_deserialize(local_raw)
     if snap is not None and _snap_age(snap) < _CACHE_TTL:
         _cache_set(key, snap)
         return snap, False

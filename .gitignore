@@ -12,6 +12,7 @@ gcp-service-account.json
 .bug_log_source.json
 .bug_log.json
 .bug_task_link.json
+.snapshot_cache.json
 *.db
 
 # Python
