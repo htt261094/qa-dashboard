@@ -2093,7 +2093,10 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   function monthBugs(){ return fileBugs().filter(function(b){
     if(b.month!==curMonth) return false;
     if(testerFilter && (b.qa||'')!==testerFilter) return false;
-    if(devFilter && (b.dev||'')!==devFilter) return false;
+    if(devFilter){
+      if(devFilter==='__none__'){ if((b.dev||'').trim()) return false; }
+      else if((b.dev||'')!==devFilter) return false;
+    }
     if(linkFilter){
       var linked = (b.tasks||[]).length>0;
       if(linkFilter==='linked' && !linked) return false;
@@ -2115,12 +2118,15 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   // danh sách dev (dev_pic) phân biệt trong file đang xem -> đổ vào dropdown lọc
   function populateDevs(){
     var sel0=$('blDevFilter'); if(!sel0) return;
-    var seen={}, list=[];
+    var seen={}, list=[], hasNone=false;
     fileBugs().forEach(function(b){ var d=(b.dev||'').trim();
-      if(d && !seen[d]){ seen[d]=true; list.push(d); } });
+      if(d){ if(!seen[d]){ seen[d]=true; list.push(d); } } else hasNone=true; });
     list.sort(function(a,b){ return a.localeCompare(b); });
-    if(devFilter && list.indexOf(devFilter)<0) devFilter='';   // dev biến mất khi đổi file
-    sel0.innerHTML='<option value="">Tất cả dev</option>'+list.map(function(d){
+    // dev đang chọn biến mất khi đổi file -> reset (giữ '__none__' nếu file vẫn có bug chưa gán)
+    if(devFilter && devFilter!=='__none__' && list.indexOf(devFilter)<0) devFilter='';
+    if(devFilter==='__none__' && !hasNone) devFilter='';
+    var noneOpt = hasNone ? '<option value="__none__"'+(devFilter==='__none__'?' selected':'')+'>(Chưa gán dev)</option>' : '';
+    sel0.innerHTML='<option value="">Tất cả dev</option>'+noneOpt+list.map(function(d){
       return '<option value="'+esc(d)+'"'+(d===devFilter?' selected':'')+'>'+esc(d)+'</option>'; }).join('');
   }
 
