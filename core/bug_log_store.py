@@ -381,6 +381,30 @@ def _count_reopens(reopen_map, prev_bugs, cur_bugs):
     return hits
 
 
+def _seed_current_reopens(reopen_map, cur_bugs):
+    """Hướng A (#146): bug ĐANG ở status 'Reopen' mà chưa có entry -> seed count=1, fix=1.
+
+    Lý do: bug ở trạng thái Reopen tất phải đã Fixed >=1 lần rồi bị QA dội -> đếm tối thiểu 1.
+    Bù cho transition bị lỡ TRƯỚC khi bật theo dõi / sau khi accumulator bị reset (mà
+    _count_reopens transition-based không bắt được). Chạy MỖI scan trên TẤT CẢ bug hiện tại
+    (kể cả file Tầng-1 skip) -> tự chữa ngay, không cần file đổi.
+
+    Idempotent + KHÔNG double với transition: chỉ seed khi `key not in reopen_map` -> entry
+    do transition (count chính xác) hoặc seed trước đó đều không bị đè. Lower-bound: KHÔNG
+    tái tạo được số dội thật trước khi theo dõi (bug dội 3 lần -> hiện 1). Trả số entry seed."""
+    hits = 0
+    for key, b in cur_bugs.items():
+        if (b.get('status') or '') == 'Reopen' and key not in reopen_map:
+            reopen_map[key] = {
+                'count': 1, 'fix': 1, 'last': _now_iso(),
+                'dev': b.get('dev_pic', '') or '',
+                'project': b.get('project', '') or '',
+                'month': b.get('month', '') or '',
+            }
+            hits += 1
+    return hits
+
+
 def _prune_activity(activity):
     cutoff = (datetime.now() - timedelta(days=_ACT_PRUNE_DAYS)).isoformat()
     return [a for a in activity if a.get('when', '') >= cutoff][:_ACT_CAP]
@@ -492,6 +516,15 @@ def scan():
             }
             result['count'] += len(cur_bugs)
             result['unmapped'] += len(norm['unmapped'])
+            dirty = True
+
+        # Hướng A (#146): seed reopen cho bug đang ở Reopen nhưng thiếu entry (transition bị
+        # lỡ / sau reset accumulator). Chạy trên MỌI bug hiện tại (gồm file Tầng-1 skip) ->
+        # tự chữa ngay kể cả khi không file nào đổi. Idempotent (chỉ seed key chưa có).
+        all_cur_bugs = {}
+        for f in files.values():
+            all_cur_bugs.update(f.get('bugs', {}))
+        if _seed_current_reopens(reopen, all_cur_bugs):
             dirty = True
 
         if new_events:

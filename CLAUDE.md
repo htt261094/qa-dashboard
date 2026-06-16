@@ -325,6 +325,13 @@ Hiền THƯỜNG là reporter trong các task QA team được giao — vì cô 
 - **Giới hạn**: `files.export` cap ~10MB (bug log nhỏ, ổn). Nếu nguồn config trỏ NHẦM sang 1 Sheet KHÁC file đang sửa thì vẫn "không update" — lỗi cấu hình nguồn, không phải bug này.
 - **Verify** (không mạng): `py_compile` bug_log + bug_log_store OK; smoke monkeypatch `_drive_get` → native route `/export?mimeType=xlsx` (không alt/supportsAllDrives), xlsx route `alt=media`, `mime_type=None` tự lấy meta rồi route đúng.
 
+### 30. Reopen tracker — seed theo trạng thái hiện tại (2026-06-16, issue #146)
+- **Bối cảnh / vì sao**: bảng "Tỷ lệ Reopen" rỗng dù file có bug đang ở status Reopen. `_count_reopens` chỉ +1 khi quan sát được **transition LIVE** `≠Reopen → =Reopen` giữa 2 snapshot. Bug đã ở Reopen sẵn tại baseline (hoặc sau khi accumulator reopen/metrics bị **reset về 0** — vd lần restart sau merge #144/#145, mọi metric seed lại cùng 1 mốc) thì cú nhảy không được chứng kiến → 0 entry. KHÔNG phải bug KV/save (persistence chạy đúng — đã verify từ `.bug_log.json`: file vẫn rescan, metric status đúng `Reopen:N`, chỉ `reopen` map rỗng).
+- **Fix (hướng A)**: `_seed_current_reopens(reopen_map, cur_bugs)` — bug đang status `'Reopen'` mà `key not in reopen_map` → seed `{count:1, fix:1}` (lower-bound: Reopen tất phải Fixed ≥1 lần trước). Gọi trong `scan()` SAU vòng xử lý file, trên **TẤT CẢ bug hiện tại** gộp từ `files[*]['bugs']` (gồm file Tầng-1 skip) → tự chữa ngay, không cần file đổi; set `dirty=True` để persist.
+- **Không double / idempotent**: chỉ seed khi chưa có entry → transition (count chính xác) hoặc seed cũ không bị đè. `_count_reopens` GIỮ NGUYÊN, vẫn cộng tiếp các lần dội Fixed→Reopen sau seed. `_merge_reopen` lấy max nên seed=1 không hạ count cao hơn ở host/KV khác.
+- **Giới hạn**: không tái tạo số dội thật trước khi theo dõi (dội 3 lần → hiện 1); bug đã rời Reopen (Closed) trước khi seed thì không bắt. Note dưới bảng sửa lại cho khớp ("Bug đang ở Reopen được tính tối thiểu 1 lần...").
+- **Verify** (không mạng): `py_compile` bug_log_store + render/bug_log OK; unit-test seed Reopen-only + idempotent + KHÔNG double với transition + transition tăng tiếp sau seed; chạy trên `.bug_log.json` thật → seed 18 entry (đúng 6 bug DA6 28/57/59/63/64/65 + DA5/ERP/VĐT).
+
 ## Issue Tracking & Branch Workflow (QUAN TRỌNG cho Claude Code)
 
 **Quy ước user (áp dụng MẶC ĐỊNH, không hỏi lại):**
