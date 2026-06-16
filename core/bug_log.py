@@ -317,6 +317,38 @@ def parse_xlsx(data):
         return out
 
 
+# ===== Đọc sheet thô (generic) — dùng lại bởi import test case (#152) =====
+# parse_xlsx ở trên gắn riêng với cấu trúc bug log. Test case cần đọc THÔ theo
+# từng sheet (chọn tab nào tuỳ user) -> hai hàm dưới mở cơ chế parse stdlib sẵn
+# có (KHÔNG viết lại Drive client) cho mọi caller. Raise RuntimeError nếu file hỏng.
+def list_sheet_names(data):
+    """bytes .xlsx -> [tên sheet] theo thứ tự workbook (gồm cả Template/sheet phụ)."""
+    try:
+        zf = zipfile.ZipFile(BytesIO(data))
+    except zipfile.BadZipFile:
+        raise RuntimeError('File tải về không phải .xlsx hợp lệ.')
+    with zf:
+        return [name for name, _path in _sheet_targets(zf)]
+
+
+def read_sheet_rows(data, sheet_name):
+    """bytes .xlsx + tên sheet -> list[list[str]] (rows thô). Raise nếu file hỏng / không
+    thấy sheet."""
+    try:
+        zf = zipfile.ZipFile(BytesIO(data))
+    except zipfile.BadZipFile:
+        raise RuntimeError('File tải về không phải .xlsx hợp lệ.')
+    with zf:
+        shared = _read_shared_strings(zf)
+        for name, path in _sheet_targets(zf):
+            if name == sheet_name:
+                try:
+                    return _read_rows(zf, path, shared)
+                except KeyError:
+                    raise RuntimeError('Không đọc được nội dung sheet đã chọn.')
+        raise RuntimeError(f'Không tìm thấy sheet "{sheet_name}" trong file.')
+
+
 # ===== Normalize (issue #53) — header→field mapping + gộp status + khoá diff =====
 #
 # Đầu vào = rows thô từ parse_xlsx (dict keyed theo TÊN header gốc + `_sheet`).

@@ -3016,26 +3016,77 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   if($('tcdClose')) $('tcdClose').addEventListener('click', closeDrawer);
   document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeDrawer(); });
 
-  // ---- Modal Import (backend nối ở #152) ----
+  // ---- Modal Import (Drive: dán link -> chọn sheet -> chọn folder -> ghi đè) #152 ----
   var imp=$('tcImportOverlay');
+  var urlIn=$('tcImpUrl'), sheetSel=$('tcImpSheet'), folderSel=$('tcImpFolder'),
+      submitBtn=$('tcImpSubmit');
+  var lastSheetUrl='';   // tránh fetch lại sheet khi url không đổi
   window.tcCloseImport=function(){ if(imp) imp.classList.remove('open'); };
-  if($('tcImportBtn')) $('tcImportBtn').addEventListener('click', function(){
-    if(imp) imp.classList.add('open'); });
-  if($('tcImpSubmit')) $('tcImpSubmit').addEventListener('click', function(){
-    toast('Import sẽ được nối ở bước store/Drive (#152).', true); });
 
-  // ---- Modal tạo thư mục (lưu thật nối ở #152; hiện thêm client-side) ----
+  function fillFolderSel(){
+    if(!folderSel) return;
+    folderSel.innerHTML='<option value="">Chọn thư mục...</option>'
+      + folders.map(function(f){ return '<option value="'+esc(f.id)+'">'+esc(f.name||f.id)+'</option>'; }).join('');
+  }
+  function resetSheetSel(msg){
+    if(sheetSel) sheetSel.innerHTML='<option value="">'+(msg||'Chọn một trang...')+'</option>';
+  }
+  function loadSheets(){
+    var u=(urlIn&&urlIn.value||'').trim();
+    if(!u){ resetSheetSel(); lastSheetUrl=''; return; }
+    if(u===lastSheetUrl) return;
+    lastSheetUrl=u; resetSheetSel('Đang tải...');
+    getJSON('/tc-sheets?url='+encodeURIComponent(u)).then(function(j){
+      if(!j||!j.ok){ resetSheetSel('Lỗi'); toast((j&&j.msg)||'Không đọc được file Drive', false); lastSheetUrl=''; return; }
+      var sheets=j.sheets||[];
+      if(!sheets.length){ resetSheetSel('Không có sheet'); return; }
+      sheetSel.innerHTML='<option value="">Chọn một trang...</option>'
+        + sheets.map(function(s){ return '<option value="'+esc(s)+'">'+esc(s)+'</option>'; }).join('');
+      if(sheets.length===1){ sheetSel.value=sheets[0]; }
+    }).catch(function(){ resetSheetSel('Lỗi'); toast('Lỗi mạng khi đọc file Drive', false); lastSheetUrl=''; });
+  }
+  if(urlIn){ urlIn.addEventListener('change', loadSheets);
+    urlIn.addEventListener('blur', loadSheets); }
+  if($('tcImportBtn')) $('tcImportBtn').addEventListener('click', function(){
+    if(!imp) return; fillFolderSel(); imp.classList.add('open');
+    if(urlIn) urlIn.focus(); });
+  if(submitBtn) submitBtn.addEventListener('click', function(){
+    var u=(urlIn&&urlIn.value||'').trim();
+    var sheet=(sheetSel&&sheetSel.value||'').trim();
+    var folder=(folderSel&&folderSel.value||'').trim();
+    if(!u){ toast('Chưa dán link Google Sheet', false); return; }
+    if(!sheet){ toast('Chưa chọn sheet', false); return; }
+    if(!folder){ toast('Chưa chọn folder đích', false); return; }
+    var hasCases = cases.some(function(c){ return c.folder===folder; });
+    if(hasCases && !confirm('Bộ này đã có test case. Import sẽ GHI ĐÈ toàn bộ (kết quả chạy '
+        +'theo ID được giữ lại). Tiếp tục?')) return;
+    submitBtn.disabled=true;
+    postJSON('/tc-import', { url:u, sheet:sheet, folder:folder }, 60000).then(function(j){
+      submitBtn.disabled=false;
+      if(j&&j.ok){ toast(j.msg||'Import thành công', true); window.tcCloseImport();
+        setTimeout(function(){ location.reload(); }, 600); }
+      else { toast((j&&j.msg)||'Import thất bại', false); }
+    }).catch(function(){ submitBtn.disabled=false; toast('Lỗi mạng khi import', false); });
+  });
+
+  // ---- Modal tạo thư mục (lưu thật qua /tc-add-folder, sync KV chéo máy) #152 ----
   var fov=$('tcFolderOverlay');
   window.tcCloseFolder=function(){ if(fov) fov.classList.remove('open'); };
   if($('tcAddFolder')) $('tcAddFolder').addEventListener('click', function(){
     if(!fov) return; var inp=$('tcFolderName'); if(inp) inp.value=''; fov.classList.add('open');
     if(inp) inp.focus(); });
   if($('tcFolderSave')) $('tcFolderSave').addEventListener('click', function(){
+    var btn=$('tcFolderSave');
     var name=(($('tcFolderName')||{}).value||'').trim();
     if(!name){ toast('Chưa nhập tên thư mục', false); return; }
-    folders.push({ id:'f_'+Date.now(), name:name });
-    window.tcCloseFolder(); renderTree();
-    toast('Đã thêm "'+name+'" (lưu vĩnh viễn sẽ nối ở #152)', true); });
+    btn.disabled=true;
+    postJSON('/tc-add-folder', { name:name }).then(function(j){
+      btn.disabled=false;
+      if(j&&j.ok){ folders=j.folders||folders; window.tcCloseFolder();
+        renderTree(); fillFolderSel(); toast('Đã thêm "'+name+'"', true); }
+      else { toast((j&&j.msg)||'Không thêm được thư mục', false); }
+    }).catch(function(){ btn.disabled=false; toast('Lỗi mạng khi lưu', false); });
+  });
 
   renderTree(); render();
 })();
