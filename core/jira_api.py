@@ -196,6 +196,7 @@ def _jira_request(jql, max_results, fields=_DEFAULT_FIELDS, expand=None):
             timeout=30,
         )
         if resp.status_code == 401:
+            reset_username_cache()         # PAT chung có thể đã đổi/thu hồi -> vứt username memoize (issue #131)
             raise RuntimeError("Jira 401 — PAT sai hoặc hết hạn")
         if resp.status_code == 403:
             raise RuntimeError("Jira 403 — PAT không đủ quyền")
@@ -535,7 +536,13 @@ def fetch_issue_detail(key):
 
 # ===== Dismiss state lưu ở Jira user property, TÁCH theo người đăng nhập (email) =====
 _READ_PROP = 'qa-dashboard-read'
+# Username của PAT chung, memoize. CÓ TTL: nếu xoay PAT chung mà KHÔNG restart server,
+# cache cũ sẽ tự hết hạn -> không ghi Jira property gắn SAI username quá lâu (issue #131).
+# Ngoài ra reset ngay khi gặp 401 (PAT cũ bị thu hồi) qua reset_username_cache().
 _USERNAME = None
+_USERNAME_AT = 0.0
+_USERNAME_TTL = 600  # giây
+_USERNAME_LOCK = threading.Lock()
 
 
 def _auth_headers(extra=None):
@@ -545,13 +552,24 @@ def _auth_headers(extra=None):
     return h
 
 
+def reset_username_cache():
+    """Vứt username memoize (gọi khi gặp 401 từ call dùng PAT chung -> PAT có thể đã đổi)."""
+    global _USERNAME, _USERNAME_AT
+    with _USERNAME_LOCK:
+        _USERNAME = None
+        _USERNAME_AT = 0.0
+
+
 def _current_username():
-    global _USERNAME
-    if _USERNAME is None:
+    global _USERNAME, _USERNAME_AT
+    with _USERNAME_LOCK:
+        if _USERNAME is not None and (time.time() - _USERNAME_AT) < _USERNAME_TTL:
+            return _USERNAME
         try:
             r = _SESSION.get(f"{JIRA_URL}/rest/api/2/myself", headers=_auth_headers(), timeout=15)
             r.raise_for_status()
             _USERNAME = r.json().get('name') or r.json().get('key')
+            _USERNAME_AT = time.time()
         except requests.RequestException as e:
             raise RuntimeError(f"Network error: {str(e).replace(PAT, '<REDACTED>')}")
     return _USERNAME
