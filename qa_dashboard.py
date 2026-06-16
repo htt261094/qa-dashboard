@@ -28,6 +28,8 @@ from bug_log_store import (scan as bug_log_scan, start_scheduler as start_bug_lo
                            load_bug_log)
 from bug_log_source import load_sources, save_sources, extract_file_id, MAX_SOURCES
 from task_link import load_links, set_task_links, tasks_of
+from testcase_link import (load_links as tc_load_links, set_folder_links as tc_set_folder_links,
+                           folders_for_task as tc_folders_for_task)
 from jira_api import (fetch_all_shared, scope_data, fetch_activity_feed, load_dismissed,
                       dismiss_activities, run_parallel, fetch_issue_detail,
                       search_parent_ptsp, search_people, search_qa_tasks, global_search)
@@ -161,6 +163,44 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
                 'severity': b.get('severity', ''),
                 'status': b.get('status', ''),
                 'module': b.get('feature', ''),
+            })
+        return out
+
+    def _testcases_for_task(self, task_key):
+        """Chiều ngược của testcase_link: list BỘ test case ĐÃ LINK tới `task_key`,
+        cho drawer detail. Mỗi bộ kèm tên + đếm case (gồm folder con) + breakdown
+        pass/fail. Lỗi -> [] (drawer vẫn mở, chỉ thiếu mục test case)."""
+        try:
+            fids = tc_folders_for_task(task_key)
+        except Exception:
+            return []
+        if not fids:
+            return []
+        try:
+            data = load_testcases() or {}
+        except Exception:
+            return []
+        folders = data.get('folders') or []
+        cases = data.get('cases') or []
+        by_id = {f.get('id'): f for f in folders}
+        # con theo cha (để gộp case của folder con vào bộ gốc, như casesIn ở UI)
+        children = {}
+        for f in folders:
+            p = f.get('parent_id')
+            if p:
+                children.setdefault(p, []).append(f.get('id'))
+        out = []
+        for fid in fids:
+            folder = by_id.get(fid)
+            if not folder:
+                continue
+            allowed = {fid} | set(children.get(fid, []))
+            sub = [c for c in cases if c.get('folder') in allowed]
+            n_pass = sum(1 for c in sub if c.get('result') == 'pass')
+            n_fail = sum(1 for c in sub if c.get('result') == 'fail')
+            out.append({
+                'id': fid, 'name': folder.get('name', fid),
+                'count': len(sub), 'pass': n_pass, 'fail': n_fail,
             })
         return out
 
@@ -390,11 +430,12 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         # chuông notif (đồng nhất mọi tab). editable=True -> MỌI QA đăng nhập được
         # import/sửa (user chốt #152), không giới hạn admin.
         try:
-            res = run_parallel({'tc': load_testcases, 'bell': self._bell_activities})
-            data, bell = res['tc'], res['bell']
+            res = run_parallel({'tc': load_testcases, 'bell': self._bell_activities,
+                                'links': tc_load_links})
+            data, bell, links = res['tc'], res['bell'], res['links']
         except RuntimeError:
-            data, bell = None, []
-        self._html(render_testcase_v2(data=data, editable=True,
+            data, bell, links = None, [], {}
+        self._html(render_testcase_v2(data=data, editable=True, links=links,
                                       user=self._user_ctx(), activities=bell))
 
     def _get_roadmap(self):
@@ -442,9 +483,11 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         try:
             # Jira detail + bug đã link tới task (chiều ngược task_link) song song.
             res = run_parallel({'detail': lambda: fetch_issue_detail(key),
-                                'bugs': lambda: self._bugs_for_task(key)})
+                                'bugs': lambda: self._bugs_for_task(key),
+                                'testcases': lambda: self._testcases_for_task(key)})
             detail = res['detail']
             detail['bugs'] = res['bugs']
+            detail['testcases'] = res['testcases']
             self._json(200, json.dumps({'ok': True, 'detail': detail}).encode('utf-8'))
         except RuntimeError:
             self._json(400, b'{"ok":false,"msg":"loi"}')
@@ -677,6 +720,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             return
         if self.path == '/tc-import':
             self._post_tc_import()
+            return
+        if self.path == '/tc-link-task':
+            self._post_tc_link_task()
             return
         self.send_response(404)
         self.end_headers()
@@ -955,6 +1001,29 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             res = {'ok': False, 'msg': 'Lỗi không xác định khi import.'}
         self._json(200 if res.get('ok') else 400,
                    json.dumps(res, ensure_ascii=False).encode('utf-8'))
+
+    def _post_tc_link_task(self):
+        # Liên kết / gỡ link 1 BỘ test case (folder) <-> Jira task (#155).
+        # Mở cho MỌI QA authed (khớp editable=True). Lưu app-side, không ghi Jira.
+        # Body: {folder, task (str|list[str]), op ('add'|'remove'|'clear')}.
+        out = None
+        try:
+            payload = self._read_json_body(50_000)
+            if isinstance(payload, dict):
+                folder = payload.get('folder', '')
+                task = payload.get('task', '')
+                op = payload.get('op', 'add')
+                task_ok = isinstance(task, str) or (
+                    isinstance(task, list) and all(isinstance(x, str) for x in task))
+                if isinstance(folder, str) and task_ok and op in ('add', 'remove', 'clear'):
+                    task = task[:50] if isinstance(task, list) else task
+                    out = tc_set_folder_links(self._user_email(), folder, task, op)
+        except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
+            out = None
+        if out is not None:
+            self._json(200, json.dumps({'ok': True, 'tasks': out}).encode('utf-8'))
+        else:
+            self._json(400, b'{"ok":false}')
 
     def _json(self, status, body):
         self.send_response(status)

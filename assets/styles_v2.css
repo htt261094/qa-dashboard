@@ -334,6 +334,17 @@ tr.cmt-row:hover td{background:var(--surface-low)}
 .dt-bug-sum{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--on-surface)}
 .dt-bug-mod{color:var(--on-surface-variant);font-weight:500}
 .dt-bug-sev{color:var(--on-surface-variant);white-space:nowrap}
+/* Bộ test case liên quan trong drawer task (#155) */
+.dt-tcs{display:flex;flex-direction:column;gap:8px;margin-bottom:22px}
+.dt-tc{display:flex;align-items:center;gap:10px;background:var(--surface-low);text-decoration:none;
+       border:1px solid var(--divider);border-radius:var(--r-md);padding:9px 12px;font-size:13px;color:inherit}
+.dt-tc:hover{background:var(--surface-container);border-color:var(--outline-variant)}
+.dt-tc .material-symbols-rounded{color:var(--primary)}
+.dt-tc-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;color:var(--on-surface)}
+.dt-tc-count{white-space:nowrap;color:var(--on-surface-variant);font-weight:600}
+.dt-tc-meta{white-space:nowrap;font-size:12px}
+.dt-tc-pass{color:#36b37e;font-weight:600}
+.dt-tc-fail{color:#ff5630;font-weight:600}
 .dt-cmts{border-top:1px solid var(--divider);padding-top:16px}
 
 /* ===== Roadmap ===== */
@@ -1180,6 +1191,38 @@ html[data-theme="dark"] .rk-bug-n { color: #ff7b72; }
 .tc-node.active .material-symbols-rounded{color:var(--primary)}
 .tc-node .tc-node-count{margin-left:auto;font-size:11px;color:var(--on-surface-variant)}
 .tc-main{flex:1;min-width:0}
+
+/* Liên kết bộ ↔ task Jira (#155) */
+.tc-linkbar{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:18px;
+            background:var(--card);border:1px solid var(--outline-variant);
+            border-radius:var(--r-lg);padding:11px 14px;font-size:13px}
+.tc-link-lbl{display:inline-flex;align-items:center;gap:6px;color:var(--on-surface-variant)}
+.tc-link-lbl b{color:var(--on-surface)}
+.tc-link-tasks{display:inline-flex;flex-wrap:wrap;gap:6px;flex:1;min-width:0}
+.tc-link-none{color:var(--on-surface-variant);font-style:italic}
+.tc-task-chip{display:inline-flex;align-items:center;gap:2px;background:var(--primary-tint);
+              border:1px solid var(--outline-variant);border-radius:999px;padding:2px 4px 2px 10px}
+.tc-task-key{font-weight:700;color:var(--primary);text-decoration:none;font-size:12px}
+.tc-task-key:hover{text-decoration:underline}
+.tc-task-x{border:none;background:transparent;cursor:pointer;color:var(--on-surface-variant);
+           display:inline-flex;align-items:center;padding:2px;border-radius:50%}
+.tc-task-x:hover{background:var(--surface-high);color:var(--error)}
+.tc-link-add{display:inline-flex;align-items:center;gap:5px;background:var(--surface-low);
+             border:1px solid var(--outline-variant);border-radius:var(--r-md);cursor:pointer;
+             font-family:inherit;font-size:13px;font-weight:600;color:var(--primary);padding:6px 12px}
+.tc-link-add:hover{background:var(--primary-tint)}
+.tc-link-folder{font-weight:600;color:var(--on-surface);background:var(--surface-low);
+                border:1px solid var(--divider);border-radius:var(--r-md);padding:8px 12px}
+.tc-link-results{margin-top:8px;max-height:240px;overflow-y:auto;display:flex;flex-direction:column;gap:4px}
+.tc-link-res{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--r-md);
+             cursor:pointer;border:1px solid transparent}
+.tc-link-res:hover{background:var(--surface-low);border-color:var(--outline-variant)}
+.tc-link-res.linked{opacity:.6;cursor:default}
+.tc-link-res-key{font-weight:700;color:var(--primary);white-space:nowrap;font-size:12px}
+.tc-link-res-sum{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+.tc-link-res .material-symbols-rounded{color:var(--on-surface-variant)}
+.tc-link-loading{padding:10px;color:var(--on-surface-variant);font-size:13px;text-align:center}
+.tc-link-chips{display:flex;flex-wrap:wrap;gap:6px;min-height:28px}
 
 /* Metric cards */
 .tc-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:22px}
