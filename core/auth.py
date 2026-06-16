@@ -27,7 +27,8 @@ from config import (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
 SESSION_COOKIE = 'qa_session'
 STATE_COOKIE = 'qa_oauth_state'
 DRIVE_STATE_COOKIE = 'qa_drive_state'   # state riêng cho luồng "Kết nối Drive" (#52)
-SESSION_TTL = 12 * 3600          # 12h đăng nhập rồi phải login lại
+SESSION_TTL = 7 * 24 * 3600      # 7 ngày (issue #161). Sliding: đang dùng thì gia hạn liên
+                                 # tục (xem session_status); chỉ idle > 7 ngày mới phải login lại.
 STATE_TTL = 600                  # state CSRF sống 10 phút
 
 _AUTH_EP = 'https://accounts.google.com/o/oauth2/v2/auth'
@@ -75,12 +76,31 @@ def _read_token(token):
 
 # ----- session -----
 def make_session_token(email):
-    return _make_token({'email': email, 'exp': time.time() + SESSION_TTL})
+    now = time.time()
+    # iat (issued-at) để sliding refresh biết token đã sống bao lâu (issue #161).
+    return _make_token({'email': email, 'iat': now, 'exp': now + SESSION_TTL})
 
 
 def email_from_session(token):
     data = _read_token(token)
     return (data or {}).get('email', '') if data else ''
+
+
+def session_status(token):
+    """-> (email, needs_refresh). email='' nếu cookie hỏng/hết hạn.
+
+    needs_refresh=True khi cookie CÒN hạn nhưng đã qua nửa đời -> caller cấp lại cookie
+    (sliding session, #161): người đang dùng không bao giờ bị đá về login, chỉ idle hẳn
+    quá SESSION_TTL mới phải login lại. Token cũ thiếu 'iat' (trước #161) -> suy từ exp."""
+    data = _read_token(token)
+    if not data:
+        return '', False
+    email = data.get('email', '')
+    if not email:
+        return '', False
+    iat = float(data.get('iat', float(data.get('exp', 0)) - SESSION_TTL))
+    needs = (time.time() - iat) > (SESSION_TTL / 2)
+    return email, needs
 
 
 # ----- OAuth state (CSRF) -----
