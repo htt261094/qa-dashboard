@@ -1160,4 +1160,88 @@ html[data-theme="dark"] .rk-bug-n { color: #ff7b72; }
 .bm-empty{color:var(--on-surface-variant);font-size:13px;padding:8px 0}
 .bm-sub{padding:10px 20px 16px;font-size:12px;color:var(--on-surface-variant)}
 
+/* ===== Quản lý Test Case (#157 / epic #151) ===== */
+/* Layout 2 cột trong .content: repository panel + nội dung. .content có padding sẵn. */
+.tc-shell{display:flex;gap:24px;align-items:flex-start}
+.tc-repo{flex:0 0 220px;background:var(--card);border:1px solid var(--outline-variant);
+         border-radius:var(--r-lg);overflow:hidden;align-self:stretch}
+.tc-repo-head{display:flex;align-items:center;justify-content:space-between;padding:14px 14px 10px}
+.tc-repo-head h3{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--on-surface-variant)}
+.tc-repo-add{width:30px;height:30px;border:none;background:none;border-radius:var(--r-md);cursor:pointer;
+             color:var(--primary);display:flex;align-items:center;justify-content:center}
+.tc-repo-add:hover{background:var(--primary-tint)}
+.tc-repo-ro{margin:0 12px 10px;font-size:12px;color:var(--on-surface-variant)}
+.tc-tree{padding:0 8px 14px;display:flex;flex-direction:column;gap:2px}
+.tc-node{display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:var(--r-md);cursor:pointer;
+         font-size:14px;color:var(--on-surface);border-left:3px solid transparent}
+.tc-node:hover{background:var(--surface-low)}
+.tc-node.active{background:var(--primary-tint);color:var(--primary-strong);font-weight:600;border-left-color:var(--primary)}
+.tc-node .material-symbols-rounded{font-size:18px;color:var(--warning)}
+.tc-node.active .material-symbols-rounded{color:var(--primary)}
+.tc-node .tc-node-count{margin-left:auto;font-size:11px;color:var(--on-surface-variant)}
+.tc-main{flex:1;min-width:0}
+
+/* Metric cards */
+.tc-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:22px}
+.tc-metric{background:var(--card);border:1px solid var(--outline-variant);border-radius:var(--r-lg);
+           padding:16px 18px;display:flex;align-items:center;gap:14px;box-shadow:0 1px 3px rgba(9,30,66,.10)}
+.tc-metric .ic{width:44px;height:44px;border-radius:var(--r-md);display:flex;align-items:center;
+               justify-content:center;font-size:22px;flex-shrink:0}
+.tc-metric .ic.total{background:rgba(0,82,204,.08);color:var(--primary)}
+.tc-metric .ic.pass{background:var(--success-bg);color:var(--success)}
+.tc-metric .ic.fail{background:var(--error-bg);color:var(--error)}
+.tc-metric .ic.norun{background:var(--surface-container);color:var(--on-surface-variant)}
+.tc-metric .lbl{font-size:13px;color:var(--on-surface-variant);line-height:18px}
+.tc-metric .val{font-size:28px;font-weight:700;letter-spacing:-.02em;line-height:1.1}
+.tc-metric.pass .val{color:var(--success)}.tc-metric.fail .val{color:var(--error)}
+
+/* Bảng test case: text dài clamp 3 dòng + drawer xem full */
+.tc-table{table-layout:fixed}
+.tc-table thead th{font-size:12px;padding:12px 14px}
+.tc-table tbody td{padding:13px 14px;vertical-align:top;line-height:18px}
+.tc-table .tc-id{font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--primary);font-weight:600;white-space:nowrap}
+.tc-table .tc-item{font-weight:600;color:var(--on-surface)}
+.tc-long{color:var(--on-surface-variant);font-size:13px;white-space:pre-line;
+         display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.tc-more{display:inline-flex;align-items:center;gap:2px;margin-top:4px;font-size:11px;font-weight:600;color:var(--primary)}
+.tc-more .material-symbols-rounded{font-size:14px}
+.tc-result{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;white-space:nowrap}
+.tc-result .material-symbols-rounded{font-size:18px}
+.tc-result.pass{color:var(--success)}
+.tc-result.fail{color:var(--error)}
+.tc-result.pending{color:var(--warning)}
+.tc-result.blocked{color:var(--error-on)}
+.tc-result.norun{color:var(--on-surface-variant);font-weight:500}
+.tc-empty{padding:48px;text-align:center;color:var(--on-surface-variant)}
+.tc-empty .material-symbols-rounded{font-size:38px;display:block;margin-bottom:8px;color:var(--outline-variant)}
+
+/* Drawer chi tiết test case */
+.drawer .tc-d-meta{display:flex;align-items:center;gap:10px;margin-bottom:20px;flex-wrap:wrap}
+.tc-d-field{margin-bottom:18px}
+.tc-d-label{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+            color:var(--on-surface-variant);margin-bottom:7px;display:flex;align-items:center;gap:6px}
+.tc-d-label .material-symbols-rounded{font-size:15px;color:var(--primary)}
+.tc-d-box{font-size:13.5px;line-height:21px;color:var(--on-surface);background:var(--surface-low);
+          border:1px solid var(--divider);border-radius:var(--r-md);padding:12px 14px;
+          white-space:pre-wrap;overflow-wrap:anywhere}
+.tc-d-box.mono{font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:20px}
+
+/* Modal Import: icon Google Sheet + field có icon + info box */
+.tc-gs-ic{width:34px;height:34px;border-radius:var(--r-md);background:var(--success-bg);
+          color:var(--success);display:flex;align-items:center;justify-content:center;flex:0 0 34px}
+.tc-iwrap{position:relative}
+.tc-iwrap .lead{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--outline)}
+.tc-iwrap .trail{position:absolute;right:11px;top:50%;transform:translateY(-50%);color:var(--outline);pointer-events:none}
+.tc-iwrap input,.tc-iwrap select{padding-left:36px}
+.tc-iwrap.trailing input,.tc-iwrap.trailing select{padding-left:11px;padding-right:36px;
+   -webkit-appearance:none;appearance:none}
+.tc-hint{font-size:12px;font-style:italic;color:var(--on-surface-variant);line-height:17px}
+.tc-infobox{display:flex;gap:11px;align-items:flex-start;background:var(--surface-low);
+            border:1px solid var(--outline-variant);border-radius:var(--r-md);padding:13px 15px}
+.tc-infobox .material-symbols-rounded{color:var(--primary);flex:0 0 auto;font-size:20px}
+.tc-infobox b{font-size:13px;font-weight:700;display:block;margin-bottom:2px}
+.tc-infobox span:last-child{font-size:13px;color:var(--on-surface-variant);line-height:18px}
+/* read-only: ẩn nút Import/thêm folder */
+.ro .tc-repo-add,.ro #tcImportBtn{display:none !important}
+
 @keyframes spin{to{transform:rotate(360deg)}}

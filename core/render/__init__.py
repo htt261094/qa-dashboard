@@ -34,6 +34,8 @@ from render.roadmap import render_roadmap_v2
 from render.bug_log import render_bug_log_v2, _bug_log_source_modals
 # Analytics v2 (tab /analytics) — gom metric bug + Valid Bug Rate. See issue #158.
 from render.analytics import render_analytics_v2
+# Test Case v2 (tab /test-cases) — khung UI quản lý test case. See issue #157 / epic #151.
+from render.testcase import render_testcase_v2
 # Đánh giá Task QA cho Leader (tab /leader-eval) tách sang render.leader_eval;
 # re-export để chỗ gọi không phải đổi import. See issue #110 / #86 (A7).
 from render.leader_eval import render_leader_eval_page
