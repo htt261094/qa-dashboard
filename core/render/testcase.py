@@ -130,6 +130,25 @@ def render_testcase_v2(data=None, editable=True, user=None, activities=None):
 
     {_import_modal()}
 
+    <!-- Modal tạo thư mục/bộ (lưu thật nối ở #152) -->
+    <div class="overlay" id="tcFolderOverlay" onclick="if(event.target===this)tcCloseFolder()">
+      <div class="modal" style="width:420px">
+        <div class="modal-head">
+          <span class="material-symbols-rounded">create_new_folder</span>
+          <h3>Thêm bộ / thư mục</h3>
+          <button type="button" class="x material-symbols-rounded" onclick="tcCloseFolder()">close</button>
+        </div>
+        <div class="modal-body">
+          <div class="mfield"><label>Tên thư mục</label>
+            <input type="text" id="tcFolderName" placeholder="VD: Đối Soát B2B" autocomplete="off"></div>
+        </div>
+        <div class="modal-foot">
+          <button type="button" class="btn btn-ghost" onclick="tcCloseFolder()">Hủy</button>
+          <button type="button" class="btn btn-primary" id="tcFolderSave">Tạo</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Drawer chi tiết test case (riêng với drawer task #drawer ở shell) -->
     <div class="drawer-ov" id="tcDrawerOv"></div>
     <aside class="drawer" id="tcDrawer">

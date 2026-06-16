@@ -3024,6 +3024,19 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   if($('tcImpSubmit')) $('tcImpSubmit').addEventListener('click', function(){
     toast('Import sẽ được nối ở bước store/Drive (#152).', true); });
 
+  // ---- Modal tạo thư mục (lưu thật nối ở #152; hiện thêm client-side) ----
+  var fov=$('tcFolderOverlay');
+  window.tcCloseFolder=function(){ if(fov) fov.classList.remove('open'); };
+  if($('tcAddFolder')) $('tcAddFolder').addEventListener('click', function(){
+    if(!fov) return; var inp=$('tcFolderName'); if(inp) inp.value=''; fov.classList.add('open');
+    if(inp) inp.focus(); });
+  if($('tcFolderSave')) $('tcFolderSave').addEventListener('click', function(){
+    var name=(($('tcFolderName')||{}).value||'').trim();
+    if(!name){ toast('Chưa nhập tên thư mục', false); return; }
+    folders.push({ id:'f_'+Date.now(), name:name });
+    window.tcCloseFolder(); renderTree();
+    toast('Đã thêm "'+name+'" (lưu vĩnh viễn sẽ nối ở #152)', true); });
+
   renderTree(); render();
 })();
 
