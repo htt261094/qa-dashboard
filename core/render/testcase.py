@@ -101,8 +101,11 @@ def render_testcase_v2(data=None, editable=True, user=None, activities=None):
           {import_btn}
         </div>
 
-        <!-- Metric cards (#153/#154 nối số liệu thật; hiện JS tính từ cases) -->
+        <!-- Metric cards (#153) — JS tính từ cases hiện hành -->
         <div class="tc-metrics" id="tcMetrics"><!-- JS render --></div>
+
+        <!-- Biểu đồ số liệu (#153): donut theo trạng thái + bar theo bộ. Vanilla SVG. -->
+        <div class="tc-charts" id="tcCharts"><!-- JS render --></div>
 
         <!-- Bảng duyệt (#155/#156) -->
         <div class="card">
