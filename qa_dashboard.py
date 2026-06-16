@@ -35,7 +35,7 @@ from roadmap import load_roadmap, save_roadmap, valid_roadmap
 from pat_store import save_user_pat, has_pat, delete_user_pat, load_user_pat
 from custom_status import (load_bundle, values_of)
 from render import (render_page, render_qa_v2, render_docs_page,
-                    render_roadmap_v2, render_bug_log_v2,
+                    render_roadmap_v2, render_bug_log_v2, render_analytics_v2,
                     render_settings_page, render_error_page, render_403,
                     render_shell_error)
 from routes.oauth import OAuthMixin
@@ -250,6 +250,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         if self.path in ('/bug-log', '/bug-log.html'):
             self._get_bug_log()
             return
+        if self.path in ('/analytics', '/analytics.html'):
+            self._get_analytics()
+            return
         if path == '/issue-comments':
             self._get_issue_comments()
             return
@@ -377,6 +380,16 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
                                          editable=True,
                                          user=self._user_ctx(), activities=res['bell'],
                                          sources=res['sources']))
+        except RuntimeError as e:
+            self._html(render_error_page(str(e)))
+
+    def _get_analytics(self):
+        # Analytics (#158): gom metric bug (Valid Bug Rate + chart dev/dự án + reopen).
+        # Nguồn = cache bug_log_store (KHÔNG gọi Jira search) + chuông notif.
+        try:
+            res = run_parallel({'bug': load_bug_log, 'bell': self._bell_activities})
+            self._html(render_analytics_v2(res['bug'], user=self._user_ctx(),
+                                           activities=res['bell']))
         except RuntimeError as e:
             self._html(render_error_page(str(e)))
 

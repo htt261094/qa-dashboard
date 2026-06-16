@@ -63,6 +63,7 @@ def render_sidebar_v2(active, user):
         nav += lnk('/leader-eval', 'leadereval', 'star', 'Đánh giá')
     nav += lnk('/roadmap', 'roadmap', 'map', 'Roadmap')
     nav += lnk('/bug-log', 'buglog', 'bug_report', 'Bugs')
+    nav += lnk('/analytics', 'analytics', 'monitoring', 'Analytics')
     nav += lnk('/docs', 'docs', 'description', 'Tài liệu')
 
     uname = username_from_email(email) if (email and '@' in email) else None
