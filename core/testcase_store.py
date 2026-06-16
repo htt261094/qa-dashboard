@@ -46,7 +46,8 @@ TC_DEFAULT = {'folders': [], 'cases': [], 'imports': {}}
 # ===== Validate shape (trước khi lưu) =====
 def _valid_folder(f):
     return (isinstance(f, dict) and isinstance(f.get('id', ''), str) and f.get('id')
-            and isinstance(f.get('name', ''), str))
+            and isinstance(f.get('name', ''), str)
+            and (f.get('parent_id') is None or isinstance(f.get('parent_id'), str)))
 
 
 def _valid_case(c):
@@ -121,14 +122,29 @@ def add_folder(name):
 
 
 def delete_folder(folder_id):
-    """Xoá 1 folder + toàn bộ cases + metadata import của nó. Trả (ok, data|msg)."""
+    """Xoá 1 folder + toàn bộ cases + metadata import của nó. (Kèm cả folder con)"""
     folder_id = (folder_id or '').strip()
     data = load_testcases()
     if not any(f.get('id') == folder_id for f in data['folders']):
         return False, 'Không tìm thấy thư mục.'
-    data['folders'] = [f for f in data['folders'] if f.get('id') != folder_id]
-    data['cases'] = [c for c in data['cases'] if c.get('folder') != folder_id]
-    data.get('imports', {}).pop(folder_id, None)
+    
+    # Tìm tất cả ID của folder con (để xoá cascade)
+    to_delete = {folder_id}
+    # Lặp để quét n-level cascade
+    while True:
+        added = False
+        for f in data['folders']:
+            if f.get('parent_id') in to_delete and f.get('id') not in to_delete:
+                to_delete.add(f.get('id'))
+                added = True
+        if not added:
+            break
+
+    data['folders'] = [f for f in data['folders'] if f.get('id') not in to_delete]
+    data['cases'] = [c for c in data['cases'] if c.get('folder') not in to_delete]
+    for fid in to_delete:
+        data.get('imports', {}).pop(fid, None)
+        
     if not save_testcases(data):
         return False, 'Không lưu được (KV/local lỗi).'
     return True, data
@@ -312,13 +328,23 @@ def import_cases(folder_id, url, sheet, by_email=''):
         return {'ok': False, 'msg': f'Không có test case hợp lệ trong sheet (bỏ {skipped} '
                                     f'dòng thiếu dữ liệu bắt buộc trên {total} dòng).'}
 
-    # GIỮ result cũ theo case id trong CHÍNH folder này (ghi đè nội dung, không mất kết quả chạy)
+    # Tự động tạo hoặc lấy folder con theo tên sheet
+    sub_folder = next((f for f in data['folders'] if f.get('parent_id') == folder_id and f.get('name') == sheet), None)
+    if not sub_folder:
+        sub_id = 'f_' + format(int(time.time() * 1000) + len(data['folders']), 'x')
+        sub_folder = {'id': sub_id, 'name': sheet, 'parent_id': folder_id}
+        data['folders'].append(sub_folder)
+    
+    target_folder_id = sub_folder['id']
+
+    # GIỮ result cũ theo case id trong CHÍNH sub folder này (ghi đè nội dung, không mất kết quả chạy)
     prev_result = {c['id']: c.get('result', 'norun')
-                   for c in data['cases'] if c.get('folder') == folder_id}
-    # ghi đè: bỏ hết cases cũ của folder, thay bằng cases mới
-    data['cases'] = [c for c in data['cases'] if c.get('folder') != folder_id]
+                   for c in data['cases'] if c.get('folder') == target_folder_id}
+    
+    # ghi đè: bỏ hết cases cũ của sub folder, thay bằng cases mới
+    data['cases'] = [c for c in data['cases'] if c.get('folder') != target_folder_id]
     for c in new_cases:
-        c['folder'] = folder_id
+        c['folder'] = target_folder_id
         parsed_result = c.get('result', '')
         r = prev_result.get(c['id'], 'norun')
         if parsed_result:

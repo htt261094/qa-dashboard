@@ -2915,7 +2915,12 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
 
   // ---- Repository panel (folder filter) ----
   var curFolder = '';  // '' = tất cả
-  function casesIn(fid){ return fid ? cases.filter(function(c){ return c.folder===fid; }) : cases; }
+  function casesIn(fid){
+    if(!fid) return cases;
+    var subIds = folders.filter(function(f){ return f.parent_id===fid; }).map(function(f){ return f.id; });
+    var allowed = [fid].concat(subIds);
+    return cases.filter(function(c){ return allowed.indexOf(c.folder) >= 0; });
+  }
   function renderTree(){
     var tree=$('tcTree'); if(!tree) return;
     var html = '<div class="tc-node'+(curFolder===''?' active':'')+'" data-folder="">'
@@ -3025,8 +3030,33 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
 
   function fillFolderSel(){
     if(!folderSel) return;
-    folderSel.innerHTML='<option value="">Chọn thư mục...</option>'
-      + folders.map(function(f){ return '<option value="'+esc(f.id)+'">'+esc(f.name||f.id)+'</option>'; }).join('');
+    var tops = folders.filter(function(f){ return !f.parent_id; });
+    var subsByParent = {};
+    folders.forEach(function(f){
+      if(f.parent_id) {
+        subsByParent[f.parent_id] = subsByParent[f.parent_id] || [];
+        subsByParent[f.parent_id].push(f);
+      }
+    });
+
+    var opts = '<option value="">Chọn thư mục...</option>';
+    function addOpt(f, prefix){
+      opts += '<option value="'+esc(f.id)+'">'+esc(prefix + (f.name||f.id))+'</option>';
+      var children = subsByParent[f.id] || [];
+      children.forEach(function(c){ addOpt(c, prefix + '— '); });
+    }
+    tops.forEach(function(f){ addOpt(f, ''); });
+    
+    // Catch orphans
+    var allTopIds = tops.map(function(t){ return t.id; });
+    folders.forEach(function(f){
+      if(f.parent_id && allTopIds.indexOf(f.parent_id) === -1 && (!subsByParent[f.parent_id] || subsByParent[f.parent_id].indexOf(f) >= 0)){
+         addOpt(f, '');
+         subsByParent[f.parent_id] = [];
+      }
+    });
+
+    folderSel.innerHTML = opts;
   }
   function resetSheetSel(msg){
     if(sheetSel) sheetSel.innerHTML='<option value="">'+(msg||'Chọn một trang...')+'</option>';
@@ -3137,14 +3167,23 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     }).catch(function(){ toast('Lỗi mạng khi xoá', false); });
   }
 
-  // Render tree với nút context menu (rename/delete) cho admin
   var _origRenderTree = renderTree;
   renderTree = function(){
     var tree=$('tcTree'); if(!tree) return;
     var html = '<div class="tc-node'+(curFolder===''?' active':'')+'" data-folder="">'+
                '<span class="material-symbols-rounded">folder_open</span> Tất cả dự án'+
                '<span class="tc-node-count">'+cases.length+'</span></div>';
+    
+    var tops = folders.filter(function(f){ return !f.parent_id; });
+    var subsByParent = {};
     folders.forEach(function(f){
+      if(f.parent_id) {
+        subsByParent[f.parent_id] = subsByParent[f.parent_id] || [];
+        subsByParent[f.parent_id].push(f);
+      }
+    });
+
+    function renderNode(f, depth){
       var actions = '';
       if(editable){
         actions = '<span class="tc-folder-actions">'
@@ -3152,20 +3191,35 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
           + '<button class="tc-fa-btn danger" data-action="delete" data-fid="'+esc(f.id)+'" title="Xoá"><span class="material-symbols-rounded mi-xs">delete</span></button>'
           + '</span>';
       }
-      html += '<div class="tc-node'+(curFolder===f.id?' active':'')+'" data-folder="'+esc(f.id)+'" style="margin-left:14px">'+
-              '<span class="material-symbols-rounded">folder</span> '+esc(f.name||f.id)+
+      var ml = 14 + (depth * 20);
+      var ic = depth > 0 ? 'segment' : 'folder';
+      html += '<div class="tc-node'+(curFolder===f.id?' active':'')+'" data-folder="'+esc(f.id)+'" style="margin-left:'+ml+'px">'+
+              '<span class="material-symbols-rounded">'+ic+'</span> '+esc(f.name||f.id)+
               '<span class="tc-node-count">'+casesIn(f.id).length+'</span>'+
               actions+'</div>';
+      
+      var children = subsByParent[f.id] || [];
+      children.forEach(function(c){ renderNode(c, depth + 1); });
+    }
+
+    tops.forEach(function(f){ renderNode(f, 0); });
+
+    // Các folder con mồ côi (nếu lỡ bị lỗi data)
+    var allTopIds = tops.map(function(t){ return t.id; });
+    folders.forEach(function(f){
+      if(f.parent_id && allTopIds.indexOf(f.parent_id) === -1 && (!subsByParent[f.parent_id] || subsByParent[f.parent_id].indexOf(f) >= 0)){
+         renderNode(f, 0); // render nó như top nếu mất cha
+         subsByParent[f.parent_id] = []; // xoá để tránh lặp
+      }
     });
+
     tree.innerHTML = html;
     tree.querySelectorAll('.tc-node').forEach(function(n){
       n.addEventListener('click', function(e){
-        // Nếu click vào nút action thì không chuyển folder
         if(e.target.closest('.tc-fa-btn')) return;
         curFolder=n.dataset.folder; renderTree(); page=1; render();
       });
     });
-    // Gắn event cho nút rename/delete
     tree.querySelectorAll('.tc-fa-btn').forEach(function(btn){
       btn.addEventListener('click', function(e){
         e.stopPropagation();
