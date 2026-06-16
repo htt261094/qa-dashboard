@@ -358,4 +358,4 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
 
     {js_block}
     """
-    return _document_v2(inner, 'leadereval', user, activities or [], title=f'\u0110\u00e1nh gi\u00e1 th\u00e1ng {month}/{year} \u2014 QA Dashboard')
+    return _document_v2(inner, 'leadereval', user, activities or [], title=f'\u0110\u00e1nh gi\u00e1 th\u00e1ng {month}/{year} \u2014 QA Workspace')

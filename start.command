@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# QA Dashboard launcher — macOS / Linux
+# QA Workspace launcher — macOS / Linux
 # Usage: ./start.sh   (chmod +x start.sh lần đầu)
 set -e
 cd "$(dirname "$0")"
