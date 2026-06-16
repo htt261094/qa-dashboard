@@ -33,6 +33,9 @@ from jira_api import (fetch_all_shared, scope_data, fetch_activity_feed, load_di
                       search_parent_ptsp, search_people, search_qa_tasks, global_search)
 from docs import load_docs, save_docs, valid_tree
 from roadmap import load_roadmap, save_roadmap, valid_roadmap
+from testcase_store import (load_testcases, fetch_sheets as tc_fetch_sheets,
+                            import_cases as tc_import_cases, add_folder as tc_add_folder,
+                            delete_folder as tc_delete_folder)
 from pat_store import save_user_pat, has_pat, delete_user_pat, load_user_pat
 from custom_status import (load_bundle, values_of)
 from render import (render_page, render_qa_v2, render_docs_page,
@@ -297,6 +300,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         if path == '/search-people':
             self._get_search_people()
             return
+        if path == '/tc-sheets':
+            self._get_tc_sheets()
+            return
         if self.path in ('/settings', '/settings.html'):
             self._get_settings()
             return
@@ -380,14 +386,15 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             self._html(render_error_page(str(e)))
 
     def _get_test_cases(self):
-        # Quản lý Test Case (#157) — KHUNG UI: chỉ cần chuông notif (đồng nhất mọi
-        # tab). Store test case chưa có (#152) -> data rỗng, bảng hiện empty-state.
+        # Quản lý Test Case (#152/#157): nạp store (KV sync chéo máy, fallback cache) +
+        # chuông notif (đồng nhất mọi tab). editable=True -> MỌI QA đăng nhập được
+        # import/sửa (user chốt #152), không giới hạn admin.
         try:
-            res = run_parallel({'bell': self._bell_activities})
-            bell = res['bell']
+            res = run_parallel({'tc': load_testcases, 'bell': self._bell_activities})
+            data, bell = res['tc'], res['bell']
         except RuntimeError:
-            bell = []
-        self._html(render_testcase_v2(data=None, editable=self._is_admin(),
+            data, bell = None, []
+        self._html(render_testcase_v2(data=data, editable=True,
                                       user=self._user_ctx(), activities=bell))
 
     def _get_roadmap(self):
@@ -512,6 +519,17 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
                 {'ok': True, 'results': search_people(q)}).encode('utf-8'))
         except RuntimeError:
             self._json(400, b'{"ok":false}')
+
+    def _get_tc_sheets(self):
+        # Import test case (#152): dán link Drive -> liệt kê sheet để chọn tab.
+        # Tải file 1 lần (Sheet native -> export xlsx); token redact trong bug_log.
+        url = (parse_qs(urlparse(self.path).query).get('url') or [''])[0]
+        try:
+            self._json(200, json.dumps({'ok': True, **tc_fetch_sheets(url)},
+                                       ensure_ascii=False).encode('utf-8'))
+        except RuntimeError as e:
+            self._json(400, json.dumps({'ok': False, 'msg': str(e)},
+                                       ensure_ascii=False).encode('utf-8'))
 
     def _get_settings(self):
         # Cài đặt PAT cá nhân (mã hoá khi lưu) — thao tác Jira ghi đúng tên người dùng
@@ -647,6 +665,15 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             return
         if self.path == '/save-roadmap':
             self._post_save_roadmap()
+            return
+        if self.path == '/tc-add-folder':
+            self._post_tc_add_folder()
+            return
+        if self.path == '/tc-delete-folder':
+            self._post_tc_delete_folder()
+            return
+        if self.path == '/tc-import':
+            self._post_tc_import()
             return
         self.send_response(404)
         self.end_headers()
@@ -839,6 +866,69 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         except (ValueError, json.JSONDecodeError, OSError):
             ok = False
         self._json(200 if ok else 400, b'{"ok":true}' if ok else b'{"ok":false}')
+
+    # ===== Test Case (#152) — MỌI QA authed được sửa (do_POST đã gate authed/domain) =====
+    def _post_tc_add_folder(self):
+        out, err = None, ''
+        try:
+            payload = self._read_json_body(10_000)
+            name = payload.get('name') if isinstance(payload, dict) else None
+            if not isinstance(name, str):
+                err = 'Thiếu tên thư mục.'
+            else:
+                ok, res = tc_add_folder(name)
+                if ok:
+                    out = res
+                else:
+                    err = res
+        except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
+            err = 'Lỗi xử lý yêu cầu.'
+        if out is None:
+            self._json(400, json.dumps({'ok': False, 'msg': err or 'Lỗi'},
+                                       ensure_ascii=False).encode('utf-8'))
+            return
+        self._json(200, json.dumps({'ok': True, 'folders': out.get('folders', [])},
+                                   ensure_ascii=False).encode('utf-8'))
+
+    def _post_tc_delete_folder(self):
+        out, err = None, ''
+        try:
+            payload = self._read_json_body(10_000)
+            fid = payload.get('id') if isinstance(payload, dict) else None
+            if not isinstance(fid, str):
+                err = 'Thiếu id thư mục.'
+            else:
+                ok, res = tc_delete_folder(fid)
+                if ok:
+                    out = res
+                else:
+                    err = res
+        except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
+            err = 'Lỗi xử lý yêu cầu.'
+        if out is None:
+            self._json(400, json.dumps({'ok': False, 'msg': err or 'Lỗi'},
+                                       ensure_ascii=False).encode('utf-8'))
+            return
+        self._json(200, json.dumps({'ok': True, 'folders': out.get('folders', [])},
+                                   ensure_ascii=False).encode('utf-8'))
+
+    def _post_tc_import(self):
+        # Import 1 sheet -> GHI ĐÈ toàn bộ cases của folder (giữ result cũ theo id).
+        # Body: {url, sheet, folder}. Tải + parse trong store; token redact trong bug_log.
+        res = {'ok': False, 'msg': 'Lỗi xử lý yêu cầu.'}
+        try:
+            payload = self._read_json_body(20_000)
+            if isinstance(payload, dict):
+                url = str(payload.get('url') or '')
+                sheet = str(payload.get('sheet') or '')
+                folder = str(payload.get('folder') or '')
+                res = tc_import_cases(folder, url, sheet, by_email=self._user_email())
+        except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
+            res = {'ok': False, 'msg': 'Lỗi xử lý yêu cầu.'}
+        except Exception:   # noqa: BLE001 — phòng lỗi lạ; store đã redact token
+            res = {'ok': False, 'msg': 'Lỗi không xác định khi import.'}
+        self._json(200 if res.get('ok') else 400,
+                   json.dumps(res, ensure_ascii=False).encode('utf-8'))
 
     def _json(self, status, body):
         self.send_response(status)
