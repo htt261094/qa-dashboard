@@ -404,8 +404,10 @@ def _scan_one(src, prev):
                      and prev.get('_version') == 3)
         if unchanged:
             return {'fid': fid, 'unchanged': True, 'count': len(prev.get('bugs', {}))}
-        # Tầng-2: chỉ tới đây mới tải + parse + normalize (file đã đổi)
-        rows = fetch_content(fid)
+        # Tầng-2: chỉ tới đây mới tải + parse + normalize (file đã đổi). Truyền mimeType từ
+        # Tầng-1 để download_file biết native Sheet (->/export) vs .xlsx (->alt=media), không
+        # gọi metadata lần nữa.
+        rows = fetch_content(fid, mime_type=meta.get('mimeType', ''))
         project = project_from_filename(src.get('label', '') or meta.get('name', ''))
         norm = normalize(rows, project=project, service=src.get('service', ''))
         cur_bugs = {b['key']: b for b in norm['bugs'] if b.get('key')}
