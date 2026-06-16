@@ -1195,6 +1195,30 @@ html[data-theme="dark"] .rk-bug-n { color: #ff7b72; }
 .tc-metric .val{font-size:28px;font-weight:700;letter-spacing:-.02em;line-height:1.1}
 .tc-metric.pass .val{color:var(--success)}.tc-metric.fail .val{color:var(--error)}
 
+/* Biểu đồ số liệu test case (#153): donut theo trạng thái + bar ngang theo bộ */
+.tc-charts{display:grid;grid-template-columns:minmax(280px,1fr) minmax(320px,1.4fr);gap:16px;margin-bottom:22px}
+@media (max-width:900px){.tc-charts{grid-template-columns:1fr}}
+.tc-chart-card{background:var(--card);border:1px solid var(--outline-variant);border-radius:var(--r-lg);
+               padding:18px 20px;box-shadow:0 1px 3px rgba(9,30,66,.10)}
+.tc-chart-title{font-size:13px;font-weight:700;color:var(--on-surface);margin-bottom:14px}
+.tc-donut-wrap{display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+.tc-donut{flex:0 0 auto}
+.tc-donut-num{font-size:32px;font-weight:700;fill:var(--on-surface)}
+.tc-donut-cap{font-size:12px;fill:var(--on-surface-variant)}
+.tc-legend{flex:1;min-width:150px;display:flex;flex-direction:column;gap:7px}
+.tc-leg{display:flex;align-items:center;gap:8px;font-size:13px}
+.tc-leg-dot{width:11px;height:11px;border-radius:3px;flex:0 0 auto}
+.tc-leg-lbl{color:var(--on-surface)}
+.tc-leg-val{margin-left:auto;font-weight:600;color:var(--on-surface)}
+.tc-leg-pct{font-weight:500;color:var(--on-surface-variant)}
+.tc-bars{display:flex;flex-direction:column;gap:11px}
+.tc-bar-row{display:flex;align-items:center;gap:10px;font-size:13px}
+.tc-bar-name{flex:0 0 120px;color:var(--on-surface);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tc-bar-track{display:flex;height:18px;border-radius:4px;overflow:hidden;background:var(--surface-container);min-width:8px}
+.tc-bar-seg{display:block;height:100%}
+.tc-bar-n{flex:0 0 auto;font-weight:700;color:var(--on-surface);min-width:28px;text-align:right}
+.tc-bar-empty{padding:24px;text-align:center;color:var(--on-surface-variant);font-size:13px}
+
 /* Bảng test case: text dài clamp 3 dòng + drawer xem full */
 .tc-table{table-layout:fixed}
 .tc-table thead th{font-size:12px;padding:12px 14px}

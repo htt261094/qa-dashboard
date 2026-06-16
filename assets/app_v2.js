@@ -2954,10 +2954,83 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       + card('norun','pause_circle','Chưa chạy',norun);
   }
 
+  // ---- Biểu đồ (#153): donut theo trạng thái + bar theo bộ. Vanilla SVG, palette Atlassian-blue ----
+  var RES_ORDER = ['pass','fail','pending','blocked','norun'];
+  var RES_COLOR = { pass:'#36b37e', fail:'#ff5630', pending:'#ffab00', blocked:'#6554c0', norun:'#97a0af' };
+  var RES_LABEL = { pass:'Pass', fail:'Fail', pending:'Pending', blocked:'Blocked', norun:'Chưa chạy' };
+
+  function statusCounts(list){
+    var c = { pass:0, fail:0, pending:0, blocked:0, norun:0 };
+    list.forEach(function(x){ var r=x.result||'norun'; if(c[r]==null) r='norun'; c[r]++; });
+    return c;
+  }
+  // Donut SVG bằng stroke-dasharray trên <circle> (clockwise từ 12h). total ở giữa.
+  function donutSVG(segs, total){
+    var size=180, sw=26, r=(size-sw)/2, cx=size/2, cy=size/2, circ=2*Math.PI*r, off=0, parts='';
+    if(total>0){
+      segs.forEach(function(s){
+        if(!s.value) return;
+        var len=s.value/total*circ;
+        parts += '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="'+s.color+'" '
+          + 'stroke-width="'+sw+'" stroke-dasharray="'+len+' '+(circ-len)+'" '
+          + 'stroke-dashoffset="'+(-off)+'" transform="rotate(-90 '+cx+' '+cy+')"/>';
+        off += len;
+      });
+    } else {
+      parts = '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="var(--outline-variant)" stroke-width="'+sw+'"/>';
+    }
+    return '<svg class="tc-donut" viewBox="0 0 '+size+' '+size+'" width="'+size+'" height="'+size+'">'+parts
+      + '<text x="'+cx+'" y="'+(cy-2)+'" text-anchor="middle" class="tc-donut-num">'+total+'</text>'
+      + '<text x="'+cx+'" y="'+(cy+18)+'" text-anchor="middle" class="tc-donut-cap">test case</text></svg>';
+  }
+  function renderCharts(){
+    var box=$('tcCharts'); if(!box) return;
+    var list=casesIn(curFolder);
+    var sc=statusCounts(list), total=list.length;
+    // Donut theo trạng thái + legend
+    var segs=RES_ORDER.map(function(k){ return { value:sc[k], color:RES_COLOR[k] }; });
+    var legend=RES_ORDER.map(function(k){
+      var n=sc[k], pct=total? Math.round(n/total*100):0;
+      return '<div class="tc-leg"><span class="tc-leg-dot" style="background:'+RES_COLOR[k]+'"></span>'
+        + '<span class="tc-leg-lbl">'+RES_LABEL[k]+'</span>'
+        + '<span class="tc-leg-val">'+n+' <span class="tc-leg-pct">('+pct+'%)</span></span></div>';
+    }).join('');
+    var donutCard = '<div class="tc-chart-card"><div class="tc-chart-title">Phân bố theo trạng thái</div>'
+      + '<div class="tc-donut-wrap">'+donutSVG(segs,total)+'<div class="tc-legend">'+legend+'</div></div></div>';
+
+    // Bar ngang theo bộ (folder gốc) — stacked theo trạng thái, so sánh giữa các bộ
+    var tops=folders.filter(function(f){ return !f.parent_id; });
+    var rows=tops.map(function(f){ return { name:f.name||f.id, list:casesIn(f.id) }; })
+                 .filter(function(r){ return r.list.length; })
+                 .sort(function(a,b){ return b.list.length-a.list.length; });
+    var maxN=rows.reduce(function(m,r){ return Math.max(m,r.list.length); }, 0) || 1;
+    var barCard;
+    if(!rows.length){
+      barCard = '<div class="tc-chart-card"><div class="tc-chart-title">Phân bố theo bộ</div>'
+        + '<div class="tc-bar-empty">Chưa có bộ test case nào.</div></div>';
+    } else {
+      var bars=rows.map(function(r){
+        var s=statusCounts(r.list);
+        var segHtml=RES_ORDER.map(function(k){
+          if(!s[k]) return '';
+          return '<span class="tc-bar-seg" style="width:'+(s[k]/r.list.length*100)+'%;background:'
+            + RES_COLOR[k]+'" title="'+RES_LABEL[k]+': '+s[k]+'"></span>';
+        }).join('');
+        return '<div class="tc-bar-row"><div class="tc-bar-name" title="'+esc(r.name)+'">'+esc(r.name)+'</div>'
+          + '<div class="tc-bar-track" style="width:'+Math.max(8, r.list.length/maxN*100)+'%">'+segHtml+'</div>'
+          + '<div class="tc-bar-n">'+r.list.length+'</div></div>';
+      }).join('');
+      barCard = '<div class="tc-chart-card"><div class="tc-chart-title">Phân bố theo bộ</div>'
+        + '<div class="tc-bars">'+bars+'</div></div>';
+    }
+    box.innerHTML = donutCard + barCard;
+  }
+
   // ---- Bảng + pagination 10/trang ----
   var PER=10, page=1;
   function render(){
     renderMetrics();
+    renderCharts();
     var list=casesIn(curFolder);
     if(!list.length){
       body.innerHTML = '<tr><td colspan="7"><div class="tc-empty">'
