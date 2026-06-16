@@ -1216,8 +1216,10 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
         if (!node.name && node.title) {
           node.name = node.title;
         }
-        if (!node.date) {
-          node.date = '--';
+        // Migration: cũ lưu `date` = chuỗi tĩnh ("Vừa xong") đóng băng lúc tạo → luôn sai.
+        // Giờ dùng `ts` (epoch ms) là nguồn thật; node cũ không có ts → hiển thị '--'.
+        if (typeof node.ts !== 'number') {
+          node.ts = null;
         }
       }
       if (node.type === 'folder') {
@@ -1396,6 +1398,23 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     return { icon: 'article', cls: 'file-sop' };
   }
 
+  // Hiển thị ngày sửa từ ts (epoch ms): gần đây = tương đối, cũ = ngày tuyệt đối.
+  function fmtDocDate(ts) {
+    if (typeof ts !== 'number' || !ts) return '--';
+    var diff = Date.now() - ts;
+    if (diff < 0) diff = 0;
+    var m = Math.floor(diff / 60000);
+    if (m < 1) return 'Vừa xong';
+    if (m < 60) return m + ' phút trước';
+    var h = Math.floor(m / 60);
+    if (h < 24) return h + ' giờ trước';
+    var d = Math.floor(h / 24);
+    if (d < 7) return d + ' ngày trước';
+    var dt = new Date(ts);
+    var p = function(n) { return (n < 10 ? '0' : '') + n; };
+    return p(dt.getDate()) + '/' + p(dt.getMonth() + 1) + '/' + dt.getFullYear();
+  }
+
   function renderTable() {
     var tbody = $('docTableBody');
     if (!tbody) return;
@@ -1433,7 +1452,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
             '<span class="file-name">' + esc(d.name) + '</span>' +
           '</div>' +
         '</td>' +
-        '<td class="date-modified">' + esc(d.date) + '</td>' +
+        '<td class="date-modified">' + esc(fmtDocDate(d.ts)) + '</td>' +
         actCol +
       '</tr>';
     }).join('');
@@ -1514,7 +1533,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       }
       doc.name = name;
       doc.url = url;
-      doc.date = 'Vừa xong';
+      doc.ts = Date.now();
       closeModal('linkModal');
       renderTable();
       saveDocs();
@@ -1706,7 +1725,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       id: "d_" + Date.now(),
       type: "link",
       name: title.indexOf('.url') >= 0 ? title : title + '.url',
-      date: 'Vừa xong',
+      ts: Date.now(),
       url: url
     };
     
@@ -1814,7 +1833,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
               id: "d_" + Date.now(),
               type: "link",
               name: res.filename,
-              date: 'Vừa xong',
+              ts: Date.now(),
               url: res.url
             };
             
