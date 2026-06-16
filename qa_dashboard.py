@@ -21,7 +21,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cor
 from config import (JIRA_URL, USERS, PORT, ADMIN_EMAIL, ALLOWED_DOMAIN,
                     AUTH_ENABLED, SELF_USER, PUBLIC_BASE_URL,
                     display_name, username_from_email)
-from auth import SESSION_COOKIE, email_from_session
+from auth import (SESSION_COOKIE, SESSION_TTL, email_from_session,
+                  session_status, make_session_token)
 from drive_token import has_drive_token, delete_drive_token
 from bug_log_store import (scan as bug_log_scan, start_scheduler as start_bug_log_scheduler,
                            load_bug_log)
@@ -89,6 +90,19 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         if not AUTH_ENABLED:
             return True
         return bool(self._user_email())
+
+    def _maybe_refresh_session(self):
+        """Sliding session (#161): cookie còn hạn nhưng qua nửa đời -> cấp lại (gia hạn) để
+        người đang dùng KHÔNG bao giờ bị đá về login giữa chừng. Stash vào self._pending_cookies;
+        _html/_json gắn Set-Cookie khi trả response. Chỉ áp khi identity ĐẾN TỪ session cookie
+        (fallback CF header không có cookie để gia hạn)."""
+        if not AUTH_ENABLED:
+            return
+        email, needs = session_status(self._cookie(SESSION_COOKIE))
+        if email and needs:
+            secure = self._secure_cookie()   # OAuthMixin
+            self._pending_cookies = [self._set_cookie(
+                SESSION_COOKIE, make_session_token(email), SESSION_TTL, secure)]
 
     def _domain_ok(self):
         """Domain gate ở tầng app (defense-in-depth; login Google đã verify sẵn)."""
@@ -225,6 +239,7 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         if not self._domain_ok():
             self._forbidden()
             return
+        self._maybe_refresh_session()   # sliding session (#161): gia hạn cookie khi đang dùng
         # ----- Drive connect (admin-only) — sau gate authed/domain -----
         if path == '/drive/connect':
             self._do_drive_connect()
@@ -545,10 +560,17 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
                                roadmap_data=roadmap, user=self._user_ctx(),
                                custom_overlay=overlay, bug_log_data=buglog, stale=stale))
 
+    def _emit_pending_cookies(self):
+        """Gắn Set-Cookie đã stash (sliding session #161). An toàn gọi nhiều lần (chỉ có khi
+        _maybe_refresh_session set)."""
+        for ck in getattr(self, '_pending_cookies', ()):
+            self.send_header('Set-Cookie', ck)
+
     def _html(self, html_out):
         self.send_response(200)
         self.send_header('Content-Type', 'text/html; charset=utf-8')
         self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+        self._emit_pending_cookies()
         self.end_headers()
         self.wfile.write(html_out.encode('utf-8'))
 
@@ -804,6 +826,7 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
     def _json(self, status, body):
         self.send_response(status)
         self.send_header('Content-Type', 'application/json')
+        self._emit_pending_cookies()   # poll /activity-feed (#161) cũng gia hạn -> tab mở luôn sống
         self.end_headers()
         self.wfile.write(body)
 
