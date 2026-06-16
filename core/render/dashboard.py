@@ -290,7 +290,7 @@ def render_qa_v2(data, activities, cmap, user, nav_active='dashboard',
             + _conn_error_card()
         )
         return _document_v2(content, nav_active, user, activities,
-                            title='QA Dashboard — Việc của tôi')
+                            title='QA Workspace — Việc của tôi')
 
     active = data['active']
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -359,5 +359,5 @@ def render_qa_v2(data, activities, cmap, user, nav_active='dashboard',
         + _json_script('qaData', {'tasks': tasks, 'meta': meta})
         + f'<script>window.QA_CUSTOM_STATUSES={json.dumps(CUSTOM_STATUSES, ensure_ascii=False)};</script>'
     )
-    return _document_v2(content, nav_active, user, activities, title='QA Dashboard — Việc của tôi',
+    return _document_v2(content, nav_active, user, activities, title='QA Workspace — Việc của tôi',
                         stale=stale, stale_note=_snap_note(data) if stale else '')

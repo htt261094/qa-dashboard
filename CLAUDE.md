@@ -229,7 +229,7 @@ Hiền THƯỜNG là reporter trong các task QA team được giao — vì cô 
 - **Bỏ với QA**: Workload Matrix, donut (cả status & assignee), KPI Vào/Ra, New24-by-reporter, filterbar, roadmap-alerts (đã ẩn từ trước).
 - **CSS `.eqrow`** (styles.css): grid `align-items:stretch` + `.section{display:flex;flex-direction:column}` + `.pager{margin-top:auto}` → các block trong hàng cao bằng nhau, pager dính đáy, KHÔNG dùng `table{flex:1}` (sẽ giãn row — đã dính bug). Accent viền trái `.prio-overdue/dueweek/stuck`.
 - **Pagination**: mọi block bảng mang `data-paginate="5"` → `setupPaginate` (app.js) sẵn có lo (filler row giữ chiều cao 5 dòng dù trang cuối thiếu); activity dùng `setupActListPaging` sẵn có. **KHÔNG viết JS mới**. `rowMatch` trả true khi không filter, `layout()` bail khi không có `.grid-2col` → cả hai không vướng nhánh QA.
-- **Mockup**: `example.html` (link `styles.css` thật) — preview lens này trước khi code. Giữ lại để tham chiếu UI.
+- **Mockup**: ban đầu có `example.html` (link `styles.css` thật) để preview lens này trước khi code — đã XOÁ cùng toàn bộ file preview/generator (2026-06-16, không còn dùng).
 - **Giới hạn**: phân biệt admin/QA dựa `is_admin` từ `_user_ctx()` (Decision #15). Local dev (không login) = admin → luôn thấy lens quản lý; muốn xem thử lens QA phải login bằng tài khoản QA hoặc test qua `render_page(..., user=(email, False))`.
 
 ### 17. Tab "Việc của tôi" (`/my-work`) — lens cá nhân cho ADMIN (2026-06-08)
@@ -492,12 +492,10 @@ qa-dashboard/
 │
 ├── assets/            ← asset tĩnh, đọc per-render (qua config.ASSETS_DIR)
 │   ├── app_v2.js / styles_v2.css  ← UI v2 (Stitch sidebar) (Decision #19)
-│   ├── styles.css         ← chỉ còn render_error_page dùng (qua load_css)
-│   └── example.html / stitch_preview.html  ← mockup tĩnh tham chiếu
+│   └── styles.css         ← chỉ còn render_error_page dùng (qua load_css)
 │
 ├── scripts/           ← tiện ích offline (tự thêm ../core vào sys.path)
-│   ├── gen_preview.py        ← sinh preview.html TĨNH (render thật + mock fetch), KHÔNG cần Jira/server
-│   └── gen_bug_log_preview.py
+│   └── run_monthly_report.sh
 │
 │   ── auto-generated / KHÔNG trong git (sinh ở ROOT, gitignore) ──
 ├── .env               ← PAT + config thật + GOOGLE_*/SESSION_SECRET

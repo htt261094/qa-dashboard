@@ -22,8 +22,6 @@ __pycache__/
 .venv/
 venv/
 
-# Generated preview pages (tạo bằng gen_preview.py, không commit)
-preview*.html
 .commit_msg.tmp
 
 # Editor

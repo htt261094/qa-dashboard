@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""QA Team Dashboard for Jira (Bảo Kim) — entry point.
+"""QA Workspace for Jira (Bảo Kim) — entry point.
 
 Local web server on http://localhost:<PORT>. F5 = fresh pull from Jira.
 Layered modules: config -> issues -> {jira_api, state} -> render -> (this file).
@@ -799,10 +799,10 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
 
 
 def main():
-    print("QA Team Dashboard")
+    print("QA Workspace")
     print(f"  Jira:      {JIRA_URL}")
     print(f"  Tracking:  {', '.join(display_name(u) for u in USERS)}")
-    print(f"  Dashboard: http://localhost:{PORT}/")
+    print(f"  Workspace: http://localhost:{PORT}/")
     print("  Ctrl+C để stop\n")
 
     start_bug_log_scheduler()   # daemon thread poll Drive 10p (no-op nếu chưa kết nối Drive)

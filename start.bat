@@ -1,5 +1,5 @@
 @echo off
-rem QA Dashboard launcher - Windows. Double-click hoac chay trong terminal.
+rem QA Workspace launcher - Windows. Double-click hoac chay trong terminal.
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
