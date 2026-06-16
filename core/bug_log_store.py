@@ -46,6 +46,9 @@ _PROP_MAX_BYTES = 30_000    # Jira property ~32KB; vượt -> chỉ sync bản n
 
 # scan() chạy từ daemon thread VÀ từ POST /sync-bug-log -> serialize để không đua ghi cache.
 _scan_lock = threading.Lock()
+# _write_cache chạy từ daemon scan VÀ từ HTTP render (_load_data mỗi request) -> serialize để
+# 2 thread không đua ghi cùng .json.tmp (đua -> file rách -> _read_cache trả None -> mất floor).
+_cache_lock = threading.Lock()
 
 
 def _now_iso():
@@ -69,17 +72,31 @@ def _read_cache():
 
 
 def _write_cache(data):
-    """Ghi atomic (tmp + rename) để không bao giờ để lại file rách."""
-    tmp = BUG_LOG_FILE.with_suffix('.json.tmp')
-    try:
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
-        tmp.replace(BUG_LOG_FILE)
-    except OSError:
+    """Ghi atomic (tmp + rename) để không bao giờ để lại file rách. Serialize qua _cache_lock
+    (daemon scan + HTTP render cùng ghi 1 tmp).
+
+    RATCHET monotonic: union accumulator (reopen/metrics/activity) với bản ĐANG nằm trên đĩa
+    TRƯỚC khi ghi -> cache local là SÀN không bao giờ tụt. Vì sao cần: Cloudflare KV
+    eventually-consistent -> 1 GET stale/rỗng ngay sau PUT có thể khiến `data` mang reopen={};
+    nếu cứ thế đè đĩa thì count đã đếm được (reopen chỉ bắt transition LIVE, không tái tạo
+    được) mất vĩnh viễn. Union max ở đây bảo đảm chỉ THÊM, không xoá -> mọi read stale/đua ghi
+    không thể clobber. Mutate `data` tại chỗ để caller (_load_data) trả về bản đã ratchet."""
+    with _cache_lock:
+        prev = _read_cache()
+        if prev:
+            data['reopen'] = _merge_reopen(data.get('reopen', {}), prev.get('reopen', {}))
+            data['metrics'] = _merge_metrics(data.get('metrics', {}), prev.get('metrics', {}))
+            data['activity'] = _merge_activity(data.get('activity', []), prev.get('activity', []))
+        tmp = BUG_LOG_FILE.with_suffix('.json.tmp')
         try:
-            if tmp.exists():
-                tmp.unlink()
+            tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+            tmp.replace(BUG_LOG_FILE)
         except OSError:
-            pass
+            try:
+                if tmp.exists():
+                    tmp.unlink()
+            except OSError:
+                pass
 
 
 def _light(data):
