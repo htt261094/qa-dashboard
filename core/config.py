@@ -145,6 +145,10 @@ ALLOWED_DOMAIN = CFG.get('JIRA_ALLOWED_DOMAIN', '').strip().lstrip('@').lower()
 GOOGLE_CLIENT_ID = CFG.get('GOOGLE_CLIENT_ID', '').strip()
 GOOGLE_CLIENT_SECRET = CFG.get('GOOGLE_CLIENT_SECRET', '').strip()
 SESSION_SECRET = CFG.get('SESSION_SECRET', '').strip()  # khoá ký session cookie (HMAC)
+# Khoá RIÊNG mã hoá PAT cá nhân at-rest (issue #45). Bỏ trống => fallback SESSION_SECRET
+# (giữ tương thích: PAT đã lưu vẫn giải mã được). Set khác SESSION_SECRET => tách hẳn
+# blast radius: rotate session KHÔNG xoá PAT, và ngược lại. Đổi giá trị này = re-enter PAT.
+PAT_SECRET = CFG.get('PAT_SECRET', '').strip()
 # URL gốc công khai (vd 'https://baokim-qa.com'). Khi set => dùng cái này để build
 # redirect_uri OAuth + quyết cờ Secure cookie, KHÔNG tin Host/X-Forwarded-Proto của client
 # (chống Host-header injection — issue #49). Bỏ trống => suy từ request (local dev).
@@ -164,6 +168,23 @@ if AUTH_ENABLED and not SESSION_SECRET:
           "       Tạo bằng: python3 -c \"import secrets;print(secrets.token_urlsafe(48))\"",
           file=sys.stderr)
     sys.exit(1)
+
+
+def derive_subkey(label, length=32):
+    """Khoá con TÁCH-MIỀN từ SESSION_SECRET theo nhãn vai trò (issue #45).
+
+    HKDF-Expand 1 block (HMAC-SHA256) — đủ vì SESSION_SECRET đã entropy cao (48 byte
+    random). Mỗi vai trò 1 `label` riêng => không tái dùng cùng một khoá cho 2 mục đích
+    (vd ký cookie vs mã hoá PAT). Rò rỉ khoá con này KHÔNG suy ra khoá con khác (cần root
+    secret). Trả b'' nếu thiếu secret (auth disabled) — caller coi như chưa cấu hình.
+    """
+    import hashlib
+    import hmac as _hmac
+    if not SESSION_SECRET:
+        return b''
+    block = _hmac.new(SESSION_SECRET.encode('utf-8'),
+                      label.encode('utf-8') + b'\x01', hashlib.sha256).digest()
+    return block[:length]
 
 
 def username_from_email(email):

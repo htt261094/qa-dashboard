@@ -20,8 +20,8 @@ from urllib.parse import urlencode
 
 import requests
 
-from config import (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, SESSION_SECRET,
-                    AUTH_ENABLED, ALLOWED_DOMAIN)
+from config import (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
+                    AUTH_ENABLED, ALLOWED_DOMAIN, derive_subkey)
 
 # ----- constants -----
 SESSION_COOKIE = 'qa_session'
@@ -38,7 +38,10 @@ _USERINFO_EP = 'https://www.googleapis.com/oauth2/v2/userinfo'
 # KHÔNG sửa được -> giữ permission file nguyên trạng, không lộ data ra ngoài.
 DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.readonly'
 
-_SECRET = (SESSION_SECRET or '').encode('utf-8')
+# Khoá HMAC ký session/state cookie = khoá con TÁCH-MIỀN từ SESSION_SECRET (issue #45),
+# KHÔNG dùng trực tiếp SESSION_SECRET (vốn cũng là nguồn khoá mã hoá PAT). Tách nhãn vai
+# trò => rò rỉ khoá này không kéo theo giải mã được PAT. b'' khi auth disabled (như trước).
+_SECRET = derive_subkey('qa-dashboard/session-cookie-hmac/v1', 32)
 
 
 # ----- signed token helpers (payload.b64 . hmac) -----

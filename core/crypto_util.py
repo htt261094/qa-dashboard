@@ -3,8 +3,11 @@
 Chuẩn: Fernet (AES-128-CBC + HMAC-SHA256) từ thư viện `cryptography` — chuẩn công
 nghiệp, authenticated encryption (chống sửa ngầm ciphertext).
 
-Khoá mã hoá DERIVE từ SESSION_SECRET (đã có sẵn trong .env, random 48 byte) qua scrypt.
-Local dev (không SESSION_SECRET) -> sinh & lưu khoá ngẫu nhiên ở file `.crypto_key`
+Khoá mã hoá DERIVE từ PAT_SECRET nếu có, else SESSION_SECRET (đã có sẵn trong .env,
+random 48 byte) qua scrypt với salt vai trò riêng (`qa-dashboard.pat.v1`) — TÁCH MIỀN khỏi
+khoá HMAC ký session (issue #45): rò rỉ khoá session không giải mã được PAT, và set
+PAT_SECRET riêng cho phép rotate session mà KHÔNG xoá PAT đã lưu.
+Local dev (không secret nào) -> sinh & lưu khoá ngẫu nhiên ở file `.crypto_key`
 (đã gitignore) để vẫn mã hoá thật, không bao giờ lưu plaintext.
 
 GIỚI HẠN (phải hiểu đúng): app cần tự giải mã để dùng PAT -> khoá phải nằm nơi app
@@ -17,10 +20,12 @@ import base64
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
-from config import SESSION_SECRET, SCRIPT_DIR
+from config import SESSION_SECRET, PAT_SECRET, SCRIPT_DIR
 
 _KEY_FILE = SCRIPT_DIR / '.crypto_key'
-# Salt cố định: vai trò chống rainbow-table ít quan trọng vì secret nguồn entropy cao.
+# Salt = nhãn vai trò 'pat-enc' (tách miền khỏi khoá session — issue #45). Đồng thời
+# chống rainbow-table (ít quan trọng vì secret nguồn entropy cao). Giữ NGUYÊN giá trị
+# để PAT đã mã hoá bằng SESSION_SECRET vẫn giải mã được khi chưa set PAT_SECRET riêng.
 _SALT = b'qa-dashboard.pat.v1'
 _fernet = None
 
@@ -42,7 +47,8 @@ def _local_key_material():
 def _get_fernet():
     global _fernet
     if _fernet is None:
-        source = SESSION_SECRET.encode('utf-8') if SESSION_SECRET else _local_key_material()
+        root = PAT_SECRET or SESSION_SECRET  # PAT_SECRET ưu tiên (tách khỏi session — #45)
+        source = root.encode('utf-8') if root else _local_key_material()
         kdf = Scrypt(salt=_SALT, length=32, n=2 ** 14, r=8, p=1)
         key = base64.urlsafe_b64encode(kdf.derive(source))
         _fernet = Fernet(key)
