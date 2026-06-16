@@ -260,21 +260,37 @@ def parse_testcase_rows(rows):
         return str(row[ci]).strip() if not isinstance(row[ci], str) else row[ci].strip()
 
     cases, skipped, total = [], 0, 0
+    last_item = ''
+    last_pre = ''
+    
     for row in rows[hidx + 1:]:
         if not any(str(x).strip() for x in row):
             continue   # dòng trống
         total += 1
         cid = cell(row, 'id')
-        item_val = cell(row, 'item')
+        
+        # Forward-fill cho các cột thường bị merge (Item, Pre-condition)
+        item_raw = cell(row, 'item')
+        if item_raw:
+            last_item = item_raw
+        item_val = item_raw or last_item
+        
+        pre_raw = cell(row, 'pre')
+        if pre_raw:
+            last_pre = pre_raw
+        pre_val = pre_raw or last_pre
+
         exp_val = cell(row, 'exp')
+        
         if not cid or not item_val or not exp_val:
             skipped += 1
             continue   # thiếu dữ liệu bắt buộc -> bỏ (báo số lượng)
+            
         r_val = cell(row, 'result')
         cases.append({
             'id': cid,
             'item': item_val,
-            'pre': cell(row, 'pre'),
+            'pre': pre_val,
             'step': cell(row, 'step'),
             'exp': exp_val,
             'priority': _norm_priority(cell(row, 'priority')),
