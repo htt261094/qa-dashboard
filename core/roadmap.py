@@ -13,7 +13,7 @@ Tự author + chỉnh tay (KHÔNG suy từ Jira). Data schema cũ (phase/items/s
 import json
 from datetime import datetime
 
-from config import ROADMAP_FILE, USERS, display_name
+from config import ROADMAP_FILE, USERS, display_name, atomic_write
 from remote_store import synced_load, synced_save
 
 ROADMAP_PROP = 'qa-dashboard-roadmap'  # Jira user property = kho sync chéo máy
@@ -216,10 +216,7 @@ def _read_cache():
 
 
 def _write_cache(data):
-    try:
-        ROADMAP_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
-    except OSError:
-        pass
+    atomic_write(ROADMAP_FILE, json.dumps(data, ensure_ascii=False, indent=2))
 
 
 def load_roadmap():

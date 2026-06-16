@@ -7,7 +7,7 @@ Edit thật diễn ra ở Google (click link mở tab mới); workspace chỉ gi
 """
 import json
 
-from config import DOCS_FILE
+from config import DOCS_FILE, atomic_write
 from remote_store import synced_load, synced_save
 
 DOCS_PROP = 'qa-dashboard-docs'  # Jira user property = kho sync chéo máy
@@ -55,10 +55,7 @@ def _read_cache():
 
 
 def _write_cache(data):
-    try:
-        DOCS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
-    except OSError:
-        pass
+    atomic_write(DOCS_FILE, json.dumps(data, ensure_ascii=False, indent=2))
 
 
 def load_docs():

@@ -29,7 +29,7 @@ import threading
 from urllib.parse import quote
 
 from config import (KV_ENABLED, CF_ACCOUNT_ID, CF_KV_NAMESPACE_ID, CF_API_TOKEN,
-                    SYNC_META_FILE)
+                    SYNC_META_FILE, atomic_write)
 
 try:
     import requests
@@ -211,10 +211,7 @@ def _get_hash(key):
 
 
 def _save_meta(meta):
-    try:
-        SYNC_META_FILE.write_text(json.dumps(meta, ensure_ascii=False), encoding='utf-8')
-    except OSError:
-        pass
+    atomic_write(SYNC_META_FILE, json.dumps(meta, ensure_ascii=False))
 
 
 def _mark(key, *, dirty=None, deleted=None):

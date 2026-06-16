@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 
 from config import (JIRA_URL, PAT, USERS, TASK_PTSP_TYPE_ID, actor_name,
                     LEADER_EVAL_NUM_FIELD, LEADER_EVAL_TEXT_FIELD, OFFLINE,
-                    SNAPSHOT_CACHE_FILE)
+                    SNAPSHOT_CACHE_FILE, atomic_write)
 from issues import parse_date, i_assignee, i_reporter
 from remote_store import remote_get, remote_put
 
@@ -764,16 +764,7 @@ def _snap_read_local():
 def _snap_write_local(payload):
     """Ghi snapshot xuống đĩa atomic (tmp + rename) — không bao giờ để lại file rách."""
     with _snap_file_lock:
-        tmp = SNAPSHOT_CACHE_FILE.with_suffix('.json.tmp')
-        try:
-            tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding='utf-8')
-            tmp.replace(SNAPSHOT_CACHE_FILE)
-        except OSError:
-            try:
-                if tmp.exists():
-                    tmp.unlink()
-            except OSError:
-                pass
+        atomic_write(SNAPSHOT_CACHE_FILE, json.dumps(payload, ensure_ascii=False))
 
 
 def _write_snapshot_async(data):
