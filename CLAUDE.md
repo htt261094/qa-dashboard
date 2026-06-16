@@ -318,6 +318,13 @@ Hiền THƯỜNG là reporter trong các task QA team được giao — vì cô 
 - **PHẢI sau #128** (atomic write) — đã merge. Item #4 issue (semaphore trần call Jira đồng thời) tách issue riêng, CHƯA làm.
 - **Verify** (không mạng): `py_compile` qa_dashboard + config OK; stress 8 thread × 50 ghi đồng thời cùng 1 path → file luôn JSON hợp lệ, 0 tmp sót; import entry OK, `ThreadingHTTPServer` là subclass `TCPServer`.
 
+### 29. Bug Log hỗ trợ Google Sheet native (export → xlsx) (2026-06-16, issue #144)
+- **Bối cảnh / vì sao**: nguồn bug log trên Drive là **Google Sheet native** (không phải .xlsx up lên). `download_file` cũ tải bằng `alt=media` — chỉ chạy với file nhị phân; native Sheet → Drive trả **403 `fileNotDownloadable`** → `_scan_one` soft-fail → cache đóng băng, bug mới/status/**reopen** không bao giờ update. Triệu chứng đánh lừa: reopen vẫn hiện số CŨ (monotonic, cached) nên tưởng còn chạy. Trước đó chạy được vì nguồn KHI ẤY là .xlsx thật; tới khi file bị convert/đổi sang Sheet native thì mọi scan 403.
+- **Đổi** (`bug_log.py`): `file_metadata`/`fetch_meta` lấy thêm `mimeType`. `download_file(file_id, mime_type=None)`: `mimeType == application/vnd.google-apps.spreadsheet` → gọi `/files/{id}/export?mimeType=<xlsx>` (Drive convert Sheet→xlsx, đa sheet + giữ tên sheet → `parse_xlsx`/month detection không đổi); còn lại giữ `alt=media`. `export` KHÔNG nhận `alt`/`supportsAllDrives`. `_scan_one` truyền `meta['mimeType']` xuống `fetch_content` → KHÔNG thêm call Jira/Drive. `mime_type=None` → tự lấy metadata (1 call) để route.
+- **Change-detection**: native Sheet không có `md5Checksum` (luôn '') → `unchanged` dựa `modifiedTime` (đã sẵn tolerant, docstring cũ). Không đổi logic `unchanged`.
+- **Giới hạn**: `files.export` cap ~10MB (bug log nhỏ, ổn). Nếu nguồn config trỏ NHẦM sang 1 Sheet KHÁC file đang sửa thì vẫn "không update" — lỗi cấu hình nguồn, không phải bug này.
+- **Verify** (không mạng): `py_compile` bug_log + bug_log_store OK; smoke monkeypatch `_drive_get` → native route `/export?mimeType=xlsx` (không alt/supportsAllDrives), xlsx route `alt=media`, `mime_type=None` tự lấy meta rồi route đúng.
+
 ## Issue Tracking & Branch Workflow (QUAN TRỌNG cho Claude Code)
 
 **Quy ước user (áp dụng MẶC ĐỊNH, không hỏi lại):**

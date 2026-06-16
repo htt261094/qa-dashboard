@@ -32,6 +32,10 @@ from drive_token import load_refresh_token
 from bug_log_source import load_sources
 
 _DRIVE_FILES = 'https://www.googleapis.com/drive/v3/files/'
+# Google Sheet *native* (không phải .xlsx up lên Drive). KHÔNG tải được qua alt=media
+# (Drive trả 403 fileNotDownloadable) -> phải /export sang xlsx trước khi parse.
+_GSHEET_MIME = 'application/vnd.google-apps.spreadsheet'
+_XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
 # ----- access_token cache (memory; background thread + handler dùng chung) -----
 _tok_lock = threading.Lock()
@@ -94,22 +98,35 @@ def _with_token_retry(fn):
 
 
 def file_metadata(file_id):
-    """{modifiedTime, md5Checksum} — tầng-1 check đổi (rẻ). md5Checksum có thể vắng với
-    một số loại file; dựa modifiedTime là đủ."""
+    """{name, modifiedTime, md5Checksum, mimeType} — tầng-1 check đổi (rẻ). md5Checksum vắng
+    với Google Sheet native; dựa modifiedTime là đủ. mimeType để biết native vs .xlsx."""
     def go(token):
         r = _drive_get(_DRIVE_FILES + file_id,
-                       {'fields': 'name,modifiedTime,md5Checksum', 'supportsAllDrives': 'true'},
+                       {'fields': 'name,modifiedTime,md5Checksum,mimeType',
+                        'supportsAllDrives': 'true'},
                        token)
         return r.json()
     return _with_token_retry(go)
 
 
-def download_file(file_id):
-    """Tải binary .xlsx (alt=media)."""
+def download_file(file_id, mime_type=None):
+    """Tải nội dung file -> bytes .xlsx.
+
+    - Google Sheet native (mime_type == _GSHEET_MIME) -> /export sang xlsx (Drive convert).
+    - File nhị phân (.xlsx up lên Drive) -> alt=media như cũ.
+    mime_type=None -> tự lấy metadata để biết loại (thêm 1 call; caller nên truyền sẵn)."""
+    if mime_type is None:
+        mime_type = file_metadata(file_id).get('mimeType', '')
+
     def go(token):
-        r = _drive_get(_DRIVE_FILES + file_id,
-                       {'alt': 'media', 'supportsAllDrives': 'true'},
-                       token, stream=False)
+        if mime_type == _GSHEET_MIME:
+            # files.export: convert Sheet native -> xlsx. KHÔNG nhận alt=media/supportsAllDrives.
+            r = _drive_get(_DRIVE_FILES + file_id + '/export',
+                           {'mimeType': _XLSX_MIME}, token, stream=False)
+        else:
+            r = _drive_get(_DRIVE_FILES + file_id,
+                           {'alt': 'media', 'supportsAllDrives': 'true'},
+                           token, stream=False)
         return r.content
     return _with_token_retry(go)
 
@@ -455,13 +472,17 @@ def fetch_meta(file_id=None):
         'name': m.get('name', ''),
         'modifiedTime': m.get('modifiedTime', ''),
         'md5Checksum': m.get('md5Checksum', ''),
+        'mimeType': m.get('mimeType', ''),
     }
 
 
-def fetch_content(file_id=None):
-    """Tải binary + parse 1 file bug log -> rows. CHỈ gọi khi đã biết file đổi (Tầng-2)."""
+def fetch_content(file_id=None, mime_type=None):
+    """Tải nội dung + parse 1 file bug log -> rows. CHỈ gọi khi đã biết file đổi (Tầng-2).
+
+    mime_type nên truyền sẵn từ Tầng-1 (fetch_meta) để khỏi gọi metadata lần nữa; None ->
+    download_file tự lấy."""
     fid = _resolve_file_id(file_id)
-    return parse_xlsx(download_file(fid))
+    return parse_xlsx(download_file(fid, mime_type))
 
 
 def fetch_rows(file_id=None):
@@ -473,5 +494,5 @@ def fetch_rows(file_id=None):
     Giữ để tương thích; scan() (#54) nay dùng fetch_meta + fetch_content (Tầng-1/Tầng-2)."""
     fid = _resolve_file_id(file_id)
     meta = fetch_meta(fid)
-    rows = fetch_content(fid)
+    rows = fetch_content(fid, mime_type=meta.get('mimeType', ''))
     return rows, meta
