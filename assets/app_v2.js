@@ -3312,9 +3312,9 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   };
 
   // ---- Liên kết bộ ↔ task Jira (#155): link bar + modal type-ahead ----
-  function folderExists(fid){
+  function isSubFolder(fid){
     if(!fid) return false;
-    for(var i=0;i<folders.length;i++){ if(folders[i].id===fid) return true; }
+    for(var i=0;i<folders.length;i++){ if(folders[i].id===fid) return !!folders[i].parent_id; }
     return false;
   }
   function folderName(fid){
@@ -3329,9 +3329,9 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   }
   function renderLinkBar(){
     var bar=$('tcLinkBar'); if(!bar) return;
-    // Hiện ở BẤT KỲ folder nào đang chọn (gồm sub-folder) — mỗi sub-folder = 1 bộ test
-    // viết khi nhận task nên link theo folder đang chọn (#155, fix sub-folder).
-    if(!folderExists(curFolder)){ bar.style.display='none'; return; }
+    // CHỈ hiện khi chọn sub-folder — mỗi sub-folder = 1 bộ test viết khi nhận task
+    // nên link theo sub-folder. Folder gốc / "Tất cả" không link (#155).
+    if(!isSubFolder(curFolder)){ bar.style.display='none'; return; }
     bar.style.display='';
     var ts=tasksOf(curFolder);
     var chips = ts.length ? ts.map(function(k){ return taskChip(curFolder,k); }).join('')
