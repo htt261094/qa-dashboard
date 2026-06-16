@@ -54,6 +54,25 @@ function bugSectionHtml(d){
   return '<div class="dt-sec-title">Bug liên quan ('+bugs.length+')</div><div class="dt-bugs">'+rows+'</div>';
 }
 
+// ---------- bộ test case đã link tới task (drawer detail, #155) ----------
+function testcaseSectionHtml(d){
+  var tcs=(d&&d.testcases)||[];
+  if(!tcs.length) return '';
+  var rows=tcs.map(function(t){
+    var meta=[];
+    if(t.pass) meta.push('<span class="dt-tc-pass">'+t.pass+' pass</span>');
+    if(t.fail) meta.push('<span class="dt-tc-fail">'+t.fail+' fail</span>');
+    var href='/test-cases?folder='+encodeURIComponent(t.id||'');
+    return '<a class="dt-tc" href="'+href+'" target="_blank">'
+      +'<span class="material-symbols-rounded mi-sm">folder</span>'
+      +'<span class="dt-tc-name">'+esc(t.name||'')+'</span>'
+      +'<span class="dt-tc-count">'+(t.count||0)+' TC</span>'
+      +(meta.length?'<span class="dt-tc-meta">'+meta.join(' · ')+'</span>':'')
+      +'</a>';
+  }).join('');
+  return '<div class="dt-sec-title">Bộ test case liên quan ('+tcs.length+')</div><div class="dt-tcs">'+rows+'</div>';
+}
+
 // ---------- toast ----------
 var toastT;
 function toast(msg, ok){ var el=$('toast'); if(!el) return; el.textContent=msg;
@@ -553,6 +572,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
         +'<div class="lbl">Cảnh báo</div><div class="val">'+flags+'</div></div>'
         +'<div class="dt-sec-title">Mô tả</div><div class="dt-desc">'+desc+'</div>'
         +bugSectionHtml(DETAIL[t.key])
+        +testcaseSectionHtml(DETAIL[t.key])
         +'<div class="dt-cmts"><div class="dt-sec-title">Bình luận ('+(list&&list.length||0)+')</div>'
         +'<div class="cmt-panel"><div class="cmt-history">'+hist+'</div>'
         +'<div class="cmt-box"><textarea id="dtTa-'+esc(t.key)+'" placeholder="Viết bình luận..."></textarea>'
@@ -779,6 +799,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       +'<div class="lbl">Cảnh báo</div><div class="val">'+flags+'</div></div>'
       +'<div class="dt-sec-title">Mô tả</div><div class="dt-desc">'+desc+'</div>'
       +bugSectionHtml(DETAIL[t.key])
+      +testcaseSectionHtml(DETAIL[t.key])
       +'<div class="dt-cmts"><div class="dt-sec-title">Bình luận ('+(list&&list.length||0)+')</div>'
       +'<div class="cmt-panel"><div class="cmt-history">'+hist+'</div>'
       +'<div class="cmt-box"><textarea id="dtTa-'+esc(t.key)+'" placeholder="Viết bình luận..."></textarea>'
@@ -959,6 +980,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       +'<div class="lbl">Cảnh báo</div><div class="val">'+flags+'</div></div>'
       +'<div class="dt-sec-title">Mô tả</div><div class="dt-desc">'+desc+'</div>'
       +bugSectionHtml(DETAIL[t.key])
+      +testcaseSectionHtml(DETAIL[t.key])
       +'<div class="dt-cmts"><div class="dt-sec-title">Bình luận ('+(list&&list.length||0)+')</div>'
       +'<div class="cmt-panel"><div class="cmt-history">'+hist+'</div>'
       +'<div class="cmt-box"><textarea id="dtTa-'+esc(t.key)+'" placeholder="Viết bình luận..."></textarea>'
@@ -2899,6 +2921,8 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   var folders = data.folders || [];
   var cases = data.cases || [];
   var editable = !!window.QA_TC_EDITABLE;
+  var links = readJSON('tcLinks') || {};   // {folderId:{tasks:[...]}} — link bộ ↔ task (#155)
+  function tasksOf(fid){ var v=links[fid]; return (v&&v.tasks)||[]; }
 
   var PRI = { critical:['b-critical','Nghiêm trọng'], high:['b-high','Cao'],
               medium:['b-checking','Trung bình'], low:['b-todo','Thấp'] };
@@ -3031,6 +3055,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   function render(){
     renderMetrics();
     renderCharts();
+    renderLinkBar();
     var list=casesIn(curFolder);
     if(!list.length){
       body.innerHTML = '<tr><td colspan="7"><div class="tc-empty">'
@@ -3285,6 +3310,119 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       });
     });
   };
+
+  // ---- Liên kết bộ ↔ task Jira (#155): link bar + modal type-ahead ----
+  function isTopFolder(fid){
+    if(!fid) return false;
+    for(var i=0;i<folders.length;i++){ if(folders[i].id===fid) return !folders[i].parent_id; }
+    return false;
+  }
+  function folderName(fid){
+    for(var i=0;i<folders.length;i++){ if(folders[i].id===fid) return folders[i].name||fid; }
+    return fid;
+  }
+  function taskChip(fid, key){
+    var rm = editable ? '<button class="tc-task-x" data-rm="'+esc(key)+'" title="Gỡ link">'
+      +'<span class="material-symbols-rounded mi-xs">close</span></button>' : '';
+    return '<span class="tc-task-chip"><a class="tc-task-key" data-key="'+esc(key)+'" href="'
+      +(window.__jiraBase||'')+'/browse/'+encodeURIComponent(key)+'">'+esc(key)+'</a>'+rm+'</span>';
+  }
+  function renderLinkBar(){
+    var bar=$('tcLinkBar'); if(!bar) return;
+    // Chỉ hiện ở 1 bộ gốc (folder top) đang chọn — link ở mức CẢ BỘ (#155).
+    if(!isTopFolder(curFolder)){ bar.style.display='none'; return; }
+    bar.style.display='';
+    var ts=tasksOf(curFolder);
+    var chips = ts.length ? ts.map(function(k){ return taskChip(curFolder,k); }).join('')
+                          : '<span class="tc-link-none">Chưa liên kết task nào.</span>';
+    var btn = editable ? '<button class="tc-link-add" id="tcLinkAdd">'
+      +'<span class="material-symbols-rounded mi-sm">add_link</span> Liên kết task</button>' : '';
+    bar.innerHTML = '<span class="tc-link-lbl"><span class="material-symbols-rounded mi-sm">link</span> '
+      +'Task Jira của bộ <b>'+esc(folderName(curFolder))+'</b>:</span>'
+      +'<span class="tc-link-tasks">'+chips+'</span>'+btn;
+    var add=$('tcLinkAdd'); if(add) add.addEventListener('click', openLinkModal);
+    // chip: click key -> mở drawer/Jira; click ✕ -> gỡ link
+    bar.querySelectorAll('.tc-task-key').forEach(function(a){
+      a.addEventListener('click', function(e){
+        if(window.__openDetail){ e.preventDefault(); window.__openDetail(a.getAttribute('data-key')); } });
+    });
+    bar.querySelectorAll('.tc-task-x').forEach(function(b){
+      b.addEventListener('click', function(){ unlinkTask(curFolder, b.getAttribute('data-rm')); }); });
+  }
+
+  function persistLink(fid, task, op){
+    return postJSON('/tc-link-task', { folder:fid, task:task, op:op }).then(function(j){
+      if(j&&j.ok){ if(j.tasks&&j.tasks.length) links[fid]={tasks:j.tasks};
+                   else delete links[fid];
+                   renderLinkBar(); renderLinkChips(); return true; }
+      toast((j&&j.msg)||'Không lưu được liên kết', false); return false;
+    }).catch(function(){ toast('Lỗi mạng khi lưu liên kết', false); return false; });
+  }
+  function unlinkTask(fid, key){ persistLink(fid, key, 'remove').then(function(ok){
+    if(ok) toast('Đã gỡ '+key, true); }); }
+
+  // ---- Modal type-ahead tìm task ----
+  var lov=$('tcLinkOverlay'), lsearch=$('tcLinkSearch'), lresults=$('tcLinkResults');
+  var linkFid='';
+  window.tcCloseLink=function(){ if(lov) lov.classList.remove('open'); };
+  function openLinkModal(){
+    if(!lov) return; linkFid=curFolder;
+    var fn=$('tcLinkFolderName'); if(fn) fn.textContent=folderName(linkFid);
+    if(lsearch) lsearch.value=''; if(lresults) lresults.innerHTML='';
+    renderLinkChips(); lov.classList.add('open'); if(lsearch) lsearch.focus();
+  }
+  function renderLinkChips(){
+    var box=$('tcLinkChips'); if(!box) return;
+    var ts=tasksOf(linkFid);
+    box.innerHTML = ts.length ? ts.map(function(k){ return taskChip(linkFid,k); }).join('')
+                              : '<span class="tc-link-none">Chưa liên kết task nào.</span>';
+    box.querySelectorAll('.tc-task-x').forEach(function(b){
+      b.addEventListener('click', function(){ unlinkTask(linkFid, b.getAttribute('data-rm')); }); });
+    box.querySelectorAll('.tc-task-key').forEach(function(a){
+      a.addEventListener('click', function(e){ e.preventDefault();
+        window.open(a.getAttribute('href'), '_blank'); }); });
+  }
+  if(lsearch){
+    var lseq=0, ldeb;
+    lsearch.addEventListener('input', function(){
+      var q=(lsearch.value||'').trim(); clearTimeout(ldeb);
+      if(q.length<2){ lresults.innerHTML=''; return; }
+      ldeb=setTimeout(function(){
+        var my=++lseq; lresults.innerHTML='<div class="tc-link-loading">Đang tìm…</div>';
+        getJSON('/global-search?q='+encodeURIComponent(q), 15000).then(function(j){
+          if(my!==lseq) return;
+          var rs=(j&&j.ok&&j.results)||[];
+          if(!rs.length){ lresults.innerHTML='<div class="tc-link-loading">Không tìm thấy task</div>'; return; }
+          lresults.innerHTML=rs.map(function(r){
+            var linked=tasksOf(linkFid).indexOf(r.key)>=0;
+            return '<div class="tc-link-res'+(linked?' linked':'')+'" data-key="'+esc(r.key)+'">'
+              +'<span class="tc-link-res-key">'+esc(r.key)+'</span>'
+              +'<span class="tc-link-res-sum">'+esc(r.summary||'')+'</span>'
+              +(linked?'<span class="material-symbols-rounded mi-sm">check</span>'
+                      :'<span class="material-symbols-rounded mi-sm">add</span>')+'</div>';
+          }).join('');
+          lresults.querySelectorAll('.tc-link-res').forEach(function(el){
+            el.addEventListener('click', function(){
+              var key=el.getAttribute('data-key');
+              if(tasksOf(linkFid).indexOf(key)>=0) return;   // đã link
+              persistLink(linkFid, key, 'add').then(function(ok){
+                if(ok){ toast('Đã liên kết '+key, true);
+                  el.classList.add('linked');
+                  el.querySelector('.material-symbols-rounded').textContent='check'; } });
+            });
+          });
+        }).catch(function(){ if(my!==lseq) return;
+          lresults.innerHTML='<div class="tc-link-loading">Lỗi tìm kiếm</div>'; });
+      }, 300);
+    });
+  }
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape') window.tcCloseLink(); });
+
+  // Deep-link ?folder=<id> (từ drawer task "Bộ test case liên quan", #155)
+  try {
+    var pf=new URLSearchParams(location.search).get('folder');
+    if(pf && folders.some(function(f){ return f.id===pf; })) curFolder=pf;
+  } catch(e){}
 
   renderTree(); render();
 })();

@@ -13,6 +13,7 @@ gcp-service-account.json
 .bug_log.json
 .bug_task_link.json
 .testcase_config.json
+.testcase_task_link.json
 .snapshot_cache.json
 .tc_config.json
 *.db

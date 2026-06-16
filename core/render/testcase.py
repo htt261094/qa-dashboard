@@ -66,12 +66,51 @@ def _import_modal():
     """
 
 
-def render_testcase_v2(data=None, editable=True, user=None, activities=None):
-    """Khung trang /test-cases. `data` = {folders:[...], cases:[...]} (rỗng tới #152)."""
+def _link_modal():
+    """Modal liên kết bộ test case ↔ task Jira (#155) — type-ahead /global-search."""
+    return """
+    <div class="overlay" id="tcLinkOverlay" onclick="if(event.target===this)tcCloseLink()">
+      <div class="modal" style="width:480px">
+        <div class="modal-head">
+          <span class="material-symbols-rounded">link</span>
+          <h3>Liên kết bộ test case với Task</h3>
+          <button type="button" class="x material-symbols-rounded" onclick="tcCloseLink()">close</button>
+        </div>
+        <div class="modal-body">
+          <div class="mfield">
+            <label>Bộ test case</label>
+            <div class="tc-link-folder" id="tcLinkFolderName">—</div>
+          </div>
+          <div class="mfield">
+            <label>Tìm task Jira</label>
+            <div class="tc-iwrap">
+              <span class="lead material-symbols-rounded mi-sm">search</span>
+              <input type="text" id="tcLinkSearch" placeholder="Gõ key / số / tóm tắt task..." autocomplete="off" spellcheck="false">
+            </div>
+            <div class="tc-link-results" id="tcLinkResults"></div>
+          </div>
+          <div class="mfield">
+            <label>Đã liên kết</label>
+            <div class="tc-link-chips" id="tcLinkChips"></div>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button type="button" class="btn btn-ghost" onclick="tcCloseLink()">Đóng</button>
+        </div>
+      </div>
+    </div>
+    """
+
+
+def render_testcase_v2(data=None, editable=True, links=None, user=None, activities=None):
+    """Khung trang /test-cases. `data` = {folders:[...], cases:[...]}.
+    `links` = {folderId: {tasks:[...]}} link bộ ↔ task Jira (#155)."""
     if activities is None:
         activities = []
     if data is None:
         data = {}
+    if links is None:
+        links = {}
     folders = data.get('folders') or []
     cases = data.get('cases') or []
 
@@ -101,6 +140,9 @@ def render_testcase_v2(data=None, editable=True, user=None, activities=None):
           {import_btn}
         </div>
 
+        <!-- Liên kết task Jira theo bộ (#155) — JS render theo folder đang chọn -->
+        <div class="tc-linkbar" id="tcLinkBar" style="display:none"><!-- JS render --></div>
+
         <!-- Metric cards (#153) — JS tính từ cases hiện hành -->
         <div class="tc-metrics" id="tcMetrics"><!-- JS render --></div>
 
@@ -129,6 +171,8 @@ def render_testcase_v2(data=None, editable=True, user=None, activities=None):
     </div>
 
     {_import_modal()}
+
+    {_link_modal()}
 
     <!-- Modal tạo thư mục/bộ (lưu thật nối ở #152) -->
     <div class="overlay" id="tcFolderOverlay" onclick="if(event.target===this)tcCloseFolder()">
@@ -162,6 +206,7 @@ def render_testcase_v2(data=None, editable=True, user=None, activities=None):
     <script>window.QA_TC_EDITABLE={"true" if editable else "false"};</script>
     """
     content_inner += _json_script('tcData', {'folders': folders, 'cases': cases})
+    content_inner += _json_script('tcLinks', links)
 
     return _document_v2(content_inner, 'testcases', user, activities,
                         title='Quản lý Test Case — QA Workspace')
