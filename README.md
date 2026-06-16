@@ -124,11 +124,7 @@ Mở browser: `http://localhost:8080/`
 
 ## Reset state
 
-```bash
-rm .last_seen.json     # coi như chạy lần đầu (mất baseline NEW-badge)
-```
-
-Roadmap/docs/dismiss/PAT/nhãn nội bộ sync qua Jira property nên xoá file local không mất data (Jira là source of truth, file local chỉ là cache fallback).
+Roadmap/docs/dismiss/PAT/nhãn nội bộ sync qua Jira property nên xoá file cache local không mất data (Jira là source of truth, file local chỉ là cache fallback).
 
 ## Troubleshooting
 
@@ -164,7 +160,6 @@ core/
   pat_store.py       ← PAT cá nhân per-user (verify đúng chủ + mã hoá)
   jira_write.py      ← ghi Jira bằng PAT cá nhân: transition / comment / create_subtask
   custom_status.py   ← nhãn trạng thái nội bộ (overlay, sync property)
-  state.py           ← snapshot .last_seen.json cho NEW badge
   docs.py / roadmap.py  ← data tự soạn (sync Jira property + cache local)
   bug_log.py         ← tải + parse file .xlsx bug log từ Drive
   bug_log_source.py  ← danh sách file Drive nguồn
@@ -182,7 +177,6 @@ scripts/
   gen_preview.py / gen_bug_log_preview.py  ← sinh preview tĩnh offline
 
 .env / .env.example  ← (ROOT)
-.last_seen.json    ← state (auto-generated, ROOT)
 uploads/           ← file upload từ /docs (gitignore, hardcode path macOS — xem CLAUDE.md #37)
 ```
 

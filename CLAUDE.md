@@ -15,21 +15,18 @@ Custom HTML dashboard cho team QA Bảo Kim, pull data live từ Jira qua REST A
 - Local HTTP server: `http.server` stdlib (KHÔNG Flask — quyết định giữ deps tối thiểu)
 - Server-side render HTML với string templates
 - **Vanilla JS, KHÔNG framework** (React/Vue/Svelte). JS/CSS chính: `app_v2.js`/`styles_v2.css` (UI Stitch sidebar — Decision #19), đọc per-render. UI cũ topnav đã GỠ (cleanup #43): `app.js` đã XOÁ; chỉ còn `styles.css` (nạp bởi `render_error_page` qua `load_css`). `load_*()` inline vào `<script>`/`<style>` lúc render (sửa F5 thấy ngay, output tự chứa).
-- State persistence: file JSON local (`.last_seen.json` cho NEW badge) + **Jira user property làm kho sync chéo máy** (roadmap/docs/dismiss/PAT/custom-status — xem Decision #14, #20, #21)
+- State persistence: **Jira user property làm kho sync chéo máy** (roadmap/docs/dismiss/PAT/custom-status — xem Decision #14, #20, #21). `.last_seen.json` (NEW-badge snapshot-diff) đã GỠ — xem Decision #27.
 
 ## Architecture
 
 ```
 [Browser] ←HTTP→ [Python qa_dashboard.py] ←REST API+PAT→ [Jira Bảo Kim]
                  (localhost:8080)                         (jira.baokim.vn:8443)
-                       ↓
-                .last_seen.json (track new tasks between refreshes)
 ```
 
 - F5 trong browser = pull fresh Jira data
 - Refresh thủ công (user explicitly chose this over auto-refresh 15min)
-- Mỗi lần refresh: compare current task keys vs `.last_seen.json` → diff = highlight NEW badge
-- First run: skip highlight (avoid all-NEW noise), save baseline
+- "New" badge (admin dashboard) = task `created == hôm nay` (stateless, tính server-side mỗi render — KHÔNG còn snapshot-diff)
 
 ## Domain Context — Jira Bảo Kim
 
@@ -116,7 +113,7 @@ Hiền THƯỜNG là reporter trong các task QA team được giao — vì cô 
 - Câu hỏi đúng: "task ai đang phải làm" → assignee
 - Câu hỏi cho New 24h: "ai chủ động tạo task" → reporter (5 QA, NOT including Hiền vì cô tạo là routine, không reflect proactivity)
 
-### 7. State file `.last_seen.json` lưu cùng folder script
+### 7. State file `.last_seen.json` lưu cùng folder script — ❌ ĐÃ GỠ (xem Decision #27)
 - Đơn giản, không cần DB
 - Reset bằng `rm .last_seen.json`
 - Format: `{"snapshot": {key: {...}}, "pending": [...activities chưa đọc...], "keys": [...], "updated": "..."}`
@@ -307,6 +304,13 @@ Hiền THƯỜNG là reporter trong các task QA team được giao — vì cô 
 - **Tradeoff** (user chốt 2026-06-15): page có thể hiện data cũ tối đa ~15' (`_CACHE_STALE_TTL`) sau khi fresh hết hạn, nhưng **tự làm tươi ngầm** → lần load kế tiếp đã fresh. Làm mềm thêm nguyên tắc "F5 = data tươi" (vốn đã chấp nhận stale 120s). Bonus resilience: refresh nền lỗi (Jira/VPN rớt) bị nuốt → giữ stale thay vì trang lỗi như trước (chỉ hard-miss mới raise). Knob: `_CACHE_TTL`/`_CACHE_STALE_TTL` trong `jira_api.py`.
 - **Verify** (không mạng): unit-test `_cached_swr` (miss→sync, fresh→no-recompute, stale→serve-old + bg-refresh cập nhật cache, too-old→sync); `py_compile`; `gen_preview` full render OK; không sót biến cache cũ ở 2 hàm refactor.
 
+### 27. Dọn dead code `.last_seen.json` / snapshot-diff NEW badge (2026-06-16, issue #134)
+- **Bối cảnh / vì sao**: yêu cầu v1 = reload dashboard thì highlight task mới lọt bucket bằng snapshot-diff (`.last_seen.json`). Từ khi chuyển UI v2 + notification (Decision #19/#24), cơ chế này **không còn được render** nhưng vẫn chạy mỗi request: `_build_view` (qa_dashboard) đọc+ghi `.last_seen.json` qua `state.load/build/save_snapshots`, tính `new_keys`, truyền xuyên `render_page` → `render_qa_v2` gắn `isNew` mỗi task → **QA controller (`app_v2.js` closure `#rows`) KHÔNG đọc `isNew`** (matchFilter chỉ overdue/stuck/dueweek/all; rowHTML không render badge nào). SUPERSEDES Decision #7 (state file) + phần "snapshot NEW badge" của Decision #9/#16/#17.
+- **Cái "New" còn thấy KHÔNG đụng tới**: pill "New" ở `render_admin_v2` = `isNew = created == hôm nay` (stateless, không đọc file) + admin controller `app_v2.js` đọc `t.isNew`. Đây là nguồn KHÁC, GIỮ nguyên.
+- **Đã xoá**: `core/state.py` (toàn bộ module); `_build_view` + import `state` + `STATE_FILE` import & dòng print trong `qa_dashboard.py`; param `new_keys`/`first_run` xuyên `render_page`/`render_admin_v2`/`render_qa_v2`; field `isNew` ở `render_qa_v2` (chỉ QA lens — admin giữ); `STATE_FILE` trong `config.py`; entry `.last_seen.json` trong `.gitignore`. Cập nhật `gen_preview.py` (bỏ arg `new_keys`).
+- **Lợi**: bớt 1 file state + 1 module + 1 lượt đọc+ghi file mỗi request; bớt 1 mối lo atomic-write của #128.
+- **Verify**: `py_compile` qa_dashboard + config + dashboard + gen_preview OK; `gen_preview.py` render đủ (admin `render_admin_v2` + personal `render_qa_v2`) không lỗi.
+
 ## Issue Tracking & Branch Workflow (QUAN TRỌNG cho Claude Code)
 
 **Quy ước user (áp dụng MẶC ĐỊNH, không hỏi lại):**
@@ -359,7 +363,7 @@ User có strict OPSEC discipline. KHÔNG được:
 - ✅ Tạo QA sub-task dưới Task-PTSP từ modal (`/create-subtask`, auto-fill `[QA]` + Leader Hiền) (Decision #22)
 - ✅ Tài liệu v2: upload file thật (`/upload-file`, serve `/uploads/`) (Decision #23)
 - ✅ Notification real-time: short-poll `/activity-feed` mỗi 60s (bỏ qua khi tab ẩn), cập nhật chuông + toast, KHÔNG reload (Decision #24, issue #40)
-- ✅ New task highlighting (diff vs `.last_seen.json`)
+- ✅ New badge (admin dashboard): task `created == hôm nay`, stateless (KHÔNG còn `.last_seen.json` — Decision #27)
 - ✅ Hyperlink to Jira (`{JIRA_URL}/browse/{key}`)
 - ✅ UTF-8 Vietnamese rendering
 - ✅ Error handling: 401, 403, network error, port-in-use
@@ -459,7 +463,6 @@ qa-dashboard/
 │   ├── pat_store.py       ← lưu PAT cá nhân {email:enc} vào Jira property, verify đúng chủ (Decision #20)
 │   ├── jira_write.py      ← ghi Jira bằng PAT cá nhân: transitions/comment/create_subtask (Decision #20, #22)
 │   ├── custom_status.py   ← nhãn tình trạng overlay (Jira property + activity events) (Decision #21)
-│   ├── state.py           ← snapshot NEW badge, load/save .last_seen.json (load/build/save_snapshots)
 │   ├── docs.py            ← Tài liệu: cây folder+link, load/save .docs_config.json (sync Jira property), valid_tree
 │   ├── roadmap.py         ← Roadmap team: giai đoạn›mục›sub-task, due_alerts, load/save .roadmap_config.json (sync Jira property)
 │   ├── bug_log.py / bug_log_source.py / bug_log_store.py  ← Bug Log (#55)
@@ -477,7 +480,6 @@ qa-dashboard/
 │
 │   ── auto-generated / KHÔNG trong git (sinh ở ROOT, gitignore) ──
 ├── .env               ← PAT + config thật + GOOGLE_*/SESSION_SECRET
-├── .last_seen.json    ← NEW-badge baseline
 ├── .docs_config.json / .roadmap_config.json / .custom_status.json / .crypto_key / ...
 └── uploads/           ← file upload từ /docs (hardcode path macOS — Decision #23)
 ```

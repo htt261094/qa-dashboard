@@ -142,7 +142,7 @@ def main():
     seed = json.dumps({k: values_of(v) for k, v in overlay.items()})
 
     def page(is_admin, email):
-        return render_page(data, {'DA51H26-130'}, False, acts, 7, roadmap_data=[],
+        return render_page(data, acts, 7, roadmap_data=[],
                            user=(email, is_admin), custom_overlay=overlay)
 
     admin = page(True, 'thanhht1@baokim.vn')
