@@ -31,6 +31,7 @@ BUG_LOG_FILE = SCRIPT_DIR / '.bug_log.json'              # cache snapshot bug lo
 BUG_TASK_LINK_FILE = SCRIPT_DIR / '.bug_task_link.json'  # cache link bug/test-case -> Jira task (#55)
 TESTCASE_FILE = SCRIPT_DIR / '.testcase_config.json'    # cache bộ test case import từ Drive (#152)
 SNAPSHOT_CACHE_FILE = SCRIPT_DIR / '.snapshot_cache.json'  # L3 cache đĩa snapshot task (offline fallback, #137)
+TC_FILE = SCRIPT_DIR / '.tc_config.json'                   # test case folders + cases (persistence #152)
 
 def atomic_write(path, text, encoding='utf-8'):
     """Ghi text xuống `path` atomic: ghi `*.tmp` CÙNG THƯ MỤC rồi os.replace.

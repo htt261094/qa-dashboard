@@ -1241,6 +1241,13 @@ html[data-theme="dark"] .rk-bug-n { color: #ff7b72; }
 .tc-infobox .material-symbols-rounded{color:var(--primary);flex:0 0 auto;font-size:20px}
 .tc-infobox b{font-size:13px;font-weight:700;display:block;margin-bottom:2px}
 .tc-infobox span:last-child{font-size:13px;color:var(--on-surface-variant);line-height:18px}
+/* Folder actions (rename/delete) — hiện khi hover */
+.tc-folder-actions{display:none;margin-left:auto;gap:2px;align-items:center}
+.tc-node:hover .tc-folder-actions{display:inline-flex}
+.tc-fa-btn{width:24px;height:24px;border:none;background:none;border-radius:var(--r-sm);cursor:pointer;
+           color:var(--on-surface-variant);display:inline-flex;align-items:center;justify-content:center;padding:0}
+.tc-fa-btn:hover{background:var(--surface-highest);color:var(--on-surface)}
+.tc-fa-btn.danger:hover{background:var(--error-bg);color:var(--error)}
 /* read-only: ẩn nút Import/thêm folder */
 .ro .tc-repo-add,.ro #tcImportBtn{display:none !important}
 

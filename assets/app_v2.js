@@ -3069,24 +3069,113 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     }).catch(function(){ submitBtn.disabled=false; toast('Lỗi mạng khi import', false); });
   });
 
-  // ---- Modal tạo thư mục (lưu thật qua /tc-add-folder, sync KV chéo máy) #152 ----
+  // ---- Modal tạo thư mục (lưu thật qua /tc-add-folder, /tc-rename-folder) #152 ----
   var fov=$('tcFolderOverlay');
   window.tcCloseFolder=function(){ if(fov) fov.classList.remove('open'); };
   if($('tcAddFolder')) $('tcAddFolder').addEventListener('click', function(){
-    if(!fov) return; var inp=$('tcFolderName'); if(inp) inp.value=''; fov.classList.add('open');
+    if(!fov) return;
+    var inp=$('tcFolderName'); if(inp) inp.value='';
+    var saveBtn=$('tcFolderSave');
+    if(saveBtn) { saveBtn.textContent='Tạo'; saveBtn.removeAttribute('data-edit-id'); }
+    var titleEl=fov.querySelector('.modal-head h3');
+    if(titleEl) titleEl.textContent='Thêm bộ / thư mục';
+    fov.classList.add('open');
     if(inp) inp.focus(); });
   if($('tcFolderSave')) $('tcFolderSave').addEventListener('click', function(){
     var btn=$('tcFolderSave');
     var name=(($('tcFolderName')||{}).value||'').trim();
     if(!name){ toast('Chưa nhập tên thư mục', false); return; }
+    var editId = btn.getAttribute('data-edit-id');
     btn.disabled=true;
-    postJSON('/tc-add-folder', { name:name }).then(function(j){
-      btn.disabled=false;
-      if(j&&j.ok){ folders=j.folders||folders; window.tcCloseFolder();
-        renderTree(); fillFolderSel(); toast('Đã thêm "'+name+'"', true); }
-      else { toast((j&&j.msg)||'Không thêm được thư mục', false); }
-    }).catch(function(){ btn.disabled=false; toast('Lỗi mạng khi lưu', false); });
+    if(editId) {
+      postJSON('/tc-rename-folder', { id: editId, name: name }).then(function(j){
+        btn.disabled=false;
+        if(j&&j.ok){ folders=j.folders||folders; window.tcCloseFolder();
+          renderTree(); fillFolderSel(); toast('Đã đổi tên thư mục', true); }
+        else { toast((j&&j.msg)||'Không đổi được tên', false); }
+      }).catch(function(){ btn.disabled=false; toast('Lỗi mạng khi lưu', false); });
+    } else {
+      postJSON('/tc-add-folder', { name:name }).then(function(j){
+        btn.disabled=false;
+        if(j&&j.ok){ folders=j.folders||folders; window.tcCloseFolder();
+          renderTree(); fillFolderSel(); toast('Đã thêm "'+name+'"', true); }
+        else { toast((j&&j.msg)||'Không thêm được thư mục', false); }
+      }).catch(function(){ btn.disabled=false; toast('Lỗi mạng khi lưu', false); });
+    }
   });
+
+  // ---- Rename / Delete folder (context menu trên mỗi folder) ----
+  function renameFolder(fid){
+    var f = null;
+    for(var i=0; i<folders.length; i++){ if(folders[i].id===fid){ f=folders[i]; break; } }
+    if(!f || !fov) return;
+    var inp=$('tcFolderName'); if(inp) inp.value=f.name;
+    var saveBtn=$('tcFolderSave');
+    if(saveBtn) { saveBtn.textContent='Lưu'; saveBtn.setAttribute('data-edit-id', fid); }
+    var titleEl=fov.querySelector('.modal-head h3');
+    if(titleEl) titleEl.textContent='Đổi tên thư mục';
+    fov.classList.add('open');
+    if(inp) { inp.focus(); inp.select(); }
+  }
+
+  function deleteFolder(fid){
+    var f = null;
+    for(var i=0; i<folders.length; i++){ if(folders[i].id===fid){ f=folders[i]; break; } }
+    if(!f) return;
+    var cnt = casesIn(fid).length;
+    var msg = 'Bạn có chắc chắn muốn xoá thư mục "'+f.name+'"?';
+    if(cnt > 0) msg += '\n\n⚠ Có '+cnt+' test case trong thư mục này cũng sẽ bị XOÁ VĨNH VIỄN!';
+    if(!confirm(msg)) return;
+    postJSON('/tc-delete-folder', { id: fid }).then(function(j){
+      if(j&&j.ok){
+        folders=j.folders||folders;
+        cases=cases.filter(function(c){ return c.folder!==fid; });
+        if(curFolder===fid) curFolder='';
+        renderTree(); page=1; render(); fillFolderSel();
+        toast('Đã xoá thư mục', true);
+      } else { toast((j&&j.msg)||'Không xoá được thư mục', false); }
+    }).catch(function(){ toast('Lỗi mạng khi xoá', false); });
+  }
+
+  // Render tree với nút context menu (rename/delete) cho admin
+  var _origRenderTree = renderTree;
+  renderTree = function(){
+    var tree=$('tcTree'); if(!tree) return;
+    var html = '<div class="tc-node'+(curFolder===''?' active':'')+'" data-folder="">'+
+               '<span class="material-symbols-rounded">folder_open</span> Tất cả dự án'+
+               '<span class="tc-node-count">'+cases.length+'</span></div>';
+    folders.forEach(function(f){
+      var actions = '';
+      if(editable){
+        actions = '<span class="tc-folder-actions">'
+          + '<button class="tc-fa-btn" data-action="rename" data-fid="'+esc(f.id)+'" title="Đổi tên"><span class="material-symbols-rounded mi-xs">edit</span></button>'
+          + '<button class="tc-fa-btn danger" data-action="delete" data-fid="'+esc(f.id)+'" title="Xoá"><span class="material-symbols-rounded mi-xs">delete</span></button>'
+          + '</span>';
+      }
+      html += '<div class="tc-node'+(curFolder===f.id?' active':'')+'" data-folder="'+esc(f.id)+'" style="margin-left:14px">'+
+              '<span class="material-symbols-rounded">folder</span> '+esc(f.name||f.id)+
+              '<span class="tc-node-count">'+casesIn(f.id).length+'</span>'+
+              actions+'</div>';
+    });
+    tree.innerHTML = html;
+    tree.querySelectorAll('.tc-node').forEach(function(n){
+      n.addEventListener('click', function(e){
+        // Nếu click vào nút action thì không chuyển folder
+        if(e.target.closest('.tc-fa-btn')) return;
+        curFolder=n.dataset.folder; renderTree(); page=1; render();
+      });
+    });
+    // Gắn event cho nút rename/delete
+    tree.querySelectorAll('.tc-fa-btn').forEach(function(btn){
+      btn.addEventListener('click', function(e){
+        e.stopPropagation();
+        var action = btn.getAttribute('data-action');
+        var fid = btn.getAttribute('data-fid');
+        if(action==='rename') renameFolder(fid);
+        else if(action==='delete') deleteFolder(fid);
+      });
+    });
+  };
 
   renderTree(); render();
 })();

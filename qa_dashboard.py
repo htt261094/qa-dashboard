@@ -35,7 +35,7 @@ from docs import load_docs, save_docs, valid_tree
 from roadmap import load_roadmap, save_roadmap, valid_roadmap
 from testcase_store import (load_testcases, fetch_sheets as tc_fetch_sheets,
                             import_cases as tc_import_cases, add_folder as tc_add_folder,
-                            delete_folder as tc_delete_folder)
+                            delete_folder as tc_delete_folder, rename_folder as tc_rename_folder)
 from pat_store import save_user_pat, has_pat, delete_user_pat, load_user_pat
 from custom_status import (load_bundle, values_of)
 from render import (render_page, render_qa_v2, render_docs_page,
@@ -669,6 +669,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         if self.path == '/tc-add-folder':
             self._post_tc_add_folder()
             return
+        if self.path == '/tc-rename-folder':
+            self._post_tc_rename_folder()
+            return
         if self.path == '/tc-delete-folder':
             self._post_tc_delete_folder()
             return
@@ -899,6 +902,29 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
                 err = 'Thiếu id thư mục.'
             else:
                 ok, res = tc_delete_folder(fid)
+                if ok:
+                    out = res
+                else:
+                    err = res
+        except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
+            err = 'Lỗi xử lý yêu cầu.'
+        if out is None:
+            self._json(400, json.dumps({'ok': False, 'msg': err or 'Lỗi'},
+                                       ensure_ascii=False).encode('utf-8'))
+            return
+        self._json(200, json.dumps({'ok': True, 'folders': out.get('folders', [])},
+                                   ensure_ascii=False).encode('utf-8'))
+
+    def _post_tc_rename_folder(self):
+        out, err = None, ''
+        try:
+            payload = self._read_json_body(10_000)
+            fid = payload.get('id') if isinstance(payload, dict) else None
+            name = payload.get('name') if isinstance(payload, dict) else None
+            if not isinstance(fid, str) or not isinstance(name, str):
+                err = 'Thiếu id hoặc tên thư mục.'
+            else:
+                ok, res = tc_rename_folder(fid, name)
                 if ok:
                     out = res
                 else:

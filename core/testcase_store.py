@@ -134,6 +134,22 @@ def delete_folder(folder_id):
     return True, data
 
 
+def rename_folder(folder_id, new_name):
+    """Đổi tên folder. Trả (ok, data|msg)."""
+    folder_id = (folder_id or '').strip()
+    new_name = (new_name or '').strip()
+    if not new_name:
+        return False, 'Chưa nhập tên thư mục mới.'
+    data = load_testcases()
+    folder = next((f for f in data['folders'] if f.get('id') == folder_id), None)
+    if not folder:
+        return False, 'Không tìm thấy thư mục.'
+    folder['name'] = new_name
+    if not save_testcases(data):
+        return False, 'Không lưu được (KV/local lỗi).'
+    return True, data
+
+
 # ===== Parse sheet test case (convention 5/6 cột) =====
 # Map TÊN header (chuẩn hoá lower+trim) -> field, defensive với schema drift + đa ngôn ngữ.
 # ID là cột BẮT BUỘC; dòng thiếu ID bị skip (report số lượng). Priority tuỳ chọn.

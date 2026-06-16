@@ -1,15 +1,12 @@
-"""Quản lý Test Case (tab /test-cases) — KHUNG UI NỀN (issue #157, epic #151).
+"""Quản lý Test Case (tab /test-cases) — UI + persistence.
 
 Shell dùng `_document_v2`: repository panel (cây bộ/folder) + header + Import +
-metric cards + bảng duyệt + modal Import từ Google Sheet + drawer chi tiết. Đây là
-**khung trống có chỗ cắm**:
-  - form Import  -> store/parse Drive (#152)
-  - metric/biểu đồ -> (#153/#154)
-  - bảng duyệt + trạng thái chạy -> (#155/#156)
+metric cards + bảng duyệt + modal Import từ Google Sheet + drawer chi tiết.
 
-Dữ liệu render client-side bởi controller `#tcData` trong app_v2.js. Hiện store
-chưa có (#152) nên handler truyền data RỖNG -> bảng hiện empty-state, metric = 0.
-Phân quyền: nút edit (Import) chỉ hiện khi `editable` (admin) — chốt quyền ở #152.
+Dữ liệu render client-side bởi controller `#tcData` trong app_v2.js. Store qua
+testcase_store.py (local-first + sync KV chéo máy). Folders lưu thật; Import
+Google Sheet backend chưa nối (#152).
+Phân quyền: nút edit (Import/folder) chỉ hiện khi `editable` (admin).
 """
 from render.base import _json_script
 from render.shell import _document_v2
