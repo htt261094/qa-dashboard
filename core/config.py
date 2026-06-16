@@ -88,7 +88,7 @@ def _load_env():
     for k in ('JIRA_URL', 'JIRA_PAT', 'JIRA_USERS', 'JIRA_PORT',
               'JIRA_ADMIN_EMAIL', 'JIRA_ALLOWED_DOMAIN',
               'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'SESSION_SECRET',
-              'PUBLIC_BASE_URL', 'BUG_LOG_POLL_SECONDS',
+              'PUBLIC_BASE_URL', 'BUG_LOG_POLL_SECONDS', 'JIRA_MAX_CONCURRENT',
               'CF_ACCOUNT_ID', 'CF_KV_NAMESPACE_ID', 'CF_API_TOKEN'):
         if os.environ.get(k):
             cfg[k] = os.environ[k]
@@ -121,6 +121,15 @@ try:
     BUG_LOG_POLL_SECONDS = max(30, int(CFG.get('BUG_LOG_POLL_SECONDS', '600')))
 except ValueError:
     BUG_LOG_POLL_SECONDS = 600
+# ----- Trần số call Jira REST đồng thời (Decision #129/#133) -----
+# ThreadingHTTPServer + ThreadPool lồng (/ outer + fetch_all 5 call + refresh nền + scheduler)
+# có thể nhân số call Jira đồng thời lên rất nhanh -> nguy cơ nện Jira DC / cạn socket.
+# Semaphore (jira_api) chặn trần này; pool_maxsize của _SESSION đặt khớp. Default 12,
+# clamp [1, 64] để khỏi vô hiệu hoá (0/âm) hay đặt quá lố do gõ nhầm.
+try:
+    JIRA_MAX_CONCURRENT = min(64, max(1, int(CFG.get('JIRA_MAX_CONCURRENT', '12'))))
+except ValueError:
+    JIRA_MAX_CONCURRENT = 12
 # ----- Auth (qua Cloudflare Access; identity = header Cf-Access-Authenticated-User-Email) -----
 # Email role ADMIN: được edit roadmap/tài liệu. Rỗng = không khoá (local dev).
 ADMIN_EMAIL = CFG.get('JIRA_ADMIN_EMAIL', '').strip().lower()

@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 
 from config import (JIRA_URL, PAT, USERS, TASK_PTSP_TYPE_ID, actor_name,
                     LEADER_EVAL_NUM_FIELD, LEADER_EVAL_TEXT_FIELD, OFFLINE,
-                    SNAPSHOT_CACHE_FILE, atomic_write)
+                    SNAPSHOT_CACHE_FILE, atomic_write, JIRA_MAX_CONCURRENT)
 from issues import parse_date, i_assignee, i_reporter
 from remote_store import remote_get, remote_put
 
@@ -34,6 +34,15 @@ _SESSION = requests.Session()
 _CONNECT_TIMEOUT = 5  # giây — Jira nội bộ qua VPN connect <1s lúc khoẻ; down thì bỏ sau 5s
 _orig_request = _SESSION.request
 
+# Trần số call Jira REST đồng thời (issue #133). ThreadingHTTPServer (#129) + ThreadPool lồng
+# (/ outer 3 + fetch_all 5 + refresh nền/scheduler) có thể nhân số request đồng thời lên rất
+# nhanh khi nhiều tab -> nguy cơ nện Jira DC hoặc cạn socket/connection pool. Mọi call đều đi
+# qua _SESSION.request (monkeypatch dưới) -> đặt semaphore Ở ĐÂY chặn được TẤT CẢ (search,
+# property, picker, myself...), kể cả các đường KHÔNG qua _jira_request. 1 acquire/release bọc
+# trọn 1 HTTP call (gồm cả urllib3 retry bên trong _orig_request). Không tự gọi đệ quy trong
+# lúc giữ slot -> không deadlock. pool_maxsize của _SESSION đặt khớp để slot có socket dùng.
+_jira_gate = threading.BoundedSemaphore(JIRA_MAX_CONCURRENT)
+
 
 def _request_short_connect(method, url, **kw):
     t = kw.get('timeout')
@@ -42,7 +51,8 @@ def _request_short_connect(method, url, **kw):
     elif t is None:
         kw['timeout'] = (_CONNECT_TIMEOUT, 30)
     # t là tuple sẵn -> tôn trọng caller
-    return _orig_request(method, url, **kw)
+    with _jira_gate:
+        return _orig_request(method, url, **kw)
 
 
 _SESSION.request = _request_short_connect
@@ -60,13 +70,17 @@ except ImportError:                      # urllib3 quá cũ -> bỏ retry, vẫn
 
 
 def _mount_retries(sess):
+    # pool_maxsize khớp trần semaphore (#133): tối đa JIRA_MAX_CONCURRENT call đồng thời ->
+    # giữ đủ socket keep-alive cho từng slot, khỏi vừa-tạo-vừa-vứt connection khi vượt 10
+    # (mặc định urllib3) lúc nhiều tab cùng fetch.
+    _pool_kw = {'pool_connections': JIRA_MAX_CONCURRENT, 'pool_maxsize': JIRA_MAX_CONCURRENT}
     if Retry is not None:
         retry = Retry(total=3, connect=3, read=2, status=0, redirect=0,
                       backoff_factor=0.3, raise_on_status=False,
                       allowed_methods=None)   # None = retry MỌI method (call của ta idempotent: GET/PUT/DELETE)
-        adapter = HTTPAdapter(max_retries=retry)
+        adapter = HTTPAdapter(max_retries=retry, **_pool_kw)
     else:
-        adapter = HTTPAdapter()
+        adapter = HTTPAdapter(**_pool_kw)
     sess.mount('https://', adapter)
     sess.mount('http://', adapter)
 
