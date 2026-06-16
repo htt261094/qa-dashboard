@@ -2858,6 +2858,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
         if(innerScroll) innerScroll.style.overflowX = origInnerOverflow;
         metricCharts.style.width = origWidth;
         var imgData = canvas.toDataURL('image/png');
+        window.__lastExportedImage = imgData;  // để reporter tháng (Playwright) upload PNG lên Drive
         var pdf = new window.jspdf.jsPDF('l','mm','a4');
         var pdfWidth = pdf.internal.pageSize.getWidth(), pdfHeight = pdf.internal.pageSize.getHeight();
         var imgProps = pdf.getImageProperties(imgData), margin = 10;

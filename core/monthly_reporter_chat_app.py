@@ -27,7 +27,7 @@ if args.cron:
 load_dotenv()
 
 JIRA_PORT = os.environ.get('JIRA_PORT', '8080')
-URL = f"http://localhost:{JIRA_PORT}/bug-log"
+URL = f"http://localhost:{JIRA_PORT}/analytics"
 
 SPACE_ID = os.environ.get('GOOGLE_CHAT_SPACE_ID')
 SERVICE_ACCOUNT_FILE = 'gcp-service-account.json'
@@ -58,7 +58,7 @@ async def main():
         
         try:
             await page.goto(URL)
-            await page.wait_for_selector('#blMetricCharts', timeout=15000)
+            await page.wait_for_selector('#anMetricCharts', timeout=15000)
             
             # Đợi một chút để chart render xong animation (nếu có)
             await page.wait_for_timeout(2000)
@@ -66,7 +66,7 @@ async def main():
             print("Đang click Export PDF...")
             # Bấm nút export và đợi file tải về
             async with page.expect_download() as download_info:
-                await page.click('#btnExportMetricChart')
+                await page.click('#anExportChart')
             
             download = await download_info.value
             
@@ -78,7 +78,7 @@ async def main():
             await download.save_as(file_path)
             print(f"Đã lưu báo cáo PDF tại: {file_path}")
 
-            month_val = await page.locator('#blMetricMonth').input_value()
+            month_val = await page.locator('#anMetricMonth').input_value()
             
             # Khởi tạo Google Chat API Client và Drive API Client
             SCOPES = [

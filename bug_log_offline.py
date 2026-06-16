@@ -29,7 +29,7 @@ from bug_log_store import (scan as bug_log_scan, start_scheduler as start_bug_lo
                            load_bug_log)
 from bug_log_source import load_sources
 from task_link import load_links
-from render import render_bug_log_v2, render_error_page
+from render import render_bug_log_v2, render_analytics_v2, render_error_page
 from jira_api import run_parallel
 
 # User cố định cho lens admin (không login ở chế độ offline) — (email_hiển_thị, is_admin).
@@ -60,6 +60,8 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split('?', 1)[0]
         if path in ('/', '/bug-log', '/bug-log.html'):
             self._get_bug_log()
+        elif path in ('/analytics', '/analytics.html'):
+            self._get_analytics()
         elif path == '/activity-feed':
             # Stub: trang v2 poll feed mỗi 60s. Offline không có chuông -> trả rỗng (JS no-op).
             self._json(200, {'ok': True, 'activities': [], 'tasks': {}})
@@ -84,6 +86,15 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:   # noqa: BLE001 — render lỗi -> trang lỗi thay vì 500 trần
             self._html(render_error_page(str(e)))
 
+    def _get_analytics(self):
+        # Analytics (#158): metric bug (Valid Bug Rate + chart dev/dự án + reopen) — đích
+        # của reporter tháng. Nguồn = cache Drive (load_bug_log), KHÔNG gọi Jira; chuông rỗng.
+        try:
+            res = run_parallel({'bug': load_bug_log})
+            self._html(render_analytics_v2(res['bug'], user=_OFFLINE_USER, activities=[]))
+        except Exception as e:   # noqa: BLE001 — render lỗi -> trang lỗi thay vì 500 trần
+            self._html(render_error_page(str(e)))
+
     def _post_sync_bug_log(self):
         # Trigger thủ công: scan() kéo Drive ngay (giống _post_sync_bug_log ở entry chính).
         try:
@@ -96,7 +107,7 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     start_bug_log_scheduler()   # daemon thread poll Drive (đọc .drive_token.json local)
     srv = HTTPServer(('127.0.0.1', PORT), Handler)
-    print(f"Bug Log OFFLINE đang chạy: http://localhost:{PORT}/bug-log  (Ctrl+C để dừng)")
+    print(f"Bug Log OFFLINE đang chạy: http://localhost:{PORT}/bug-log  +  /analytics  (Ctrl+C để dừng)")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

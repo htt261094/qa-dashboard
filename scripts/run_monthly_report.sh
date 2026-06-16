@@ -34,17 +34,17 @@ SRV_PID=$!
 cleanup() { kill "$SRV_PID" 2>/dev/null; wait "$SRV_PID" 2>/dev/null; }
 trap cleanup EXIT
 
-# 3. Đợi /bug-log trả 200 (tối đa ~40s).
+# 3. Đợi /analytics trả 200 (tối đa ~40s) — đây là route reporter tháng drive (metric bug).
 ready=0
 for _ in $(seq 1 40); do
-  if curl -fsS -o /dev/null "http://localhost:$PORT/bug-log"; then ready=1; break; fi
+  if curl -fsS -o /dev/null "http://localhost:$PORT/analytics"; then ready=1; break; fi
   # Server chết sớm (vd thiếu dep) -> khỏi đợi đủ 40s.
   kill -0 "$SRV_PID" 2>/dev/null || break
   sleep 1
 done
 
 if [ "$ready" != "1" ]; then
-  echo "[LỖI] bug_log_offline.py không sẵn sàng trên port $PORT — bỏ qua gửi."
+  echo "[LỖI] bug_log_offline.py (/analytics) không sẵn sàng trên port $PORT — bỏ qua gửi."
   exit 1
 fi
 
