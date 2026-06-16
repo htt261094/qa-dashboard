@@ -12,7 +12,7 @@ Layer: config -> {jira_api, crypto_util, remote_store} -> (this). Không cycle.
 """
 import json
 
-from config import username_from_email, AUTH_ENABLED, PAT_CACHE_FILE
+from config import username_from_email, AUTH_ENABLED, PAT_CACHE_FILE, atomic_write
 from jira_api import verify_pat
 from crypto_util import encrypt, decrypt
 from remote_store import synced_load, synced_save, synced_delete
@@ -36,10 +36,7 @@ def _read_cache():
 
 
 def _write_cache(data):
-    try:
-        PAT_CACHE_FILE.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
-    except OSError:
-        pass
+    atomic_write(PAT_CACHE_FILE, json.dumps(data, ensure_ascii=False))
 
 
 def _load_map():

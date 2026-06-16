@@ -30,6 +30,26 @@ BUG_LOG_FILE = SCRIPT_DIR / '.bug_log.json'              # cache snapshot bug lo
 BUG_TASK_LINK_FILE = SCRIPT_DIR / '.bug_task_link.json'  # cache link bug/test-case -> Jira task (#55)
 SNAPSHOT_CACHE_FILE = SCRIPT_DIR / '.snapshot_cache.json'  # L3 cache đĩa snapshot task (offline fallback, #137)
 
+def atomic_write(path, text, encoding='utf-8'):
+    """Ghi text xuống `path` atomic: ghi `*.tmp` CÙNG THƯ MỤC rồi os.replace.
+    os.replace là atomic trên cùng filesystem (cả Windows lẫn macOS) → kill process
+    đúng lúc ghi sẽ KHÔNG để lại file JSON cụt (state hỏng câm). Nuốt OSError như cũ,
+    dọn tmp nếu lỗi. Trả True nếu ghi xong, False nếu lỗi."""
+    path = Path(path)
+    tmp = path.with_name(path.name + '.tmp')
+    try:
+        tmp.write_text(text, encoding=encoding)
+        os.replace(tmp, path)
+        return True
+    except OSError:
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError:
+            pass
+        return False
+
+
 # ----- Domain constants -----
 STUCK_DAYS = 5   # task In Progress/PENDING không đổi >= 5 ngày = "kẹt"
 

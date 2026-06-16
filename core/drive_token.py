@@ -12,7 +12,7 @@ Layer: config -> {crypto_util, remote_store} -> (this). Không cycle.
 """
 import json
 
-from config import DRIVE_TOKEN_FILE
+from config import DRIVE_TOKEN_FILE, atomic_write
 from remote_store import synced_load, synced_save, synced_delete
 from crypto_util import encrypt, decrypt
 
@@ -35,14 +35,11 @@ def _read_cache():
 
 
 def _write_cache(data):
-    try:
-        DRIVE_TOKEN_FILE.write_text(json.dumps(data), encoding='utf-8')
+    if atomic_write(DRIVE_TOKEN_FILE, json.dumps(data)):
         try:
             DRIVE_TOKEN_FILE.chmod(0o600)  # siết quyền (no-op trên Windows)
         except OSError:
             pass
-    except OSError:
-        pass
 
 
 def _load():

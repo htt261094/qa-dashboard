@@ -26,7 +26,7 @@ import threading
 import time
 from datetime import datetime, timedelta
 
-from config import BUG_LOG_FILE, BUG_LOG_POLL_SECONDS
+from config import BUG_LOG_FILE, BUG_LOG_POLL_SECONDS, atomic_write
 from jira_api import run_parallel
 # Metrics (reopen/metrics/activity) dùng union-merge MONOTONIC chéo máy -> KHÔNG dùng local-first
 # LWW của synced_* (sẽ làm tụt count). Chỉ đổi backend Jira->KV qua remote_get/remote_put, GIỮ
@@ -87,16 +87,7 @@ def _write_cache(data):
             data['reopen'] = _merge_reopen(data.get('reopen', {}), prev.get('reopen', {}))
             data['metrics'] = _merge_metrics(data.get('metrics', {}), prev.get('metrics', {}))
             data['activity'] = _merge_activity(data.get('activity', []), prev.get('activity', []))
-        tmp = BUG_LOG_FILE.with_suffix('.json.tmp')
-        try:
-            tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
-            tmp.replace(BUG_LOG_FILE)
-        except OSError:
-            try:
-                if tmp.exists():
-                    tmp.unlink()
-            except OSError:
-                pass
+        atomic_write(BUG_LOG_FILE, json.dumps(data, ensure_ascii=False, indent=2))
 
 
 def _light(data):

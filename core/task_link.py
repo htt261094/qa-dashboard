@@ -17,7 +17,7 @@ import json
 import re
 from datetime import datetime
 
-from config import BUG_TASK_LINK_FILE, username_from_email
+from config import BUG_TASK_LINK_FILE, username_from_email, atomic_write
 from remote_store import synced_load, synced_save
 
 LINK_PROP = 'qa-dashboard-bug-task-link'
@@ -37,11 +37,7 @@ def _read_cache():
 
 
 def _write_cache(data):
-    try:
-        BUG_TASK_LINK_FILE.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
-    except OSError:
-        pass
+    atomic_write(BUG_TASK_LINK_FILE, json.dumps(data, ensure_ascii=False, indent=2))
 
 
 def _empty():

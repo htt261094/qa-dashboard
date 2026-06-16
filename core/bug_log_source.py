@@ -9,7 +9,7 @@ Layer: config -> jira_api -> (this). Không cycle.
 import json
 import re
 
-from config import BUG_LOG_SOURCE_FILE
+from config import BUG_LOG_SOURCE_FILE, atomic_write
 from remote_store import synced_load, synced_save
 
 BUG_LOG_SOURCE_PROP = 'qa-dashboard-bug-log-source'
@@ -62,11 +62,7 @@ def _read_cache():
 
 
 def _write_cache(data):
-    try:
-        BUG_LOG_SOURCE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2),
-                                       encoding='utf-8')
-    except OSError:
-        pass
+    atomic_write(BUG_LOG_SOURCE_FILE, json.dumps(data, ensure_ascii=False, indent=2))
 
 
 def load_sources():

@@ -18,7 +18,7 @@ Layer: config -> jira_api -> (this). Không cycle.
 import json
 from datetime import datetime, timedelta
 
-from config import SCRIPT_DIR, username_from_email, display_name
+from config import SCRIPT_DIR, username_from_email, display_name, atomic_write
 from remote_store import synced_load, synced_save
 
 CUSTOM_PROP = 'qa-dashboard-custom-status'
@@ -76,10 +76,7 @@ def _read_cache():
 
 
 def _write_cache(data):
-    try:
-        CACHE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
-    except OSError:
-        pass
+    atomic_write(CACHE_FILE, json.dumps(data, ensure_ascii=False, indent=2))
 
 
 def _empty():
