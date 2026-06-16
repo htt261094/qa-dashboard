@@ -37,8 +37,8 @@ from pat_store import save_user_pat, has_pat, delete_user_pat, load_user_pat
 from custom_status import (load_bundle, values_of)
 from render import (render_page, render_qa_v2, render_docs_page,
                     render_roadmap_v2, render_bug_log_v2, render_analytics_v2,
-                    render_settings_page, render_error_page, render_403,
-                    render_shell_error)
+                    render_testcase_v2, render_settings_page, render_error_page,
+                    render_403, render_shell_error)
 from routes.oauth import OAuthMixin
 from routes.write import WriteMixin
 from routes.uploads import UploadsMixin
@@ -270,6 +270,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         if self.path in ('/analytics', '/analytics.html'):
             self._get_analytics()
             return
+        if self.path in ('/test-cases', '/test-cases.html'):
+            self._get_test_cases()
+            return
         if path == '/issue-comments':
             self._get_issue_comments()
             return
@@ -375,6 +378,17 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
                                         user=self._user_ctx(), activities=res['bell']))
         except RuntimeError as e:
             self._html(render_error_page(str(e)))
+
+    def _get_test_cases(self):
+        # Quản lý Test Case (#157) — KHUNG UI: chỉ cần chuông notif (đồng nhất mọi
+        # tab). Store test case chưa có (#152) -> data rỗng, bảng hiện empty-state.
+        try:
+            res = run_parallel({'bell': self._bell_activities})
+            bell = res['bell']
+        except RuntimeError:
+            bell = []
+        self._html(render_testcase_v2(data=None, editable=self._is_admin(),
+                                      user=self._user_ctx(), activities=bell))
 
     def _get_roadmap(self):
         # roadmap team (UI v2): roadmap + chuông notif (đồng nhất mọi tab) song song

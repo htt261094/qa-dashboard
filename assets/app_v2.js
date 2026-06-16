@@ -2891,4 +2891,140 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   renderValid(); renderMetric(); renderReopen();
 })();
 
+// ===== Quản lý Test Case (#157 / epic #151) — controller TRONG IIFE ngoài cùng =====
+// Guard #tcBody: chỉ chạy ở trang /test-cases. Data từ #tcData (rỗng tới #152).
+(function(){
+  var body = $('tcBody'); if(!body) return;
+  var data = readJSON('tcData') || {};
+  var folders = data.folders || [];
+  var cases = data.cases || [];
+  var editable = !!window.QA_TC_EDITABLE;
+
+  var PRI = { critical:['b-critical','Nghiêm trọng'], high:['b-high','Cao'],
+              medium:['b-checking','Trung bình'], low:['b-todo','Thấp'] };
+  var RES = { pass:['pass','check_circle','Pass'], fail:['fail','cancel','Fail'],
+              pending:['pending','schedule','Pending'], blocked:['blocked','block','Blocked'],
+              norun:['norun','remove_circle_outline','No Run'] };
+  function priHtml(p){ var d=PRI[p]; return d ? '<span class="badge '+d[0]+'">'+d[1]+'</span>'
+                                              : '<span class="badge b-todo">'+esc(p||'—')+'</span>'; }
+  function resHtml(r){ var d=RES[r]||RES.norun;
+    return '<span class="tc-result '+d[0]+'"><span class="material-symbols-rounded">'+d[1]+'</span> '+d[2]+'</span>'; }
+  function longCell(t){ t=t||''; var n=t.split('\n').length;
+    var hint = n>3 ? '<span class="tc-more"><span class="material-symbols-rounded">unfold_more</span>Xem thêm</span>' : '';
+    return '<div class="tc-long">'+esc(t)+'</div>'+hint; }
+
+  // ---- Repository panel (folder filter) ----
+  var curFolder = '';  // '' = tất cả
+  function casesIn(fid){ return fid ? cases.filter(function(c){ return c.folder===fid; }) : cases; }
+  function renderTree(){
+    var tree=$('tcTree'); if(!tree) return;
+    var html = '<div class="tc-node'+(curFolder===''?' active':'')+'" data-folder="">'
+             + '<span class="material-symbols-rounded">folder_open</span> Tất cả dự án'
+             + '<span class="tc-node-count">'+cases.length+'</span></div>';
+    folders.forEach(function(f){
+      html += '<div class="tc-node'+(curFolder===f.id?' active':'')+'" data-folder="'+esc(f.id)+'" style="margin-left:14px">'
+            + '<span class="material-symbols-rounded">folder</span> '+esc(f.name||f.id)
+            + '<span class="tc-node-count">'+casesIn(f.id).length+'</span></div>';
+    });
+    tree.innerHTML = html;
+    tree.querySelectorAll('.tc-node').forEach(function(n){
+      n.addEventListener('click', function(){ curFolder=n.dataset.folder; renderTree(); page=1; render(); });
+    });
+  }
+
+  // ---- Metric cards (JS tính từ cases hiện hành) ----
+  function renderMetrics(){
+    var box=$('tcMetrics'); if(!box) return;
+    var list=casesIn(curFolder);
+    var pass=0,fail=0,run=0;
+    list.forEach(function(c){ var r=c.result||'norun';
+      if(r==='pass')pass++; else if(r==='fail')fail++; if(r!=='norun')run++; });
+    var norun=list.length-run;
+    function card(cls,ic,lbl,val){ return '<div class="tc-metric '+cls+'"><div class="ic '+cls+'">'
+      +'<span class="material-symbols-rounded">'+ic+'</span></div>'
+      +'<div><div class="lbl">'+lbl+'</div><div class="val">'+val+'</div></div></div>'; }
+    box.innerHTML = card('total','library_books','Tổng số TC',list.length)
+      + card('pass','check_circle','Đã Pass',pass)
+      + card('fail','cancel','Failed',fail)
+      + card('norun','pause_circle','Chưa chạy',norun);
+  }
+
+  // ---- Bảng + pagination 10/trang ----
+  var PER=10, page=1;
+  function render(){
+    renderMetrics();
+    var list=casesIn(curFolder);
+    if(!list.length){
+      body.innerHTML = '<tr><td colspan="7"><div class="tc-empty">'
+        + '<span class="material-symbols-rounded">checklist</span>'
+        + (editable ? 'Chưa có test case. Bấm <b>Import</b> để nhập từ Google Sheet.'
+                    : 'Chưa có test case nào trong bộ này.')
+        + '</div></td></tr>';
+      $('tcPager').style.display='none';
+      return;
+    }
+    var pages=Math.ceil(list.length/PER); if(page>pages)page=pages; if(page<1)page=1;
+    var slice=list.slice((page-1)*PER, page*PER);
+    body.innerHTML = slice.map(function(c,i){
+      return '<tr data-idx="'+((page-1)*PER+i)+'">'
+        + '<td class="tc-id">'+esc(c.id||'')+'</td>'
+        + '<td class="tc-item">'+esc(c.item||'')+'</td>'
+        + '<td>'+longCell(c.pre)+'</td>'
+        + '<td>'+longCell(c.step)+'</td>'
+        + '<td>'+longCell(c.exp)+'</td>'
+        + '<td>'+priHtml(c.priority)+'</td>'
+        + '<td>'+resHtml(c.result)+'</td></tr>';
+    }).join('');
+    body.querySelectorAll('tr[data-idx]').forEach(function(tr){
+      tr.style.cursor='pointer';
+      tr.addEventListener('click', function(){ openDrawer(list[+tr.dataset.idx]); });
+    });
+    // pager
+    var pg=$('tcPager'); pg.style.display='';
+    var from=(page-1)*PER+1, to=Math.min(page*PER, list.length);
+    $('tcPagerInfo').textContent='Hiển thị '+from+'–'+to+' trong '+list.length+' test case';
+    var nav=$('tcPagerNav'); nav.innerHTML='';
+    function btn(label,disabled,goto,active){
+      var b=document.createElement('button');
+      b.className = active ? 'pager-page active' : (label.indexOf('chevron')>=0 ? 'pager-btn' : 'pager-page');
+      b.innerHTML = label.indexOf('chevron')>=0 ? '<span class="material-symbols-rounded mi-sm">'+label+'</span>' : label;
+      b.disabled=!!disabled;
+      if(!disabled && goto) b.addEventListener('click',function(){ page=goto; render(); });
+      nav.appendChild(b);
+    }
+    btn('chevron_left', page<=1, page-1);
+    for(var p=1;p<=pages;p++) btn(String(p), false, p, p===page);
+    btn('chevron_right', page>=pages, page+1);
+  }
+
+  // ---- Drawer chi tiết (full Pre/Step/Expected) ----
+  var dov=$('tcDrawerOv'), dr=$('tcDrawer');
+  function field(ic,lbl,val,mono){ return '<div class="tc-d-field"><div class="tc-d-label">'
+    +'<span class="material-symbols-rounded">'+ic+'</span>'+lbl+'</div>'
+    +'<div class="tc-d-box'+(mono?' mono':'')+'">'+esc(val||'—')+'</div></div>'; }
+  function openDrawer(c){
+    $('tcdKey').textContent=c.id||'';
+    $('tcdBody').innerHTML = '<h2>'+esc(c.item||'')+'</h2>'
+      + '<div class="tc-d-meta">'+priHtml(c.priority)+' '+resHtml(c.result)+'</div>'
+      + field('fact_check','Pre-Condition',c.pre,true)
+      + field('format_list_numbered','Step',c.step)
+      + field('task_alt','Expected Output',c.exp);
+    dov.classList.add('open'); dr.classList.add('open');
+  }
+  function closeDrawer(){ dov.classList.remove('open'); dr.classList.remove('open'); }
+  if(dov) dov.addEventListener('click', closeDrawer);
+  if($('tcdClose')) $('tcdClose').addEventListener('click', closeDrawer);
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeDrawer(); });
+
+  // ---- Modal Import (backend nối ở #152) ----
+  var imp=$('tcImportOverlay');
+  window.tcCloseImport=function(){ if(imp) imp.classList.remove('open'); };
+  if($('tcImportBtn')) $('tcImportBtn').addEventListener('click', function(){
+    if(imp) imp.classList.add('open'); });
+  if($('tcImpSubmit')) $('tcImpSubmit').addEventListener('click', function(){
+    toast('Import sẽ được nối ở bước store/Drive (#152).', true); });
+
+  renderTree(); render();
+})();
+
 })();   // ===== đóng IIFE ngoài cùng (shared scope) — bug-metrics block nằm TRONG để dùng $/esc/readJSON

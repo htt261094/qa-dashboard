@@ -63,6 +63,7 @@ def render_sidebar_v2(active, user):
         nav += lnk('/leader-eval', 'leadereval', 'star', 'Đánh giá')
     nav += lnk('/roadmap', 'roadmap', 'map', 'Roadmap')
     nav += lnk('/bug-log', 'buglog', 'bug_report', 'Bugs')
+    nav += lnk('/test-cases', 'testcases', 'checklist', 'Test Case')
     nav += lnk('/analytics', 'analytics', 'monitoring', 'Analytics')
     nav += lnk('/docs', 'docs', 'description', 'Tài liệu')
 
