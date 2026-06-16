@@ -164,6 +164,7 @@ _HEADER_SYNONYMS = {
             'kết quả mong muốn', 'ket qua mong muon', 'kết quả', 'ket qua', 'mong muốn'),
     'priority': ('priority', 'mức độ', 'muc do', 'độ ưu tiên', 'do uu tien',
                  'ưu tiên', 'uu tien', 'severity'),
+    'result': ('result', 'kết quả thực tế', 'ket qua thuc te', 'kết quả', 'ket qua', 'status', 'trạng thái', 'trang thai', 'actual result', 'actual'),
 }
 _REQUIRED_FOR_HEADER = ('id', 'item')  # 1 hàng được coi là header khi có >=2 trong các cột chính
 
@@ -177,6 +178,14 @@ _PRI_MAP = {
     'low': 'low', 'thấp': 'low', 'thap': 'low', 'minor': 'low', '4': 'low',
 }
 
+_RESULT_MAP = {
+    'pass': 'pass', 'passed': 'pass', 'ok': 'pass', 'đạt': 'pass', 'dat': 'pass',
+    'fail': 'fail', 'failed': 'fail', 'lỗi': 'fail', 'loi': 'fail', 'không đạt': 'fail', 'khong dat': 'fail', 'ng': 'fail', 'not ok': 'fail',
+    'pending': 'pending', 'chờ': 'pending', 'cho': 'pending', 'chờ fix': 'pending',
+    'blocked': 'blocked', 'block': 'blocked',
+    'norun': 'norun', 'no run': 'norun', 'chưa chạy': 'norun', 'chua chay': 'norun', 'untested': 'norun',
+}
+
 
 def _norm(s):
     return re.sub(r'\s+', ' ', str(s or '').strip()).lower()
@@ -184,6 +193,10 @@ def _norm(s):
 
 def _norm_priority(v):
     return _PRI_MAP.get(_norm(v), 'medium')
+
+
+def _norm_result(v):
+    return _RESULT_MAP.get(_norm(v), 'norun')
 
 
 def _find_header(rows):
@@ -225,17 +238,20 @@ def parse_testcase_rows(rows):
             continue   # dòng trống
         total += 1
         cid = cell(row, 'id')
-        if not cid:
+        item_val = cell(row, 'item')
+        exp_val = cell(row, 'exp')
+        if not cid or not item_val or not exp_val:
             skipped += 1
-            continue   # thiếu ID -> bỏ (báo số lượng)
+            continue   # thiếu dữ liệu bắt buộc -> bỏ (báo số lượng)
+        r_val = cell(row, 'result')
         cases.append({
             'id': cid,
-            'item': cell(row, 'item'),
+            'item': item_val,
             'pre': cell(row, 'pre'),
             'step': cell(row, 'step'),
-            'exp': cell(row, 'exp'),
+            'exp': exp_val,
             'priority': _norm_priority(cell(row, 'priority')),
-            'result': 'norun',
+            'result': _norm_result(r_val) if r_val else '',
         })
     return cases, skipped, total
 
@@ -283,7 +299,7 @@ def import_cases(folder_id, url, sheet, by_email=''):
 
     if not new_cases:
         return {'ok': False, 'msg': f'Không có test case hợp lệ trong sheet (bỏ {skipped} '
-                                    f'dòng thiếu ID trên {total} dòng).'}
+                                    f'dòng thiếu dữ liệu bắt buộc trên {total} dòng).'}
 
     # GIỮ result cũ theo case id trong CHÍNH folder này (ghi đè nội dung, không mất kết quả chạy)
     prev_result = {c['id']: c.get('result', 'norun')
@@ -292,8 +308,12 @@ def import_cases(folder_id, url, sheet, by_email=''):
     data['cases'] = [c for c in data['cases'] if c.get('folder') != folder_id]
     for c in new_cases:
         c['folder'] = folder_id
+        parsed_result = c.get('result', '')
         r = prev_result.get(c['id'], 'norun')
-        c['result'] = r if r in TC_RESULTS else 'norun'
+        if parsed_result:
+            c['result'] = parsed_result
+        else:
+            c['result'] = r if r in TC_RESULTS else 'norun'
     data['cases'].extend(new_cases)
 
     if len(data['cases']) > MAX_CASES:
@@ -308,4 +328,4 @@ def import_cases(folder_id, url, sheet, by_email=''):
         return {'ok': False, 'msg': 'Không lưu được (KV/local lỗi).'}
     return {'ok': True, 'count': len(new_cases), 'skipped': skipped, 'total': total,
             'msg': f'Đã import {len(new_cases)} test case vào "{folder.get("name")}"'
-                   + (f' (bỏ {skipped} dòng thiếu ID).' if skipped else '.')}
+                   + (f' (bỏ {skipped} dòng thiếu dữ liệu bắt buộc).' if skipped else '.')}
