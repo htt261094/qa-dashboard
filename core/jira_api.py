@@ -43,6 +43,43 @@ _orig_request = _SESSION.request
 # lúc giữ slot -> không deadlock. pool_maxsize của _SESSION đặt khớp để slot có socket dùng.
 _jira_gate = threading.BoundedSemaphore(JIRA_MAX_CONCURRENT)
 
+# Circuit breaker (issue #160): khi Jira blackhole (không VPN), MỖI call vẫn trả giá
+# connect-timeout × retry ≈ 22s trước khi raise. Với chuông notif chạy MỌI tab + fetch_all,
+# 1 lần idle > stale-window là cả phút treo. Breaker: sau _BREAKER_FAILS connect-fail liên
+# tiếp -> "mở" trong _BREAKER_COOLDOWN giây, mọi call kế tiếp RAISE TỨC THÌ (không chạm
+# socket) -> caller (đã có except RequestException/RuntimeError) fail mềm gần như 0ms,
+# serve snapshot KV / chuông rỗng ngay. 1 call THÀNH CÔNG -> đóng lại (reset đếm). Chỉ tính
+# lỗi KẾT NỐI (ConnectionError/Timeout) là "Jira down"; lỗi HTTP 4xx/5xx KHÔNG mở breaker
+# (Jira vẫn với tới, chỉ là call sai/quá tải -> không nên chặn mù).
+_BREAKER_FAILS = 2        # số connect-fail liên tiếp để mở
+_BREAKER_COOLDOWN = 30    # giây giữ breaker mở trước khi cho 1 call thử lại
+_breaker_lock = threading.Lock()
+_breaker_fails = 0
+_breaker_open_until = 0.0
+
+
+def _breaker_blocked():
+    """True nếu breaker đang mở (Jira coi như down) -> nên raise tức thì, khỏi chạm socket."""
+    with _breaker_lock:
+        return time.monotonic() < _breaker_open_until
+
+
+def _breaker_record(ok):
+    """Cập nhật breaker sau 1 call: ok=True -> reset; ok=False (connect-fail) -> đếm, đủ thì mở."""
+    global _breaker_fails, _breaker_open_until
+    with _breaker_lock:
+        if ok:
+            _breaker_fails = 0
+            _breaker_open_until = 0.0
+            return
+        _breaker_fails += 1
+        if _breaker_fails >= _BREAKER_FAILS:
+            _breaker_open_until = time.monotonic() + _BREAKER_COOLDOWN
+
+
+# Lỗi "Jira không với tới" (mở breaker) vs lỗi HTTP (không mở): tách theo loại exception.
+_CONN_ERRORS = (requests.exceptions.ConnectionError, requests.exceptions.Timeout)
+
 
 def _request_short_connect(method, url, **kw):
     t = kw.get('timeout')
@@ -51,8 +88,19 @@ def _request_short_connect(method, url, **kw):
     elif t is None:
         kw['timeout'] = (_CONNECT_TIMEOUT, 30)
     # t là tuple sẵn -> tôn trọng caller
+    if _breaker_blocked():
+        # Jira đã biết là down -> đừng tốn 22s nữa. Raise đúng loại để caller xử lý như lỗi mạng.
+        raise requests.exceptions.ConnectionError("Jira circuit open (đang cooldown sau lỗi kết nối)")
     with _jira_gate:
-        return _orig_request(method, url, **kw)
+        try:
+            resp = _orig_request(method, url, **kw)
+        except _CONN_ERRORS:
+            _breaker_record(False)
+            raise
+        except requests.RequestException:
+            raise                       # lỗi khác (vd HTTP) -> không đụng breaker
+        _breaker_record(True)
+        return resp
 
 
 _SESSION.request = _request_short_connect
@@ -75,7 +123,10 @@ def _mount_retries(sess):
     # (mặc định urllib3) lúc nhiều tab cùng fetch.
     _pool_kw = {'pool_connections': JIRA_MAX_CONCURRENT, 'pool_maxsize': JIRA_MAX_CONCURRENT}
     if Retry is not None:
-        retry = Retry(total=3, connect=3, read=2, status=0, redirect=0,
+        # connect=1 (was 3): khi route blackhole (không VPN), retry connect thêm chỉ nhân
+        # 5s timeout lên vô ích — breaker (#160) lo phần "Jira down" rẻ hơn nhiều. read=2 giữ
+        # nguyên (Jira CÓ trả lời nhưng chậm/đứt giữa chừng thì retry đáng giá).
+        retry = Retry(total=3, connect=1, read=2, status=0, redirect=0,
                       backoff_factor=0.3, raise_on_status=False,
                       allowed_methods=None)   # None = retry MỌI method (call của ta idempotent: GET/PUT/DELETE)
         adapter = HTTPAdapter(max_retries=retry, **_pool_kw)
@@ -151,9 +202,17 @@ def _refresh_async(key, producer):
     threading.Thread(target=_run, daemon=True).start()
 
 
-def _cached_swr(key, producer):
+_SWR_NOT_READY = object()   # sentinel: block=False + cache chưa sẵn -> caller tự fallback
+
+
+def _cached_swr(key, producer, block=True):
     """Stale-while-revalidate. producer() -> data (sẽ được cache).
-    fresh -> trả ngay; stale -> trả data cũ NGAY + refresh nền; miss/quá-cũ -> tính đồng bộ."""
+    fresh -> trả ngay; stale -> trả data cũ NGAY + refresh nền; miss/quá-cũ -> tính đồng bộ.
+
+    block=False (issue #160): miss/quá-cũ -> KHÔNG tính đồng bộ (đừng treo trang trên call
+    nặng khi Jira chậm/down) mà kick refresh nền + trả sentinel _SWR_NOT_READY -> caller
+    fallback (vd chuông trả []). Dùng cho đường best-effort (chuông notif) — không bao giờ
+    đáng để block điều hướng."""
     now = time.monotonic()
     with _cache_lock:
         entry = _cache.get(key)
@@ -165,6 +224,9 @@ def _cached_swr(key, producer):
         if age < _CACHE_STALE_TTL:
             _refresh_async(key, producer)     # stale -> làm tươi ở nền, KHÔNG block
             return data
+    if not block:
+        _refresh_async(key, producer)         # quá cũ/miss -> làm tươi nền, trả ngay sentinel
+        return _SWR_NOT_READY
     data = producer()                         # miss/quá cũ -> đồng bộ (raise như cũ nếu lỗi)
     _cache_set(key, data)
     return data
@@ -229,7 +291,8 @@ def _comment_snippet(body, n=140):
     return s if len(s) <= n else s[:n].rstrip() + '…'
 
 
-def fetch_activity_feed(days=7, cap=300, max_issues=120, scope_user=None, with_status=False):
+def fetch_activity_feed(days=7, cap=300, max_issues=120, scope_user=None, with_status=False,
+                        block=True):
     """Reconstruct activity từ Jira changelog/comment trong `days` ngày gần nhất.
 
     Nguồn = Jira (source of truth), KHÔNG phụ thuộc .last_seen.json → máy nào mở cũng
@@ -241,6 +304,9 @@ def fetch_activity_feed(days=7, cap=300, max_issues=120, scope_user=None, with_s
 
     with_status=True -> trả (acts, {key: status_name}) lấy từ CHÍNH issue đã fetch (zero
     extra call) để client vá status real-time (Decision #24). Default False giữ tương thích.
+
+    block=False (issue #160): chuông notif là best-effort — cache quá cũ thì trả feed RỖNG
+    ngay + refresh nền, KHÔNG treo trang chờ call changelog nặng (chạy MỌI tab).
     """
     # Cache độc lập với with_status (luôn lưu tuple (acts, statuses)) -> bell embed (no patch)
     # và poll (patch) DÙNG CHUNG 1 lần fetch changelog (call nặng nhất), không gọi đôi.
@@ -249,7 +315,10 @@ def fetch_activity_feed(days=7, cap=300, max_issues=120, scope_user=None, with_s
         raise ValueError('unknown scope_user')
     cache_key = f'activity:{days}:{scope_user}'
     result = _cached_swr(
-        cache_key, lambda: _compute_activity_feed(days, cap, max_issues, scope_user))
+        cache_key, lambda: _compute_activity_feed(days, cap, max_issues, scope_user),
+        block=block)
+    if result is _SWR_NOT_READY:
+        result = ([], {})                     # chưa có cache + không block -> feed rỗng tạm
     return result if with_status else result[0]
 
 
