@@ -209,7 +209,18 @@ def _find_header(rows):
                 if cell in syns and field not in colmap:
                     colmap[field] = ci
                     break
+        
         if sum(1 for f in _REQUIRED_FOR_HEADER if f in colmap) >= 2:
+            # Check thêm dòng bên dưới (sub-header) cho các field còn thiếu (vd: 'result' của Round 1)
+            for offset in (1, 2):
+                if ridx + offset < len(rows):
+                    sub_norm_cells = [_norm(c) for c in rows[ridx + offset]]
+                    for field, syns in _HEADER_SYNONYMS.items():
+                        if field not in colmap:
+                            for ci, cell in enumerate(sub_norm_cells):
+                                if cell in syns:
+                                    colmap[field] = ci
+                                    break
             return ridx, colmap
     return None, {}
 
