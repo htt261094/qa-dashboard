@@ -3031,29 +3031,9 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   function fillFolderSel(){
     if(!folderSel) return;
     var tops = folders.filter(function(f){ return !f.parent_id; });
-    var subsByParent = {};
-    folders.forEach(function(f){
-      if(f.parent_id) {
-        subsByParent[f.parent_id] = subsByParent[f.parent_id] || [];
-        subsByParent[f.parent_id].push(f);
-      }
-    });
-
     var opts = '<option value="">Chọn thư mục...</option>';
-    function addOpt(f, prefix){
-      opts += '<option value="'+esc(f.id)+'">'+esc(prefix + (f.name||f.id))+'</option>';
-      var children = subsByParent[f.id] || [];
-      children.forEach(function(c){ addOpt(c, prefix + '— '); });
-    }
-    tops.forEach(function(f){ addOpt(f, ''); });
-    
-    // Catch orphans
-    var allTopIds = tops.map(function(t){ return t.id; });
-    folders.forEach(function(f){
-      if(f.parent_id && allTopIds.indexOf(f.parent_id) === -1 && (!subsByParent[f.parent_id] || subsByParent[f.parent_id].indexOf(f) >= 0)){
-         addOpt(f, '');
-         subsByParent[f.parent_id] = [];
-      }
+    tops.forEach(function(f){
+      opts += '<option value="'+esc(f.id)+'">'+esc(f.name||f.id)+'</option>';
     });
 
     folderSel.innerHTML = opts;
@@ -3186,15 +3166,17 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     function renderNode(f, depth){
       var actions = '';
       if(editable){
+        var renBtn = depth === 0 ? '<button class="tc-fa-btn" data-action="rename" data-fid="'+esc(f.id)+'" title="Đổi tên"><span class="material-symbols-rounded mi-xs">edit</span></button>' : '';
         actions = '<span class="tc-folder-actions">'
-          + '<button class="tc-fa-btn" data-action="rename" data-fid="'+esc(f.id)+'" title="Đổi tên"><span class="material-symbols-rounded mi-xs">edit</span></button>'
+          + renBtn
           + '<button class="tc-fa-btn danger" data-action="delete" data-fid="'+esc(f.id)+'" title="Xoá"><span class="material-symbols-rounded mi-xs">delete</span></button>'
           + '</span>';
       }
-      var ml = 14 + (depth * 20);
-      var ic = depth > 0 ? 'segment' : 'folder';
+      var ml = 14 + (depth * 16);
+      var ic = depth > 0 ? 'subdirectory_arrow_right' : 'folder';
       html += '<div class="tc-node'+(curFolder===f.id?' active':'')+'" data-folder="'+esc(f.id)+'" style="margin-left:'+ml+'px">'+
-              '<span class="material-symbols-rounded">'+ic+'</span> '+esc(f.name||f.id)+
+              '<span class="material-symbols-rounded">'+ic+'</span> '+
+              '<span style="flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="'+esc(f.name||f.id)+'">'+esc(f.name||f.id)+'</span>'+
               '<span class="tc-node-count">'+casesIn(f.id).length+'</span>'+
               actions+'</div>';
       
