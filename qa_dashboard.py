@@ -6,7 +6,7 @@ Layered modules: config -> issues -> {jira_api, state} -> render -> (this file).
 Run: python qa_dashboard.py
 """
 import http.server
-import socketserver
+from http.server import ThreadingHTTPServer
 import json
 import sys
 import os
@@ -808,7 +808,13 @@ def main():
     start_bug_log_scheduler()   # daemon thread poll Drive 10p (no-op nếu chưa kết nối Drive)
 
     try:
-        with socketserver.TCPServer(("127.0.0.1", PORT), Handler) as server:
+        # ThreadingHTTPServer (issue #129): mỗi request 1 thread → 1 request chạm Jira
+        # treo (read-timeout 30s qua VPN) KHÔNG còn đơ MỌI user/tab khác như TCPServer
+        # tuần tự. An toàn vì mọi kho ghi đã có lock (_cache_lock, _scan_lock, _meta_lock,
+        # KV) + atomic_write tmp-name duy nhất theo thread (#128 + #129). daemon_threads
+        # = thread chết theo process khi Ctrl+C, không treo lúc thoát.
+        with ThreadingHTTPServer(("127.0.0.1", PORT), Handler) as server:
+            server.daemon_threads = True
             server.serve_forever()
     except KeyboardInterrupt:
         print("\nStopped.")

@@ -311,6 +311,13 @@ Hiền THƯỜNG là reporter trong các task QA team được giao — vì cô 
 - **Lợi**: bớt 1 file state + 1 module + 1 lượt đọc+ghi file mỗi request; bớt 1 mối lo atomic-write của #128.
 - **Verify**: `py_compile` qa_dashboard + config + dashboard + gen_preview OK; `gen_preview.py` render đủ (admin `render_admin_v2` + personal `render_qa_v2`) không lỗi.
 
+### 28. ThreadingHTTPServer — hết đơ-toàn-cục khi 1 request chậm (2026-06-16, issue #129)
+- **Bối cảnh / vì sao**: `socketserver.TCPServer` xử lý request TUẦN TỰ. Mỗi tab poll `/activity-feed` mỗi 60s, mỗi load `/` chạm Jira. Khi Jira/VPN treo, 1 request ngậm tới read-timeout 30s (`jira_api`) → MỌI user/tab khác **đứng hình suốt 30s**. Với 5 QA + nhiều tab, đây là nguyên nhân "web đơ" dễ xảy ra nhất. SUPERSEDES "Single-threaded server" ở Known Limitations + lý do giữ TCPServer ở Decision #13/#24.
+- **Đổi**: `socketserver.TCPServer` → `http.server.ThreadingHTTPServer` + `server.daemon_threads = True` (main()). Mỗi request 1 thread → request chậm KHÔNG chặn request khác. `ThreadingHTTPServer` là subclass `TCPServer` → `with` context manager + xử lý OSError port-in-use giữ NGUYÊN. Bỏ `import socketserver`.
+- **Vì sao giờ an toàn (trước thì không)**: lý do cũ giữ single-thread = tránh race ghi `.last_seen.json`. Giờ (a) `.last_seen.json` + `state.py` đã GỠ hẳn (Decision #27); (b) mọi kho ghi đã có lock: `_cache_lock`/`_pool_reset_lock`/`_snap_*_lock` (jira_api), `_scan_lock`/`_tok_lock` (bug_log), `_meta_lock` (remote_store/KV); (c) **`atomic_write` (#128)** giờ dùng **tmp-name DUY NHẤT theo pid+thread** (`config.py`) → 2 thread cùng ghi 1 path mỗi đứa 1 `.tmp` riêng, `os.replace` của ai người nấy atomic, last-writer-wins ở mức file HOÀN CHỈNH (không bao giờ cụt/torn). Các memoize không khoá còn lại (`_USERNAME`, `_cache` recompute) là idempotent → race vô hại.
+- **PHẢI sau #128** (atomic write) — đã merge. Item #4 issue (semaphore trần call Jira đồng thời) tách issue riêng, CHƯA làm.
+- **Verify** (không mạng): `py_compile` qa_dashboard + config OK; stress 8 thread × 50 ghi đồng thời cùng 1 path → file luôn JSON hợp lệ, 0 tmp sót; import entry OK, `ThreadingHTTPServer` là subclass `TCPServer`.
+
 ## Issue Tracking & Branch Workflow (QUAN TRỌNG cho Claude Code)
 
 **Quy ước user (áp dụng MẶC ĐỊNH, không hỏi lại):**
@@ -375,7 +382,7 @@ User có strict OPSEC discipline. KHÔNG được:
 
 ### Known Limitations
 - Pagination: max 300 active tasks, 50 new24, 100 done_week. Nếu team mở rộng phải tăng.
-- Single-threaded server (`socketserver.TCPServer`). 1 request blocks 1 user. OK cho 1-5 user, không scale to >10.
+- ~~Single-threaded server (`socketserver.TCPServer`). 1 request blocks 1 user.~~ ✅ FIXED (issue #129, 2026-06-16): đổi `ThreadingHTTPServer` + `daemon_threads` — request chậm không còn đơ tab khác (Decision #28). An toàn vì stores đã có lock + `atomic_write` tmp-name theo thread.
 - No HTTPS — chỉ chạy localhost, không expose ra ngoài.
 - Display name hardcoded trong `DEFAULT_DISPLAY_NAMES`. Thêm người mới phải edit code (hoặc override qua `JIRA_DISPLAY_NAMES` JSON env var — already implemented).
 - ~~Workload matrix giả định 3 status active: `TO DO`, `In Progress`, `PENDING`. Status mới → bucket fallback.~~ ✅ FIXED (issue #39, 2026-06-12): UI v2 không còn workload matrix; pills phân loại động — pill **In Progress** = MỌI task active không phải `TO DO` (gồm status active mới) nên `todo ∪ progress` phủ trọn bucket active, không status nào lọt. Mỗi task mang cờ `active` (theo bucket) để tách chắc với done. Sửa ở `core/render/dashboard.py` (n_prog) + `assets/app_v2.js` (`pillMatch`/`updateCounts`).

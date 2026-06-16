@@ -5,6 +5,7 @@ exist — exits with a clear message if not. Every other module imports from her
 """
 import os
 import sys
+import threading
 from pathlib import Path
 
 # Windows console defaults to cp1252 -> Vietnamese prints crash. Force UTF-8.
@@ -34,9 +35,14 @@ def atomic_write(path, text, encoding='utf-8'):
     """Ghi text xuống `path` atomic: ghi `*.tmp` CÙNG THƯ MỤC rồi os.replace.
     os.replace là atomic trên cùng filesystem (cả Windows lẫn macOS) → kill process
     đúng lúc ghi sẽ KHÔNG để lại file JSON cụt (state hỏng câm). Nuốt OSError như cũ,
-    dọn tmp nếu lỗi. Trả True nếu ghi xong, False nếu lỗi."""
+    dọn tmp nếu lỗi. Trả True nếu ghi xong, False nếu lỗi.
+
+    Tmp name DUY NHẤT theo pid+thread (issue #129): dưới ThreadingHTTPServer, 2 thread
+    cùng ghi 1 path không được dùng chung 1 `.tmp` (thread A đang ghi, thread B os.replace
+    nửa chừng → torn). Mỗi writer 1 tmp riêng → os.replace của ai người nấy atomic,
+    last-writer-wins ở mức file hoàn chỉnh (không bao giờ cụt)."""
     path = Path(path)
-    tmp = path.with_name(path.name + '.tmp')
+    tmp = path.with_name(f'{path.name}.{os.getpid()}.{threading.get_ident():x}.tmp')
     try:
         tmp.write_text(text, encoding=encoding)
         os.replace(tmp, path)
