@@ -47,6 +47,52 @@ def _request_short_connect(method, url, **kw):
 
 _SESSION.request = _request_short_connect
 
+# Retry + tự dọn pool sau VPN reconnect: keep-alive (Decision #13) giữ socket sống lâu; khi VPN
+# drop->reconnect, socket cũ trong pool thành chết/blackhole. Với max_retries=0 (mặc định) server
+# KẸT cho tới khi restart (issue #139). 2 lớp chống:
+#  1) Retry adapter: urllib3 retry trên connection/read error -> tự lấy socket MỚI khi gặp chết.
+#  2) reset_pool(): đóng toàn bộ pool (cooldown) khi vẫn fail -> request kế tiếp dựng pool sạch.
+from requests.adapters import HTTPAdapter
+try:
+    from urllib3.util.retry import Retry
+except ImportError:                      # urllib3 quá cũ -> bỏ retry, vẫn còn reset_pool
+    Retry = None
+
+
+def _mount_retries(sess):
+    if Retry is not None:
+        retry = Retry(total=3, connect=3, read=2, status=0, redirect=0,
+                      backoff_factor=0.3, raise_on_status=False,
+                      allowed_methods=None)   # None = retry MỌI method (call của ta idempotent: GET/PUT/DELETE)
+        adapter = HTTPAdapter(max_retries=retry)
+    else:
+        adapter = HTTPAdapter()
+    sess.mount('https://', adapter)
+    sess.mount('http://', adapter)
+
+
+_mount_retries(_SESSION)
+
+_POOL_RESET_COOLDOWN = 10                 # giây — chống thrash khi run_parallel fail đồng loạt
+_pool_reset_at = 0.0
+_pool_reset_lock = threading.Lock()
+
+
+def reset_pool():
+    """Đóng mọi keep-alive socket -> request kế tiếp tự dựng pool MỚI (sạch). Gọi khi gặp lỗi
+    mạng: pool có thể đang 'nhiễm' socket chết sau VPN flip. Cooldown để không đóng liên tục."""
+    global _pool_reset_at
+    with _pool_reset_lock:
+        now = time.monotonic()
+        if now - _pool_reset_at < _POOL_RESET_COOLDOWN:
+            return
+        _pool_reset_at = now
+    try:
+        _SESSION.close()                  # close adapter pools; .request monkeypatch giữ nguyên
+        _mount_retries(_SESSION)
+    except Exception:
+        pass
+
 # In-memory cache: giảm số call Jira khi F5 nhanh hoặc nhiều tab.
 # - Trong _CACHE_TTL (fresh): trả ngay.
 # - _CACHE_TTL..._CACHE_STALE_TTL (stale): trả NGAY data cũ + refresh nền (SWR) -> chuyển
@@ -142,6 +188,7 @@ def _jira_request(jql, max_results, fields=_DEFAULT_FIELDS, expand=None):
         resp.raise_for_status()
         return resp.json()
     except requests.RequestException as e:
+        reset_pool()                       # pool có thể nhiễm socket chết (VPN flip) -> dọn cho request kế
         msg = str(e).replace(PAT, '<REDACTED>')
         raise RuntimeError(f"Network error: {msg}")
 

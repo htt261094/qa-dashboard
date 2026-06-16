@@ -41,6 +41,20 @@ _KV_BASE = (f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}"
 _CF_SESSION = requests.Session() if (requests and KV_ENABLED) else None
 _TIMEOUT = (5, 15)  # (connect, read) — fail nhanh khi mạng treo, khỏi block server
 
+# Retry trên connection/read error: VPN flip làm socket keep-alive chết -> tự lấy socket mới
+# thay vì kẹt (cùng lý do #139 ở _SESSION Jira). KV qua internet công cộng nhưng socket vẫn
+# chết khi network đổi. urllib3 cũ thiếu Retry -> bỏ qua (giữ session thường).
+if _CF_SESSION is not None:
+    try:
+        from requests.adapters import HTTPAdapter
+        from urllib3.util.retry import Retry
+        _cf_adapter = HTTPAdapter(max_retries=Retry(
+            total=3, connect=3, read=2, status=0, redirect=0,
+            backoff_factor=0.3, raise_on_status=False, allowed_methods=None))
+        _CF_SESSION.mount('https://', _cf_adapter)
+    except ImportError:
+        pass
+
 
 def _redact(msg):
     """Không bao giờ để CF token lọt ra log/error."""
