@@ -2023,6 +2023,8 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   var sel = {};            // bugKey -> true (test case đang tick)
   var taskSel = [];        // các task key đã chọn ở ô tìm (multi-select chip)
   var testerFilter = '';   // lọc bảng theo tester (qa_pic); '' = tất cả
+  var devFilter = '';      // lọc bảng theo dev in charge (dev_pic); '' = tất cả
+  var linkFilter = '';     // lọc theo trạng thái liên kết task: ''=tất cả, 'linked', 'unlinked'
   var tabs=$('blTabs'), rows=$('blRows'), pager=$('blPager'), cnt=$('blCount');
 
   var FULL_MONTH_YEARS = [];
@@ -2089,7 +2091,15 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   // tháng có mặt trong file đang xem (giữ thứ tự MONTHS)
   function availMonths(){ var fb=fileBugs(); return MONTHS.filter(function(m){ return fb.some(function(b){ return b.month===m; }); }); }
   function monthBugs(){ return fileBugs().filter(function(b){
-    return b.month===curMonth && (!testerFilter || (b.qa||'')===testerFilter); }); }
+    if(b.month!==curMonth) return false;
+    if(testerFilter && (b.qa||'')!==testerFilter) return false;
+    if(devFilter && (b.dev||'')!==devFilter) return false;
+    if(linkFilter){
+      var linked = (b.tasks||[]).length>0;
+      if(linkFilter==='linked' && !linked) return false;
+      if(linkFilter==='unlinked' && linked) return false;
+    }
+    return true; }); }
   // danh sách tester (qa_pic) phân biệt trong file đang xem -> đổ vào dropdown lọc
   function populateTesters(){
     var sel0=$('blTesterFilter'); if(!sel0) return;
@@ -2100,6 +2110,18 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     if(testerFilter && list.indexOf(testerFilter)<0) testerFilter='';   // tester biến mất khi đổi file
     sel0.innerHTML='<option value="">Tất cả tester</option>'+list.map(function(q){
       return '<option value="'+esc(q)+'"'+(q===testerFilter?' selected':'')+'>'+esc(q)+'</option>'; }).join('');
+    populateDevs();
+  }
+  // danh sách dev (dev_pic) phân biệt trong file đang xem -> đổ vào dropdown lọc
+  function populateDevs(){
+    var sel0=$('blDevFilter'); if(!sel0) return;
+    var seen={}, list=[];
+    fileBugs().forEach(function(b){ var d=(b.dev||'').trim();
+      if(d && !seen[d]){ seen[d]=true; list.push(d); } });
+    list.sort(function(a,b){ return a.localeCompare(b); });
+    if(devFilter && list.indexOf(devFilter)<0) devFilter='';   // dev biến mất khi đổi file
+    sel0.innerHTML='<option value="">Tất cả dev</option>'+list.map(function(d){
+      return '<option value="'+esc(d)+'"'+(d===devFilter?' selected':'')+'>'+esc(d)+'</option>'; }).join('');
   }
 
   function activeLabel(){
@@ -2197,6 +2219,12 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   // ----- events: lọc theo tester -----
   (function(){ var tf=$('blTesterFilter'); if(!tf) return;
     tf.addEventListener('change', function(){ testerFilter=tf.value||''; page=1; render(); }); })();
+  // ----- events: lọc theo dev in charge -----
+  (function(){ var df=$('blDevFilter'); if(!df) return;
+    df.addEventListener('change', function(){ devFilter=df.value||''; page=1; render(); }); })();
+  // ----- events: lọc theo trạng thái liên kết task -----
+  (function(){ var lf=$('blLinkFilter'); if(!lf) return;
+    lf.addEventListener('change', function(){ linkFilter=lf.value||''; page=1; render(); }); })();
   // ----- events: tick + unlink (delegate trên tbody) -----
   rows.addEventListener('click', function(e){
     var u=e.target.closest('[data-unlink]');
