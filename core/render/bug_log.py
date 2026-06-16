@@ -165,7 +165,7 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
         '</div>'
         '<div class="bl-reopen-kpi" id="blReopenKpi"></div>'
         '<div style="overflow-x:auto"><table class="bl-table metric-table"><thead><tr id="blReopenHead"></tr></thead><tbody id="blReopenRows"></tbody></table></div>'
-        '<div class="bl-reopen-note">Số tích luỹ từ khi bật theo dõi; reopen trước đó không có lịch sử. '
+        '<div class="bl-reopen-note">Bug đang ở Reopen được tính tối thiểu 1 lần; số dội trước khi bật theo dõi có thể thấp hơn thực tế. '
         'Round-trip Fixed→Reopen→Fixed gọn trong 10 phút có thể bị sót.</div>'
         '</div>'
 
