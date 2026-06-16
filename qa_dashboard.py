@@ -852,8 +852,17 @@ def main():
         # tuần tự. An toàn vì mọi kho ghi đã có lock (_cache_lock, _scan_lock, _meta_lock,
         # KV) + atomic_write tmp-name duy nhất theo thread (#128 + #129). daemon_threads
         # = thread chết theo process khi Ctrl+C, không treo lúc thoát.
-        with ThreadingHTTPServer(("127.0.0.1", PORT), Handler) as server:
-            server.daemon_threads = True
+        #
+        # allow_reuse_address (#168): trên WINDOWS, SO_REUSEADDR cho phép NHIỀU process bind
+        # CÙNG (127.0.0.1:PORT) -> OS xé connection giữa chúng. Restart mà chưa kill server cũ
+        # -> 2+ instance co-bind, mỗi cái 1 SESSION_SECRET in-memory -> login bị xé ngang 2
+        # process -> chữ ký state lệch -> 403 (sig_ok=False). Tắt trên Windows để bind thứ 2
+        # FAIL (rơi vào handler port-in-use bên dưới) thay vì co-bind im lặng. Trên POSIX
+        # SO_REUSEADDR nghĩa NGƯỢC (rebind nhanh qua TIME_WAIT khi restart) -> GIỮ True.
+        class _Server(ThreadingHTTPServer):
+            daemon_threads = True
+            allow_reuse_address = (os.name != 'nt')
+        with _Server(("127.0.0.1", PORT), Handler) as server:
             server.serve_forever()
     except KeyboardInterrupt:
         print("\nStopped.")
