@@ -12,7 +12,7 @@ Layer rule: KHÔNG import qa_dashboard (tránh vòng import).
 """
 from urllib.parse import urlparse, parse_qs
 
-from config import AUTH_ENABLED, PUBLIC_BASE_URL
+from config import AUTH_ENABLED, PUBLIC_BASE_URL, ALLOWED_DOMAIN
 from auth import (SESSION_COOKIE, STATE_COOKIE, DRIVE_STATE_COOKIE, SESSION_TTL, STATE_TTL,
                   login_url, exchange_code, email_allowed,
                   make_session_token, make_state_token, state_valid,
@@ -34,12 +34,22 @@ class OAuthMixin:
         is_loopback = host.startswith(('localhost', '127.0.0.1'))
         return AUTH_ENABLED and not PUBLIC_BASE_URL and not is_loopback
 
-    def _set_cookie(self, name, value, max_age, secure):
-        parts = [f'{name}={value}', 'Path=/', 'HttpOnly', 'SameSite=Lax',
+    def _set_cookie(self, name, value, max_age, secure, samesite='Lax'):
+        """samesite='None' BẮT BUỘC kèm Secure (browser bỏ None nếu thiếu Secure) -> chỉ dùng
+        cho cookie OAuth state cần sót qua redirect cross-site từ Google (issue #164). Không
+        Secure (local http) -> tự hạ về Lax."""
+        if samesite == 'None' and not secure:
+            samesite = 'Lax'
+        parts = [f'{name}={value}', 'Path=/', 'HttpOnly', f'SameSite={samesite}',
                  f'Max-Age={max_age}']
         if secure:
             parts.append('Secure')
         return '; '.join(parts)
+
+    def _state_cookie(self, name, value, max_age, secure):
+        """Cookie OAuth state: SameSite=None;Secure để LUÔN được gửi khi Google 302 trả về
+        callback (Lax đôi lúc rớt qua redirect cross-site -> 403 chập chờn, issue #164)."""
+        return self._set_cookie(name, value, max_age, secure, samesite='None')
 
     # ----- OAuth routes -----
     def _do_login(self):
@@ -53,13 +63,18 @@ class OAuthMixin:
         state = make_state_token()
         secure = self._secure_cookie()
         url = login_url(self._base_url() + '/oauth/callback', state)
-        self._redirect(url, [self._set_cookie(STATE_COOKIE, state, STATE_TTL, secure)])
+        self._redirect(url, [self._state_cookie(STATE_COOKIE, state, STATE_TTL, secure)])
 
     def _do_callback(self):
         q = parse_qs(urlparse(self.path).query)
         code = (q.get('code') or [''])[0]
         state = (q.get('state') or [''])[0]
-        if not code or not state or state != self._cookie(STATE_COOKIE) or not state_valid(state):
+        cookie_state = self._cookie(STATE_COOKIE)
+        # Log OPSEC-safe (chỉ boolean/length, KHÔNG giá trị token) để chẩn đoán 403 chập chờn (#164).
+        if not code or not state or state != cookie_state or not state_valid(state):
+            self.log_message('oauth/callback 403: code=%s state=%s cookie_present=%s match=%s sig_ok=%s',
+                             bool(code), bool(state), bool(cookie_state),
+                             state == cookie_state, state_valid(state))
             self._forbidden()
             return
         try:
@@ -69,12 +84,15 @@ class OAuthMixin:
             return
         ok, email = email_allowed(info)
         if not ok:
+            self.log_message('oauth/callback 403: email_not_allowed (verified=%s, domain_ok=%s)',
+                             bool(info.get('verified_email')),
+                             str(info.get('email', '')).endswith('@' + (ALLOWED_DOMAIN or '')))
             self._forbidden()
             return
         secure = self._secure_cookie()
         self._redirect('/', [
             self._set_cookie(SESSION_COOKIE, make_session_token(email), SESSION_TTL, secure),
-            self._set_cookie(STATE_COOKIE, '', 0, secure),  # clear state
+            self._state_cookie(STATE_COOKIE, '', 0, secure),  # clear state
         ])
 
     def _do_logout(self):
@@ -89,7 +107,7 @@ class OAuthMixin:
         state = make_state_token()
         secure = self._secure_cookie()
         url = drive_login_url(self._base_url() + '/oauth/drive-callback', state)
-        self._redirect(url, [self._set_cookie(DRIVE_STATE_COOKIE, state, STATE_TTL, secure)])
+        self._redirect(url, [self._state_cookie(DRIVE_STATE_COOKIE, state, STATE_TTL, secure)])
 
     def _do_drive_callback(self):
         if not self._is_admin():
@@ -102,7 +120,7 @@ class OAuthMixin:
             self._forbidden()
             return
         secure = self._secure_cookie()
-        clear = self._set_cookie(DRIVE_STATE_COOKIE, '', 0, secure)
+        clear = self._state_cookie(DRIVE_STATE_COOKIE, '', 0, secure)
         try:
             info, refresh = exchange_code_tokens(code, self._base_url() + '/oauth/drive-callback')
         except RuntimeError as e:
