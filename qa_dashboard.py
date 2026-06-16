@@ -160,8 +160,10 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         scope = None if self._is_admin() else username_from_email(email)
         try:
             res = run_parallel({
+                # block=False (#160): chuông best-effort — cache quá cũ thì feed rỗng + refresh
+                # nền, KHÔNG treo tab (kể cả tab non-Jira) chờ call changelog nặng khi Jira chậm.
                 'feed': lambda: fetch_activity_feed(days=ACTIVITY_DAYS, scope_user=scope,
-                                                    with_status=with_patch),
+                                                    with_status=with_patch, block=False),
                 'dismissed': lambda: load_dismissed(email),
                 'custom': lambda: load_bundle(scope, ACTIVITY_DAYS),
             })
@@ -532,7 +534,8 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             # CHÚ Ý: phải GIỐNG _bell_activities() (nguồn chuông cho /my-work,/docs,/roadmap)
             # để notif đồng nhất mọi tab — `/` canonical nên tự tính tại đây (đỡ fetch 2 lần).
             res = run_parallel({
-                'feed': lambda: fetch_activity_feed(days=ACTIVITY_DAYS, scope_user=scope),
+                # block=False (#160): bell best-effort, không treo `/` chờ changelog khi Jira chậm.
+                'feed': lambda: fetch_activity_feed(days=ACTIVITY_DAYS, scope_user=scope, block=False),
                 'dismissed': lambda: load_dismissed(email),
             })
             feed, dismissed = res['feed'], res['dismissed']
