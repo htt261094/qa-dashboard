@@ -255,6 +255,16 @@ def parse_testcase_rows(rows):
         raise RuntimeError('Không tìm thấy hàng tiêu đề (cần các cột: ID, Test Item, '
                            'Pre-Condition, Step, Expected Output).')
 
+    module_code = ''
+    for r in rows[:hidx]:
+        for i, cell_val in enumerate(r):
+            if _norm(cell_val) == 'module code':
+                if i + 1 < len(r):
+                    module_code = str(r[i+1]).strip()
+                break
+        if module_code:
+            break
+
     def cell(row, field):
         ci = col.get(field)
         if ci is None or ci >= len(row):
@@ -286,20 +296,47 @@ def parse_testcase_rows(rows):
         exp_val = cell(row, 'exp')
         step_val = cell(row, 'step')
 
+        # Rule theo yêu cầu user: Nếu có khai báo Module Code, ID phải có dạng [ModuleCode-Số]
+        # (VD: [VCN-01], VCN-01, [Funtion1-137]). Nếu không khớp regex -> skip dòng rác này.
+        if module_code and cid:
+            pattern = r'^\[?\s*' + re.escape(module_code.lower()) + r'\s*-\s*[a-zA-Z0-9_.]+\s*\]?$'
+            if not re.match(pattern, cid.lower().strip()):
+                skipped += 1
+                continue
+
         if not cid:
-            # Thiếu ID: nếu có đủ cả step VÀ expected thì mới coi là quên ID -> Chặn
-            # Còn lại (chỉ có item, hoặc chỉ có dropdown result) -> Skip
-            if step_val and exp_val:
+            # - Nếu có item_raw VÀ có thêm thông tin khác (pre/step/exp) -> user tạo test case mới nhưng quên ID -> Chặn để nhắc
+            # (Nếu chỉ có item_raw mà không có gì khác -> đây là group header gõ vào cột Item -> bỏ qua)
+            if item_raw and (pre_raw or step_val or exp_val):
                 missing_id_rows.append(hidx + 1 + offset + 1)
+            # - Nếu KHÔNG có item_raw nhưng có step/exp -> do text dài bị tràn dòng (spill over) hoặc merge ô ID/Item 
+            # -> Nối tiếp nội dung vào test case liền trước
+            elif cases and (pre_raw or step_val or exp_val):
+                if pre_raw:
+                    cases[-1]['pre'] = (cases[-1]['pre'] + '\n' + pre_raw).strip()
+                if step_val:
+                    cases[-1]['step'] = (cases[-1]['step'] + '\n' + step_val).strip()
+                if exp_val:
+                    cases[-1]['exp'] = (cases[-1]['exp'] + '\n' + exp_val).strip()
+                
+                r_val = cell(row, 'result')
+                if r_val:
+                    cases[-1]['result'] = _norm_result(r_val)
+                    
+                p_val = cell(row, 'priority')
+                if p_val:
+                    cases[-1]['priority'] = _norm_priority(p_val)
             else:
                 skipped += 1
             continue
 
-        # Có ID: phải có CẢ step VÀ expected thì mới hợp lệ để import
-        # Nếu thiếu 1 trong 2 -> Skip
-        if not step_val or not exp_val:
+        # Có ID nhưng hoàn toàn KHÔNG CÓ nội dung thực tế (không có item_raw, không step, không exp)
+        # -> Đây thường là dòng phân nhóm (group header) do user gõ nhầm vào cột ID (hoặc ô merge)
+        if cid and not item_raw and not step_val and not exp_val:
             skipped += 1
             continue
+
+        # Có ID và có nội dung: Hợp lệ để import kể cả khi khuyết step hoặc expected.
 
         r_val = cell(row, 'result')
         cases.append({
@@ -311,6 +348,22 @@ def parse_testcase_rows(rows):
             'priority': _norm_priority(cell(row, 'priority')),
             'result': _norm_result(r_val) if r_val else '',
         })
+
+    # Đánh lại số thứ tự ID cho liền mạch (fix lỗi nhảy số do có dòng note của QA)
+    if module_code and cases:
+        pad = 2
+        m = re.search(r'-(\d+)', cases[0]['id'])
+        if m:
+            pad = max(2, len(m.group(1)))
+        has_bracket = '[' in cases[0]['id']
+
+        for idx, c in enumerate(cases):
+            new_num = str(idx + 1).zfill(pad)
+            if has_bracket:
+                c['id'] = f"[{module_code}-{new_num}]"
+            else:
+                c['id'] = f"{module_code}-{new_num}"
+
     return cases, skipped, total, missing_id_rows
 
 
