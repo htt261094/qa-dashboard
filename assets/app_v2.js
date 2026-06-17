@@ -3437,7 +3437,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       var actions = '';
       if(editable){
         var renBtn = depth === 0 ? '<button class="tc-fa-btn" data-action="rename" data-fid="'+esc(f.id)+'" title="Đổi tên"><span class="material-symbols-rounded mi-xs">edit</span></button>' : '';
-        var syncBtn = (window.tcData && window.tcData.imports && window.tcData.imports[f.id]) ? '<button class="tc-fa-btn" data-action="sync" data-fid="'+esc(f.id)+'" title="Đồng bộ lại từ Google Sheets"><span class="material-symbols-rounded mi-xs">sync</span></button>' : '';
+        var syncBtn = (data.imports && data.imports[f.id]) ? '<button class="tc-fa-btn" data-action="sync" data-fid="'+esc(f.id)+'" title="Đồng bộ lại từ Google Sheets"><span class="material-symbols-rounded mi-xs">sync</span></button>' : '';
         actions = '<span class="tc-folder-actions">'
           + syncBtn
           + renBtn
