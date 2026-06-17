@@ -464,11 +464,26 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
 
     def _get_analytics(self):
         # Analytics (#158): gom metric bug (Valid Bug Rate + chart dev/dự án + reopen).
-        # Nguồn = cache bug_log_store (KHÔNG gọi Jira search) + chuông notif.
+        # Nguồn = cache bug_log_store, testcase_store, links (KHÔNG gọi Jira search) + chuông notif.
         try:
-            res = run_parallel({'bug': load_bug_log, 'bell': self._bell_activities})
-            self._html(render_analytics_v2(res['bug'], user=self._user_ctx(),
-                                           activities=res['bell']))
+            from core.testcase_store import load_testcases
+            from core.testcase_link import load_links as tc_load_links
+            from core.task_link import load_links
+            res = run_parallel({
+                'bug': load_bug_log, 
+                'bell': self._bell_activities,
+                'tc': load_testcases,
+                'links': load_links,
+                'tc_links': tc_load_links
+            })
+            self._html(render_analytics_v2(
+                res['bug'], 
+                user=self._user_ctx(),
+                activities=res['bell'],
+                testcases=res['tc'],
+                links=res['links'],
+                tc_links=res['tc_links']
+            ))
         except RuntimeError as e:
             self._html(render_error_page(str(e)))
 
@@ -985,8 +1000,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
                                    ensure_ascii=False).encode('utf-8'))
 
     def _post_tc_import(self):
-        # Import 1 sheet -> GHI ĐÈ toàn bộ cases của folder (giữ result cũ theo id).
-        # Body: {url, sheet, folder}. Tải + parse trong store; token redact trong bug_log.
+        # Import test case -> mỗi sheet GHI ĐÈ 1 sub-folder cùng tên (giữ result cũ theo id).
+        # Body: {url, sheet, folder}. sheet rỗng = import cả file (bỏ qua sheet template).
+        # Tải + parse trong store; token redact trong bug_log.
         res = {'ok': False, 'msg': 'Lỗi xử lý yêu cầu.'}
         try:
             payload = self._read_json_body(20_000)

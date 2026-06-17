@@ -1776,6 +1776,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     if (event.target.files && event.target.files.length) {
       handleFiles(event.target.files[0]);
     }
+    event.target.value = '';
   };
 
   function handleFiles(file) {
@@ -2664,6 +2665,116 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   var BUGS = DATA.bugs||[], REOPEN = DATA.reopen||{};
   var PIE_COLORS = ['#4c9aff','#36b37e','#ffab00','#ff5630','#6554c0','#00b8d9','#ff7452','#57d9a3','#8777d9','#ff8b00','#2684ff','#172b4d'];
 
+  // Data for cross metrics
+  var TC_DATA = DATA.tcData || {};
+  var TC_CASES = TC_DATA.cases || [];
+  var BUG_LINKS = DATA.bugLinks || {};
+  var TC_LINKS = DATA.tcLinks || {};
+
+  function tasksOf(v) {
+    if(!v) return [];
+    if(Array.isArray(v.tasks)) return v.tasks.filter(Boolean);
+    if(typeof v.task === 'string' && v.task) return [v.task];
+    return [];
+  }
+
+  // ---------- New KPI Metrics (Cross Task, TC, Bug) ----------
+  var anTcCoverageBox = $('anTcCoverageBox'), anTcExecutionBox = $('anTcExecutionBox'), anBugDensityBox = $('anBugDensityBox');
+  function renderCrossMetrics() {
+    if(!anTcCoverageBox || !anTcExecutionBox || !anBugDensityBox) return;
+
+    var linkedTaskSet = {};
+    var tcTaskSet = {};
+    var bugTaskSet = {};
+    var totalBugCountLinked = 0;
+
+    Object.keys(BUG_LINKS).forEach(function(bugKey) {
+      var ts = tasksOf(BUG_LINKS[bugKey]);
+      if (ts.length) totalBugCountLinked++;
+      ts.forEach(function(t) { linkedTaskSet[t] = true; bugTaskSet[t] = true; });
+    });
+    Object.keys(TC_LINKS).forEach(function(folderId) {
+      tasksOf(TC_LINKS[folderId]).forEach(function(t) { linkedTaskSet[t] = true; tcTaskSet[t] = true; });
+    });
+
+    var totalTasks = Object.keys(linkedTaskSet).length;
+    var tasksWithTc = Object.keys(tcTaskSet).length;
+
+    // Coverage
+    if (totalTasks === 0) {
+      anTcCoverageBox.innerHTML = '<div class="an-empty">Chưa có task nào được liên kết với testcase hoặc bug.</div>';
+    } else {
+      var covPct = (tasksWithTc / totalTasks) * 100;
+      var covDisp = (covPct % 1 === 0 ? covPct.toFixed(0) : covPct.toFixed(1)) + '%';
+      anTcCoverageBox.innerHTML = 
+        '<div class="an-valid-main"><span class="an-valid-pct">'+covDisp+'</span>'
+        + '<span class="an-valid-cap">task có test case</span></div>'
+        + '<div class="an-valid-break">'
+        +   '<div class="an-stat"><span class="an-stat-n">'+tasksWithTc+'</span><span class="an-stat-l">Task có TC</span></div>'
+        +   '<div class="an-stat-op">/</div>'
+        +   '<div class="an-stat"><span class="an-stat-n">'+totalTasks+'</span><span class="an-stat-l">Tổng số Task (có hoạt động)</span></div>'
+        + '</div>';
+    }
+
+    // Bug Density
+    if (totalTasks === 0) {
+      anBugDensityBox.innerHTML = '<div class="an-empty">Chưa có data</div>';
+    } else {
+      var density = totalBugCountLinked / totalTasks;
+      var denDisp = density.toFixed(2);
+      anBugDensityBox.innerHTML = 
+        '<div class="an-valid-main"><span class="an-valid-pct">'+denDisp+'</span>'
+        + '<span class="an-valid-cap">bug / task</span></div>'
+        + '<div class="an-valid-break">'
+        +   '<div class="an-stat"><span class="an-stat-n">'+totalBugCountLinked+'</span><span class="an-stat-l">Tổng số Bug liên kết</span></div>'
+        +   '<div class="an-stat-op">/</div>'
+        +   '<div class="an-stat"><span class="an-stat-n">'+totalTasks+'</span><span class="an-stat-l">Tổng số Task (có hoạt động)</span></div>'
+        + '</div>';
+    }
+
+    // TC Execution & Pass Rate
+    if (TC_CASES.length === 0) {
+      anTcExecutionBox.innerHTML = '<div class="an-empty" style="width:100%;">Chưa có data test case</div>';
+    } else {
+      var pass = 0, fail = 0, norun = 0;
+      TC_CASES.forEach(function(c) {
+        var r = c.result || 'norun';
+        if (r === 'pass') pass++;
+        else if (r === 'fail') fail++;
+        if (r === 'norun') norun++;
+      });
+      var total = TC_CASES.length;
+      var executed = total - norun;
+      var execPct = (executed / total) * 100;
+      var execDisp = (execPct % 1 === 0 ? execPct.toFixed(0) : execPct.toFixed(1)) + '%';
+      var passRateDisp = '—';
+      if (executed > 0) {
+        var pr = (pass / executed) * 100;
+        passRateDisp = (pr % 1 === 0 ? pr.toFixed(0) : pr.toFixed(1)) + '%';
+      }
+
+      anTcExecutionBox.innerHTML = 
+        '<div style="flex:1;">'
+        + '<div class="an-valid-main"><span class="an-valid-pct">'+execDisp+'</span>'
+        + '<span class="an-valid-cap">tiến độ chạy</span></div>'
+        + '<div class="an-valid-break">'
+        +   '<div class="an-stat"><span class="an-stat-n">'+executed+'</span><span class="an-stat-l">Đã chạy</span></div>'
+        +   '<div class="an-stat-op">/</div>'
+        +   '<div class="an-stat"><span class="an-stat-n">'+total+'</span><span class="an-stat-l">Tổng số Case</span></div>'
+        + '</div>'
+        + '</div>'
+        + '<div style="flex:1; border-left:1px solid var(--outline-variant); padding-left:32px;">'
+        + '<div class="an-valid-main"><span class="an-valid-pct">'+passRateDisp+'</span>'
+        + '<span class="an-valid-cap">tỷ lệ Pass</span></div>'
+        + '<div class="an-valid-break">'
+        +   '<div class="an-stat"><span class="an-stat-n">'+pass+'</span><span class="an-stat-l">Pass</span></div>'
+        +   '<div class="an-stat-op">/</div>'
+        +   '<div class="an-stat"><span class="an-stat-n">'+executed+'</span><span class="an-stat-l">Đã chạy</span></div>'
+        + '</div>'
+        + '</div>';
+    }
+  }
+
   function getCreatedMonthYear(iso){
     if(!iso) return '';
     var p = iso.split('-');
@@ -2739,6 +2850,10 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     var devList = Object.keys(devs).sort(function(a,b){ return devs[b].total - devs[a].total; });
     var projList = Object.keys(projSet).sort();
     if(!devList.length){ metricCharts.innerHTML = '<div class="an-empty">Không có dữ liệu trong tháng này</div>'; return; }
+    // tổng số bug theo từng dự án + tổng toàn tháng (bug đa-dev tính phân số nên tổng = số bug thật)
+    var projTotals = {}, grandTotal = mBugs.length;
+    projList.forEach(function(p){ projTotals[p] = 0; });
+    devList.forEach(function(d){ var pj = devs[d].projs; Object.keys(pj).forEach(function(p){ projTotals[p] += pj[p]; }); });
     var maxTotal = 0; devList.forEach(function(d){ if(devs[d].total>maxTotal) maxTotal = devs[d].total; });
     var yMax = Math.max(5, Math.ceil(maxTotal/5)*5), steps = 5, chartHeight = 260;
     var ticksHtml = '';
@@ -2768,9 +2883,12 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       var color = PIE_COLORS[idx%PIE_COLORS.length];
       legendHtml += '<div style="display:flex; align-items:center; margin-right:16px; margin-bottom:8px; font-size:13.5px;">'
         + '<span style="display:inline-block; width:14px; height:14px; background:'+color+'; border-radius:3px; margin-right:6px;"></span>'
-        + '<span style="color:var(--on-surface);">'+esc(p)+'</span></div>';
+        + '<span style="color:var(--on-surface);">'+esc(p)+' <strong>('+(+(projTotals[p].toFixed(2)))+')</strong></span></div>';
     });
+    var totalHtml = '<div style="text-align:center; margin-bottom:14px; font-size:14px; color:var(--on-surface);">'
+      + 'Tổng số bug: <strong style="font-size:16px;">'+grandTotal+'</strong></div>';
     metricCharts.innerHTML = '<div style="width:100%; display:flex; flex-direction:column; padding:10px 0;">'
+      + totalHtml
       + '<div style="display:flex; justify-content:center; flex-wrap:wrap; margin-bottom:24px;">' + legendHtml + '</div>'
       + '<div style="display:flex; align-items:flex-start;">'
       +   '<div style="position:relative; height:'+chartHeight+'px; width:40px; flex-shrink:0;">' + ticksHtml + '</div>'
@@ -2910,6 +3028,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   if(validMonthSel) validMonthSel.addEventListener('change', renderValid);
   if(metricMonthSel) metricMonthSel.addEventListener('change', renderMetric);
   if(reopenMonthSel) reopenMonthSel.addEventListener('change', renderReopen);
+  renderCrossMetrics();
   renderValid(); renderMetric(); renderReopen();
 })();
 
@@ -2939,6 +3058,11 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
 
   // ---- Repository panel (folder filter) ----
   var curFolder = '';  // '' = tất cả
+  // Folder đang thu gọn (ẩn con). Nhớ qua localStorage để sống sót reload.
+  var collapsed = {};
+  try { collapsed = JSON.parse(localStorage.getItem('tc-collapsed')||'{}') || {}; } catch(_e){ collapsed = {}; }
+  function saveCollapsed(){ try { localStorage.setItem('tc-collapsed', JSON.stringify(collapsed)); } catch(_e){} }
+  function toggleCollapse(fid){ if(collapsed[fid]) delete collapsed[fid]; else collapsed[fid]=1; saveCollapsed(); renderTree(); }
   function casesIn(fid){
     if(!fid) return cases;
     var subIds = folders.filter(function(f){ return f.parent_id===fid; }).map(function(f){ return f.id; });
@@ -3070,14 +3194,19 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     var slice=list.slice((page-1)*PER, page*PER);
     body.innerHTML = slice.map(function(c,i){
       return '<tr data-idx="'+((page-1)*PER+i)+'">'
-        + '<td class="tc-id">'+esc(c.id||'')+'</td>'
-        + '<td class="tc-item">'+esc(c.item||'')+'</td>'
+        + '<td class="tc-id"><div>'+esc(c.id||'')+'</div></td>'
+        + '<td class="tc-item"><div>'+esc(c.item||'')+'</div></td>'
         + '<td>'+longCell(c.pre)+'</td>'
         + '<td>'+longCell(c.step)+'</td>'
         + '<td>'+longCell(c.exp)+'</td>'
         + '<td>'+priHtml(c.priority)+'</td>'
         + '<td>'+resHtml(c.result)+'</td></tr>';
     }).join('');
+    // filler rows giữ chiều cao bảng cố định khi trang cuối thiếu dòng
+    var fillerHtml='<tr class="tc-filler"><td class="tc-id">&nbsp;</td><td class="tc-item">&nbsp;</td>'
+      + '<td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>';
+    var filler=''; for(var f=slice.length; f<PER; f++) filler+=fillerHtml;
+    body.insertAdjacentHTML('beforeend', filler);
     body.querySelectorAll('tr[data-idx]').forEach(function(tr){
       tr.style.cursor='pointer';
       tr.addEventListener('click', function(){ openDrawer(list[+tr.dataset.idx]); });
@@ -3095,8 +3224,16 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       if(!disabled && goto) b.addEventListener('click',function(){ page=goto; render(); });
       nav.appendChild(b);
     }
+    function ellipsis(){ var s=document.createElement('span'); s.className='pager-ellipsis'; s.textContent='…'; nav.appendChild(s); }
     btn('chevron_left', page<=1, page-1);
-    for(var p=1;p<=pages;p++) btn(String(p), false, p, p===page);
+    var win=1, last=0; // luôn hiện trang 1, trang cuối, và current ± win
+    for(var p=1;p<=pages;p++){
+      if(p===1 || p===pages || (p>=page-win && p<=page+win)){
+        if(last && p-last>1) ellipsis();
+        btn(String(p), false, p, p===page);
+        last=p;
+      }
+    }
     btn('chevron_right', page>=pages, page+1);
   }
 
@@ -3125,6 +3262,15 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       submitBtn=$('tcImpSubmit');
   var lastSheetUrl='';   // tránh fetch lại sheet khi url không đổi
   window.tcCloseImport=function(){ if(imp) imp.classList.remove('open'); };
+  // Modal báo lỗi (button OK) — dùng cho import thiếu ID, v.v.
+  window.tcCloseError=function(){ var ov=$('tcErrorOverlay'); if(ov) ov.classList.remove('open'); };
+  window.tcShowError=function(msg, title){
+    var ov=$('tcErrorOverlay'); if(!ov){ toast(msg, false); return; }
+    var m=$('tcErrorMsg'); if(m) m.textContent=msg||'Có lỗi xảy ra';
+    var t=$('tcErrorTitle'); if(t) t.textContent=title||'Có lỗi xảy ra';
+    ov.classList.add('open');
+    var ok=$('tcErrorOk'); if(ok) ok.focus();
+  };
 
   function fillFolderSel(){
     if(!folderSel) return;
@@ -3148,7 +3294,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       if(!j||!j.ok){ resetSheetSel('Lỗi'); toast((j&&j.msg)||'Không đọc được file Drive', false); lastSheetUrl=''; return; }
       var sheets=j.sheets||[];
       if(!sheets.length){ resetSheetSel('Không có sheet'); return; }
-      sheetSel.innerHTML='<option value="">Chọn một trang...</option>'
+      sheetSel.innerHTML='<option value="">Tất cả sheet (bỏ qua template)</option>'
         + sheets.map(function(s){ return '<option value="'+esc(s)+'">'+esc(s)+'</option>'; }).join('');
       if(sheets.length===1){ sheetSel.value=sheets[0]; }
     }).catch(function(){ resetSheetSel('Lỗi'); toast('Lỗi mạng khi đọc file Drive', false); lastSheetUrl=''; });
@@ -3157,14 +3303,16 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     urlIn.addEventListener('blur', loadSheets); }
   if($('tcImportBtn')) $('tcImportBtn').addEventListener('click', function(){
     if(!imp) return; fillFolderSel(); imp.classList.add('open');
+    lastSheetUrl = '';
+    loadSheets();
     if(urlIn) urlIn.focus(); });
   if(submitBtn) submitBtn.addEventListener('click', function(){
     var u=(urlIn&&urlIn.value||'').trim();
     var sheet=(sheetSel&&sheetSel.value||'').trim();
     var folder=(folderSel&&folderSel.value||'').trim();
     if(!u){ toast('Chưa dán link Google Sheet', false); return; }
-    if(!sheet){ toast('Chưa chọn sheet', false); return; }
     if(!folder){ toast('Chưa chọn folder đích', false); return; }
+    // sheet rỗng = import cả file (bỏ qua sheet template) — backend lo phần này
     var hasCases = cases.some(function(c){ return c.folder===folder; });
     if(hasCases && !confirm('Bộ này đã có test case. Import sẽ GHI ĐÈ toàn bộ (kết quả chạy '
         +'theo ID được giữ lại). Tiếp tục?')) return;
@@ -3173,7 +3321,8 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       submitBtn.disabled=false;
       if(j&&j.ok){ toast(j.msg||'Import thành công', true); window.tcCloseImport();
         setTimeout(function(){ location.reload(); }, 600); }
-      else { toast((j&&j.msg)||'Import thất bại', false); }
+      else { window.tcShowError((j&&j.msg)||'Import thất bại',
+               (j&&j.missing_id_rows)?'Thiếu ID — không thể import':'Import thất bại'); }
     }).catch(function(){ submitBtn.disabled=false; toast('Lỗi mạng khi import', false); });
   });
 
@@ -3249,6 +3398,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   renderTree = function(){
     var tree=$('tcTree'); if(!tree) return;
     var html = '<div class="tc-node'+(curFolder===''?' active':'')+'" data-folder="">'+
+               '<span class="tc-twisty spacer"></span>'+
                '<span class="material-symbols-rounded">folder_open</span> Tất cả dự án'+
                '<span class="tc-node-count">'+cases.length+'</span></div>';
     
@@ -3270,15 +3420,24 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
           + '<button class="tc-fa-btn danger" data-action="delete" data-fid="'+esc(f.id)+'" title="Xoá"><span class="material-symbols-rounded mi-xs">delete</span></button>'
           + '</span>';
       }
+      var children = subsByParent[f.id] || [];
+      var hasKids = children.length > 0;
+      var isCol = !!collapsed[f.id];
+      // Nút thu gọn/mở (chỉ folder có con); folder không con -> spacer giữ thẳng hàng.
+      var twisty = hasKids
+        ? '<button class="tc-twisty" data-twisty="'+esc(f.id)+'" title="'+(isCol?'Mở':'Thu gọn')+'">'
+          + '<span class="material-symbols-rounded mi-sm">'+(isCol?'chevron_right':'expand_more')+'</span></button>'
+        : '<span class="tc-twisty spacer"></span>';
       var ml = 14 + (depth * 16);
       var ic = depth > 0 ? 'subdirectory_arrow_right' : 'folder';
       html += '<div class="tc-node'+(curFolder===f.id?' active':'')+'" data-folder="'+esc(f.id)+'" style="margin-left:'+ml+'px">'+
+              twisty+
               '<span class="material-symbols-rounded">'+ic+'</span> '+
               '<span style="flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="'+esc(f.name||f.id)+'">'+esc(f.name||f.id)+'</span>'+
               '<span class="tc-node-count">'+casesIn(f.id).length+'</span>'+
               actions+'</div>';
-      
-      var children = subsByParent[f.id] || [];
+
+      if(isCol) return;   // thu gọn -> ẩn cây con
       children.forEach(function(c){ renderNode(c, depth + 1); });
     }
 
@@ -3297,7 +3456,14 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     tree.querySelectorAll('.tc-node').forEach(function(n){
       n.addEventListener('click', function(e){
         if(e.target.closest('.tc-fa-btn')) return;
+        if(e.target.closest('.tc-twisty')) return;   // bấm chevron = thu gọn, không đổi folder
         curFolder=n.dataset.folder; renderTree(); page=1; render();
+      });
+    });
+    tree.querySelectorAll('.tc-twisty[data-twisty]').forEach(function(btn){
+      btn.addEventListener('click', function(e){
+        e.stopPropagation();
+        toggleCollapse(btn.getAttribute('data-twisty'));
       });
     });
     tree.querySelectorAll('.tc-fa-btn').forEach(function(btn){
@@ -3387,6 +3553,19 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     var lseq=0, ldeb;
     lsearch.addEventListener('input', function(){
       var q=(lsearch.value||'').trim(); clearTimeout(ldeb);
+      // Hỗ trợ paste nhiều task cùng lúc (VD: "TASK-1, TASK-2")
+      var multi = q.split(/[\s,;]+/).filter(function(x){ return /^[A-Za-z]+-\d+$/.test(x); });
+      if(multi.length > 1 || (multi.length === 1 && /[,;]/.test(q))){
+        var newTasks = multi.filter(function(k){ return tasksOf(linkFid).indexOf(k) < 0; });
+        if(newTasks.length){
+          persistLink(linkFid, newTasks, 'add').then(function(ok){
+            if(ok){ toast('Đã liên kết ' + newTasks.length + ' task', true); }
+          });
+        }
+        lsearch.value=''; lresults.innerHTML='';
+        return;
+      }
+
       if(q.length<2){ lresults.innerHTML=''; return; }
       ldeb=setTimeout(function(){
         var my=++lseq; lresults.innerHTML='<div class="tc-link-loading">Đang tìm…</div>';

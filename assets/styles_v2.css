@@ -608,6 +608,8 @@ tbody tr:not(.pager-filler):hover{background:var(--surface-low)}
   border:none;background:none}
 .pager-page.active{background:var(--primary);color:var(--on-primary)}
 .pager-page:not(.active):hover{background:var(--surface-low)}
+.pager-ellipsis{display:inline-flex;align-items:center;justify-content:center;width:20px;height:28px;
+  font-size:13px;font-weight:600;color:var(--on-surface-variant);user-select:none}
 .empty-state{padding:40px;text-align:center;color:var(--on-surface-variant);font-size:13.5px}
 .empty-state .material-symbols-rounded{font-size:36px;margin-bottom:8px;display:block;color:var(--outline-variant)}
 
@@ -1265,9 +1267,10 @@ html[data-theme="dark"] .rk-bug-n { color: #ff7b72; }
 /* Bảng test case: text dài clamp 3 dòng + drawer xem full */
 .tc-table{table-layout:fixed}
 .tc-table thead th{font-size:12px;padding:12px 14px}
-.tc-table tbody td{padding:13px 14px;vertical-align:top;line-height:18px}
+.tc-table tbody td{padding:13px 14px;vertical-align:top;line-height:18px;height:104px;overflow:hidden}
 .tc-table .tc-id{font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--primary);font-weight:600;word-break:break-word}
 .tc-table .tc-item{font-weight:600;color:var(--on-surface)}
+.tc-id>div,.tc-item>div{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .tc-long{color:var(--on-surface-variant);font-size:13px;white-space:pre-line;
          display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .tc-more{display:inline-flex;align-items:center;gap:2px;margin-top:4px;font-size:11px;font-weight:600;color:var(--primary)}
@@ -1296,6 +1299,9 @@ html[data-theme="dark"] .rk-bug-n { color: #ff7b72; }
 /* Modal Import: icon Google Sheet + field có icon + info box */
 .tc-gs-ic{width:34px;height:34px;border-radius:var(--r-md);background:var(--success-bg);
           color:var(--success);display:flex;align-items:center;justify-content:center;flex:0 0 34px}
+.tc-err-ic{width:34px;height:34px;border-radius:var(--r-md);background:var(--error-bg);
+           color:var(--error);display:flex;align-items:center;justify-content:center;flex:0 0 34px}
+.tc-err-msg{font-size:14px;line-height:21px;color:var(--on-surface);white-space:pre-line}
 .tc-iwrap{position:relative}
 .tc-iwrap .lead{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--outline)}
 .tc-iwrap .trail{position:absolute;right:11px;top:50%;transform:translateY(-50%);color:var(--outline);pointer-events:none}
@@ -1315,6 +1321,13 @@ html[data-theme="dark"] .rk-bug-n { color: #ff7b72; }
            color:var(--on-surface-variant);display:inline-flex;align-items:center;justify-content:center;padding:0}
 .tc-fa-btn:hover{background:var(--surface-highest);color:var(--on-surface)}
 .tc-fa-btn.danger:hover{background:var(--error-bg);color:var(--error)}
+/* Nút thu gọn/mở folder (chevron) — spacer giữ thẳng hàng folder không có con */
+.tc-twisty{flex:0 0 18px;width:18px;height:18px;padding:0;border:none;background:none;cursor:pointer;
+           display:inline-flex;align-items:center;justify-content:center;border-radius:var(--r-sm)}
+.tc-twisty.spacer{cursor:default;pointer-events:none}
+.tc-twisty .material-symbols-rounded{font-size:18px;color:var(--on-surface-variant)}
+.tc-twisty:hover{background:var(--surface-highest)}
+.tc-node{gap:6px}
 /* read-only: ẩn nút Import/thêm folder */
 .ro .tc-repo-add,.ro #tcImportBtn{display:none !important}
 

@@ -34,12 +34,18 @@ def _flatten_bugs(data):
     return bugs, sorted((m for m in months if m), reverse=True)
 
 
-def render_analytics_v2(data, user=None, activities=None):
+def render_analytics_v2(data, user=None, activities=None, testcases=None, links=None, tc_links=None):
     """Trang Analytics: 3 khối metric (Valid Bug Rate · Bug theo dev/dự án · Tỷ lệ Reopen).
     Toàn bộ render client-side bởi controller `#analyticsData` (app_v2.js)."""
     data = data or {}
     bugs, month_list = _flatten_bugs(data)
     reopen = data.get('reopen', {}) or {}
+    
+    tc_data = testcases or {}
+    tc_cases = tc_data.get('cases', [])
+    tc_folders = tc_data.get('folders', [])
+    links = links or {}
+    tc_links = tc_links or {}
 
     synced = data.get('synced_at', '') or ''
     synced_disp = synced.replace('T', ' ')[:16] if synced else 'chưa đồng bộ'
@@ -50,8 +56,34 @@ def render_analytics_v2(data, user=None, activities=None):
         f'<div class="bl-sub"><span class="bl-dot"></span> Dữ liệu bug đồng bộ: {esc(synced_disp)}</div>'
         '</div></div>'
 
+        # ----- KPI Testcases & Tasks -----
+        '<div class="metrics-row" style="display:flex; gap:24px; align-items:stretch; margin-top:0; flex-wrap:wrap;">'
+        
+        # Test Coverage
+        '<div class="card metric-card" style="flex:1; min-width:300px; margin-top:0;">'
+        '<div class="metric-header"><div class="table-title"><span>Test Coverage (Độ phủ TC)</span></div></div>'
+        '<div class="an-valid" id="anTcCoverageBox"></div>'
+        '<div class="bl-reopen-note">Tỷ lệ task có test case / Tổng số task có hoạt động (bug/tc)</div>'
+        '</div>'
+        
+        # Test Execution
+        '<div class="card metric-card" style="flex:1; min-width:300px; margin-top:0;">'
+        '<div class="metric-header"><div class="table-title"><span>Test Execution & Pass Rate</span></div></div>'
+        '<div class="an-valid" id="anTcExecutionBox" style="display:flex; gap:32px;"></div>'
+        '<div class="bl-reopen-note">Tiến độ chạy = (Pass+Fail)/Tổng · Pass Rate = Pass/(Pass+Fail)</div>'
+        '</div>'
+        
+        # Bug Density
+        '<div class="card metric-card" style="flex:1; min-width:300px; margin-top:0;">'
+        '<div class="metric-header"><div class="table-title"><span>Bug Density (Mật độ Bug / Task)</span></div></div>'
+        '<div class="an-valid" id="anBugDensityBox"></div>'
+        '<div class="bl-reopen-note">Tổng bug / Tổng số task có hoạt động (bug/tc)</div>'
+        '</div>'
+        
+        '</div>' # end metrics-row
+
         # ----- KPI Valid Bug Rate -----
-        '<div class="card metric-card" style="margin-top:0;">'
+        '<div class="card metric-card" style="margin-top:24px;">'
         '<div class="metric-header">'
         '<div class="table-title"><span>Valid Bug Rate — tỷ lệ bug hợp lệ đã đóng (Tháng)</span></div>'
         '<div class="metric-filter"><span class="material-symbols-rounded mi-sm">calendar_month</span> '
@@ -93,6 +125,8 @@ def render_analytics_v2(data, user=None, activities=None):
         + _json_script('analyticsData', {
             'bugs': bugs, 'months': month_list, 'reopen': reopen,
             'syncedAt': synced_disp,
+            'tcData': {'cases': tc_cases, 'folders': tc_folders},
+            'bugLinks': links, 'tcLinks': tc_links
         })
     )
     return _document_v2(content, 'analytics', user, activities or [],

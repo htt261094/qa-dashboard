@@ -36,7 +36,7 @@ import json
 TC_PROP = 'qa-dashboard-testcases'  # khoá KV / Jira property = kho sync chéo máy
 
 MAX_FOLDERS = 100
-MAX_CASES = 5000            # chặn payload quá lớn (KV ~ vài chục KB an toàn)
+MAX_CASES = 50000           # chặn payload quá lớn (KV có hỗ trợ GZIP tự động nên mức 50k là an toàn)
 TC_RESULTS = ('pass', 'fail', 'pending', 'blocked', 'norun')
 _PRIORITIES = ('critical', 'high', 'medium', 'low')
 
@@ -242,11 +242,13 @@ def _find_header(rows):
 
 
 def parse_testcase_rows(rows):
-    """rows thô (1 sheet) -> (cases, skipped, total).
+    """rows thô (1 sheet) -> (cases, skipped, total, missing_id_rows).
 
     cases = list {id, item, pre, step, exp, priority, result='norun'} (CHƯA gắn folder).
     - total   = số dòng dữ liệu (sau header) có nội dung.
-    - skipped = số dòng bị bỏ vì THIẾU ID.
+    - skipped = số dòng bị bỏ vì thiếu dữ liệu bắt buộc khác (item/expected) NHƯNG cũng không có ID/nội dung.
+    - missing_id_rows = list số dòng (1-based theo sheet) CÓ nội dung (mô tả/expected/step) NHƯNG thiếu ID.
+      Caller dùng cái này để CHẶN import + báo lỗi thiếu ID.
     Raise RuntimeError nếu không nhận diện được hàng tiêu đề (sai convention cột)."""
     hidx, col = _find_header(rows)
     if hidx is None:
@@ -257,46 +259,91 @@ def parse_testcase_rows(rows):
         ci = col.get(field)
         if ci is None or ci >= len(row):
             return ''
-        return str(row[ci]).strip() if not isinstance(row[ci], str) else row[ci].strip()
+        s = str(row[ci]).strip() if not isinstance(row[ci], str) else row[ci].strip()
+        return re.sub(r'[\u200b\u200c\u200d\u200e\u200f\ufeff]+', '', s)
 
-    cases, skipped, total = [], 0, 0
+    cases, skipped, total, missing_id_rows = [], 0, 0, []
     last_item = ''
     last_pre = ''
-    
-    for row in rows[hidx + 1:]:
-        if not any(str(x).strip() for x in row):
+
+    for offset, row in enumerate(rows[hidx + 1:]):
+        if not any(re.sub(r'[\u200b\u200c\u200d\u200e\u200f\ufeff]+', '', str(x)).strip() for x in row):
             continue   # dòng trống
         total += 1
         cid = cell(row, 'id')
-        
+
         # Forward-fill cho các cột thường bị merge (Item, Pre-condition)
         item_raw = cell(row, 'item')
         if item_raw:
             last_item = item_raw
         item_val = item_raw or last_item
-        
+
         pre_raw = cell(row, 'pre')
         if pre_raw:
             last_pre = pre_raw
         pre_val = pre_raw or last_pre
 
         exp_val = cell(row, 'exp')
-        
-        if not cid or not item_val or not exp_val:
+        step_val = cell(row, 'step')
+
+        if not cid:
+            # Thiếu ID: nếu có đủ cả step VÀ expected thì mới coi là quên ID -> Chặn
+            # Còn lại (chỉ có item, hoặc chỉ có dropdown result) -> Skip
+            if step_val and exp_val:
+                missing_id_rows.append(hidx + 1 + offset + 1)
+            else:
+                skipped += 1
+            continue
+
+        # Có ID: phải có CẢ step VÀ expected thì mới hợp lệ để import
+        # Nếu thiếu 1 trong 2 -> Skip
+        if not step_val or not exp_val:
             skipped += 1
-            continue   # thiếu dữ liệu bắt buộc -> bỏ (báo số lượng)
-            
+            continue
+
         r_val = cell(row, 'result')
         cases.append({
             'id': cid,
             'item': item_val,
             'pre': pre_val,
-            'step': cell(row, 'step'),
+            'step': step_val,
             'exp': exp_val,
             'priority': _norm_priority(cell(row, 'priority')),
             'result': _norm_result(r_val) if r_val else '',
         })
-    return cases, skipped, total
+    return cases, skipped, total, missing_id_rows
+
+
+# Sheet template — bỏ qua khi import cả file (không chọn sheet cụ thể). So khớp lower+strip.
+TEMPLATE_SHEETS = {'cover', 'guide', 'result', 'function 1'}
+
+
+def _is_template_sheet(name):
+    return (name or '').strip().lower() in TEMPLATE_SHEETS
+
+
+def _apply_sheet_cases(data, parent_folder_id, sheet, new_cases):
+    """Ghi đè cases của sub-folder (theo tên sheet) trong parent. Mutates `data`. Trả count.
+
+    GIỮ result đã chấm theo case id trong CHÍNH sub-folder đó (re-import nội dung không mất kết quả)."""
+    sub_folder = next((f for f in data['folders']
+                       if f.get('parent_id') == parent_folder_id and f.get('name') == sheet), None)
+    if not sub_folder:
+        sub_id = 'f_' + format(int(time.time() * 1000) + len(data['folders']), 'x')
+        sub_folder = {'id': sub_id, 'name': sheet, 'parent_id': parent_folder_id}
+        data['folders'].append(sub_folder)
+    target_folder_id = sub_folder['id']
+
+    prev_result = {c['id']: c.get('result', 'norun')
+                   for c in data['cases'] if c.get('folder') == target_folder_id}
+    data['cases'] = [c for c in data['cases'] if c.get('folder') != target_folder_id]
+    for c in new_cases:
+        c['folder'] = target_folder_id
+        parsed_result = c.get('result', '')
+        r = prev_result.get(c['id'], 'norun')
+        c['result'] = parsed_result if parsed_result else (r if r in TC_RESULTS else 'norun')
+    data['cases'].extend(new_cases)
+    return len(new_cases)
 
 
 # ===== Drive: list sheet + import =====
@@ -315,10 +362,11 @@ def fetch_sheets(url):
 
 
 def import_cases(folder_id, url, sheet, by_email=''):
-    """Import 1 sheet vào folder = GHI ĐÈ toàn bộ cases của folder đó.
+    """Import test case vào folder = mỗi sheet GHI ĐÈ 1 sub-folder cùng tên.
 
-    GIỮ result đã chấm theo case id (re-import sheet đã sửa nội dung không mất công chấm).
-    Trả dict {ok, count, skipped, total, msg}. Soft-fail per-row (thiếu ID -> skip + report)."""
+    `sheet` rỗng -> import CẢ FILE (mọi sheet trừ template: Cover/Guide/Result/Function 1).
+    GIỮ result đã chấm theo case id (re-import nội dung không mất công chấm).
+    Trả dict {ok, count, skipped, msg}. CHẶN toàn bộ import nếu BẤT KỲ sheet nào có dòng thiếu ID."""
     folder_id = (folder_id or '').strip()
     data = load_testcases()
     folder = next((f for f in data['folders'] if f.get('id') == folder_id), None)
@@ -329,56 +377,84 @@ def import_cases(folder_id, url, sheet, by_email=''):
     if not fid:
         return {'ok': False, 'msg': 'Link Google Sheet không hợp lệ.'}
     sheet = (sheet or '').strip()
-    if not sheet:
-        return {'ok': False, 'msg': 'Chưa chọn sheet.'}
 
     try:
         meta = fetch_meta(fid)
         content = download_file(fid, meta.get('mimeType', ''))
-        rows = read_sheet_rows(content, sheet)
-        new_cases, skipped, total = parse_testcase_rows(rows)
+        all_sheets = list_sheet_names(content)
+        if sheet:
+            if sheet not in all_sheets:
+                return {'ok': False, 'msg': f'Sheet "{sheet}" không có trong file.'}
+            target_sheets = [sheet]
+        else:
+            target_sheets = [s for s in all_sheets if not _is_template_sheet(s)]
+            if not target_sheets:
+                return {'ok': False, 'msg': 'Không có sheet nào để import '
+                                            '(đã bỏ qua các sheet template).'}
+        # parse từng sheet TRƯỚC khi ghi -> validate toàn bộ rồi mới apply (all-or-nothing)
+        parsed = []        # (sheet, cases, skipped, missing_id_rows)
+        no_header = []     # sheet không có cột yêu cầu -> coi như data fake, BỎ QUA (import cả file)
+        for s in target_sheets:
+            rows = read_sheet_rows(content, s)
+            if not sheet and _find_header(rows)[0] is None:
+                no_header.append(s)
+                continue
+            cases_s, skipped_s, _total_s, missing_s = parse_testcase_rows(rows)
+            parsed.append((s, cases_s, skipped_s, missing_s))
     except RuntimeError as e:
         return {'ok': False, 'msg': str(e)}   # bug_log đã redact token
 
-    if not new_cases:
-        return {'ok': False, 'msg': f'Không có test case hợp lệ trong sheet (bỏ {skipped} '
-                                    f'dòng thiếu dữ liệu bắt buộc trên {total} dòng).'}
+    # Có dòng mang nội dung (step/expected) nhưng thiếu ID ở BẤT KỲ sheet -> CHẶN cả import.
+    err_sheets = [(s, miss) for (s, _c, _sk, miss) in parsed if miss]
+    if err_sheets:
+        lines = []
+        for s, miss in err_sheets:
+            preview = ', '.join(str(r) for r in miss[:10])
+            more = f' …(+{len(miss) - 10} dòng)' if len(miss) > 10 else ''
+            lines.append(f'• Sheet "{s}": {len(miss)} dòng thiếu ID (dòng {preview}{more})')
+        return {'ok': False, 'missing_id_rows': True,
+                'msg': 'Import thất bại — thiếu ID:\n' + '\n'.join(lines)
+                       + '\nBổ sung cột ID rồi import lại.'}
 
-    # Tự động tạo hoặc lấy folder con theo tên sheet
-    sub_folder = next((f for f in data['folders'] if f.get('parent_id') == folder_id and f.get('name') == sheet), None)
-    if not sub_folder:
-        sub_id = 'f_' + format(int(time.time() * 1000) + len(data['folders']), 'x')
-        sub_folder = {'id': sub_id, 'name': sheet, 'parent_id': folder_id}
-        data['folders'].append(sub_folder)
-    
-    target_folder_id = sub_folder['id']
+    # Apply mọi sheet hợp lệ (mutate data trong RAM, chỉ lưu khi qua hết check).
+    applied, empty_sheets, total_skipped, total_count = [], [], 0, 0
+    for s, cases_s, skipped_s, _miss in parsed:
+        total_skipped += skipped_s
+        if not cases_s:
+            empty_sheets.append(s)
+            continue
+        total_count += _apply_sheet_cases(data, folder_id, s, cases_s)
+        applied.append(s)
 
-    # GIỮ result cũ theo case id trong CHÍNH sub folder này (ghi đè nội dung, không mất kết quả chạy)
-    prev_result = {c['id']: c.get('result', 'norun')
-                   for c in data['cases'] if c.get('folder') == target_folder_id}
-    
-    # ghi đè: bỏ hết cases cũ của sub folder, thay bằng cases mới
-    data['cases'] = [c for c in data['cases'] if c.get('folder') != target_folder_id]
-    for c in new_cases:
-        c['folder'] = target_folder_id
-        parsed_result = c.get('result', '')
-        r = prev_result.get(c['id'], 'norun')
-        if parsed_result:
-            c['result'] = parsed_result
-        else:
-            c['result'] = r if r in TC_RESULTS else 'norun'
-    data['cases'].extend(new_cases)
+    if not applied:
+        return {'ok': False, 'msg': 'Không có test case hợp lệ trong '
+                + ('sheet đã chọn.' if sheet
+                   else 'các sheet (đã bỏ qua template / sheet không đúng định dạng).')}
 
     if len(data['cases']) > MAX_CASES:
         return {'ok': False, 'msg': f'Vượt quá tối đa {MAX_CASES} test case toàn hệ thống.'}
 
     data.setdefault('imports', {})[folder_id] = {
-        'url': url, 'fileId': fid, 'sheet': sheet,
+        'url': url, 'fileId': fid,
+        'sheet': sheet if sheet else '(toàn bộ file)',
         'at': time.strftime('%Y-%m-%d %H:%M'), 'by': by_email or '',
-        'count': len(new_cases),
+        'count': total_count,
     }
     if not save_testcases(data):
         return {'ok': False, 'msg': 'Không lưu được (KV/local lỗi).'}
-    return {'ok': True, 'count': len(new_cases), 'skipped': skipped, 'total': total,
-            'msg': f'Đã import {len(new_cases)} test case vào "{folder.get("name")}"'
-                   + (f' (bỏ {skipped} dòng thiếu dữ liệu bắt buộc).' if skipped else '.')}
+
+    if sheet:
+        msg = (f'Đã import {total_count} test case vào "{folder.get("name")}"'
+               + (f' (bỏ {total_skipped} dòng thiếu dữ liệu bắt buộc).' if total_skipped else '.'))
+    else:
+        msg = f'Đã import {len(applied)} sheet · {total_count} test case vào "{folder.get("name")}".'
+        extra = []
+        if no_header:
+            extra.append(f'bỏ qua {len(no_header)} sheet không đúng định dạng')
+        if empty_sheets:
+            extra.append(f'bỏ qua {len(empty_sheets)} sheet rỗng')
+        if total_skipped:
+            extra.append(f'bỏ {total_skipped} dòng thiếu dữ liệu bắt buộc')
+        if extra:
+            msg += ' (' + ', '.join(extra) + ').'
+    return {'ok': True, 'count': total_count, 'skipped': total_skipped, 'msg': msg}

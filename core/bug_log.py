@@ -214,9 +214,22 @@ def _cell_value(c, shared):
 def _read_rows(zf, path, shared):
     """worksheet -> list[list[str]] (mỗi row = list ô theo cột, fill '' ở cột thiếu)."""
     rows = []
+    current_row = 1
     for _ev, row in ET.iterparse(BytesIO(zf.read(path))):
         if _localname(row.tag) != 'row':
             continue
+        
+        r_attr = row.get('r')
+        if r_attr:
+            try:
+                row_idx = int(r_attr)
+                # Pad empty rows to maintain 1:1 mapping with Excel row numbers
+                while current_row < row_idx:
+                    rows.append([])
+                    current_row += 1
+            except ValueError:
+                pass
+
         cells = {}
         maxc = -1
         for c in row:
@@ -226,6 +239,7 @@ def _read_rows(zf, path, shared):
             cells[ci] = _cell_value(c, shared)
             maxc = max(maxc, ci)
         rows.append([cells.get(i, '') for i in range(maxc + 1)])
+        current_row += 1
         row.clear()
     return rows
 

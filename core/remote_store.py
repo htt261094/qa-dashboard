@@ -70,7 +70,7 @@ def _cf_headers(content_type=None):
 
 # ===== Cloudflare KV low-level =====
 def _kv_get(key):
-    """Đọc value JSON từ KV. None nếu 404 (chưa có)/giá trị hỏng. Raise RuntimeError nếu lỗi mạng."""
+    """Đọc value JSON từ KV. Hỗ trợ tự động giải nén nếu dữ liệu được nén GZIP. None nếu 404 (chưa có)/giá trị hỏng. Raise RuntimeError nếu lỗi mạng."""
     url = f"{_KV_BASE}/values/{quote(key, safe='')}"
     try:
         r = _CF_SESSION.get(url, headers=_cf_headers(), timeout=_TIMEOUT)
@@ -80,17 +80,23 @@ def _kv_get(key):
     except requests.RequestException as e:
         raise RuntimeError(f"KV error: {_redact(str(e))}")
     try:
-        return json.loads(r.text)
+        content = r.content
+        if content.startswith(b'\x1f\x8b'):
+            import gzip
+            content = gzip.decompress(content)
+        return json.loads(content.decode('utf-8'))
     except ValueError:
         return None  # value rác trong KV -> coi như chưa có
 
 
 def _kv_put(key, value):
-    """Ghi value JSON vào KV. Raise RuntimeError nếu KV từ chối/lỗi mạng."""
+    """Ghi value JSON (đã nén GZIP) vào KV. Raise RuntimeError nếu KV từ chối/lỗi mạng."""
     url = f"{_KV_BASE}/values/{quote(key, safe='')}"
     try:
-        r = _CF_SESSION.put(url, headers=_cf_headers('text/plain'),
-                            data=json.dumps(value, ensure_ascii=False).encode('utf-8'),
+        import gzip
+        payload = gzip.compress(json.dumps(value, ensure_ascii=False).encode('utf-8'))
+        r = _CF_SESSION.put(url, headers=_cf_headers('application/octet-stream'),
+                            data=payload,
                             timeout=_TIMEOUT)
         r.raise_for_status()
     except requests.RequestException as e:

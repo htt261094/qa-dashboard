@@ -39,7 +39,7 @@ def _import_modal():
             <div>
               <label>Chọn Sheet</label>
               <div class="tc-iwrap trailing">
-                <select id="tcImpSheet"><option value="">Chọn một trang...</option></select>
+                <select id="tcImpSheet"><option value="">Tất cả sheet (bỏ qua template)</option></select>
                 <span class="trail material-symbols-rounded mi-sm">expand_more</span>
               </div>
             </div>
@@ -53,7 +53,7 @@ def _import_modal():
           </div>
           <div class="tc-infobox">
             <span class="material-symbols-rounded">info</span>
-            <span><b>Định dạng cột bắt buộc</b>Sheet cần có các tiêu đề: ID, Test Item, Pre-Condition, Step, Expected Output, Priority.</span>
+            <span><b>Định dạng cột bắt buộc</b>Sheet cần có các tiêu đề: ID, Test Item, Pre-Condition, Step, Expected Output, Priority. Để trống ô "Chọn Sheet" sẽ import toàn bộ file (bỏ qua các sheet template: Cover, Guide, Result, Function 1).</span>
           </div>
         </div>
         <div class="modal-foot">
@@ -189,6 +189,23 @@ def render_testcase_v2(data=None, editable=True, links=None, user=None, activiti
         <div class="modal-foot">
           <button type="button" class="btn btn-ghost" onclick="tcCloseFolder()">Hủy</button>
           <button type="button" class="btn btn-primary" id="tcFolderSave">Tạo</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal báo lỗi (vd: import thiếu ID) — button OK để đóng -->
+    <div class="overlay" id="tcErrorOverlay" onclick="if(event.target===this)tcCloseError()">
+      <div class="modal" style="width:460px">
+        <div class="modal-head">
+          <span class="tc-err-ic material-symbols-rounded">error</span>
+          <h3 id="tcErrorTitle">Có lỗi xảy ra</h3>
+          <button type="button" class="x material-symbols-rounded" onclick="tcCloseError()">close</button>
+        </div>
+        <div class="modal-body">
+          <div class="tc-err-msg" id="tcErrorMsg"></div>
+        </div>
+        <div class="modal-foot">
+          <button type="button" class="btn btn-primary" id="tcErrorOk" onclick="tcCloseError()">OK</button>
         </div>
       </div>
     </div>

@@ -90,8 +90,23 @@ class Handler(BaseHTTPRequestHandler):
         # Analytics (#158): metric bug (Valid Bug Rate + chart dev/dự án + reopen) — đích
         # của reporter tháng. Nguồn = cache Drive (load_bug_log), KHÔNG gọi Jira; chuông rỗng.
         try:
-            res = run_parallel({'bug': load_bug_log})
-            self._html(render_analytics_v2(res['bug'], user=_OFFLINE_USER, activities=[]))
+            from testcase_store import load_testcases
+            from testcase_link import load_links as tc_load_links
+            from task_link import load_links
+            res = run_parallel({
+                'bug': load_bug_log,
+                'tc': load_testcases,
+                'links': load_links,
+                'tc_links': tc_load_links
+            })
+            self._html(render_analytics_v2(
+                res['bug'], 
+                user=_OFFLINE_USER, 
+                activities=[],
+                testcases=res['tc'],
+                links=res['links'],
+                tc_links=res['tc_links']
+            ))
         except Exception as e:   # noqa: BLE001 — render lỗi -> trang lỗi thay vì 500 trần
             self._html(render_error_page(str(e)))
 
