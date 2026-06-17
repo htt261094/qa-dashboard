@@ -13,7 +13,7 @@ from render.shell import _document_v2
 
 # Tập trạng thái kết quả chạy + nhãn — chốt chính thức ở #155/#156. Để đây cho
 # controller/JS map class màu; KHÔNG hardcode logic, chỉ là tham chiếu hiển thị.
-TC_RESULTS = ['pass', 'fail', 'pending', 'blocked', 'norun']
+TC_RESULTS = ['pass', 'fail', 'impact', 'norun']
 
 
 def _import_modal():
@@ -222,7 +222,7 @@ def render_testcase_v2(data=None, editable=True, links=None, user=None, activiti
     content_inner += f"""
     <script>window.QA_TC_EDITABLE={"true" if editable else "false"};</script>
     """
-    content_inner += _json_script('tcData', {'folders': folders, 'cases': cases})
+    content_inner += _json_script('tcData', {'folders': folders, 'cases': cases, 'imports': data.get('imports', {})})
     content_inner += _json_script('tcLinks', links)
 
     return _document_v2(content_inner, 'testcases', user, activities,

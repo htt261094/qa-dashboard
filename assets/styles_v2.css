@@ -1279,8 +1279,7 @@ html[data-theme="dark"] .rk-bug-n { color: #ff7b72; }
 .tc-result .material-symbols-rounded{font-size:18px}
 .tc-result.pass{color:var(--success)}
 .tc-result.fail{color:var(--error)}
-.tc-result.pending{color:var(--warning)}
-.tc-result.blocked{color:var(--error-on)}
+.tc-result.impact{color:var(--warning)}
 .tc-result.norun{color:var(--on-surface-variant);font-weight:500}
 .tc-empty{padding:48px;text-align:center;color:var(--on-surface-variant)}
 .tc-empty .material-symbols-rounded{font-size:38px;display:block;margin-bottom:8px;color:var(--outline-variant)}

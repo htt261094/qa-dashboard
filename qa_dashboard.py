@@ -739,6 +739,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         if self.path == '/tc-link-task':
             self._post_tc_link_task()
             return
+        if self.path == '/tc-sync':
+            self._post_tc_sync()
+            return
         self.send_response(404)
         self.end_headers()
 
@@ -1040,6 +1043,30 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             self._json(200, json.dumps({'ok': True, 'tasks': out}).encode('utf-8'))
         else:
             self._json(400, b'{"ok":false}')
+
+    def _post_tc_sync(self):
+        res = {'ok': False, 'msg': 'Lỗi xử lý yêu cầu.'}
+        try:
+            payload = self._read_json_body(20_000)
+            if isinstance(payload, dict):
+                folder = str(payload.get('folder') or '')
+                from core.testcase_store import load_testcases
+                data = load_testcases()
+                imports_info = data.get('imports', {}).get(folder)
+                if not imports_info:
+                    res = {'ok': False, 'msg': 'Không tìm thấy thông tin link Google Sheet cũ để đồng bộ.'}
+                else:
+                    url = imports_info.get('url', '')
+                    sheet = imports_info.get('sheet', '')
+                    if sheet == '(toàn bộ file)':
+                        sheet = ''
+                    res = tc_import_cases(folder, url, sheet, by_email=self._user_email())
+        except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
+            res = {'ok': False, 'msg': 'Lỗi xử lý yêu cầu.'}
+        except Exception:   # noqa: BLE001
+            res = {'ok': False, 'msg': 'Lỗi không xác định khi đồng bộ.'}
+        self._json(200 if res.get('ok') else 400,
+                   json.dumps(res, ensure_ascii=False).encode('utf-8'))
 
     def _json(self, status, body):
         self.send_response(status)

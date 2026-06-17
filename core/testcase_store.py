@@ -25,6 +25,7 @@ Không cycle.
 """
 import re
 import time
+import difflib
 
 from config import TESTCASE_FILE, atomic_write
 from remote_store import synced_load, synced_save
@@ -37,7 +38,7 @@ TC_PROP = 'qa-dashboard-testcases'  # khoá KV / Jira property = kho sync chéo 
 
 MAX_FOLDERS = 100
 MAX_CASES = 50000           # chặn payload quá lớn (KV có hỗ trợ GZIP tự động nên mức 50k là an toàn)
-TC_RESULTS = ('pass', 'fail', 'pending', 'blocked', 'norun')
+TC_RESULTS = ('pass', 'fail', 'impact', 'norun')
 _PRIORITIES = ('critical', 'high', 'medium', 'low')
 
 TC_DEFAULT = {'folders': [], 'cases': [], 'imports': {}}
@@ -197,9 +198,8 @@ _PRI_MAP = {
 _RESULT_MAP = {
     'pass': 'pass', 'passed': 'pass', 'ok': 'pass', 'đạt': 'pass', 'dat': 'pass',
     'fail': 'fail', 'failed': 'fail', 'lỗi': 'fail', 'loi': 'fail', 'không đạt': 'fail', 'khong dat': 'fail', 'ng': 'fail', 'not ok': 'fail',
-    'pending': 'pending', 'chờ': 'pending', 'cho': 'pending', 'chờ fix': 'pending',
-    'blocked': 'blocked', 'block': 'blocked',
-    'norun': 'norun', 'no run': 'norun', 'chưa chạy': 'norun', 'chua chay': 'norun', 'untested': 'norun',
+    'impact': 'impact',
+    'norun': 'norun', 'no run': 'norun', 'not run': 'norun', 'chưa chạy': 'norun', 'chua chay': 'norun', 'untested': 'norun',
 }
 
 
@@ -322,10 +322,14 @@ def _is_template_sheet(name):
     return (name or '').strip().lower() in TEMPLATE_SHEETS
 
 
+def _get_content_sig(c):
+    return f"{c.get('item','')}||{c.get('pre','')}||{c.get('step','')}||{c.get('exp','')}"
+
+
 def _apply_sheet_cases(data, parent_folder_id, sheet, new_cases):
     """Ghi đè cases của sub-folder (theo tên sheet) trong parent. Mutates `data`. Trả count.
 
-    GIỮ result đã chấm theo case id trong CHÍNH sub-folder đó (re-import nội dung không mất kết quả)."""
+    GIỮ result đã chấm bằng Smart Sync (Sequence Alignment + Fuzzy Match + ID Fallback)."""
     sub_folder = next((f for f in data['folders']
                        if f.get('parent_id') == parent_folder_id and f.get('name') == sheet), None)
     if not sub_folder:
@@ -334,14 +338,62 @@ def _apply_sheet_cases(data, parent_folder_id, sheet, new_cases):
         data['folders'].append(sub_folder)
     target_folder_id = sub_folder['id']
 
-    prev_result = {c['id']: c.get('result', 'norun')
-                   for c in data['cases'] if c.get('folder') == target_folder_id}
+    old_cases = [c for c in data['cases'] if c.get('folder') == target_folder_id]
     data['cases'] = [c for c in data['cases'] if c.get('folder') != target_folder_id]
+
+    # Khởi tạo dữ liệu phục vụ Smart Sync
+    old_sigs = [_get_content_sig(c) for c in old_cases]
+    new_sigs = [_get_content_sig(c) for c in new_cases]
+    mapped_old_indices = set()
+
+    # Pass 1: Structural Sequence Alignment (LCS)
+    sm = difflib.SequenceMatcher(None, old_sigs, new_sigs)
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == 'equal' or (tag == 'replace' and (i2 - i1) == (j2 - j1)):
+            for i, j in zip(range(i1, i2), range(j1, j2)):
+                r = old_cases[i].get('result', 'norun')
+                parsed = new_cases[j].get('result', '')
+                new_cases[j]['result'] = parsed if parsed else (r if r in TC_RESULTS else 'norun')
+                mapped_old_indices.add(i)
+                new_cases[j]['_mapped'] = True
+
+    # Pass 2: Fuzzy String Matching cho các case bị rớt lại (sửa typo làm hỏng khối equal/replace)
+    old_unmapped_indices = set(range(len(old_cases))) - mapped_old_indices
+    for j, c in enumerate(new_cases):
+        if c.get('_mapped'): continue
+        best_i, best_ratio = -1, 0.8  # Threshold 80% độ tương đồng
+        for i in old_unmapped_indices:
+            ratio = difflib.SequenceMatcher(None, new_sigs[j], old_sigs[i]).ratio()
+            if ratio > best_ratio:
+                best_ratio = ratio
+                best_i = i
+        if best_i != -1:
+            r = old_cases[best_i].get('result', 'norun')
+            parsed = c.get('result', '')
+            c['result'] = parsed if parsed else (r if r in TC_RESULTS else 'norun')
+            mapped_old_indices.add(best_i)
+            old_unmapped_indices.remove(best_i)
+            c['_mapped'] = True
+
+    # Pass 3: ID Match Fallback (trường hợp sửa hẳn nội dung nhưng vẫn giữ được ID)
+    old_unmapped = {old_cases[i]['id']: old_cases[i] for i in old_unmapped_indices}
+    for c in new_cases:
+        if c.get('_mapped'):
+            del c['_mapped']
+            continue
+        parsed = c.get('result', '')
+        if parsed:
+            c['result'] = parsed
+            continue
+        old_c = old_unmapped.get(c['id'])
+        if old_c:
+            r = old_c.get('result', 'norun')
+            c['result'] = r if r in TC_RESULTS else 'norun'
+        else:
+            c['result'] = 'norun'
+
     for c in new_cases:
         c['folder'] = target_folder_id
-        parsed_result = c.get('result', '')
-        r = prev_result.get(c['id'], 'norun')
-        c['result'] = parsed_result if parsed_result else (r if r in TC_RESULTS else 'norun')
     data['cases'].extend(new_cases)
     return len(new_cases)
 

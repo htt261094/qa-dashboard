@@ -3046,8 +3046,8 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   var PRI = { critical:['b-critical','Nghiêm trọng'], high:['b-high','Cao'],
               medium:['b-checking','Trung bình'], low:['b-todo','Thấp'] };
   var RES = { pass:['pass','check_circle','Pass'], fail:['fail','cancel','Fail'],
-              pending:['pending','schedule','Pending'], blocked:['blocked','block','Blocked'],
-              norun:['norun','remove_circle_outline','No Run'] };
+              impact:['impact','warning','Impact'],
+              norun:['norun','remove_circle_outline','Not Run'] };
   function priHtml(p){ var d=PRI[p]; return d ? '<span class="badge '+d[0]+'">'+d[1]+'</span>'
                                               : '<span class="badge b-todo">'+esc(p||'—')+'</span>'; }
   function resHtml(r){ var d=RES[r]||RES.norun;
@@ -3099,16 +3099,16 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     box.innerHTML = card('total','library_books','Tổng số TC',list.length)
       + card('pass','check_circle','Đã Pass',pass)
       + card('fail','cancel','Failed',fail)
-      + card('norun','pause_circle','Chưa chạy',norun);
+      + card('norun','remove_circle_outline','Not Run',norun);
   }
 
   // ---- Biểu đồ (#153): donut theo trạng thái + bar theo bộ. Vanilla SVG, palette Atlassian-blue ----
-  var RES_ORDER = ['pass','fail','pending','blocked','norun'];
-  var RES_COLOR = { pass:'#36b37e', fail:'#ff5630', pending:'#ffab00', blocked:'#6554c0', norun:'#97a0af' };
-  var RES_LABEL = { pass:'Pass', fail:'Fail', pending:'Pending', blocked:'Blocked', norun:'Chưa chạy' };
+  var RES_ORDER = ['pass','fail','impact','norun'];
+  var RES_COLOR = { pass:'#36b37e', fail:'#ff5630', impact:'#ffab00', norun:'#97a0af' };
+  var RES_LABEL = { pass:'Pass', fail:'Fail', impact:'Impact', norun:'Not Run' };
 
   function statusCounts(list){
-    var c = { pass:0, fail:0, pending:0, blocked:0, norun:0 };
+    var c = { pass:0, fail:0, impact:0, norun:0 };
     list.forEach(function(x){ var r=x.result||'norun'; if(c[r]==null) r='norun'; c[r]++; });
     return c;
   }
@@ -3269,8 +3269,30 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     var m=$('tcErrorMsg'); if(m) m.textContent=msg||'Có lỗi xảy ra';
     var t=$('tcErrorTitle'); if(t) t.textContent=title||'Có lỗi xảy ra';
     ov.classList.add('open');
-    var ok=$('tcErrorOk'); if(ok) ok.focus();
+    var ok=$('tcErrorOk'); if(ok) { ok.focus(); ok.onclick = window.tcCloseError; }
   };
+  window.tcShowSuccess=function(msg, title){
+    var ov=$('tcErrorOverlay'); if(!ov){ toast(msg, true); return; }
+    var m=$('tcErrorMsg'); if(m) m.innerHTML='<span style="color:var(--success); white-space:pre-wrap;">'+esc(msg||'Thành công')+'</span>';
+    var t=$('tcErrorTitle'); if(t) t.textContent=title||'Thành công';
+    ov.classList.add('open');
+    var ok=$('tcErrorOk'); 
+    if(ok) {
+        ok.focus();
+        ok.onclick = function() { location.reload(); };
+    }
+  };
+  function doTcSync(fid){
+    if(!editable) return;
+    toast('Đang đồng bộ từ Google Sheets...', true);
+    postJSON('/tc-sync', { folder: fid }, 60000).then(function(res){
+      if(res && res.ok){
+        window.tcShowSuccess(res.msg || 'Đồng bộ thành công.', 'Đồng bộ thành công');
+      } else {
+        window.tcShowError((res && res.msg) || 'Lỗi đồng bộ.', 'Đồng bộ thất bại');
+      }
+    }).catch(function(){ window.tcShowError('Lỗi mạng khi đồng bộ.', 'Đồng bộ thất bại'); });
+  }
 
   function fillFolderSel(){
     if(!folderSel) return;
@@ -3415,7 +3437,9 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       var actions = '';
       if(editable){
         var renBtn = depth === 0 ? '<button class="tc-fa-btn" data-action="rename" data-fid="'+esc(f.id)+'" title="Đổi tên"><span class="material-symbols-rounded mi-xs">edit</span></button>' : '';
+        var syncBtn = (window.tcData && window.tcData.imports && window.tcData.imports[f.id]) ? '<button class="tc-fa-btn" data-action="sync" data-fid="'+esc(f.id)+'" title="Đồng bộ lại từ Google Sheets"><span class="material-symbols-rounded mi-xs">sync</span></button>' : '';
         actions = '<span class="tc-folder-actions">'
+          + syncBtn
           + renBtn
           + '<button class="tc-fa-btn danger" data-action="delete" data-fid="'+esc(f.id)+'" title="Xoá"><span class="material-symbols-rounded mi-xs">delete</span></button>'
           + '</span>';
@@ -3473,6 +3497,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
         var fid = btn.getAttribute('data-fid');
         if(action==='rename') renameFolder(fid);
         else if(action==='delete') deleteFolder(fid);
+        else if(action==='sync') doTcSync(fid);
       });
     });
   };
