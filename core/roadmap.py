@@ -50,23 +50,37 @@ ROADMAP_DEFAULT = [
 
 
 # ===== Validation (schema mới) =====
-def _valid_leaf(s):
-    return (isinstance(s, dict)
-            and isinstance(s.get('title', ''), str)
+def _valid_leaf(l):
+    return (isinstance(l, dict)
+            and isinstance(l.get('title', ''), str)
+            and isinstance(l.get('desc', ''), str)
+            and isinstance(l.get('done', False), bool)
+            and isinstance(l.get('id', ''), str))
+
+
+def _valid_sub(s):
+    if not isinstance(s, dict):
+        return False
+    if not (isinstance(s.get('title', ''), str)
+            and isinstance(s.get('desc', ''), str)
             and isinstance(s.get('done', False), bool)
-            and isinstance(s.get('id', ''), str))
+            and isinstance(s.get('id', ''), str)):
+        return False
+    leaves = s.get('leaves', [])
+    return isinstance(leaves, list) and all(_valid_leaf(l) for l in leaves)
 
 
 def _valid_task(t):
     if not isinstance(t, dict):
         return False
     if not (isinstance(t.get('title', ''), str)
+            and isinstance(t.get('desc', ''), str)
             and isinstance(t.get('pic', ''), str)
             and isinstance(t.get('done', False), bool)
             and isinstance(t.get('id', ''), str)):
         return False
     subs = t.get('subs', [])
-    return isinstance(subs, list) and all(_valid_leaf(s) for s in subs)
+    return isinstance(subs, list) and all(_valid_sub(s) for s in subs)
 
 
 def _valid_plan(p):
@@ -89,6 +103,8 @@ def _node_count(data):
         n += 1 + len(p.get('tasks') or [])
         for t in (p.get('tasks') or []):
             n += len(t.get('subs') or [])
+            for s in (t.get('subs') or []):
+                n += len(s.get('leaves') or [])
     return n
 
 
@@ -101,18 +117,32 @@ def valid_roadmap(data):
 
 
 # ===== Helpers (done/status) =====
+def sub_done(s):
+    leaves = s.get('leaves') or []
+    if leaves:
+        return all(bool(l.get('done')) for l in leaves)
+    return bool(s.get('done'))
+
+
+def sub_started(s):
+    leaves = s.get('leaves') or []
+    if leaves:
+        return any(bool(l.get('done')) for l in leaves)
+    return bool(s.get('done'))
+
+
 def task_done(t):
     """Task xong = có sub thì mọi sub xong; không sub thì cờ done của chính nó."""
     subs = t.get('subs') or []
     if subs:
-        return all(bool(s.get('done')) for s in subs)
+        return all(sub_done(s) for s in subs)
     return bool(t.get('done'))
 
 
 def task_started(t):
     subs = t.get('subs') or []
     if subs:
-        return any(bool(s.get('done')) for s in subs)
+        return any(sub_done(s) or sub_started(s) for s in subs)
     return bool(t.get('done'))
 
 

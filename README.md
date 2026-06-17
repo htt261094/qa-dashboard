@@ -16,6 +16,67 @@ Dependencies (xem `requirements.txt`):
 
 ---
 
+## Data Flow (Luồng Dữ Liệu)
+
+Dự án hoạt động theo mô hình Server-Side Rendering (SSR) thuần, kết hợp với client-side polling để cập nhật trạng thái real-time mà không cần tải lại trang.
+
+1. **Jira API là Source of Truth**: Dữ liệu chính (Task, Status, Assignee, Changelog) được pull trực tiếp từ Jira thông qua REST API sử dụng PAT chung (chỉ có quyền đọc).
+2. **Local Cache & Property Sync**: 
+   - Một số dữ liệu phụ trợ không nằm trong trường chuẩn của Jira (Roadmap, Docs, Custom Status, Test Case link, Bug log link) được lưu vào *Jira Properties* để đồng bộ chéo máy giữa các thành viên.
+   - Khi render trang, server fetch Jira API + đọc Local Cache (thường lưu dưới dạng các file `.json` ẩn như `.roadmap_config.json`, `.bug_log.json`).
+   - Nếu Jira bị lỗi hoặc không có mạng, các tính năng không phụ thuộc trực tiếp vào trạng thái Jira Task (như xem list Tài liệu, Roadmap) vẫn render được nhờ Local Cache (Offline fallback).
+3. **Data Snapshot (Cross-machine Sync)**: Để giảm tải cho Jira và hỗ trợ thành viên quên bật VPN, hệ thống áp dụng cơ chế "Data Snapshot". Ai có VPN và vào trang sẽ tự động pull full data và ghi đè vào cache chung trên đĩa. Những người sau (kể cả không có VPN) sẽ đọc bản snapshot mới nhất này để xem thông tin team.
+4. **Real-time Notifications**: Giao diện không dùng Websocket mà sử dụng kỹ thuật *Short-Polling*. Mỗi 60 giây client sẽ gọi background API `/activity-feed`, pull changelog mới nhất và dùng DOM manipulation để hiển thị badge/toast/status mới trực tiếp trên UI.
+
+---
+
+## Cơ Chế Đăng Nhập (Login & Auth)
+
+Hệ thống hỗ trợ 2 mode hoạt động:
+
+1. **Local Dev (`AUTH_ENABLED = False`)**: 
+   - Dùng khi phát triển, bỏ trống biến `GOOGLE_CLIENT_ID` và `GOOGLE_CLIENT_SECRET` trong `.env`.
+   - Không bắt buộc login. Mọi request mặc định được gán quyền Admin.
+2. **Golive / Production (`AUTH_ENABLED = True`)**:
+   - Sử dụng **Google OAuth 2.0**. Chỉ cho phép email thuộc domain nội bộ đã khai báo (VD: `@baokim.vn`).
+   - **Luồng thực hiện**: 
+     1. User vào web -> Check Session Cookie -> Nếu không có -> Redirect sang route `/login`.
+     2. Mở cổng Google OAuth, user chọn email công ty để đăng nhập. Google trả về Auth Code.
+     3. Server đổi Code lấy Access Token, xác nhận Email thuộc `JIRA_ALLOWED_DOMAIN`.
+     4. Server tạo **Session Cookie ký HMAC** (chống giả mạo, dùng khoá `SESSION_SECRET`) với thời hạn nhất định (TTL) và gắn vào browser, redirect về `/`.
+   - **Sliding Session**: Khi cookie hết nửa thời gian sống, server cấp mới lại (gia hạn) để user không bị gián đoạn (kick out) giữa chừng khi đang làm việc.
+   - **Phân quyền Admin**: Role Admin được xác định qua email khai báo tại biến môi trường `JIRA_ADMIN_EMAIL`. Admin có thêm các quyền: Edit Roadmap, thêm Docs, quản lý Drive Token, và xem tab "Việc của tôi" (My Work) ở level đánh giá team.
+
+---
+
+## Kiến Trúc & Chi Tiết Các Module Lõi
+
+Kiến trúc chia module theo layer rõ ràng, không vòng lặp import (circular import): `config` → `issues` → `{Các module state/api}` → `render` → `qa_dashboard`. Toàn bộ xử lý nằm trong thư mục `core/`. File gốc `qa_dashboard.py` (Entry Point) cấu hình route và khởi chạy server.
+
+| Module trong `core/` | Mô tả chi tiết |
+|---|---|
+| **`auth.py`** | Xử lý Google OAuth, mã hóa và verify cookie dựa vào HMAC signature (Sliding session & verification). |
+| **`config.py`** | Khởi tạo cấu hình biến môi trường (`.env`), setup domain, auth_enabled, URL Jira, ID custom fields, và timeout/stuck days. |
+| **`issues.py`** | Phân tích JSON Issue từ Jira. Chứa các hàm tiện lợi parse `i_assignee`, `i_status`, và tính KPI (days overdue, stuck_days). |
+| **`jira_api.py`** | Tương tác REST API chính với Jira qua PAT chung. Gồm fetch toàn bộ task, lấy feed hoạt động (changelog), và load/save data vào Jira Properties. |
+| **`jira_write.py`** | Module write xuống Jira (đổi status, gửi comment, tạo sub-task QA) **bằng PAT cá nhân** của từng tester, đảm bảo đúng định danh. |
+| **`pat_store.py`** | Quản lý việc lưu, xác thực, lấy ra và xoá PAT cá nhân. |
+| **`crypto_util.py`** | Hàm mã hóa đối xứng (dùng thư viện `cryptography` / Fernet) để mã hóa PAT và Google Drive Token trên disk. Không lưu lộ token. |
+| **`drive_token.py`** | Xử lý Auth và lưu/đọc Refresh Token của hệ thống Google Drive. |
+| **`bug_log_store.py`** / **`bug_log.py`** | Background thread (10 phút/lần) kéo file XLSX từ Drive về. Module này parse dữ liệu bugs từ các sheet, diff sự thay đổi để tạo notif và cache file local. |
+| **`bug_log_source.py`** | Quản lý danh sách các file/URL Google Sheets đang được link vào Dashboard làm nguồn bug log. |
+| **`roadmap.py`** / **`docs.py`** | Module quản lý tài liệu nội bộ và Roadmap QA. Sync dữ liệu 2 chiều giữa JSON local cache và Jira Property. |
+| **`testcase_store.py`** | Kho lưu trữ Test Case tập trung. Xử lý tạo, xoá, đổi tên cấu trúc thư mục Test Case, import dữ liệu bulk từ Google Sheets. Cache tại local và Jira. |
+| **`task_link.py`** / **`testcase_link.py`** | Quản lý mapping Link giữa (Bug log) ↔ (Jira Task) và (Testcase Folder) ↔ (Jira Task). Để khi mở task trên Jira/Dashboard có thể thấy thông tin bug/testcase tương ứng ngay trong Drawer. |
+| **`custom_status.py`** | Xử lý "Nhãn Nội Bộ" (Overlay Status) để gán cho task Jira (VD: *Chờ QA*, *Đã Test*). Dữ liệu này không ghi thật vào Status của Jira mà lưu qua property. |
+| **`monthly_reporter_chat_app.py`** | Một script tool đứng riêng để tự sinh và báo cáo SLA tháng lên Google Chat thông qua Playwright headless. |
+| **`render.py`** | Module phụ trách toàn bộ Logic Server-Side Rendering (SSR). Map các components lại với nhau và trả ra HTML hoàn chỉnh có gắn string templates. |
+| **`routes/`** | Chứa `oauth.py`, `write.py`, `uploads.py` là các Mixins Class để tách nhỏ logic xử lý HTTP route khỏi file `qa_dashboard.py` khổng lồ. |
+
+Tái cấu trúc folder (issue #85): code lõi trong `core/`, asset tĩnh trong `assets/`, script tiện ích trong `scripts/`. Entry `qa_dashboard.py` giữ ở root, tự thêm `core/` vào `sys.path`.
+
+---
+
 ## Các trang (tab)
 
 Điều hướng qua **sidebar** bên trái (UI v2). Profile chip dưới sidebar có menu **Cài đặt PAT** + **Đăng xuất**.
@@ -26,9 +87,11 @@ Dependencies (xem `requirements.txt`):
 | `/my-work` | **Việc của tôi** | Lens cá nhân của admin (task của chính mình), UI hệt QA member. | Chỉ admin (QA → đá về `/`) |
 | `/leader-eval` | **Đánh giá** | Đánh giá task QA theo tháng (lọc category/leader/assignee). | Chỉ admin |
 | `/roadmap` | **Roadmap** | Giai đoạn › mục › sub-task, status/%/hạn; cảnh báo hạn ≤2 tuần đẩy lên dashboard. | Mọi người xem; chỉ admin sửa |
-| `/bug-log` | **Bugs** | Bug log đồng bộ từ file `.xlsx` trên Google Drive + tự liên kết bug/test-case ↔ Jira task. | Mọi người (đã đăng nhập) |
+| `/bug-log` | **Bugs** | Bug log đồng bộ từ file `.xlsx` trên Google Drive + tự liên kết bug ↔ Jira task. | Mọi người (đã đăng nhập) |
+| `/test-cases` | **Test Cases**| Kho lưu trữ Test Case tập trung. Cấu trúc cây thư mục. Chức năng import từ Google Sheet. Tự liên kết Test Case Folder ↔ Jira task. | Mọi người |
 | `/docs` | **Tài liệu** | Cây thư mục + link Google Drive + **upload file thật** cho tài liệu training. | Mọi người xem; chỉ admin sửa |
-| `/settings` | **Cài đặt** | Đặt PAT cá nhân (mã hoá khi lưu) để thao tác ghi Jira đúng tên người. | Mọi người |
+| `/analytics` | **Thống Kê**| Thống kê metric dự án (Valid Bug Rate, Tỉ lệ Reopen, Lỗi theo tính năng).| Mọi người |
+| `/settings` | **Cài đặt** | Đặt PAT cá nhân (mã hoá khi lưu) để thao tác ghi Jira đúng tên người. Admin có thêm nút kết nối Google Drive API. | Mọi người |
 
 ## Features chính
 
@@ -42,11 +105,6 @@ Dependencies (xem `requirements.txt`):
 - **Tạo QA sub-task** dưới Task-PTSP từ modal (auto-fill `[QA]` + Leader Hiền)
 - **Bug log từ Drive**: background thread poll file `.xlsx` mỗi 10 phút, normalize + diff, link bug ↔ Jira task
 - Mọi key Jira là hyperlink → mở thẳng task / drawer chi tiết. UTF-8 tiếng Việt.
-
-## Đăng nhập & phân quyền
-
-- **Local dev** (`GOOGLE_CLIENT_ID`/`SECRET` để trống): không bắt login, mọi request = admin.
-- **Golive**: Google OAuth — app redirect sang Google, chỉ chấp nhận email thuộc `JIRA_ALLOWED_DOMAIN`, set session cookie ký HMAC (TTL 12h). `JIRA_ADMIN_EMAIL` = người được sửa roadmap/docs + thấy tab admin. Server 403 là lock thật; ẩn UI chỉ là UX. (Chi tiết kiến trúc auth: `CLAUDE.md` Decision #15.)
 
 ---
 
@@ -140,46 +198,6 @@ Roadmap/docs/dismiss/PAT/nhãn nội bộ sync qua Jira property nên xoá file 
 | Bugs trống / không sync | Chưa kết nối Drive / chưa khai báo file nguồn | `/bug-log` → kết nối Drive + thêm file nguồn |
 
 ---
-
-## Kiến trúc & file
-
-Module theo layer (không vòng import): `config` → `issues` → `{jira_api, state, docs, roadmap, auth, pat_store, custom_status, crypto_util, jira_write, bug_log*, drive_token, task_link}` → `render` → `qa_dashboard` (entry).
-
-Tái cấu trúc folder (issue #85): code lõi trong `core/`, asset tĩnh trong `assets/`, script tiện ích trong `scripts/`. Entry `qa_dashboard.py` giữ ở root (`python qa_dashboard.py` không đổi), tự thêm `core/` vào `sys.path`.
-
-```
-qa_dashboard.py    ← ENTRY (ROOT): HTTP Handler (do_GET/do_POST, ~30 route) + main(). Thêm core/ vào sys.path.
-start.bat / start.command  ← launcher (ROOT)
-
-core/
-  config.py          ← env load, JIRA_URL/PAT/USERS/PORT, ADMIN_EMAIL/SELF_USER, OAuth, field ids, STUCK_DAYS, ASSETS_DIR
-  issues.py          ← accessor i_* + helper (parse_date, days_overdue, is_stuck, esc...)
-  jira_api.py        ← Jira REST (PAT chung): fetch_all/activity_feed, leader_eval, load/save property
-  auth.py            ← Google OAuth + session cookie HMAC
-  crypto_util.py     ← Fernet mã hoá/giải mã (PAT cá nhân + token Drive)
-  pat_store.py       ← PAT cá nhân per-user (verify đúng chủ + mã hoá)
-  jira_write.py      ← ghi Jira bằng PAT cá nhân: transition / comment / create_subtask
-  custom_status.py   ← nhãn trạng thái nội bộ (overlay, sync property)
-  docs.py / roadmap.py  ← data tự soạn (sync Jira property + cache local)
-  bug_log.py         ← tải + parse file .xlsx bug log từ Drive
-  bug_log_source.py  ← danh sách file Drive nguồn
-  bug_log_store.py   ← background thread poll Drive 10 phút + cache + diff
-  drive_token.py     ← refresh_token Google Drive (mã hoá at-rest)
-  task_link.py       ← link bug/test-case ↔ Jira task (sync property)
-  render.py          ← toàn bộ render_* (UI v2 sidebar) + load_css/load_css_v2/load_js_v2 (đọc từ assets/)
-
-assets/
-  styles_v2.css / app_v2.js  ← UI v2 (Stitch sidebar), inline lúc render
-  styles.css         ← chỉ render_error_page còn dùng
-
-scripts/
-  run_monthly_report.sh
-
-.env / .env.example  ← (ROOT)
-uploads/           ← file upload từ /docs (gitignore, hardcode path macOS — xem CLAUDE.md #37)
-```
-
-> File chi tiết quyết định thiết kế + lý do (24 Decision): xem **`CLAUDE.md`**.
 
 ### ⚠ Đường dẫn ổn định cho cron / launchd / alias
 

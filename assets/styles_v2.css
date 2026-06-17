@@ -348,6 +348,8 @@ tr.cmt-row:hover td{background:var(--surface-low)}
 .dt-cmts{border-top:1px solid var(--divider);padding-top:16px}
 
 /* ===== Roadmap ===== */
+.rm-top-actions{display:flex;align-items:center;gap:10px}
+.rm-top-actions .btn-sec.active{background:var(--primary-tint);color:var(--primary-strong);border-color:var(--primary-strong)}
 .rm-filter{display:flex;align-items:center;background:var(--surface-low);
            padding:8px;border-radius:var(--r-xl);border:1px solid var(--outline-variant);margin-bottom:16px}
 .rm-filter .seg{display:flex;gap:6px}
@@ -379,7 +381,7 @@ tr.cmt-row:hover td{background:var(--surface-low)}
 .rm-badge.s-prog{background:var(--warning-bg);color:var(--warning-on)}
 .rm-badge.s-plan{background:var(--surface-highest);color:var(--on-surface-variant)}
 .rm-badge.s-block{background:var(--error-bg);color:var(--error-on)}
-.rm-desc{font-size:14px;color:var(--on-surface-variant);line-height:20px}
+.rm-desc{font-size:14px;color:var(--on-surface-variant);line-height:20px;white-space:pre-wrap;overflow-wrap:break-word;word-break:break-word}
 .rm-meta{display:flex;align-items:center;gap:18px;margin-top:8px;flex-wrap:wrap}
 .rm-meta span{display:flex;align-items:center;gap:5px;font-size:13px;color:var(--on-surface-variant)}
 .rm-meta .material-symbols-rounded{font-size:16px}
@@ -432,10 +434,18 @@ tr.cmt-row:hover td{background:var(--surface-low)}
 .rm-subadd{display:flex;align-items:center;gap:5px;background:none;border:none;font-family:inherit;
            font-size:12px;font-weight:700;color:var(--primary);cursor:pointer;padding:4px 0;margin-top:2px}
 .rm-subadd:hover{text-decoration:underline}
+.rm-sub-wrap{display:flex;flex-direction:column;gap:0}
+.rm-leaves{margin:0 0 5px 24px;border-left:2px solid var(--outline-variant);padding-left:14px;display:flex;flex-direction:column;gap:2px}
+.rm-leaf{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:3px 0}
+.rm-leaf-left{display:flex;align-items:center;gap:9px;min-width:0}
+.rm-leaf-name{font-size:12px}
+.rm-leaf.done .rm-leaf-name{text-decoration:line-through;color:var(--on-surface-variant)}
+.rm-leafadd{display:flex;align-items:center;gap:5px;background:none;border:none;font-family:inherit;font-size:12px;font-weight:700;color:var(--primary);cursor:pointer;padding:4px 0;margin-top:2px}
+.rm-leafadd:hover{text-decoration:underline}
 .rm-empty-task{font-size:13px;color:var(--on-surface-variant);padding:8px 4px}
 .rm-empty{padding:48px;text-align:center;color:var(--on-surface-variant)}
 /* read-only roadmap: ẩn mọi nút edit/add */
-.ro .rm-actions,.ro .rm-tmini,.ro .rm-addbtn,.ro .rm-subadd,.ro #rmAddPlan,.ro .rm-chk{display:none !important}
+.ro .rm-actions,.ro .rm-tmini,.ro .rm-addbtn,.ro .rm-subadd,.ro .rm-leafadd,.ro #rmAddPlan,.ro .rm-chk{display:none !important}
 
 /* ===== Modal (dùng chung: add/edit roadmap + settings PAT) ===== */
 .overlay{position:fixed;inset:0;background:rgba(9,30,66,.5);display:none;align-items:center;justify-content:center;z-index:80;padding:20px}

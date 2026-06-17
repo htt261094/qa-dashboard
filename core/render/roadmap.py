@@ -13,10 +13,16 @@ from render.shell import _document_v2
 
 # ===== Roadmap v2 (plan › task › sub-task, schema Stitch) =====
 def render_roadmap_v2(data, editable=True, user=None, activities=None):
-    add_btn = ('<button class="btn-pri" id="rmAddPlan"><span class="material-symbols-rounded mi-sm">add_circle</span> Thêm kế hoạch</button>'
-               if editable else '')
+    top_actions = ''
+    if editable:
+        top_actions = '''<div class="rm-top-actions">
+            <button class="btn-sec" id="rmToggleMode"><span class="material-symbols-rounded mi-sm">edit</span> Bật chỉnh sửa</button>
+            <button class="btn-pri" id="rmAddPlan" style="display:none;"><span class="material-symbols-rounded mi-sm">add_circle</span> Thêm kế hoạch</button>
+        </div>'''
+    
     banner = '' if editable else '<div class="ro-banner">👁 Chế độ chỉ xem — chỉ quản lý mới chỉnh sửa được.</div>'
-    ro = '' if editable else ' ro'
+    # Bỏ class 'ro' vì client-side JS sẽ chủ động không render các element edit nếu EDIT=false.
+    ro = ''
     seg = (
         '<div class="rm-filter"><div class="seg" id="rmSeg">'
         '<button class="active" data-f="all">Tất cả</button>'
@@ -38,7 +44,7 @@ def render_roadmap_v2(data, editable=True, user=None, activities=None):
     )
     rm_meta = {'editable': bool(editable), 'statuses': RM_STATUSES, 'people': RM_PEOPLE}
     content = (
-        f'<div class="page-head"><div><h2>Lộ trình QA Team</h2></div>{add_btn}</div>'
+        f'<div class="page-head"><div><h2>Lộ trình QA Team</h2></div>{top_actions}</div>'
         + banner + seg
         + f'<div class="rm-list{ro}" id="rmList2"></div>'
         + modal

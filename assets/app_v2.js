@@ -1020,7 +1020,8 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   var box=$('rmList2'); if(!box) return;
   var PLANS = readJSON('rmData') || [];
   var META = readJSON('rmMeta') || { editable:false, statuses:[], people:[] };
-  var EDIT = !!META.editable;
+  var HAS_PERM = !!META.editable;
+  var EDIT = false;
   var STATUS_OPTS = META.statuses || [['planned','Planned'],['in_progress','In Progress'],['done','Done'],['blocked','Blocked']];
   var PEOPLE = META.people || [];
   var STLABEL={}; STATUS_OPTS.forEach(function(s){ STLABEL[s[0]]=s[1]; });
@@ -1031,15 +1032,22 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   function planById(id){ return PLANS.filter(function(p){ return p.id===id; })[0]; }
   function taskById(p,tid){ return (p.tasks||[]).filter(function(t){ return t.id===tid; })[0]; }
   function subById(t,sid){ return (t.subs||[]).filter(function(s){ return s.id===sid; })[0]; }
-  function taskDone(t){ return (t.subs&&t.subs.length)?t.subs.every(function(s){return s.done;}):!!t.done; }
-  function taskStarted(t){ return (t.subs&&t.subs.length)?t.subs.some(function(s){return s.done;}):!!t.done; }
+  function leafById(s,lid){ return (s.leaves||[]).filter(function(l){ return l.id===lid; })[0]; }
+  
+  function subDone(s){ return (s.leaves&&s.leaves.length)?s.leaves.every(function(l){return l.done;}):!!s.done; }
+  function subStarted(s){ return (s.leaves&&s.leaves.length)?s.leaves.some(function(l){return l.done;}):!!s.done; }
+  function taskDone(t){ return (t.subs&&t.subs.length)?t.subs.every(subDone):!!t.done; }
+  function taskStarted(t){ return (t.subs&&t.subs.length)?t.subs.some(function(s){return subStarted(s)||subDone(s);}):!!t.done; }
+
   function planStatus(p){ if(!p.tasks||!p.tasks.length) return p.status||'planned';
     if(p.tasks.every(taskDone)) return 'done';
     if(p.tasks.some(function(t){ return taskStarted(t)||taskDone(t); })) return 'in_progress'; return 'planned'; }
   function planFrac(p){ if(!p.tasks||!p.tasks.length) return null;
     var d=p.tasks.filter(taskDone).length; return {done:d, total:p.tasks.length, pct:Math.round(d/p.tasks.length*100)}; }
   function taskFrac(t){ if(!t.subs||!t.subs.length) return null;
-    var d=t.subs.filter(function(s){return s.done;}).length; return {done:d, total:t.subs.length, pct:Math.round(d/t.subs.length*100)}; }
+    var d=t.subs.filter(subDone).length; return {done:d, total:t.subs.length, pct:Math.round(d/t.subs.length*100)}; }
+  function subFrac(s){ if(!s.leaves||!s.leaves.length) return null;
+    var d=s.leaves.filter(function(l){return l.done;}).length; return {done:d, total:s.leaves.length, pct:Math.round(d/s.leaves.length*100)}; }
 
   function dParts(due){ if(!due) return {m:'--', d:'--', disp:'Chưa đặt hạn', over:false};
     var dt=new Date(due+'T00:00:00'); if(isNaN(dt.getTime())) return {m:'--', d:'--', disp:esc(due), over:false};
@@ -1107,15 +1115,34 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     return '<div class="rm-task'+(done?' done':'')+'"><div class="rm-task-row">'
       +'<span class="rm-chk '+ccls+'" data-rm="toggle-task" data-p="'+esc(p.id)+'" data-t="'+esc(t.id)+'"><span class="material-symbols-rounded">'+ic+'</span></span>'
       +'<span class="rm-task-name">'+esc(t.title)+'</span><div class="rm-task-right">'+right+mini+'</div></div>'
+      +(t.desc?'<div class="rm-desc" style="font-size:13px; margin:4px 0 0 32px; color:var(--on-surface-variant)">'+esc(t.desc)+'</div>':'')
       +'<div class="rm-subs">'+subs+subadd+'</div></div>';
   }
+  function leafHTML(p,t,s,l){
+    var ic=l.done?'check_box':'check_box_outline_blank';
+    var mini= EDIT?'<div class="rm-tmini"><button data-rm="edit-leaf" data-p="'+esc(p.id)+'" data-t="'+esc(t.id)+'" data-s="'+esc(s.id)+'" data-l="'+esc(l.id)+'"><span class="material-symbols-rounded mi-xs">edit</span></button>'
+      +'<button class="del" data-rm="del-leaf" data-p="'+esc(p.id)+'" data-t="'+esc(t.id)+'" data-s="'+esc(s.id)+'" data-l="'+esc(l.id)+'"><span class="material-symbols-rounded mi-xs">close</span></button></div>':'';
+    return '<div class="rm-leaf'+(l.done?' done':'')+'"><div class="rm-leaf-left">'
+      +'<span class="rm-chk '+(l.done?'on':'off')+'" data-rm="toggle-leaf" data-p="'+esc(p.id)+'" data-t="'+esc(t.id)+'" data-s="'+esc(s.id)+'" data-l="'+esc(l.id)+'"><span class="material-symbols-rounded mi-sm">'+ic+'</span></span>'
+      +'<span class="rm-leaf-name">'+esc(l.title)+'</span></div>'+mini+'</div>'
+      +(l.desc?'<div class="rm-desc" style="font-size:13px; margin:4px 0 0 32px; color:var(--on-surface-variant)">'+esc(l.desc)+'</div>':'');
+  }
+
   function subHTML(p,t,s){
-    var ic=s.done?'check_box':'check_box_outline_blank';
+    var done=subDone(s), partial=!done&&subStarted(s);
+    var ic=done?'check_box':(partial?'indeterminate_check_box':'check_box_outline_blank');
+    var ccls=done?'on':(partial?'partial':'off');
+    var fr=subFrac(s), right='';
+    if(fr) right+='<span class="rm-frac" style="font-size:11px;color:var(--on-surface-variant);margin-right:8px;">'+fr.done+'/'+fr.total+' micro</span>';
     var mini= EDIT?'<div class="rm-tmini"><button data-rm="edit-sub" data-p="'+esc(p.id)+'" data-t="'+esc(t.id)+'" data-s="'+esc(s.id)+'"><span class="material-symbols-rounded mi-xs">edit</span></button>'
       +'<button class="del" data-rm="del-sub" data-p="'+esc(p.id)+'" data-t="'+esc(t.id)+'" data-s="'+esc(s.id)+'"><span class="material-symbols-rounded mi-xs">close</span></button></div>':'';
-    return '<div class="rm-sub'+(s.done?' done':'')+'"><div class="rm-sub-left">'
-      +'<span class="rm-chk '+(s.done?'on':'off')+'" data-rm="toggle-sub" data-p="'+esc(p.id)+'" data-t="'+esc(t.id)+'" data-s="'+esc(s.id)+'"><span class="material-symbols-rounded mi-sm">'+ic+'</span></span>'
-      +'<span class="rm-sub-name">'+esc(s.title)+'</span></div>'+mini+'</div>';
+    var leaves=(s.leaves&&s.leaves.length)?s.leaves.map(function(l){ return leafHTML(p,t,s,l); }).join(''):'';
+    var leafadd= EDIT?'<button class="rm-leafadd" data-rm="add-leaf" data-p="'+esc(p.id)+'" data-t="'+esc(t.id)+'" data-s="'+esc(s.id)+'"><span class="material-symbols-rounded mi-xs">add</span> Thêm Micro-task</button>':'';
+    return '<div class="rm-sub-wrap'+(done?' done':'')+'"><div class="rm-sub"><div class="rm-sub-left">'
+      +'<span class="rm-chk '+ccls+'" data-rm="toggle-sub" data-p="'+esc(p.id)+'" data-t="'+esc(t.id)+'" data-s="'+esc(s.id)+'"><span class="material-symbols-rounded mi-sm">'+ic+'</span></span>'
+      +'<span class="rm-sub-name">'+esc(s.title)+'</span></div><div style="display:flex;align-items:center;">'+right+mini+'</div></div>'
+      +(s.desc?'<div class="rm-desc" style="font-size:13px; margin:4px 0 0 32px; color:var(--on-surface-variant)">'+esc(s.desc)+'</div>':'')
+      +'<div class="rm-leaves">'+leaves+leafadd+'</div></div>';
   }
 
   // ----- modal framework -----
@@ -1168,35 +1195,64 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   function addTask(pid){ var p=planById(pid); if(!p) return;
     openModal({ icon:'add', title:'Thêm Task', saveLabel:'Tạo', fields:[
       {key:'title',label:'Tên task',type:'text',placeholder:'VD: Cập nhật Playwright'},
+      {key:'desc',label:'Mô tả',type:'textarea',placeholder:'Note issue...'},
       {key:'pic',label:'Người xử lý',type:'select',value:PEOPLE[0]||'',options:peopleOpts} ],
       onSave:function(v){ if(!v.title) return 'Cần nhập tên task';
-        p.tasks=p.tasks||[]; p.tasks.push({id:uid('t'), title:v.title, pic:v.pic||'', done:false, subs:[]});
+        p.tasks=p.tasks||[]; p.tasks.push({id:uid('t'), title:v.title, desc:v.desc||'', pic:v.pic||'', done:false, subs:[]});
         p.open=true; render(); save(); toast('Đã thêm task', true); } }); }
   function editTask(pid,tid){ var p=planById(pid), t=taskById(p,tid); if(!t) return;
     openModal({ icon:'edit', title:'Sửa Task', fields:[
       {key:'title',label:'Tên task',type:'text',value:t.title},
+      {key:'desc',label:'Mô tả',type:'textarea',value:t.desc},
       {key:'pic',label:'Người xử lý',type:'select',value:t.pic,options:peopleOpts} ],
       onSave:function(v){ if(!v.title) return 'Cần nhập tên task';
-        t.title=v.title; t.pic=v.pic; render(); save(); toast('Đã cập nhật', true); } }); }
+        t.title=v.title; t.desc=v.desc; t.pic=v.pic; render(); save(); toast('Đã cập nhật', true); } }); }
   function delTask(pid,tid){ var p=planById(pid), t=taskById(p,tid); if(!t) return;
     if(!confirm('Xoá task "'+t.title+'"?')) return;
     p.tasks=p.tasks.filter(function(x){ return x.id!==tid; }); render(); save(); toast('Đã xoá', true); }
   function addSub(pid,tid){ var p=planById(pid), t=taskById(p,tid); if(!t) return;
     openModal({ icon:'add', title:'Thêm Sub-task', saveLabel:'Tạo', fields:[
-      {key:'title',label:'Tên sub-task',type:'text',placeholder:'VD: Cập nhật config'} ],
+      {key:'title',label:'Tên sub-task',type:'text',placeholder:'VD: Cập nhật config'},
+      {key:'desc',label:'Mô tả',type:'textarea',placeholder:'Note issue...'} ],
       onSave:function(v){ if(!v.title) return 'Cần nhập tên sub-task';
-        t.subs=t.subs||[]; t.subs.push({id:uid('s'), title:v.title, done:false}); render(); save(); toast('Đã thêm sub-task', true); } }); }
+        t.subs=t.subs||[]; t.subs.push({id:uid('s'), title:v.title, desc:v.desc||'', done:false}); render(); save(); toast('Đã thêm sub-task', true); } }); }
   function editSub(pid,tid,sid){ var p=planById(pid), t=taskById(p,tid), s=subById(t,sid); if(!s) return;
-    openModal({ icon:'edit', title:'Sửa Sub-task', fields:[ {key:'title',label:'Tên sub-task',type:'text',value:s.title} ],
-      onSave:function(v){ if(!v.title) return 'Cần nhập tên sub-task'; s.title=v.title; render(); save(); toast('Đã cập nhật', true); } }); }
+    openModal({ icon:'edit', title:'Sửa Sub-task', fields:[ {key:'title',label:'Tên sub-task',type:'text',value:s.title}, {key:'desc',label:'Mô tả',type:'textarea',value:s.desc} ],
+      onSave:function(v){ if(!v.title) return 'Cần nhập tên sub-task'; s.title=v.title; s.desc=v.desc; render(); save(); toast('Đã cập nhật', true); } }); }
   function delSub(pid,tid,sid){ var p=planById(pid), t=taskById(p,tid);
     t.subs=t.subs.filter(function(x){ return x.id!==sid; }); render(); save(); toast('Đã xoá', true); }
+  function addLeaf(pid,tid,sid){ var p=planById(pid), t=taskById(p,tid), s=subById(t,sid); if(!s) return;
+    openModal({ icon:'add', title:'Thêm Micro-task', saveLabel:'Tạo', fields:[
+      {key:'title',label:'Tên micro-task',type:'text',placeholder:'VD: Sửa hàm validate'},
+      {key:'desc',label:'Mô tả',type:'textarea',placeholder:'Note issue...'} ],
+      onSave:function(v){ if(!v.title) return 'Cần nhập tên micro-task';
+        s.leaves=s.leaves||[]; s.leaves.push({id:uid('l'), title:v.title, desc:v.desc||'', done:false}); render(); save(); toast('Đã thêm micro-task', true); } }); }
+  function editLeaf(pid,tid,sid,lid){ var p=planById(pid), t=taskById(p,tid), s=subById(t,sid), l=leafById(s,lid); if(!l) return;
+    openModal({ icon:'edit', title:'Sửa Micro-task', fields:[ {key:'title',label:'Tên micro-task',type:'text',value:l.title}, {key:'desc',label:'Mô tả',type:'textarea',value:l.desc} ],
+      onSave:function(v){ if(!v.title) return 'Cần nhập tên micro-task'; l.title=v.title; l.desc=v.desc; render(); save(); toast('Đã cập nhật', true); } }); }
+  function delLeaf(pid,tid,sid,lid){ var p=planById(pid), t=taskById(p,tid), s=subById(t,sid);
+    s.leaves=s.leaves.filter(function(x){ return x.id!==lid; }); render(); save(); toast('Đã xoá', true); }
 
   box.addEventListener('click', function(e){
     var el=e.target.closest('[data-rm]'); if(!el) return;
-    var a=el.getAttribute('data-rm'), pid=el.getAttribute('data-p'), tid=el.getAttribute('data-t'), sid=el.getAttribute('data-s');
+    var a=el.getAttribute('data-rm'), pid=el.getAttribute('data-p'), tid=el.getAttribute('data-t'), sid=el.getAttribute('data-s'), lid=el.getAttribute('data-l');
     if(a==='toggle'){ var p=planById(pid); if(p){ p.open=!p.open; render(); } return; }
-    if(!EDIT) return;          // các thao tác còn lại cần quyền sửa
+
+    // Đánh dấu hoàn thành: chỉ cần quyền quản lý (HAS_PERM), kể cả đang ở View Mode
+    if(HAS_PERM){
+      if(a==='toggle-task'){ var p=planById(pid), t=taskById(p,tid); if(t){
+        if(t.subs&&t.subs.length){ var all=taskDone(t); t.subs.forEach(function(s){
+          if(s.leaves&&s.leaves.length) s.leaves.forEach(function(l){l.done=!all;});
+          else s.done=!all;
+        }); } else t.done=!t.done;
+        p.status=planStatus(p); render(); save(); } return; }
+      else if(a==='toggle-sub'){ var p=planById(pid), t=taskById(p,tid), s=subById(t,sid); if(s){ 
+        if(s.leaves&&s.leaves.length){ var all=subDone(s); s.leaves.forEach(function(l){l.done=!all;}); } else s.done=!s.done; 
+        p.status=planStatus(p); render(); save(); } return; }
+      else if(a==='toggle-leaf'){ var p=planById(pid), t=taskById(p,tid), s=subById(t,sid), l=leafById(s,lid); if(l){ l.done=!l.done; p.status=planStatus(p); render(); save(); } return; }
+    }
+
+    if(!EDIT) return;          // các thao tác còn lại cần bật chế độ chỉnh sửa
     e.stopPropagation();
     if(a==='edit-plan') editPlan(pid);
     else if(a==='del-plan') delPlan(pid);
@@ -1206,14 +1262,27 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     else if(a==='add-sub') addSub(pid,tid);
     else if(a==='edit-sub') editSub(pid,tid,sid);
     else if(a==='del-sub') delSub(pid,tid,sid);
-    else if(a==='toggle-task'){ var p=planById(pid), t=taskById(p,tid); if(t){
-      if(t.subs&&t.subs.length){ var all=taskDone(t); t.subs.forEach(function(s){ s.done=!all; }); } else t.done=!t.done;
-      p.status=planStatus(p); render(); save(); } }
-    else if(a==='toggle-sub'){ var p=planById(pid), t=taskById(p,tid), s=subById(t,sid); if(s){ s.done=!s.done; p.status=planStatus(p); render(); save(); } }
+    else if(a==='add-leaf') addLeaf(pid,tid,sid);
+    else if(a==='edit-leaf') editLeaf(pid,tid,sid,lid);
+    else if(a==='del-leaf') delLeaf(pid,tid,sid,lid);
   });
   document.querySelectorAll('#rmSeg button').forEach(function(b){ b.addEventListener('click', function(){
     curFilter=b.getAttribute('data-f'); document.querySelectorAll('#rmSeg button').forEach(function(x){ x.classList.toggle('active', x===b); }); render(); }); });
   var add=$('rmAddPlan'); if(add) add.addEventListener('click', addPlan);
+  var tgl=$('rmToggleMode'); if(tgl) tgl.addEventListener('click', function(){
+    if(!HAS_PERM) return;
+    EDIT = !EDIT;
+    if(EDIT){
+      tgl.innerHTML = '<span class="material-symbols-rounded mi-sm">visibility</span> Tắt chỉnh sửa';
+      tgl.classList.add('active');
+      if(add) add.style.display = 'inline-flex';
+    }else{
+      tgl.innerHTML = '<span class="material-symbols-rounded mi-sm">edit</span> Bật chỉnh sửa';
+      tgl.classList.remove('active');
+      if(add) add.style.display = 'none';
+    }
+    render();
+  });
   var si=$('searchInp'); if(si) si.addEventListener('input', render);
   document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeModal(); });
   render();

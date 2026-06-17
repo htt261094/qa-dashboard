@@ -220,23 +220,37 @@ def _find_header(rows):
     for ridx, row in enumerate(rows[:20]):   # header thường ở đầu file
         norm_cells = [_norm(c) for c in row]
         colmap = {}
+        result_cols = []
         for field, syns in _HEADER_SYNONYMS.items():
             for ci, cell in enumerate(norm_cells):
-                if cell in syns and field not in colmap:
-                    colmap[field] = ci
-                    break
+                if cell in syns:
+                    if field == 'result':
+                        if ci not in result_cols:
+                            result_cols.append(ci)
+                    elif field not in colmap:
+                        colmap[field] = ci
+                        break
         
+        if result_cols:
+            colmap['result'] = result_cols
+
         if sum(1 for f in _REQUIRED_FOR_HEADER if f in colmap) >= 2:
             # Check thêm dòng bên dưới (sub-header) cho các field còn thiếu (vd: 'result' của Round 1)
             for offset in (1, 2):
                 if ridx + offset < len(rows):
                     sub_norm_cells = [_norm(c) for c in rows[ridx + offset]]
                     for field, syns in _HEADER_SYNONYMS.items():
-                        if field not in colmap:
+                        if field == 'result':
+                            for ci, cell in enumerate(sub_norm_cells):
+                                if cell in syns and ci not in result_cols:
+                                    result_cols.append(ci)
+                        elif field not in colmap:
                             for ci, cell in enumerate(sub_norm_cells):
                                 if cell in syns:
                                     colmap[field] = ci
                                     break
+            if result_cols:
+                colmap['result'] = sorted(result_cols)
             return ridx, colmap
     return None, {}
 
@@ -267,7 +281,20 @@ def parse_testcase_rows(rows):
 
     def cell(row, field):
         ci = col.get(field)
-        if ci is None or ci >= len(row):
+        if ci is None:
+            return ''
+        
+        if isinstance(ci, list):
+            # Lấy cột cuối cùng (bên phải nhất) có dữ liệu
+            for idx in reversed(ci):
+                if idx < len(row):
+                    s = str(row[idx]).strip() if not isinstance(row[idx], str) else row[idx].strip()
+                    s = re.sub(r'[\u200b\u200c\u200d\u200e\u200f\ufeff]+', '', s)
+                    if s:
+                        return s
+            return ''
+
+        if ci >= len(row):
             return ''
         s = str(row[ci]).strip() if not isinstance(row[ci], str) else row[ci].strip()
         return re.sub(r'[\u200b\u200c\u200d\u200e\u200f\ufeff]+', '', s)
@@ -398,6 +425,7 @@ def _apply_sheet_cases(data, parent_folder_id, sheet, new_cases):
     old_sigs = [_get_content_sig(c) for c in old_cases]
     new_sigs = [_get_content_sig(c) for c in new_cases]
     mapped_old_indices = set()
+    updated_result_count = 0
 
     # Pass 1: Structural Sequence Alignment (LCS)
     sm = difflib.SequenceMatcher(None, old_sigs, new_sigs)
@@ -405,8 +433,14 @@ def _apply_sheet_cases(data, parent_folder_id, sheet, new_cases):
         if tag == 'equal' or (tag == 'replace' and (i2 - i1) == (j2 - j1)):
             for i, j in zip(range(i1, i2), range(j1, j2)):
                 r = old_cases[i].get('result', 'norun')
+                r_norm = r if r in TC_RESULTS else 'norun'
                 parsed = new_cases[j].get('result', '')
-                new_cases[j]['result'] = parsed if parsed else (r if r in TC_RESULTS else 'norun')
+                if parsed:
+                    if parsed != r_norm:
+                        updated_result_count += 1
+                    new_cases[j]['result'] = parsed
+                else:
+                    new_cases[j]['result'] = r_norm
                 mapped_old_indices.add(i)
                 new_cases[j]['_mapped'] = True
 
@@ -422,8 +456,14 @@ def _apply_sheet_cases(data, parent_folder_id, sheet, new_cases):
                 best_i = i
         if best_i != -1:
             r = old_cases[best_i].get('result', 'norun')
+            r_norm = r if r in TC_RESULTS else 'norun'
             parsed = c.get('result', '')
-            c['result'] = parsed if parsed else (r if r in TC_RESULTS else 'norun')
+            if parsed:
+                if parsed != r_norm:
+                    updated_result_count += 1
+                c['result'] = parsed
+            else:
+                c['result'] = r_norm
             mapped_old_indices.add(best_i)
             old_unmapped_indices.remove(best_i)
             c['_mapped'] = True
@@ -435,20 +475,21 @@ def _apply_sheet_cases(data, parent_folder_id, sheet, new_cases):
             del c['_mapped']
             continue
         parsed = c.get('result', '')
-        if parsed:
-            c['result'] = parsed
-            continue
         old_c = old_unmapped.get(c['id'])
-        if old_c:
-            r = old_c.get('result', 'norun')
-            c['result'] = r if r in TC_RESULTS else 'norun'
+        r = old_c.get('result', 'norun') if old_c else 'norun'
+        r_norm = r if r in TC_RESULTS else 'norun'
+        
+        if parsed:
+            if old_c and parsed != r_norm:
+                updated_result_count += 1
+            c['result'] = parsed
         else:
-            c['result'] = 'norun'
+            c['result'] = r_norm
 
     for c in new_cases:
         c['folder'] = target_folder_id
     data['cases'].extend(new_cases)
-    return len(new_cases)
+    return len(new_cases), updated_result_count
 
 
 # ===== Drive: list sheet + import =====
@@ -523,12 +564,15 @@ def import_cases(folder_id, url, sheet, by_email=''):
 
     # Apply mọi sheet hợp lệ (mutate data trong RAM, chỉ lưu khi qua hết check).
     applied, empty_sheets, total_skipped, total_count = [], [], 0, 0
+    total_updated_results = 0
     for s, cases_s, skipped_s, _miss in parsed:
         total_skipped += skipped_s
         if not cases_s:
             empty_sheets.append(s)
             continue
-        total_count += _apply_sheet_cases(data, folder_id, s, cases_s)
+        cnt, upd = _apply_sheet_cases(data, folder_id, s, cases_s)
+        total_count += cnt
+        total_updated_results += upd
         applied.append(s)
 
     if not applied:
@@ -549,8 +593,16 @@ def import_cases(folder_id, url, sheet, by_email=''):
         return {'ok': False, 'msg': 'Không lưu được (KV/local lỗi).'}
 
     if sheet:
-        msg = (f'Đã import {total_count} test case vào "{folder.get("name")}"'
-               + (f' (bỏ {total_skipped} dòng thiếu dữ liệu bắt buộc).' if total_skipped else '.'))
+        msg = f'Đã import {total_count} test case vào "{folder.get("name")}"'
+        extra = []
+        if total_skipped:
+            extra.append(f'bỏ {total_skipped} dòng thiếu dữ liệu bắt buộc')
+        if total_updated_results > 0:
+            extra.append(f'cập nhật kết quả cho {total_updated_results} test case')
+        if extra:
+            msg += ' (' + ', '.join(extra) + ').'
+        else:
+            msg += '.'
     else:
         msg = f'Đã import {len(applied)} sheet · {total_count} test case vào "{folder.get("name")}".'
         extra = []
@@ -560,6 +612,8 @@ def import_cases(folder_id, url, sheet, by_email=''):
             extra.append(f'bỏ qua {len(empty_sheets)} sheet rỗng')
         if total_skipped:
             extra.append(f'bỏ {total_skipped} dòng thiếu dữ liệu bắt buộc')
+        if total_updated_results > 0:
+            extra.append(f'cập nhật kết quả cho {total_updated_results} test case')
         if extra:
             msg += ' (' + ', '.join(extra) + ').'
     return {'ok': True, 'count': total_count, 'skipped': total_skipped, 'msg': msg}
