@@ -21,8 +21,8 @@ Dependencies (xem `requirements.txt`):
 Dự án hoạt động theo mô hình Server-Side Rendering (SSR) thuần, kết hợp với client-side polling để cập nhật trạng thái real-time mà không cần tải lại trang.
 
 1. **Jira API là Source of Truth**: Dữ liệu chính (Task, Status, Assignee, Changelog) được pull trực tiếp từ Jira thông qua REST API sử dụng PAT chung (chỉ có quyền đọc).
-2. **Local Cache & Property Sync**: 
-   - Một số dữ liệu phụ trợ không nằm trong trường chuẩn của Jira (Roadmap, Docs, Custom Status, Test Case link, Bug log link) được lưu vào *Jira Properties* để đồng bộ chéo máy giữa các thành viên.
+2. **Local Cache & Cloudflare KV Sync**: 
+   - Một số dữ liệu phụ trợ không nằm trong trường chuẩn của Jira (Roadmap, Docs, Custom Status, Test Case link, Bug log link) được lưu vào *Cloudflare KV* để đồng bộ chéo máy giữa các thành viên.
    - Khi render trang, server fetch Jira API + đọc Local Cache (thường lưu dưới dạng các file `.json` ẩn như `.roadmap_config.json`, `.bug_log.json`).
    - Nếu Jira bị lỗi hoặc không có mạng, các tính năng không phụ thuộc trực tiếp vào trạng thái Jira Task (như xem list Tài liệu, Roadmap) vẫn render được nhờ Local Cache (Offline fallback).
 3. **Data Snapshot (Cross-machine Sync)**: Để giảm tải cho Jira và hỗ trợ thành viên quên bật VPN, hệ thống áp dụng cơ chế "Data Snapshot". Ai có VPN và vào trang sẽ tự động pull full data và ghi đè vào cache chung trên đĩa. Những người sau (kể cả không có VPN) sẽ đọc bản snapshot mới nhất này để xem thông tin team.
@@ -58,17 +58,17 @@ Kiến trúc chia module theo layer rõ ràng, không vòng lặp import (circul
 | **`auth.py`** | Xử lý Google OAuth, mã hóa và verify cookie dựa vào HMAC signature (Sliding session & verification). |
 | **`config.py`** | Khởi tạo cấu hình biến môi trường (`.env`), setup domain, auth_enabled, URL Jira, ID custom fields, và timeout/stuck days. |
 | **`issues.py`** | Phân tích JSON Issue từ Jira. Chứa các hàm tiện lợi parse `i_assignee`, `i_status`, và tính KPI (days overdue, stuck_days). |
-| **`jira_api.py`** | Tương tác REST API chính với Jira qua PAT chung. Gồm fetch toàn bộ task, lấy feed hoạt động (changelog), và load/save data vào Jira Properties. |
+| **`jira_api.py`** | Tương tác REST API chính với Jira qua PAT chung. Gồm fetch toàn bộ task, lấy feed hoạt động (changelog), và load/save data vào Cloudflare KV. |
 | **`jira_write.py`** | Module write xuống Jira (đổi status, gửi comment, tạo sub-task QA) **bằng PAT cá nhân** của từng tester, đảm bảo đúng định danh. |
 | **`pat_store.py`** | Quản lý việc lưu, xác thực, lấy ra và xoá PAT cá nhân. |
 | **`crypto_util.py`** | Hàm mã hóa đối xứng (dùng thư viện `cryptography` / Fernet) để mã hóa PAT và Google Drive Token trên disk. Không lưu lộ token. |
 | **`drive_token.py`** | Xử lý Auth và lưu/đọc Refresh Token của hệ thống Google Drive. |
 | **`bug_log_store.py`** / **`bug_log.py`** | Background thread (10 phút/lần) kéo file XLSX từ Drive về. Module này parse dữ liệu bugs từ các sheet, diff sự thay đổi để tạo notif và cache file local. |
 | **`bug_log_source.py`** | Quản lý danh sách các file/URL Google Sheets đang được link vào Dashboard làm nguồn bug log. |
-| **`roadmap.py`** / **`docs.py`** | Module quản lý tài liệu nội bộ và Roadmap QA. Sync dữ liệu 2 chiều giữa JSON local cache và Jira Property. |
-| **`testcase_store.py`** | Kho lưu trữ Test Case tập trung. Xử lý tạo, xoá, đổi tên cấu trúc thư mục Test Case, import dữ liệu bulk từ Google Sheets. Cache tại local và Jira. |
+| **`roadmap.py`** / **`docs.py`** | Module quản lý tài liệu nội bộ và Roadmap QA. Sync dữ liệu 2 chiều giữa JSON local cache và Cloudflare KV. |
+| **`testcase_store.py`** | Kho lưu trữ Test Case tập trung. Xử lý tạo, xoá, đổi tên cấu trúc thư mục Test Case, import dữ liệu bulk từ Google Sheets. Cache tại local và Cloudflare KV. |
 | **`task_link.py`** / **`testcase_link.py`** | Quản lý mapping Link giữa (Bug log) ↔ (Jira Task) và (Testcase Folder) ↔ (Jira Task). Để khi mở task trên Jira/Dashboard có thể thấy thông tin bug/testcase tương ứng ngay trong Drawer. |
-| **`custom_status.py`** | Xử lý "Nhãn Nội Bộ" (Overlay Status) để gán cho task Jira (VD: *Chờ QA*, *Đã Test*). Dữ liệu này không ghi thật vào Status của Jira mà lưu qua property. |
+| **`custom_status.py`** | Xử lý "Nhãn Nội Bộ" (Overlay Status) để gán cho task Jira (VD: *Chờ QA*, *Đã Test*). Dữ liệu này không ghi thật vào Status của Jira mà lưu qua Cloudflare KV. |
 | **`monthly_reporter_chat_app.py`** | Một script tool đứng riêng để tự sinh và báo cáo SLA tháng lên Google Chat thông qua Playwright headless. |
 | **`render.py`** | Module phụ trách toàn bộ Logic Server-Side Rendering (SSR). Map các components lại với nhau và trả ra HTML hoàn chỉnh có gắn string templates. |
 | **`routes/`** | Chứa `oauth.py`, `write.py`, `uploads.py` là các Mixins Class để tách nhỏ logic xử lý HTTP route khỏi file `qa_dashboard.py` khổng lồ. |
@@ -97,7 +97,7 @@ Tái cấu trúc folder (issue #85): code lõi trong `core/`, asset tĩnh trong 
 
 - **KPI cards** + **Workload matrix** Assignee × Status, badge QUÁ TẢI/OK/NHẸ (ngưỡng ≥15 / 5–14 / ≤4)
 - **Overdue tính theo ngày làm việc** (T2–T6, bỏ T7/CN); metric "kẹt ≥5 ngày" + "Vào/Ra tuần"
-- **Activity feed** dựng từ Jira changelog (status/assignee/duedate/priority/comment/tạo mới); tên người hiển thị đúng (QA = tên ngắn, người ngoài = display name); dismiss đồng bộ chéo máy qua Jira user property.
+- **Activity feed** dựng từ Jira changelog (status/assignee/duedate/priority/comment/tạo mới); tên người hiển thị đúng (QA = tên ngắn, người ngoài = display name); dismiss đồng bộ chéo máy qua Cloudflare KV.
 - **Notification real-time** — short-poll `/activity-feed` mỗi 60s (tự dừng khi tab ẩn), cập nhật chuông + toast + status/nhãn nội bộ của task **mà KHÔNG reload trang**. (Thay cho cơ chế auto-refresh 15 phút của UI cũ.) Data bảng/KPI/donut vẫn chỉ tươi khi **F5 thủ công**.
 - **Highlight task mới** phát sinh giữa 2 lần refresh (badge NEW cam)
 - **Filter theo người** (assignee/reporter) — client-side, nhớ qua localStorage
@@ -182,7 +182,7 @@ Mở browser: `http://localhost:8080/`
 
 ## Reset state
 
-Roadmap/docs/dismiss/PAT/nhãn nội bộ sync qua Jira property nên xoá file cache local không mất data (Jira là source of truth, file local chỉ là cache fallback).
+Roadmap/docs/dismiss/PAT/nhãn nội bộ sync qua Cloudflare KV nên xoá file cache local không mất data (Cloudflare KV là source of truth cho metadata phụ trợ, file local chỉ là cache fallback).
 
 ## Troubleshooting
 
