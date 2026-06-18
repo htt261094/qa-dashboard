@@ -698,10 +698,20 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         for ck in getattr(self, '_pending_cookies', ()):
             self.send_header('Set-Cookie', ck)
 
+    def _security_headers(self):
+        # Defense-in-depth (issue #48). frame-ancestors/X-Frame-Options chống clickjack
+        # (app có nút ghi Jira: transition/comment/delete). Referrer-Policy tránh rò URL nội bộ.
+        # CSP đầy đủ cho script/style để sau (JS/CSS inline -> cần nonce).
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        self.send_header('X-Frame-Options', 'DENY')
+        self.send_header('Referrer-Policy', 'same-origin')
+        self.send_header('Content-Security-Policy', "frame-ancestors 'none'")
+
     def _html(self, html_out):
         self.send_response(200)
         self.send_header('Content-Type', 'text/html; charset=utf-8')
         self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+        self._security_headers()
         self._emit_pending_cookies()
         self.end_headers()
         self.wfile.write(html_out.encode('utf-8'))
@@ -1111,6 +1121,7 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
     def _json(self, status, body):
         self.send_response(status)
         self.send_header('Content-Type', 'application/json')
+        self._security_headers()
         self._emit_pending_cookies()   # poll /activity-feed (#161) cũng gia hạn -> tab mở luôn sống
         self.end_headers()
         self.wfile.write(body)
