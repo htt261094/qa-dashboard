@@ -98,7 +98,8 @@ def _load_env():
               'JIRA_ADMIN_EMAIL', 'JIRA_ALLOWED_DOMAIN',
               'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'SESSION_SECRET',
               'PUBLIC_BASE_URL', 'BUG_LOG_POLL_SECONDS', 'JIRA_MAX_CONCURRENT',
-              'CF_ACCOUNT_ID', 'CF_KV_NAMESPACE_ID', 'CF_API_TOKEN'):
+              'CF_ACCOUNT_ID', 'CF_KV_NAMESPACE_ID', 'CF_API_TOKEN',
+              'CF_AI_TOKEN', 'WORKERS_AI_MODEL'):
         if os.environ.get(k):
             cfg[k] = os.environ[k]
     return cfg
@@ -141,7 +142,8 @@ except ValueError:
     JIRA_MAX_CONCURRENT = 12
 # ----- Auth (qua Cloudflare Access; identity = header Cf-Access-Authenticated-User-Email) -----
 # Email role ADMIN: được edit roadmap/tài liệu. Rỗng = không khoá (local dev).
-ADMIN_EMAIL = CFG.get('JIRA_ADMIN_EMAIL', '').strip().lower()
+ADMIN_EMAILS = {e.strip() for e in CFG.get('JIRA_ADMIN_EMAIL', '').lower().split(',')} - {''}
+ADMIN_EMAIL = list(ADMIN_EMAILS)[0] if ADMIN_EMAILS else ''
 # Username Jira của chính admin (cho tab "My work" — task của riêng mình). Local dev (chưa
 # login) fallback về đây. Default = thanhht1 (acting manager). Override qua .env nếu cần.
 SELF_USER = CFG.get('JIRA_SELF_USER', 'thanhht1').strip()
@@ -172,6 +174,14 @@ CF_ACCOUNT_ID = CFG.get('CF_ACCOUNT_ID', '').strip()
 CF_KV_NAMESPACE_ID = CFG.get('CF_KV_NAMESPACE_ID', '').strip()
 CF_API_TOKEN = CFG.get('CF_API_TOKEN', '').strip()
 KV_ENABLED = bool(CF_ACCOUNT_ID and CF_KV_NAMESPACE_ID and CF_API_TOKEN)
+
+# ===== Chatbot AI (Cloudflare Workers AI) =====
+# Token RIÊNG cho Workers AI (quyền "Workers AI: Read" + "Run"); fallback CF_API_TOKEN nếu
+# token KV đã đủ quyền. Account ID tái dùng CF_ACCOUNT_ID. Provider swap-được: chỉ ai_chat.py
+# gọi LLM, đổi sang Claude sau = sửa 1 hàm. Bỏ trống token+account => chatbot tắt.
+CF_AI_TOKEN = (CFG.get('CF_AI_TOKEN', '').strip() or CF_API_TOKEN)
+WORKERS_AI_MODEL = CFG.get('WORKERS_AI_MODEL', '@cf/meta/llama-3.3-70b-instruct-fp8-fast').strip()
+AI_CHAT_ENABLED = bool(CF_ACCOUNT_ID and CF_AI_TOKEN)
 if AUTH_ENABLED and not SESSION_SECRET:
     print("ERROR: Bật Google OAuth nhưng thiếu SESSION_SECRET trong .env.\n"
           "       Tạo bằng: python3 -c \"import secrets;print(secrets.token_urlsafe(48))\"",

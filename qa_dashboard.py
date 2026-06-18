@@ -19,7 +19,7 @@ from urllib.parse import urlparse, parse_qs
 # imports (`from config import ...`) keep working unchanged.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'core'))
 
-from config import (JIRA_URL, USERS, PORT, ADMIN_EMAIL, ALLOWED_DOMAIN,
+from config import (JIRA_URL, USERS, PORT, ADMIN_EMAIL, ADMIN_EMAILS, ALLOWED_DOMAIN,
                     AUTH_ENABLED, SELF_USER, PUBLIC_BASE_URL,
                     display_name, username_from_email)
 from auth import (SESSION_COOKIE, SESSION_TTL, email_from_session,
@@ -141,10 +141,10 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         """Role admin = được edit roadmap/tài liệu. Local (chưa login) -> admin (chính bạn),
         nhưng CHỈ khi request đến từ loopback (fail-closed, issue #44)."""
         email = self._user_email()
-        if not email or not ADMIN_EMAIL:
+        if not email or not ADMIN_EMAILS:
             # AUTH tắt -> admin chỉ khi loopback; AUTH bật mà chưa login -> KHÔNG phải admin.
             return (not AUTH_ENABLED) and self._is_loopback()
-        return email == ADMIN_EMAIL
+        return email in ADMIN_EMAILS
 
     def _user_ctx(self):
         """(email, is_admin) cho nav chip; None khi chưa login (local dev)."""
@@ -716,6 +716,24 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         self.end_headers()
         self.wfile.write(html_out.encode('utf-8'))
 
+    def _post_chat(self):
+        # Chatbot AI hỏi-đáp bug log (tool-use). do_POST đã gate authed/domain.
+        import ai_chat
+        try:
+            payload = self._read_json_body(64 * 1024) or {}
+            question = payload.get('question', '')
+            history = payload.get('history') or []
+            # Chỉ giữ role/content hợp lệ từ client (không tin tưởng mù).
+            history = [{'role': m.get('role'), 'content': m.get('content', '')}
+                       for m in history if m.get('role') in ('user', 'assistant')][-8:]
+            res = ai_chat.ask(question, history=history)
+        except (ValueError, json.JSONDecodeError):
+            res = {'ok': False, 'error': 'Yêu cầu không hợp lệ.'}
+        except Exception:   # noqa: BLE001 — chặn traceback rò token
+            res = {'ok': False, 'error': 'Lỗi xử lý chatbot.'}
+        self._json(200 if res.get('ok') else 400,
+                   json.dumps(res, ensure_ascii=False).encode('utf-8'))
+
     def _read_json_body(self, max_len):
         length = int(self.headers.get('Content-Length', 0))
         if not (0 < length <= max_len):
@@ -764,6 +782,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             return
         if self.path == '/batch-eval':
             self._post_batch_eval()
+            return
+        if self.path == '/chat':
+            self._post_chat()
             return
         if self.path == '/upload-file':
             self._post_upload_file()

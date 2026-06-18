@@ -38,8 +38,8 @@ async def main():
     print(f"Truy cập vào {URL} ...")
     
     # Tạo cookie phiên đăng nhập cho bot (bypass login)
-    # Lấy email từ env, nếu không có thì mặc định admin
-    admin_email = os.environ.get('JIRA_ADMIN_EMAIL', 'admin@baokim.vn')
+    from config import ADMIN_EMAIL
+    admin_email = ADMIN_EMAIL or 'admin@baokim.vn'
     session_token = make_session_token(admin_email)
     
     async with async_playwright() as p:
@@ -91,11 +91,8 @@ async def main():
             chat = build('chat', 'v1', credentials=credentials)
             drive = build('drive', 'v3', credentials=credentials)
             
-            # Danh sách email được phép xem file
-            viewer_emails = [
-                os.environ.get('RECEIVER_EMAIL', 'phuongnm@baokim.vn'),
-                os.environ.get('JIRA_ADMIN_EMAIL', 'thanhht1@baokim.vn')
-            ]
+            from config import ADMIN_EMAILS
+            viewer_emails = [os.environ.get('RECEIVER_EMAIL', 'phuongnm@baokim.vn')] + list(ADMIN_EMAILS)
             
             # Trích xuất ảnh Base64 từ JS
             img_b64 = await page.evaluate("window.__lastExportedImage")

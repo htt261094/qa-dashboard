@@ -7,7 +7,8 @@ the full document. Assets inline per-render via render.base. See issue #104 / #8
 import json
 from datetime import datetime
 
-from config import JIRA_URL, USERS, display_name, username_from_email
+from config import (JIRA_URL, USERS, AI_CHAT_ENABLED,
+                    display_name, username_from_email)
 from issues import esc
 
 from render.base import load_css_v2, load_js_v2, _json_script
@@ -208,6 +209,29 @@ def _stale_banner(note):
         '</span></div>')
 
 
+def _chat_widget():
+    """Float icon góc phải dưới + panel chatbot AI. Rỗng khi chatbot chưa cấu hình."""
+    if not AI_CHAT_ENABLED:
+        return ''
+    return (
+        '<button class="chat-fab" id="chatFab" title="Hỏi AI về bug log" aria-label="Hỏi AI">'
+        '<span class="material-symbols-rounded">chat</span></button>'
+        '<div class="chat-panel" id="chatPanel" hidden>'
+        '<div class="chat-head"><span class="material-symbols-rounded">smart_toy</span>'
+        '<b>Hỏi AI — bug log</b>'
+        '<button class="chat-x" id="chatClose" aria-label="Đóng">'
+        '<span class="material-symbols-rounded">close</span></button></div>'
+        '<div class="chat-body" id="chatBody">'
+        '<div class="chat-msg bot">Hỏi mình về số liệu bug nhé — vd '
+        '"DA6 còn bao nhiêu bug chưa fix?", "ai đang nhiều bug nhất?".</div></div>'
+        '<form class="chat-input" id="chatForm">'
+        '<input id="chatText" type="text" autocomplete="off" '
+        'placeholder="Nhập câu hỏi..." maxlength="500">'
+        '<button type="submit" class="chat-send" aria-label="Gửi">'
+        '<span class="material-symbols-rounded">send</span></button></form></div>'
+    )
+
+
 def _document_v2(content_inner, active, user, activities, title='QA Suite',
                  stale=False, stale_note=''):
     """Shell sidebar Material-3 cho dashboard QA + roadmap. Inline styles_v2.css + app_v2.js.
@@ -230,6 +254,7 @@ def _document_v2(content_inner, active, user, activities, title='QA Suite',
 {_subtask_modal_v2()}
 <div class="toast" id="toast"></div>
 <div class="drawer-ov" id="drawerOv"></div><aside class="drawer" id="drawer"></aside>
+{_chat_widget()}
 {_json_script('qaNotif', activities)}
 <script>window.__jiraBase={json.dumps(JIRA_URL)};window.__stale={json.dumps(bool(stale))};</script>
 <script>{load_js_v2()}</script>

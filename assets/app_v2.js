@@ -3792,4 +3792,57 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   renderTree(); render();
 })();
 
+// ===== Chatbot AI (float FAB + panel). Guard #chatFab -> chỉ chạy khi shell render widget. =====
+(function(){
+  var fab=$('chatFab'), panel=$('chatPanel'); if(!fab||!panel) return;
+  var body=$('chatBody'), form=$('chatForm'), input=$('chatText'),
+      send=panel.querySelector('.chat-send'), closeBtn=$('chatClose');
+  var history=[];   // [{role:'user'|'assistant', content}]
+  function scroll(){ body.scrollTop=body.scrollHeight; }
+  function add(cls, text){
+    var d=document.createElement('div'); d.className='chat-msg '+cls; d.textContent=text;
+    body.appendChild(d); scroll(); return d;
+  }
+  function addTool(calls){
+    (calls||[]).forEach(function(c){
+      var args=[]; var a=c.arguments||{};
+      Object.keys(a).forEach(function(k){ if(a[k]!=null&&a[k]!=='') args.push(k+'='+a[k]); });
+      var d=document.createElement('div'); d.className='chat-tool';
+      d.textContent='⚙ '+(c.name||'tool')+'('+args.join(', ')+')';
+      body.appendChild(d);
+    });
+    scroll();
+  }
+  function open(){ panel.hidden=false; setTimeout(function(){ input.focus(); }, 50); }
+  function close(){ panel.hidden=true; }
+  fab.addEventListener('click', function(){ panel.hidden?open():close(); });
+  if(closeBtn) closeBtn.addEventListener('click', close);
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape'&&!panel.hidden) close(); });
+
+  form.addEventListener('submit', function(e){
+    e.preventDefault();
+    var q=(input.value||'').trim(); if(!q) return;
+    add('user', q); history.push({role:'user', content:q});
+    input.value=''; input.disabled=true; send.disabled=true;
+    var typing=document.createElement('div');
+    typing.className='chat-typing'; typing.textContent='Đang nghĩ...';
+    body.appendChild(typing); scroll();
+    fetch('/chat', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ question:q, history:history.slice(0,-1) }) })
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        typing.remove();
+        if(j && j.ok){
+          if(j.tool_calls && j.tool_calls.length) addTool(j.tool_calls);
+          add('bot', j.answer||'(không có câu trả lời)');
+          history.push({role:'assistant', content:j.answer||''});
+        } else {
+          add('err', (j && j.error) || 'Lỗi không xác định.');
+        }
+      })
+      .catch(function(){ typing.remove(); add('err', 'Lỗi kết nối tới server.'); })
+      .then(function(){ input.disabled=false; send.disabled=false; input.focus(); });
+  });
+})();
+
 })();   // ===== đóng IIFE ngoài cùng (shared scope) — bug-metrics block nằm TRONG để dùng $/esc/readJSON
