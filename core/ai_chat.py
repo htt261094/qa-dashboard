@@ -18,7 +18,7 @@ from config import (CF_ACCOUNT_ID, CF_AI_TOKEN, WORKERS_AI_MODEL,
                     AI_CHAT_ENABLED)
 import bug_log_store
 
-_TIMEOUT = 30
+_TIMEOUT = 60                 # 70b cold-start có thể >30s; client bỏ cuộc ở 75s
 _MAX_TOOL_ROUNDS = 4          # chặn loop vô hạn nếu LLM cứ gọi tool
 _LIST_CAP = 30                # mode=list trả tối đa bao nhiêu bug
 
