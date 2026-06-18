@@ -1593,16 +1593,38 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     event.stopPropagation();
   };
 
+  function findParentFolderOfFile(list, id, currentParentId) {
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].id === id) return currentParentId || 'root';
+      if (list[i].children) {
+        var res = findParentFolderOfFile(list[i].children, id, list[i].id);
+        if (res) return res;
+      }
+    }
+    return null;
+  }
+
   window.editDoc = function() {
     var doc = findFileById(DOC_TREE, contextMenuSelectedId);
     if (!doc) return;
+    openModal('linkModal');
+    
     var titleInp = $('linkTitleInp');
     var urlInp = $('linkUrlInp');
     if (titleInp && urlInp) {
       titleInp.value = doc.name;
       urlInp.value = doc.url;
     }
-    openModal('linkModal');
+    
+    var folderSel = $('linkFolderSel');
+    if (folderSel) {
+      folderSel.disabled = false;
+      var pid = findParentFolderOfFile(DOC_TREE, doc.id, null);
+      if (pid) {
+        folderSel.value = pid;
+      }
+    }
+
     var saveBtn = document.querySelector('#linkModal .modal-foot .btn-primary');
     if (saveBtn) {
       saveBtn.textContent = 'Cập nhật';
@@ -1625,7 +1647,32 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       doc.name = name;
       doc.url = url;
       doc.ts = Date.now();
+
+      var folderSel = $('linkFolderSel');
+      if (folderSel && !folderSel.disabled) {
+        var newParentId = folderSel.value;
+        var oldParentId = findParentFolderOfFile(DOC_TREE, id, null);
+        if (newParentId && oldParentId && newParentId !== oldParentId) {
+          var indexInfo = findFileParentAndIndex(DOC_TREE, id);
+          if (indexInfo) {
+            indexInfo.parentList.splice(indexInfo.index, 1);
+          }
+          if (newParentId === 'root') {
+            DOC_TREE.unshift(doc);
+          } else {
+            var targetFolder = findFolderById(DOC_TREE, newParentId);
+            if (targetFolder) {
+              if (!targetFolder.children) targetFolder.children = [];
+              targetFolder.children.unshift(doc);
+            } else {
+              DOC_TREE.unshift(doc);
+            }
+          }
+        }
+      }
+
       closeModal('linkModal');
+      renderFolders();
       renderTable();
       saveDocs();
       showBottomToast('Cập nhật tài liệu thành công ✔');
@@ -1684,9 +1731,11 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       return '<option value="' + esc(f.id) + '">' + esc(f.name) + '</option>';
     }).join('');
     
-    if (linkFolderSel) linkFolderSel.innerHTML = opts;
-    if (uploadFolderSel) uploadFolderSel.innerHTML = opts;
-    if (folderParentSel) folderParentSel.innerHTML = '<option value="root">Thư mục gốc (Root)</option>' + opts;
+    var fullOpts = '<option value="root">Thư mục gốc (Root)</option>' + opts;
+
+    if (linkFolderSel) linkFolderSel.innerHTML = fullOpts;
+    if (uploadFolderSel) uploadFolderSel.innerHTML = fullOpts;
+    if (folderParentSel) folderParentSel.innerHTML = fullOpts;
     
     if (currentPath.length > 0) {
       var currentFolderId = currentPath[currentPath.length - 1].id;
@@ -1694,8 +1743,8 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       if (uploadFolderSel) { uploadFolderSel.value = currentFolderId; uploadFolderSel.disabled = true; }
       if (folderParentSel) { folderParentSel.value = currentFolderId; folderParentSel.disabled = true; }
     } else {
-      if (linkFolderSel) linkFolderSel.disabled = false;
-      if (uploadFolderSel) uploadFolderSel.disabled = false;
+      if (linkFolderSel) { linkFolderSel.disabled = false; linkFolderSel.value = 'root'; }
+      if (uploadFolderSel) { uploadFolderSel.disabled = false; uploadFolderSel.value = 'root'; }
       if (folderParentSel) { folderParentSel.disabled = false; folderParentSel.value = 'root'; }
     }
   }
