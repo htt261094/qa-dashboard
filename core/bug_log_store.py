@@ -87,7 +87,7 @@ def _write_cache(data):
             data['reopen'] = _merge_reopen(data.get('reopen', {}), prev.get('reopen', {}))
             data['metrics'] = _merge_metrics(data.get('metrics', {}), prev.get('metrics', {}))
             data['activity'] = _merge_activity(data.get('activity', []), prev.get('activity', []))
-        atomic_write(BUG_LOG_FILE, json.dumps(data, ensure_ascii=False, indent=2))
+        return atomic_write(BUG_LOG_FILE, json.dumps(data, ensure_ascii=False, indent=2))
 
 
 def _light(data):

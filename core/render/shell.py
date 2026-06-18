@@ -234,3 +234,33 @@ def _document_v2(content_inner, active, user, activities, title='QA Suite',
 <script>window.__jiraBase={json.dumps(JIRA_URL)};window.__stale={json.dumps(bool(stale))};</script>
 <script>{load_js_v2()}</script>
 </body></html>"""
+
+
+def _document_public_v2(content_inner, title='QA Suite'):
+    return f"""<!DOCTYPE html>
+<html lang="vi"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{esc(title)}</title>
+{_FONTS_V2}
+<script>(function(){{try{{var t=localStorage.getItem('qa-theme');if(t)document.documentElement.setAttribute('data-theme',t);}}catch(e){{}}}})();</script>
+<style>{load_css_v2()}
+.public-main {{ padding: 20px; max-width: 1200px; margin: 0 auto; }}
+.public-brand {{ margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--bdr); display: flex; align-items: center; justify-content: space-between; }}
+.public-brand h2 {{ margin: 0; font-size: 20px; color: var(--fg); }}
+.public-brand button {{ background: transparent; border: none; cursor: pointer; color: var(--fg2); display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; }}
+.public-brand button:hover {{ background: var(--bg3); color: var(--fg); }}
+</style></head>
+<body>
+<div class="app public-app">
+<div class="main public-main">
+<div class="public-brand">
+    <h2>{esc(title)}</h2>
+    <button class="iconbtn" onclick="document.documentElement.setAttribute('data-theme', document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'); localStorage.setItem('qa-theme', document.documentElement.getAttribute('data-theme'))"><span class="material-symbols-rounded">dark_mode</span></button>
+</div>
+<div class="content">{content_inner}</div>
+</div>
+</div>
+<div class="toast" id="toast"></div>
+<script>window.__stale=false;</script>
+<script>{load_js_v2()}</script>
+</body></html>"""

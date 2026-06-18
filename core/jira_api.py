@@ -519,10 +519,16 @@ def global_search(query, limit=20):
                          params={'query': q, 'currentJQL': '', 'showSubTasks': 'true',
                                  'showSubTaskParent': 'true'}, timeout=15)
         r.raise_for_status()
+        import re
+        q_lower = q.lower()
         for sec in (r.json().get('sections') or []):
             for it in (sec.get('issues') or []):
                 k = it.get('key')
-                if k and k not in keys:
+                if not k or k in keys:
+                    continue
+                summary = it.get('summary') or it.get('summaryText') or ''
+                summary_clean = re.sub(r'<[^>]+>', '', summary).lower()
+                if q_lower in k.lower() or q_lower in summary_clean:
                     keys.append(k)
     except requests.RequestException as e:
         raise RuntimeError(f"Network error: {str(e).replace(PAT, '<REDACTED>')}")

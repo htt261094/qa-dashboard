@@ -41,7 +41,7 @@ from testcase_store import (load_testcases, fetch_sheets as tc_fetch_sheets,
 from pat_store import save_user_pat, has_pat, delete_user_pat, load_user_pat
 from custom_status import (load_bundle, values_of)
 from render import (render_page, render_qa_v2, render_docs_page,
-                    render_roadmap_v2, render_bug_log_v2, render_analytics_v2,
+                    render_roadmap_v2, render_public_roadmap_v2, render_bug_log_v2, render_analytics_v2,
                     render_testcase_v2, render_settings_page, render_error_page,
                     render_403, render_shell_error)
 from routes.oauth import OAuthMixin
@@ -278,6 +278,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         if path == '/logout':
             self._do_logout()
             return
+        if path == '/public/roadmap':
+            self._get_public_roadmap()
+            return
         if not self._authed():
             self._redirect('/login')
             return
@@ -445,6 +448,14 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             self._html(render_roadmap_v2(res['roadmap'], editable=self._is_admin(),
                                          user=self._user_ctx(), activities=res['bell']))
         except RuntimeError as e:
+            self._html(render_error_page(str(e)))
+
+    def _get_public_roadmap(self):
+        # Standalone public roadmap (view mode only, no auth required)
+        try:
+            roadmap = load_roadmap()
+            self._html(render_public_roadmap_v2(roadmap))
+        except Exception as e:
             self._html(render_error_page(str(e)))
 
     def _get_bug_log(self):

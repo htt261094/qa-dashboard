@@ -35,11 +35,13 @@ def _read_cache():
 
 
 def _write_cache(data):
-    if atomic_write(DRIVE_TOKEN_FILE, json.dumps(data)):
+    res = atomic_write(DRIVE_TOKEN_FILE, json.dumps(data))
+    if res:
         try:
             DRIVE_TOKEN_FILE.chmod(0o600)  # siết quyền (no-op trên Windows)
         except OSError:
             pass
+    return res
 
 
 def _load():

@@ -36,7 +36,7 @@ def _read_cache():
 
 
 def _write_cache(data):
-    atomic_write(PAT_CACHE_FILE, json.dumps(data, ensure_ascii=False))
+    return atomic_write(PAT_CACHE_FILE, json.dumps(data, ensure_ascii=False))
 
 
 def _load_map():

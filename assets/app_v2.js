@@ -1055,7 +1055,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     var today=new Date(); today.setHours(0,0,0,0);
     return {m:'Thg '+(dt.getMonth()+1), d:dd, disp:dd+'/'+mm+'/'+dt.getFullYear(), over: dt<today}; }
 
-  function save(){ if(!EDIT) return; clearTimeout(saveT); var st=$('rmStatus');
+  function save(force){ if(!EDIT && !force) return; clearTimeout(saveT); var st=$('rmStatus');
     saveT=setTimeout(function(){
       postJSON('/save-roadmap', PLANS, 20000).then(function(j){
         toast(j.ok?'Đã lưu roadmap ✓':'Lỗi lưu roadmap', j.ok);
@@ -1245,11 +1245,11 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
           if(s.leaves&&s.leaves.length) s.leaves.forEach(function(l){l.done=!all;});
           else s.done=!all;
         }); } else t.done=!t.done;
-        p.status=planStatus(p); render(); save(); } return; }
+        p.status=planStatus(p); render(); save(true); } return; }
       else if(a==='toggle-sub'){ var p=planById(pid), t=taskById(p,tid), s=subById(t,sid); if(s){ 
         if(s.leaves&&s.leaves.length){ var all=subDone(s); s.leaves.forEach(function(l){l.done=!all;}); } else s.done=!s.done; 
-        p.status=planStatus(p); render(); save(); } return; }
-      else if(a==='toggle-leaf'){ var p=planById(pid), t=taskById(p,tid), s=subById(t,sid), l=leafById(s,lid); if(l){ l.done=!l.done; p.status=planStatus(p); render(); save(); } return; }
+        p.status=planStatus(p); render(); save(true); } return; }
+      else if(a==='toggle-leaf'){ var p=planById(pid), t=taskById(p,tid), s=subById(t,sid), l=leafById(s,lid); if(l){ l.done=!l.done; p.status=planStatus(p); render(); save(true); } return; }
     }
 
     if(!EDIT) return;          // các thao tác còn lại cần bật chế độ chỉnh sửa
@@ -1480,12 +1480,24 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     }).join('');
   }
 
-  function getFileIconClass(name, type) {
+  function getFileIconClass(name, type, url) {
     var ext = name.split('.').pop().toLowerCase();
-    if (ext === 'xlsx' || ext === 'xls') return { icon: 'table_chart', cls: 'file-excel' };
-    if (ext === 'pdf') return { icon: 'picture_as_pdf', cls: 'file-pdf' };
-    if (ext === 'docx' || ext === 'doc') return { icon: 'description', cls: 'file-sop' };
-    if (type === 'Link' || ext === 'url') return { icon: 'link', cls: 'file-link' };
+    
+    if (url) {
+      if (url.indexOf('/spreadsheets/') >= 0) return { icon: 'table_chart', cls: 'file-excel' };
+      if (url.indexOf('/document/') >= 0) return { icon: 'description', cls: 'file-sop' };
+      if (url.indexOf('/presentation/') >= 0) return { icon: 'slideshow', cls: 'file-excel' };
+    }
+    
+    var baseName = name.replace(/\.url$/i, '');
+    var checkExt = baseName !== name ? baseName.split('.').pop().toLowerCase() : ext;
+
+    if (checkExt === 'xlsx' || checkExt === 'xls') return { icon: 'table_chart', cls: 'file-excel' };
+    if (checkExt === 'pdf') return { icon: 'picture_as_pdf', cls: 'file-pdf' };
+    if (checkExt === 'docx' || checkExt === 'doc') return { icon: 'description', cls: 'file-sop' };
+    if (checkExt === 'pptx' || checkExt === 'ppt') return { icon: 'slideshow', cls: 'file-excel' };
+    
+    if (type === 'link' || ext === 'url') return { icon: 'link', cls: 'file-link' };
     return { icon: 'article', cls: 'file-sop' };
   }
 
@@ -1530,7 +1542,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     }
     
     tbody.innerHTML = filtered.map(function(d) {
-      var fileData = getFileIconClass(d.name, d.type);
+      var fileData = getFileIconClass(d.name, d.type, d.url);
       var actCol = EDIT ? '<td class="action-col" onclick="event.stopPropagation()">' +
           '<button class="action-btn material-symbols-rounded" onclick="openContextMenu(event, \'' + esc(d.id) + '\')">more_vert</button>' +
         '</td>' : '';
@@ -1540,7 +1552,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
             '<span class="file-icon-wrapper ' + esc(fileData.cls) + '">' +
               '<span class="material-symbols-rounded">' + esc(fileData.icon) + '</span>' +
             '</span>' +
-            '<span class="file-name">' + esc(d.name) + '</span>' +
+            '<span class="file-name">' + esc(d.name.replace(/\.url$/i, '')) + '</span>' +
           '</div>' +
         '</td>' +
         '<td class="date-modified">' + esc(fmtDocDate(d.ts)) + '</td>' +
@@ -1599,7 +1611,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     var titleInp = $('linkTitleInp');
     var urlInp = $('linkUrlInp');
     if (titleInp && urlInp) {
-      titleInp.value = doc.name;
+      titleInp.value = doc.name.replace(/\.url$/i, '');
       urlInp.value = doc.url;
     }
     openModal('linkModal');
@@ -1815,7 +1827,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     var newDoc = {
       id: "d_" + Date.now(),
       type: "link",
-      name: title.indexOf('.url') >= 0 ? title : title + '.url',
+      name: title,
       ts: Date.now(),
       url: url
     };

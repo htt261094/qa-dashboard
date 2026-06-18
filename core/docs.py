@@ -55,7 +55,7 @@ def _read_cache():
 
 
 def _write_cache(data):
-    atomic_write(DOCS_FILE, json.dumps(data, ensure_ascii=False, indent=2))
+    return atomic_write(DOCS_FILE, json.dumps(data, ensure_ascii=False, indent=2))
 
 
 def load_docs():
