@@ -141,7 +141,10 @@ except ValueError:
     JIRA_MAX_CONCURRENT = 12
 # ----- Auth (qua Cloudflare Access; identity = header Cf-Access-Authenticated-User-Email) -----
 # Email role ADMIN: được edit roadmap/tài liệu. Rỗng = không khoá (local dev).
-ADMIN_EMAIL = CFG.get('JIRA_ADMIN_EMAIL', '').strip().lower()
+# Hỗ trợ NHIỀU admin (JIRA_ADMIN_EMAIL = danh sách email cách nhau dấu phẩy).
+# ADMIN_EMAIL giữ lại = phần tử đầu (tương thích ngược cho code cũ tham chiếu 1 email).
+ADMIN_EMAILS = {e.strip() for e in CFG.get('JIRA_ADMIN_EMAIL', '').lower().split(',')} - {''}
+ADMIN_EMAIL = list(ADMIN_EMAILS)[0] if ADMIN_EMAILS else ''
 # Username Jira của chính admin (cho tab "My work" — task của riêng mình). Local dev (chưa
 # login) fallback về đây. Default = thanhht1 (acting manager). Override qua .env nếu cần.
 SELF_USER = CFG.get('JIRA_SELF_USER', 'thanhht1').strip()

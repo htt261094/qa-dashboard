@@ -19,7 +19,7 @@ from urllib.parse import urlparse, parse_qs
 # imports (`from config import ...`) keep working unchanged.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'core'))
 
-from config import (JIRA_URL, USERS, PORT, ADMIN_EMAIL, ALLOWED_DOMAIN,
+from config import (JIRA_URL, USERS, PORT, ADMIN_EMAIL, ADMIN_EMAILS, ALLOWED_DOMAIN,
                     AUTH_ENABLED, SELF_USER, PUBLIC_BASE_URL,
                     display_name, username_from_email)
 from auth import (SESSION_COOKIE, SESSION_TTL, email_from_session,
@@ -141,10 +141,10 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         """Role admin = được edit roadmap/tài liệu. Local (chưa login) -> admin (chính bạn),
         nhưng CHỈ khi request đến từ loopback (fail-closed, issue #44)."""
         email = self._user_email()
-        if not email or not ADMIN_EMAIL:
+        if not email or not ADMIN_EMAILS:
             # AUTH tắt -> admin chỉ khi loopback; AUTH bật mà chưa login -> KHÔNG phải admin.
             return (not AUTH_ENABLED) and self._is_loopback()
-        return email == ADMIN_EMAIL
+        return email in ADMIN_EMAILS
 
     def _user_ctx(self):
         """(email, is_admin) cho nav chip; None khi chưa login (local dev)."""
