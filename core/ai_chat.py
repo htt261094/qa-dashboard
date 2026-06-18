@@ -19,7 +19,6 @@ from config import (CF_ACCOUNT_ID, CF_AI_TOKEN, WORKERS_AI_MODEL,
 import bug_log_store
 
 _TIMEOUT = 60                 # 70b cold-start có thể >30s; client bỏ cuộc ở 75s
-_MAX_TOOL_ROUNDS = 4          # chặn loop vô hạn nếu LLM cứ gọi tool
 _LIST_CAP = 30                # mode=list trả tối đa bao nhiêu bug
 
 
@@ -159,14 +158,20 @@ def _log(msg):
     print(f"[chat] {msg}", file=sys.stderr, flush=True)
 
 
-def _call_llm(messages):
-    """Gọi Workers AI 1 lượt. Trả (text, tool_calls). Raise RuntimeError đã redact."""
+def _call_llm(messages, with_tools=True):
+    """Gọi Workers AI 1 lượt. Trả (text, tool_calls). Raise RuntimeError đã redact.
+
+    with_tools=False -> KHÔNG gửi `tools` => model không thể gọi tool, buộc trả text
+    (dùng ở phase 2 để ép trả lời từ kết quả, tránh re-loop)."""
     url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{WORKERS_AI_MODEL}"
+    payload = {'messages': messages}
+    if with_tools:
+        payload['tools'] = TOOLS
     t0 = time.time()
     try:
         r = requests.post(url,
                           headers={'Authorization': f'Bearer {CF_AI_TOKEN}'},
-                          json={'messages': messages, 'tools': TOOLS},
+                          json=payload,
                           timeout=_TIMEOUT)
         _log(f"Workers AI HTTP {r.status_code} sau {time.time()-t0:.1f}s")
         if r.status_code >= 400:
@@ -211,31 +216,42 @@ def ask(question, history=None):
     _log(f"Q: {q[:80]} (model={WORKERS_AI_MODEL})")
     used = []
     try:
-        for rnd in range(_MAX_TOOL_ROUNDS):
-            text, calls = _call_llm(messages)
-            _log(f"round {rnd+1}: tool_calls={[c.get('name') for c in calls]} text={(text or '')[:60]!r}")
-            if not calls:
-                _log("-> trả lời (không gọi thêm tool)")
-                return {'ok': True, 'answer': text or '(không có câu trả lời)', 'tool_calls': used}
-            # Ghi lại assistant đã yêu cầu gọi tool, rồi chèn kết quả tool.
-            messages.append({'role': 'assistant', 'content': text, 'tool_calls': calls})
-            for c in calls:
-                name = c.get('name') or ''
-                args = c.get('arguments') or c.get('parameters') or {}
-                if isinstance(args, str):
-                    try:
-                        args = json.loads(args)
-                    except ValueError:
-                        args = {}
-                fn = _DISPATCH.get(name)
-                result = fn(**args) if fn else {'error': f'không có tool {name}'}
-                used.append({'name': name, 'arguments': args})
-                messages.append({'role': 'tool', 'name': name,
-                                 'content': json.dumps(result, ensure_ascii=False)})
-        # Hết vòng mà vẫn đòi tool -> chốt 1 lượt không tool.
-        text, _ = _call_llm(messages + [{'role': 'system',
-                            'content': 'Trả lời dứt điểm từ dữ liệu đã có, không gọi thêm tool.'}])
-        return {'ok': True, 'answer': text or '(không có câu trả lời)', 'tool_calls': used}
+        # --- Phase 1: model chọn tool (có gửi `tools`) ---
+        text, calls = _call_llm(messages, with_tools=True)
+        _log(f"phase1: tool_calls={[c.get('name') for c in calls]} text={(text or '')[:60]!r}")
+        if not calls:
+            # Trả lời thẳng (hoặc từ chối) — không cần dữ liệu.
+            return {'ok': True, 'answer': text or '(không có câu trả lời)', 'tool_calls': []}
+
+        # Chạy MỌI tool model yêu cầu, gom kết quả.
+        results = []
+        for c in calls:
+            name = c.get('name') or ''
+            args = c.get('arguments') or c.get('parameters') or {}
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args)
+                except ValueError:
+                    args = {}
+            fn = _DISPATCH.get(name)
+            result = fn(**args) if fn else {'error': f'không có tool {name}'}
+            used.append({'name': name, 'arguments': args})
+            results.append({'tool': name, 'args': args, 'result': result})
+            _log(f"tool {name}({args}) -> {json.dumps(result, ensure_ascii=False)[:140]}")
+
+        # --- Phase 2: ÉP trả lời từ kết quả, KHÔNG gửi tools (tránh re-loop) ---
+        # Nhồi kết quả dạng văn bản thường: Llama trên Workers AI không hiểu role:tool
+        # ổn định nên đưa thẳng vào user turn.
+        ctx = ("Kết quả truy vấn dữ liệu bug log (do hệ thống tính, CHÍNH XÁC):\n"
+               + json.dumps(results, ensure_ascii=False)
+               + "\n\nDựa CHỈ vào kết quả trên, trả lời câu hỏi bằng tiếng Việt, ngắn gọn, "
+                 "nêu con số cụ thể. Không bịa thêm dữ liệu ngoài kết quả.")
+        final_msgs = [{'role': 'system', 'content': _SYSTEM},
+                      {'role': 'user', 'content': q},
+                      {'role': 'user', 'content': ctx}]
+        text2, _ = _call_llm(final_msgs, with_tools=False)
+        _log(f"phase2: text={(text2 or '')[:80]!r}")
+        return {'ok': True, 'answer': text2 or '(không có câu trả lời)', 'tool_calls': used}
     except RuntimeError as e:
         return {'ok': False, 'error': str(e)}
     except Exception:   # noqa: BLE001 — chặn mọi traceback rò token
