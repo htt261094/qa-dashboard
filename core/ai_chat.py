@@ -169,7 +169,16 @@ def _call_llm(messages):
                           json={'messages': messages, 'tools': TOOLS},
                           timeout=_TIMEOUT)
         _log(f"Workers AI HTTP {r.status_code} sau {time.time()-t0:.1f}s")
-        r.raise_for_status()
+        if r.status_code >= 400:
+            # Lộ lý do thật từ Cloudflare (body chứa errors) thay vì nuốt.
+            try:
+                j = r.json()
+                detail = json.dumps(j.get('errors') or j.get('messages') or j,
+                                    ensure_ascii=False)[:400]
+            except ValueError:
+                detail = (r.text or '')[:400]
+            _log(f"LỖI body: {_redact(detail)}")
+            raise RuntimeError(_redact(f"Workers AI HTTP {r.status_code}: {detail}"))
         body = r.json()
     except requests.RequestException as e:
         _log(f"LỖI gọi Workers AI sau {time.time()-t0:.1f}s: {_redact(str(e))}")
