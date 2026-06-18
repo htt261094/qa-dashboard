@@ -6,6 +6,7 @@ Cây = list các node. Mỗi node là:
 Edit thật diễn ra ở Google (click link mở tab mới); workspace chỉ giữ đường dẫn + tổ chức.
 """
 import json
+import re
 
 from config import DOCS_FILE, atomic_write
 from remote_store import synced_load, synced_save
@@ -13,6 +14,13 @@ from remote_store import synced_load, synced_save
 DOCS_PROP = 'qa-dashboard-docs'  # Jira user property = kho sync chéo máy
 
 MAX_NODES = 2000  # chặn payload quá lớn / cây lồng vô hạn
+
+# Chỉ cho http(s) hoặc file đã upload local; chặn javascript:/data: (stored XSS — issue #46)
+_URL_OK = re.compile(r'^(https?://|/uploads/)', re.IGNORECASE)
+
+
+def _url_ok(url):
+    return url == '' or bool(_URL_OK.match(url))
 
 DOCS_DEFAULT = [
     {'type': 'folder', 'name': 'Training QA', 'children': [
@@ -30,7 +38,9 @@ def _valid_node(node, budget):
     t = node.get('type')
     if t == 'link':
         name_or_title = node.get('name') if 'name' in node else node.get('title')
-        return isinstance(name_or_title, str) and isinstance(node.get('url', ''), str)
+        url = node.get('url', '')
+        return (isinstance(name_or_title, str) and isinstance(url, str)
+                and _url_ok(url))
     if t == 'folder':
         children = node.get('children')
         return (isinstance(node.get('name', ''), str) and isinstance(children, list)
