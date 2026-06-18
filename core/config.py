@@ -37,26 +37,32 @@ TC_FILE = SCRIPT_DIR / '.tc_config.json'                   # test case folders +
 def atomic_write(path, text, encoding='utf-8'):
     """Ghi text xuống `path` atomic: ghi `*.tmp` CÙNG THƯ MỤC rồi os.replace.
     os.replace là atomic trên cùng filesystem (cả Windows lẫn macOS) → kill process
-    đúng lúc ghi sẽ KHÔNG để lại file JSON cụt (state hỏng câm). Nuốt OSError như cũ,
-    dọn tmp nếu lỗi. Trả True nếu ghi xong, False nếu lỗi.
-
-    Tmp name DUY NHẤT theo pid+thread (issue #129): dưới ThreadingHTTPServer, 2 thread
-    cùng ghi 1 path không được dùng chung 1 `.tmp` (thread A đang ghi, thread B os.replace
-    nửa chừng → torn). Mỗi writer 1 tmp riêng → os.replace của ai người nấy atomic,
-    last-writer-wins ở mức file hoàn chỉnh (không bao giờ cụt)."""
+    đúng lúc ghi sẽ KHÔNG để lại file JSON cụt (state hỏng câm). Có retry nếu bị lock.
+    Trả True nếu ghi xong, False nếu lỗi.
+    """
+    import time
     path = Path(path)
     tmp = path.with_name(f'{path.name}.{os.getpid()}.{threading.get_ident():x}.tmp')
     try:
         tmp.write_text(text, encoding=encoding)
-        os.replace(tmp, path)
-        return True
-    except OSError:
-        try:
-            if tmp.exists():
-                tmp.unlink()
-        except OSError:
-            pass
+    except OSError as e:
+        print(f"[ERROR] atomic_write failed to write tmp {path}: {e}", file=sys.stderr)
         return False
+
+    for _ in range(5):
+        try:
+            os.replace(tmp, path)
+            return True
+        except OSError:
+            time.sleep(0.1)
+
+    try:
+        print(f"[ERROR] atomic_write failed to replace {path} after retries", file=sys.stderr)
+        if tmp.exists():
+            tmp.unlink()
+    except OSError:
+        pass
+    return False
 
 
 # ----- Domain constants -----

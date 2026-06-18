@@ -16,6 +16,7 @@ def render_roadmap_v2(data, editable=True, user=None, activities=None):
     top_actions = ''
     if editable:
         top_actions = '''<div class="rm-top-actions">
+            <button class="btn-sec" id="rmShareBtn" onclick="if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(window.location.origin + '/public/roadmap').then(function(){ toast('Đã copy link chia sẻ roadmap', true); }).catch(function(){ prompt('Link chia sẻ roadmap:', window.location.origin + '/public/roadmap'); }); } else { prompt('Link chia sẻ roadmap:', window.location.origin + '/public/roadmap'); }"><span class="material-symbols-rounded mi-sm">share</span> Chia sẻ</button>
             <button class="btn-sec" id="rmToggleMode"><span class="material-symbols-rounded mi-sm">edit</span> Bật chỉnh sửa</button>
             <button class="btn-pri" id="rmAddPlan" style="display:none;"><span class="material-symbols-rounded mi-sm">add_circle</span> Thêm kế hoạch</button>
         </div>'''
@@ -52,3 +53,35 @@ def render_roadmap_v2(data, editable=True, user=None, activities=None):
         + _json_script('rmMeta', rm_meta)
     )
     return _document_v2(content, 'roadmap', user, activities or [], title='Roadmap QA Team')
+
+
+def render_public_roadmap_v2(data):
+    from render.shell import _document_public_v2
+    seg = (
+        '<div class="rm-filter"><div class="seg" id="rmSeg">'
+        '<button class="active" data-f="all">Tất cả</button>'
+        '<button data-f="in_progress">Đang thực hiện</button>'
+        '<button data-f="planned">Sắp tới</button>'
+        '<button data-f="done">Hoàn thành</button>'
+        '</div></div>'
+    )
+    modal = (
+        '<div class="overlay" id="modalOverlay" style="display:none">'
+        '<div class="modal">'
+        '<div class="modal-head"><span class="material-symbols-rounded" id="modalIcon">edit</span>'
+        '<h3 id="modalTitle">Sửa</h3>'
+        '<button type="button" class="x material-symbols-rounded" id="modalClose">close</button></div>'
+        '<div class="modal-body" id="modalBody"></div>'
+        '<div class="modal-foot"><button type="button" class="btn btn-ghost" id="modalCancel">Huỷ</button>'
+        '<button type="button" class="btn btn-primary" id="modalSave">Lưu</button></div>'
+        '</div></div>'
+    )
+    rm_meta = {'editable': False, 'statuses': RM_STATUSES, 'people': RM_PEOPLE}
+    content = (
+        seg
+        + '<div class="rm-list" id="rmList2"></div>'
+        + modal
+        + _json_script('rmData', data or [])
+        + _json_script('rmMeta', rm_meta)
+    )
+    return _document_public_v2(content, title='Roadmap QA Team')

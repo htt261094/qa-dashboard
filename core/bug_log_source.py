@@ -62,7 +62,7 @@ def _read_cache():
 
 
 def _write_cache(data):
-    atomic_write(BUG_LOG_SOURCE_FILE, json.dumps(data, ensure_ascii=False, indent=2))
+    return atomic_write(BUG_LOG_SOURCE_FILE, json.dumps(data, ensure_ascii=False, indent=2))
 
 
 def load_sources():

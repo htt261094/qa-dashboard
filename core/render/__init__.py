@@ -28,7 +28,7 @@ from render.dashboard import (render_page, _bug_metrics_payload,
 from render.docs import render_docs_page
 # Roadmap v2 (tab /roadmap) tách sang render.roadmap; re-export để chỗ gọi
 # (qa_dashboard.py) không phải đổi import. See issue #108 / #86.
-from render.roadmap import render_roadmap_v2
+from render.roadmap import render_roadmap_v2, render_public_roadmap_v2
 # Bug Log v2 (tab /bug-log) tách sang render.bug_log; re-export để chỗ gọi
 # (qa_dashboard.py) không phải đổi import. See issue #109 / #86.
 from render.bug_log import render_bug_log_v2, _bug_log_source_modals

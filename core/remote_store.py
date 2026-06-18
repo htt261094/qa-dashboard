@@ -335,18 +335,23 @@ def synced_save(key, data, write_cache, validate=None):
     local (kể cả khi remote lỗi -> đánh dirty, flush sau). False chỉ khi validate fail."""
     if validate and not validate(data):
         return False
-    write_cache(data)
+    local_ok = write_cache(data)
+    if local_ok is None:
+        local_ok = True  # backward compatibility cho hàm cũ chưa return
+        
     _flush_deletes()
     h = _hash(data)
     # Dedupe: data y hệt bản đã đẩy + không dirty -> KV đã có rồi, KHỎI PUT (tiết kiệm quota).
     if not _is_dirty(key) and _get_hash(key) == h:
-        _mark_pulled(key)
+        if local_ok:
+            _mark_pulled(key)
         return True
     try:
         _remote_put(key, data)
         _mark(key, dirty=False)
         _set_hash(key, h)
-        _mark_pulled(key)  # local == remote ngay sau ghi -> khỏi pull lại trong TTL
+        if local_ok:
+            _mark_pulled(key)  # local == remote ngay sau ghi -> khỏi pull lại trong TTL
     except RuntimeError:
         _mark(key, dirty=True)
     return True

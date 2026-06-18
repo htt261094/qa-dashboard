@@ -37,7 +37,7 @@ def _read_cache():
 
 
 def _write_cache(data):
-    atomic_write(BUG_TASK_LINK_FILE, json.dumps(data, ensure_ascii=False, indent=2))
+    return atomic_write(BUG_TASK_LINK_FILE, json.dumps(data, ensure_ascii=False, indent=2))
 
 
 def _empty():
