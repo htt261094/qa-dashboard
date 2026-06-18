@@ -7,6 +7,7 @@ Run: python qa_dashboard.py
 """
 import http.server
 from http.server import ThreadingHTTPServer
+import ipaddress
 import json
 import sys
 import os
@@ -90,10 +91,30 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             return email
         return (self.headers.get('Cf-Access-Authenticated-User-Email') or '').strip().lower()
 
+    def _is_loopback(self):
+        """TCP peer của request có phải loopback (127.0.0.0/8 hoặc ::1) không.
+
+        Dùng self.client_address[0] = địa chỉ THẬT của socket, KHÔNG phải header
+        (X-Forwarded-For/Host bịa được; peer TCP thì không). Là ranh giới tin cậy
+        khi AUTH tắt (issue #44): không login => chỉ máy local mới được coi là chính chủ."""
+        try:
+            ip = ipaddress.ip_address(self.client_address[0])
+        except (ValueError, IndexError, TypeError):
+            return False
+        # IPv4-mapped IPv6 (::ffff:127.0.0.1) -> quy về IPv4 để bắt loopback đúng.
+        mapped = getattr(ip, 'ipv4_mapped', None)
+        if mapped is not None:
+            ip = mapped
+        return ip.is_loopback
+
     def _authed(self):
-        """Request có được phép vào không. AUTH tắt -> luôn True (local dev)."""
+        """Request có được phép vào không.
+
+        AUTH tắt (local dev) -> CHỈ cho loopback (fail-closed, issue #44): quên set
+        GOOGLE_* hay bind nhầm 0.0.0.0 thì máy ngoài KHÔNG tự động thành admin.
+        AUTH bật -> phải có email từ session/header."""
         if not AUTH_ENABLED:
-            return True
+            return self._is_loopback()
         return bool(self._user_email())
 
     def _maybe_refresh_session(self):
@@ -117,10 +138,12 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         return email.endswith('@' + ALLOWED_DOMAIN)
 
     def _is_admin(self):
-        """Role admin = được edit roadmap/tài liệu. Local (chưa login) -> admin (chính bạn)."""
+        """Role admin = được edit roadmap/tài liệu. Local (chưa login) -> admin (chính bạn),
+        nhưng CHỈ khi request đến từ loopback (fail-closed, issue #44)."""
         email = self._user_email()
         if not email or not ADMIN_EMAIL:
-            return not AUTH_ENABLED  # AUTH bật mà chưa login -> KHÔNG phải admin
+            # AUTH tắt -> admin chỉ khi loopback; AUTH bật mà chưa login -> KHÔNG phải admin.
+            return (not AUTH_ENABLED) and self._is_loopback()
         return email == ADMIN_EMAIL
 
     def _user_ctx(self):
@@ -269,6 +292,11 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         # Dispatch mỏng: gate auth/domain rồi route tới method _get_* / _do_*.
         # Giữ NGUYÊN thứ tự kiểm tra path (zero behavior change — B0/#111).
         path = urlparse(self.path).path
+        # Fail-closed (issue #44): AUTH tắt => toàn server chỉ phục vụ loopback. Request
+        # từ máy khác (quên set GOOGLE_*, bind nhầm, đổi tunnel) -> 403 thay vì thành admin.
+        if not AUTH_ENABLED and not self._is_loopback():
+            self._forbidden()
+            return
         if path == '/login':
             self._do_login()
             return
@@ -679,6 +707,7 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
     def do_POST(self):
         # Dispatch mỏng: gate auth/domain rồi route tới method _post_* / _handle_*.
         # Giữ NGUYÊN thứ tự kiểm tra path (zero behavior change — B0b/#112).
+        # Fail-closed (issue #44): AUTH tắt + không loopback -> 403 (đã gộp trong _authed).
         if not self._authed() or not self._domain_ok():
             self._json(403, b'{"ok":false,"err":"forbidden"}')
             return
@@ -1084,6 +1113,9 @@ def main():
     print(f"  Jira:      {JIRA_URL}")
     print(f"  Tracking:  {', '.join(display_name(u) for u in USERS)}")
     print(f"  Workspace: http://localhost:{PORT}/")
+    if not AUTH_ENABLED:
+        print("  ⚠  AUTH TẮT (chưa set GOOGLE_CLIENT_ID/SECRET) — chỉ phục vụ", file=sys.stderr)
+        print("     loopback (127.0.0.1). Mọi request local = ADMIN. KHÔNG expose ra ngoài.", file=sys.stderr)
     print("  Ctrl+C để stop\n")
 
     start_bug_log_scheduler()   # daemon thread poll Drive 10p (no-op nếu chưa kết nối Drive)
