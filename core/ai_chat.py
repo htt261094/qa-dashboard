@@ -193,11 +193,16 @@ _SYSTEM = (
     "Bạn là trợ lý nội bộ của team QA Bảo Kim, trả lời bằng TIẾNG VIỆT, ngắn gọn. "
     "Bạn CHỈ trả lời câu hỏi về bug log QA (số lượng bug, bug theo dev/QA/severity/status/dự án/tháng). "
     "Quy tắc BẮT BUỘC:\n"
-    "1. Mọi con số PHẢI lấy từ kết quả tool query_bugs. TUYỆT ĐỐI không tự bịa hay ước lượng số.\n"
-    "2. Nếu không tool nào trả lời được câu hỏi, nói thẳng: 'Mình chưa hỗ trợ câu hỏi này.' — đừng đoán.\n"
-    "3. Câu hỏi ngoài phạm vi bug log (chuyện phiếm, viết email...) -> từ chối lịch sự.\n"
-    "4. Trả lời dựa đúng vào con số tool trả về, nêu rõ bộ lọc đã dùng nếu cần."
+    "1. Bạn CHỈ có DUY NHẤT 1 tool tên 'query_bugs'. KHÔNG có tool nào khác — TUYỆT ĐỐI không "
+    "gọi/bịa tên tool khác (vd get_day_of_week, search...).\n"
+    "2. Câu hỏi KHÔNG liên quan bug log (hôm nay thứ mấy, thời tiết, viết email, task Jira...) "
+    "-> KHÔNG gọi tool, trả lời thẳng bằng text: 'Mình chỉ hỗ trợ câu hỏi về bug log.'\n"
+    "3. Mọi con số PHẢI lấy từ kết quả tool query_bugs. TUYỆT ĐỐI không tự bịa hay ước lượng số.\n"
+    "4. Trả lời dựa đúng vào con số tool trả về."
 )
+
+_REFUSAL = ("Mình chỉ hỗ trợ câu hỏi về số liệu bug log — số lượng bug theo dev, QA, "
+            "mức độ, trạng thái, dự án hoặc tháng. Câu này mình chưa làm được.")
 
 
 # ===== Provider: Cloudflare Workers AI (điểm SWAP duy nhất) =====
@@ -270,7 +275,7 @@ def ask(question, history=None):
             # Trả lời thẳng (hoặc từ chối) — không cần dữ liệu.
             return {'ok': True, 'answer': text or '(không có câu trả lời)', 'tool_calls': []}
 
-        # Chạy MỌI tool model yêu cầu, gom kết quả.
+        # Chạy MỌI tool HỢP LỆ model yêu cầu, gom kết quả. Tool lạ (model bịa) -> bỏ qua.
         results = []
         for c in calls:
             name = c.get('name') or ''
@@ -281,10 +286,18 @@ def ask(question, history=None):
                 except ValueError:
                     args = {}
             fn = _DISPATCH.get(name)
-            result = fn(**args) if fn else {'error': f'không có tool {name}'}
+            if not fn:
+                _log(f"BỎ QUA tool không tồn tại (model bịa): {name}")
+                continue
+            result = fn(**args)
             used.append({'name': name, 'arguments': args})
             results.append({'tool': name, 'args': args, 'result': result})
             _log(f"tool {name}({args}) -> {json.dumps(result, ensure_ascii=False)[:140]}")
+
+        # Model chỉ gọi tool bịa / không tool hợp lệ -> từ chối gọn (đừng hiện lỗi kỹ thuật).
+        if not results:
+            _log("-> không có tool hợp lệ, từ chối")
+            return {'ok': True, 'answer': _REFUSAL, 'tool_calls': []}
 
         # --- Phase 2: render câu trả lời bằng PYTHON (không gọi LLM lần 2) ---
         # Cắt 1 round-trip 70b -> nhanh ~gấp đôi + số chính xác, không bịa.
