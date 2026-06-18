@@ -9,6 +9,8 @@ Provider SWAP-ĐƯỢC: chỉ `_call_llm()` chạm Cloudflare Workers AI. Đổi
 sau = sửa 1 hàm này, phần tool + loop giữ nguyên.
 """
 import json
+import sys
+import time
 
 import requests
 
@@ -153,17 +155,24 @@ _SYSTEM = (
 
 
 # ===== Provider: Cloudflare Workers AI (điểm SWAP duy nhất) =====
+def _log(msg):
+    print(f"[chat] {msg}", file=sys.stderr, flush=True)
+
+
 def _call_llm(messages):
     """Gọi Workers AI 1 lượt. Trả (text, tool_calls). Raise RuntimeError đã redact."""
     url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{WORKERS_AI_MODEL}"
+    t0 = time.time()
     try:
         r = requests.post(url,
                           headers={'Authorization': f'Bearer {CF_AI_TOKEN}'},
                           json={'messages': messages, 'tools': TOOLS},
                           timeout=_TIMEOUT)
+        _log(f"Workers AI HTTP {r.status_code} sau {time.time()-t0:.1f}s")
         r.raise_for_status()
         body = r.json()
     except requests.RequestException as e:
+        _log(f"LỖI gọi Workers AI sau {time.time()-t0:.1f}s: {_redact(str(e))}")
         raise RuntimeError(_redact(f"Lỗi gọi Workers AI: {e}")) from None
     except ValueError:
         raise RuntimeError("Workers AI trả về không phải JSON.") from None
@@ -190,11 +199,14 @@ def ask(question, history=None):
     messages.extend(history or [])
     messages.append({'role': 'user', 'content': q})
 
+    _log(f"Q: {q[:80]} (model={WORKERS_AI_MODEL})")
     used = []
     try:
-        for _ in range(_MAX_TOOL_ROUNDS):
+        for rnd in range(_MAX_TOOL_ROUNDS):
             text, calls = _call_llm(messages)
+            _log(f"round {rnd+1}: tool_calls={[c.get('name') for c in calls]} text={(text or '')[:60]!r}")
             if not calls:
+                _log("-> trả lời (không gọi thêm tool)")
                 return {'ok': True, 'answer': text or '(không có câu trả lời)', 'tool_calls': used}
             # Ghi lại assistant đã yêu cầu gọi tool, rồi chèn kết quả tool.
             messages.append({'role': 'assistant', 'content': text, 'tool_calls': calls})

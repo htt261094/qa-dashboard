@@ -3825,13 +3825,19 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     add('user', q); history.push({role:'user', content:q});
     input.value=''; input.disabled=true; send.disabled=true;
     var typing=document.createElement('div');
-    typing.className='chat-typing'; typing.textContent='Đang nghĩ...';
+    typing.className='chat-typing'; typing.textContent='Đang nghĩ... (0s)';
     body.appendChild(typing); scroll();
+    var t0=Date.now();
+    var tick=setInterval(function(){
+      typing.textContent='Đang nghĩ... ('+Math.round((Date.now()-t0)/1000)+'s)'; scroll();
+    }, 1000);
+    var ctrl=new AbortController();
+    var killer=setTimeout(function(){ ctrl.abort(); }, 75000);   // 75s -> bỏ cuộc
     fetch('/chat', { method:'POST', headers:{'Content-Type':'application/json'},
+      signal: ctrl.signal,
       body: JSON.stringify({ question:q, history:history.slice(0,-1) }) })
       .then(function(r){ return r.json(); })
       .then(function(j){
-        typing.remove();
         if(j && j.ok){
           if(j.tool_calls && j.tool_calls.length) addTool(j.tool_calls);
           add('bot', j.answer||'(không có câu trả lời)');
@@ -3840,8 +3846,15 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
           add('err', (j && j.error) || 'Lỗi không xác định.');
         }
       })
-      .catch(function(){ typing.remove(); add('err', 'Lỗi kết nối tới server.'); })
-      .then(function(){ input.disabled=false; send.disabled=false; input.focus(); });
+      .catch(function(e){
+        add('err', e&&e.name==='AbortError'
+          ? 'Quá 75s không phản hồi — Workers AI chậm hoặc đang loop. Thử lại / xem log server.'
+          : 'Lỗi kết nối tới server.');
+      })
+      .then(function(){
+        clearInterval(tick); clearTimeout(killer); typing.remove();
+        input.disabled=false; send.disabled=false; input.focus();
+      });
   });
 })();
 
