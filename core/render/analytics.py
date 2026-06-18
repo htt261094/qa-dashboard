@@ -85,13 +85,13 @@ def render_analytics_v2(data, user=None, activities=None, testcases=None, links=
         # ----- KPI Valid Bug Rate -----
         '<div class="card metric-card" style="margin-top:24px;">'
         '<div class="metric-header">'
-        '<div class="table-title"><span>Valid Bug Rate — tỷ lệ bug hợp lệ đã đóng (Tháng)</span></div>'
+        '<div class="table-title"><span>Valid & Rejected Bug Rate (Tháng)</span></div>'
         '<div class="metric-filter"><span class="material-symbols-rounded mi-sm">calendar_month</span> '
         '<select id="anValidMonth"></select></div>'
         '</div>'
-        '<div class="an-valid" id="anValidBox"></div>'
-        '<div class="bl-reopen-note">Valid Bug Rate = Closed / (Tổng bug − Reject). '
-        'Bug bị Reject coi như không hợp lệ nên loại khỏi mẫu số.</div>'
+        '<div class="an-valid" id="anValidBox" style="display:flex; gap:32px;"></div>'
+        '<div class="bl-reopen-note">Valid Bug Rate = Closed / (Tổng bug − Reject) · Rejected Bug Rate = Reject / Tổng bug. '
+        'Bug bị Reject coi như không hợp lệ nên loại khỏi mẫu số của Valid Bug Rate.</div>'
         '</div>'
 
         # ----- metrics row: bar chart + reopen table -----
