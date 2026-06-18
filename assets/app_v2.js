@@ -2936,13 +2936,27 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     }
     var pct = denom > 0 ? (closed/denom*100) : null;
     var pctDisp = pct === null ? '—' : (pct%1===0 ? pct.toFixed(0) : pct.toFixed(1)) + '%';
+    var rejPct = total > 0 ? (reject/total*100) : 0;
+    var rejDisp = (rejPct%1===0 ? rejPct.toFixed(0) : rejPct.toFixed(1)) + '%';
+
     validBox.innerHTML =
-      '<div class="an-valid-main"><span class="an-valid-pct">'+pctDisp+'</span>'
+      '<div style="flex:1;">'
+      + '<div class="an-valid-main"><span class="an-valid-pct">'+pctDisp+'</span>'
       + '<span class="an-valid-cap">bug hợp lệ đã đóng</span></div>'
       + '<div class="an-valid-break">'
       +   '<div class="an-stat"><span class="an-stat-n">'+closed+'</span><span class="an-stat-l">Closed</span></div>'
       +   '<div class="an-stat-op">/</div>'
       +   '<div class="an-stat"><span class="an-stat-n">'+denom+'</span><span class="an-stat-l">Tổng '+total+' − Reject '+reject+'</span></div>'
+      + '</div>'
+      + '</div>'
+      + '<div style="flex:1; border-left:1px solid var(--outline-variant); padding-left:32px;">'
+      + '<div class="an-valid-main"><span class="an-valid-pct">'+rejDisp+'</span>'
+      + '<span class="an-valid-cap">tỷ lệ Reject</span></div>'
+      + '<div class="an-valid-break">'
+      +   '<div class="an-stat"><span class="an-stat-n">'+reject+'</span><span class="an-stat-l">Reject</span></div>'
+      +   '<div class="an-stat-op">/</div>'
+      +   '<div class="an-stat"><span class="an-stat-n">'+total+'</span><span class="an-stat-l">Tổng số Bug</span></div>'
+      + '</div>'
       + '</div>';
   }
 
