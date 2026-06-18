@@ -122,6 +122,53 @@ TOOLS = [{
 
 _DISPATCH = {'query_bugs': query_bugs}
 
+_FILTER_LBL = {'dev': 'dev', 'qa': 'QA', 'severity': 'mức', 'status': 'trạng thái',
+               'project': 'dự án', 'month': 'tháng'}
+
+
+def _filter_phrase(flt):
+    """{'project':'DA6','status':'Reopen'} -> ' (dự án: DA6, trạng thái: Reopen)'."""
+    parts = [f"{_FILTER_LBL.get(k, k)}: {v}" for k, v in (flt or {}).items()]
+    return f" ({', '.join(parts)})" if parts else ''
+
+
+def _render_answer(results):
+    """Dựng câu trả lời tiếng Việt TỪ kết quả tool bằng Python (không cần LLM lần 2).
+    Số do code tính -> tức thì + không bịa. results = [{tool,args,result}, ...]."""
+    out = []
+    for r in results:
+        res = r.get('result') or {}
+        if r.get('tool') != 'query_bugs' or 'error' in res:
+            out.append(str(res.get('error') or 'Không có dữ liệu.'))
+            continue
+        flt = _filter_phrase(res.get('filters'))
+        if 'groups' in res:                       # mode=group
+            g = res['groups']
+            if not g:
+                out.append(f"Không có bug nào{flt}.")
+            else:
+                top = g[0]
+                line = f"Nhiều bug nhất{flt}: {top['dev']} ({top['count']} bug)."
+                if len(g) > 1:
+                    rest = ', '.join(f"{x['dev']} ({x['count']})" for x in g[1:5])
+                    line += f" Tiếp theo: {rest}."
+                line += f" Tổng {res.get('total', 0)} bug."
+                out.append(line)
+        elif 'bugs' in res:                        # mode=list
+            n, shown = res.get('count', 0), res.get('shown', 0)
+            head = f"Tìm thấy {n} bug{flt}."
+            if res['bugs']:
+                items = '\n'.join(
+                    f"• {b.get('project')}-{b.get('bug_no')}: {b.get('summary') or ''}"
+                    f" [{b.get('severity') or '?'}/{b.get('status') or '?'}]"
+                    for b in res['bugs'])
+                head += (f" Hiện {shown}:\n{items}" if shown < n
+                         else f"\n{items}")
+            out.append(head)
+        else:                                      # mode=count
+            out.append(f"Có {res.get('count', 0)} bug{flt}.")
+    return '\n\n'.join(out) if out else '(không có dữ liệu)'
+
 
 def _data_hint():
     """Từ điển giá trị THẬT trong bug log -> nhồi vào prompt để model lọc đúng
@@ -239,19 +286,11 @@ def ask(question, history=None):
             results.append({'tool': name, 'args': args, 'result': result})
             _log(f"tool {name}({args}) -> {json.dumps(result, ensure_ascii=False)[:140]}")
 
-        # --- Phase 2: ÉP trả lời từ kết quả, KHÔNG gửi tools (tránh re-loop) ---
-        # Nhồi kết quả dạng văn bản thường: Llama trên Workers AI không hiểu role:tool
-        # ổn định nên đưa thẳng vào user turn.
-        ctx = ("Kết quả truy vấn dữ liệu bug log (do hệ thống tính, CHÍNH XÁC):\n"
-               + json.dumps(results, ensure_ascii=False)
-               + "\n\nDựa CHỈ vào kết quả trên, trả lời câu hỏi bằng tiếng Việt, ngắn gọn, "
-                 "nêu con số cụ thể. Không bịa thêm dữ liệu ngoài kết quả.")
-        final_msgs = [{'role': 'system', 'content': _SYSTEM},
-                      {'role': 'user', 'content': q},
-                      {'role': 'user', 'content': ctx}]
-        text2, _ = _call_llm(final_msgs, with_tools=False)
-        _log(f"phase2: text={(text2 or '')[:80]!r}")
-        return {'ok': True, 'answer': text2 or '(không có câu trả lời)', 'tool_calls': used}
+        # --- Phase 2: render câu trả lời bằng PYTHON (không gọi LLM lần 2) ---
+        # Cắt 1 round-trip 70b -> nhanh ~gấp đôi + số chính xác, không bịa.
+        answer = _render_answer(results)
+        _log(f"phase2(python): {answer[:80]!r}")
+        return {'ok': True, 'answer': answer, 'tool_calls': used}
     except RuntimeError as e:
         return {'ok': False, 'error': str(e)}
     except Exception:   # noqa: BLE001 — chặn mọi traceback rò token
