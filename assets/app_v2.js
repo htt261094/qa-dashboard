@@ -5,7 +5,8 @@
 
 // ---------- helpers ----------
 function esc(s){ return (s==null?'':String(s))
-  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+  .replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 function $(id){ return document.getElementById(id); }
 function readJSON(id){ var el=$(id); if(!el) return null; try{ return JSON.parse(el.textContent); }catch(e){ return null; } }
 // Write cần Jira -> chặn khi đang xem snapshot OFFLINE (window.__stale). /set-custom-status
@@ -1546,7 +1547,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       var actCol = EDIT ? '<td class="action-col" onclick="event.stopPropagation()">' +
           '<button class="action-btn material-symbols-rounded" onclick="openContextMenu(event, \'' + esc(d.id) + '\')">more_vert</button>' +
         '</td>' : '';
-      return '<tr onclick="window.open(\'' + esc(d.url) + '\', \'_blank\')">' +
+      return '<tr class="doc-row" data-url="' + esc(d.url) + '">' +
         '<td>' +
           '<div class="file-name-cell">' +
             '<span class="file-icon-wrapper ' + esc(fileData.cls) + '">' +
@@ -1559,6 +1560,20 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
         actCol +
       '</tr>';
     }).join('');
+  }
+
+  // Chỉ mở link an toàn (chặn javascript:/data: kể cả khi lọt qua validate server)
+  function safeDocUrl(u){ return /^(https?:\/\/|\/uploads\/)/i.test(u||'') ? u : null; }
+
+  // Mở link tài liệu qua delegated listener (KHÔNG inline onclick -> không chèn JS qua url)
+  var docTbody = $('docTableBody');
+  if (docTbody) {
+    docTbody.addEventListener('click', function(e) {
+      var row = e.target.closest('.doc-row');
+      if (!row) return;
+      var u = safeDocUrl(row.getAttribute('data-url'));
+      if (u) window.open(u, '_blank');
+    });
   }
 
   // Search input binding
@@ -1646,7 +1661,8 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
 
   window.openLink = function() {
     var doc = findFileById(DOC_TREE, contextMenuSelectedId);
-    if (doc) window.open(doc.url, '_blank');
+    var u = doc && safeDocUrl(doc.url);
+    if (u) window.open(u, '_blank');
   };
 
   window.copyDocLink = function() {
