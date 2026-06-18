@@ -332,6 +332,14 @@ Hiền THƯỜNG là reporter trong các task QA team được giao — vì cô 
 - **Giới hạn**: không tái tạo số dội thật trước khi theo dõi (dội 3 lần → hiện 1); bug đã rời Reopen (Closed) trước khi seed thì không bắt. Note dưới bảng sửa lại cho khớp ("Bug đang ở Reopen được tính tối thiểu 1 lần...").
 - **Verify** (không mạng): `py_compile` bug_log_store + render/bug_log OK; unit-test seed Reopen-only + idempotent + KHÔNG double với transition + transition tăng tiếp sau seed; chạy trên `.bug_log.json` thật → seed 18 entry (đúng 6 bug DA6 28/57/59/63/64/65 + DA5/ERP/VĐT).
 
+### 31. AUTH tắt = fail-closed (loopback-only) thay vì fail-open admin (2026-06-18, issue #44)
+- **Bối cảnh / vì sao**: khi `AUTH_ENABLED=False` (chưa set `GOOGLE_CLIENT_ID/SECRET` — local dev, hoặc LỠ quên lúc golive), code cũ cho MỌI request là admin (`_authed`/`_is_admin` trả True vô điều kiện). Mô hình an toàn dựa HOÀN TOÀN vào "bind 127.0.0.1 + chỉ cloudflared+OAuth phía trước"; chỉ 1 sai lệch (quên creds, bind nhầm 0.0.0.0, chạy máy khác, đổi tunnel) là rơi về "ai chạm port cũng là admin" — fail-**open**, không lớp chặn thứ 2.
+- **Đổi = fail-closed theo loopback**: AUTH tắt → CHỈ request từ loopback (`127.0.0.0/8` hoặc `::1`) mới được coi là chính chủ/admin; request từ máy khác → **403**. AUTH bật → giữ nguyên (phải có email session/header).
+- **Tín hiệu tin cậy = `self.client_address[0]`** (peer TCP thật), KHÔNG phải header `X-Forwarded-For`/`Host` (client bịa được; peer TCP thì không). Helper `_is_loopback()` dùng `ipaddress.ip_address(...).is_loopback`, quy `::ffff:127.0.0.1` (IPv4-mapped) về IPv4 trước khi check.
+- **Wiring** (`qa_dashboard.py`): `_authed()` AUTH-tắt → `return self._is_loopback()` (thay `True`); `_is_admin()` nhánh no-email → `(not AUTH_ENABLED) and self._is_loopback()`; gate đầu `do_GET` (`if not AUTH_ENABLED and not _is_loopback(): _forbidden()` — 403 cứng cho cả `/login` vì login bất khả khi AUTH tắt) + `do_POST` (qua `_authed()`). `main()` in cảnh báo to lúc khởi động khi AUTH tắt.
+- **KHÔNG đổi**: server vẫn bind `127.0.0.1` (mitigation lớp 1 vẫn còn); local dev loopback giữ nguyên trải nghiệm admin. Đây là **defense-in-depth lớp 2** — nếu lớp 1 sai (bind 0.0.0.0) thì loopback-check vẫn chặn. Chưa làm item #3 issue (verify JWT `Cf-Access-Jwt-Assertion`) — fallback header CF vẫn header-trust, nhưng prod đi qua OAuth session là chính.
+- **Verify** (không mạng): `py_compile` OK; `_is_loopback` đúng cho `127.0.0.1`/`::1`/`::ffff:127.0.0.1`=True, `192.168.*`/`10.*`/`0.0.0.0`/rác=False; với AUTH tắt giả lập → loopback `authed=admin=True`, non-loopback `authed=admin=False`.
+
 ## Issue Tracking & Branch Workflow (QUAN TRỌNG cho Claude Code)
 
 **Quy ước user (áp dụng MẶC ĐỊNH, không hỏi lại):**
