@@ -132,6 +132,22 @@ function toast(msg, ok){ var el=$('toast'); if(!el) return; el.textContent=msg;
   function close(){ panel.classList.remove('open'); fab.classList.remove('open'); fabIc.textContent='smart_toy'; }
   function autoGrow(){ inp.style.height='auto'; inp.style.height=Math.min(120, inp.scrollHeight)+'px'; }
 
+  // Scrape nội dung tab đang mở: text hiển thị của khối `.content` (+ tiêu đề tab) gửi
+  // kèm câu hỏi làm context -> hỏi "trang này", "bảng trên màn hình" model đọc được.
+  function scrapePage(){
+    try{
+      var el=document.querySelector('.content'); if(!el) return '';
+      var t=(el.innerText||el.textContent||'').replace(/[ \t]+\n/g,'\n').replace(/\n{3,}/g,'\n\n').trim();
+      if(!t) return '';
+      if(t.length>6000) t=t.slice(0,6000)+'\n…(đã cắt bớt)';
+      var nav=document.querySelector('.sidebar a.active'), tab='';
+      if(nav){ var c=nav.cloneNode(true), ic=c.querySelector('.material-symbols-rounded');
+        if(ic) ic.remove(); tab=(c.innerText||c.textContent||'').trim(); }
+      if(!tab) tab=(document.title||'').trim();
+      return (tab? 'Tab: '+tab+'\n\n':'')+t;
+    }catch(e){ return ''; }
+  }
+
   function send(){
     var text=(inp.value||'').trim();
     if(!text || busy) return;
@@ -142,7 +158,7 @@ function toast(msg, ok){ var el=$('toast'); if(!el) return; el.textContent=msg;
     busy=true; sendBtn.disabled=true;
     var tp=typing(), botDiv=null, acc='';
     fetch('/chat', {method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({messages: history.slice(-16)})})
+        body: JSON.stringify({messages: history.slice(-16), page: scrapePage()})})
     .then(function(r){
       if(!r.ok || !r.body) throw new Error('http '+r.status);
       var reader=r.body.getReader(), dec=new TextDecoder();

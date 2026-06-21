@@ -145,8 +145,12 @@ except ValueError:
 # Browser nói chuyện với app (đã qua OAuth/domain gate), app stream tiếp sang Ollama.
 # Bỏ trống OLLAMA_MODEL = tắt tính năng chatbot (widget không render).
 OLLAMA_URL = (CFG.get('OLLAMA_URL') or 'http://localhost:11434').rstrip('/')
-OLLAMA_MODEL = CFG.get('OLLAMA_MODEL', 'gemma4:e4b-it-qat').strip()
+OLLAMA_MODEL = CFG.get('OLLAMA_MODEL', 'gemma4:12b').strip()
 CHAT_ENABLED = bool(OLLAMA_MODEL)
+# keep_alive: model nằm thường trú trong GPU/RAM bao lâu sau request cuối. '-1' = không bao
+# giờ unload (hết cold-load ~30s mỗi lần idle >5p với model 12B); '5m'/'30m' = nhả sau X;
+# '0' = nhả ngay. Default '-1' vì host này chuyên chạy dashboard+Ollama, ưu tiên độ trễ.
+OLLAMA_KEEP_ALIVE = (CFG.get('OLLAMA_KEEP_ALIVE') or '-1').strip()
 # ----- Auth (qua Cloudflare Access; identity = header Cf-Access-Authenticated-User-Email) -----
 # Email role ADMIN: được edit roadmap/tài liệu. Rỗng = không khoá (local dev).
 # Hỗ trợ NHIỀU admin (JIRA_ADMIN_EMAIL = danh sách email cách nhau dấu phẩy).
