@@ -147,10 +147,11 @@ except ValueError:
 OLLAMA_URL = (CFG.get('OLLAMA_URL') or 'http://localhost:11434').rstrip('/')
 OLLAMA_MODEL = CFG.get('OLLAMA_MODEL', 'gemma4:12b').strip()
 CHAT_ENABLED = bool(OLLAMA_MODEL)
-# keep_alive: model nằm thường trú trong GPU/RAM bao lâu sau request cuối. '-1' = không bao
-# giờ unload (hết cold-load ~30s mỗi lần idle >5p với model 12B); '5m'/'30m' = nhả sau X;
-# '0' = nhả ngay. Default '-1' vì host này chuyên chạy dashboard+Ollama, ưu tiên độ trễ.
-OLLAMA_KEEP_ALIVE = (CFG.get('OLLAMA_KEEP_ALIVE') or '-1').strip()
+# keep_alive: model nằm thường trú trong GPU/RAM bao lâu sau request cuối. '10m' = nhả sau
+# 10p không dùng (default — host 16GB, model 12B 8GB ghim mãi gây swap ~11GB; nhả khi rảnh để
+# giải phóng RAM, chỉ câu đầu sau idle chịu ~30s nạp lại). '-1' = giữ mãi (không cold-load
+# nhưng swap liên tục — chỉ hợp máy nhiều RAM/chuyên Ollama); '0' = nhả ngay sau mỗi câu.
+OLLAMA_KEEP_ALIVE = (CFG.get('OLLAMA_KEEP_ALIVE') or '10m').strip()
 # ----- Auth (qua Cloudflare Access; identity = header Cf-Access-Authenticated-User-Email) -----
 # Email role ADMIN: được edit roadmap/tài liệu. Rỗng = không khoá (local dev).
 # Hỗ trợ NHIỀU admin (JIRA_ADMIN_EMAIL = danh sách email cách nhau dấu phẩy).
