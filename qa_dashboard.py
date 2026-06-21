@@ -11,6 +11,7 @@ import ipaddress
 import json
 import sys
 import os
+import threading
 from datetime import datetime
 from http.cookies import SimpleCookie
 from urllib.parse import urlparse, parse_qs
@@ -22,7 +23,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cor
 from config import (JIRA_URL, USERS, PORT, ADMIN_EMAIL, ADMIN_EMAILS, ALLOWED_DOMAIN,
                     AUTH_ENABLED, SELF_USER, PUBLIC_BASE_URL, CHAT_ENABLED,
                     display_name, username_from_email)
-from chat import chat_stream
+from chat import chat_stream, prewarm as chat_prewarm
 from auth import (SESSION_COOKIE, SESSION_TTL, email_from_session,
                   session_status, make_session_token)
 from drive_token import has_drive_token, delete_drive_token
@@ -740,6 +741,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             if not isinstance(messages, list):
                 self._json(400, b'{"ok":false,"err":"bad_request"}')
                 return
+            # Nội dung tab user đang xem (client scrape DOM) — optional, dùng làm context.
+            page_text = payload.get('page') if isinstance(payload, dict) else ''
+            page_text = page_text if isinstance(page_text, str) else ''
         except (ValueError, json.JSONDecodeError, OSError):
             self._json(400, b'{"ok":false,"err":"bad_request"}')
             return
@@ -751,7 +755,7 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         self._emit_pending_cookies()
         self.end_headers()
         try:
-            for chunk in chat_stream(messages):
+            for chunk in chat_stream(messages, page_text):
                 if not chunk:
                     continue
                 self.wfile.write(chunk.encode('utf-8'))
@@ -1180,6 +1184,8 @@ def main():
     print("  Ctrl+C để stop\n")
 
     start_bug_log_scheduler()   # daemon thread poll Drive 10p (no-op nếu chưa kết nối Drive)
+    # Nạp sẵn model LLM vào GPU (daemon, không chặn khởi động) -> user đầu không chịu cold-load.
+    threading.Thread(target=chat_prewarm, daemon=True).start()
 
     try:
         # ThreadingHTTPServer (issue #129): mỗi request 1 thread → 1 request chạm Jira
