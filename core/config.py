@@ -98,7 +98,8 @@ def _load_env():
               'JIRA_ADMIN_EMAIL', 'JIRA_ALLOWED_DOMAIN',
               'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'SESSION_SECRET',
               'PUBLIC_BASE_URL', 'BUG_LOG_POLL_SECONDS', 'JIRA_MAX_CONCURRENT',
-              'CF_ACCOUNT_ID', 'CF_KV_NAMESPACE_ID', 'CF_API_TOKEN'):
+              'CF_ACCOUNT_ID', 'CF_KV_NAMESPACE_ID', 'CF_API_TOKEN',
+              'OLLAMA_URL', 'OLLAMA_MODEL'):
         if os.environ.get(k):
             cfg[k] = os.environ[k]
     return cfg
@@ -139,6 +140,13 @@ try:
     JIRA_MAX_CONCURRENT = min(64, max(1, int(CFG.get('JIRA_MAX_CONCURRENT', '12'))))
 except ValueError:
     JIRA_MAX_CONCURRENT = 12
+# ----- Chatbot (LLM local qua Ollama, Decision #32) -----
+# App proxy sang Ollama chạy CÙNG host (KHÔNG expose Ollama ra ngoài — không có auth).
+# Browser nói chuyện với app (đã qua OAuth/domain gate), app stream tiếp sang Ollama.
+# Bỏ trống OLLAMA_MODEL = tắt tính năng chatbot (widget không render).
+OLLAMA_URL = (CFG.get('OLLAMA_URL') or 'http://localhost:11434').rstrip('/')
+OLLAMA_MODEL = CFG.get('OLLAMA_MODEL', 'gemma4:e4b-it-qat').strip()
+CHAT_ENABLED = bool(OLLAMA_MODEL)
 # ----- Auth (qua Cloudflare Access; identity = header Cf-Access-Authenticated-User-Email) -----
 # Email role ADMIN: được edit roadmap/tài liệu. Rỗng = không khoá (local dev).
 # Hỗ trợ NHIỀU admin (JIRA_ADMIN_EMAIL = danh sách email cách nhau dấu phẩy).

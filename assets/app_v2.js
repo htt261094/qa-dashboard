@@ -80,6 +80,108 @@ function toast(msg, ok){ var el=$('toast'); if(!el) return; el.textContent=msg;
   el.className = 'toast show' + (ok===false?' err':'');
   clearTimeout(toastT); toastT=setTimeout(function(){ el.className='toast'; }, 2200); }
 
+// ---------- chatbot (float góc dưới-phải, Decision #32) ----------
+// Stream từ POST /chat (text/plain, đọc dần qua ReadableStream). Lịch sử lưu localStorage.
+(function(){
+  var fab=$('chatFab'), panel=$('chatPanel'), body=$('chatBody'), inp=$('chatInp'),
+      sendBtn=$('chatSend'), closeBtn=$('chatClose'), clearBtn=$('chatClear'), fabIc=$('chatFabIc');
+  if(!fab || !panel) return;   // CHAT_ENABLED=false -> widget không render
+  var KEY='qa-chat-history';
+  var history=[], busy=false;
+
+  function save(){ try{ localStorage.setItem(KEY, JSON.stringify(history.slice(-40))); }catch(e){} }
+  function load(){ try{ var s=localStorage.getItem(KEY); if(s) history=JSON.parse(s)||[]; }catch(e){ history=[]; } }
+
+  // markdown nhẹ: escape TRƯỚC (an toàn XSS) rồi mới format. bold/code/link/bullet/xuống dòng.
+  function md(t){
+    var h=esc(t);
+    h=h.replace(/`([^`]+)`/g,'<code>$1</code>');
+    h=h.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>');
+    h=h.replace(/(https?:\/\/[^\s<]+)/g,'<a href="$1" target="_blank" rel="noopener">$1</a>');
+    var lines=h.split('\n'), out=[], inList=false, m;
+    for(var i=0;i<lines.length;i++){
+      m=lines[i].match(/^\s*[-*]\s+(.*)$/);
+      if(m){ if(!inList){ out.push('<ul>'); inList=true; } out.push('<li>'+m[1]+'</li>'); }
+      else { if(inList){ out.push('</ul>'); inList=false; } out.push(lines[i]); }
+    }
+    if(inList) out.push('</ul>');
+    return out.join('\n');
+  }
+  function bubble(role, text){
+    var d=document.createElement('div');
+    d.className='chat-msg '+(role==='user'?'user':'bot');
+    if(role==='user') d.textContent=text; else d.innerHTML=md(text);
+    body.appendChild(d); body.scrollTop=body.scrollHeight; return d;
+  }
+  function typing(){
+    var d=document.createElement('div'); d.className='chat-typing';
+    d.innerHTML='<span></span><span></span><span></span>';
+    body.appendChild(d); body.scrollTop=body.scrollHeight; return d;
+  }
+  function renderAll(){
+    body.innerHTML='';
+    if(!history.length){
+      body.innerHTML='<div class="chat-empty"><span class="material-symbols-rounded">smart_toy</span>'
+        +'Chào! Mình là trợ lý QA. Hỏi mình về bug log, test case, tài liệu hay bất cứ gì nhé.</div>';
+      return;
+    }
+    history.forEach(function(m){ bubble(m.role, m.content); });
+  }
+  function open(){ panel.classList.add('open'); fab.classList.add('open'); fabIc.textContent='close';
+    body.scrollTop=body.scrollHeight; setTimeout(function(){ inp.focus(); },60); }
+  function close(){ panel.classList.remove('open'); fab.classList.remove('open'); fabIc.textContent='smart_toy'; }
+  function autoGrow(){ inp.style.height='auto'; inp.style.height=Math.min(120, inp.scrollHeight)+'px'; }
+
+  function send(){
+    var text=(inp.value||'').trim();
+    if(!text || busy) return;
+    history.push({role:'user', content:text}); save();
+    var emp=body.querySelector('.chat-empty'); if(emp) emp.remove();
+    bubble('user', text);
+    inp.value=''; autoGrow();
+    busy=true; sendBtn.disabled=true;
+    var tp=typing(), botDiv=null, acc='';
+    fetch('/chat', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({messages: history.slice(-16)})})
+    .then(function(r){
+      if(!r.ok || !r.body) throw new Error('http '+r.status);
+      var reader=r.body.getReader(), dec=new TextDecoder();
+      function pump(){
+        return reader.read().then(function(res){
+          if(res.done) return;
+          var chunk=dec.decode(res.value, {stream:true});
+          if(chunk){
+            if(!botDiv){ if(tp.parentNode) tp.remove(); botDiv=bubble('bot',''); }
+            acc+=chunk; botDiv.innerHTML=md(acc); body.scrollTop=body.scrollHeight;
+          }
+          return pump();
+        });
+      }
+      return pump();
+    })
+    .then(function(){
+      if(tp.parentNode) tp.remove();
+      if(acc){ history.push({role:'assistant', content:acc}); save(); }
+      else bubble('bot','⚠️ Không nhận được phản hồi từ trợ lý.');
+    })
+    .catch(function(){
+      if(tp.parentNode) tp.remove();
+      if(!botDiv) bubble('bot','⚠️ Lỗi kết nối tới trợ lý. Thử lại nhé.');
+    })
+    .then(function(){ busy=false; sendBtn.disabled=false; inp.focus(); });
+  }
+
+  fab.addEventListener('click', function(){ panel.classList.contains('open')?close():open(); });
+  closeBtn.addEventListener('click', close);
+  clearBtn.addEventListener('click', function(){ history=[]; save(); renderAll(); });
+  sendBtn.addEventListener('click', send);
+  inp.addEventListener('input', autoGrow);
+  inp.addEventListener('keydown', function(e){ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); send(); } });
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape' && panel.classList.contains('open')) close(); });
+
+  load(); renderAll();
+})();
+
 // ---------- theme ----------
 function applyTheme(t){ document.documentElement.setAttribute('data-theme', t);
   try{ localStorage.setItem('qa-theme', t); }catch(e){}
