@@ -7,7 +7,7 @@ the full document. Assets inline per-render via render.base. See issue #104 / #8
 import json
 from datetime import datetime
 
-from config import JIRA_URL, USERS, display_name, username_from_email
+from config import JIRA_URL, USERS, CHAT_ENABLED, display_name, username_from_email
 from issues import esc
 
 from render.base import load_css_v2, load_js_v2, _json_script
@@ -208,6 +208,33 @@ def _stale_banner(note):
         '</span></div>')
 
 
+def _chat_widget():
+    """Float chat icon góc dưới-phải + panel chatbot. Render trên MỌI trang v2 (shell).
+    Chỉ hiện khi CHAT_ENABLED (có OLLAMA_MODEL). Controller `#chatFab`/`#chatPanel`
+    trong app_v2.js — stream từ POST /chat."""
+    if not CHAT_ENABLED:
+        return ''
+    return (
+        '<button type="button" class="chat-fab" id="chatFab" title="Trợ lý QA AI" aria-label="Mở chatbot">'
+        '<span class="material-symbols-rounded" id="chatFabIc">smart_toy</span></button>'
+        '<div class="chat-panel" id="chatPanel" aria-hidden="true">'
+        '<div class="chat-head">'
+        '<span class="chat-head-ic material-symbols-rounded">smart_toy</span>'
+        '<div class="chat-head-tt"><b>Trợ lý QA</b><small>Hỏi về bug, test case, tài liệu…</small></div>'
+        '<button type="button" class="chat-clear" id="chatClear" title="Xoá hội thoại">'
+        '<span class="material-symbols-rounded mi-sm">delete_sweep</span></button>'
+        '<button type="button" class="chat-x material-symbols-rounded" id="chatClose">close</button>'
+        '</div>'
+        '<div class="chat-body" id="chatBody"></div>'
+        '<div class="chat-input">'
+        '<textarea id="chatInp" rows="1" placeholder="Nhập câu hỏi… (Enter để gửi)" '
+        'autocomplete="off" spellcheck="false"></textarea>'
+        '<button type="button" class="chat-send" id="chatSend" title="Gửi">'
+        '<span class="material-symbols-rounded">send</span></button>'
+        '</div></div>'
+    )
+
+
 def _document_v2(content_inner, active, user, activities, title='QA Suite',
                  stale=False, stale_note=''):
     """Shell sidebar Material-3 cho dashboard QA + roadmap. Inline styles_v2.css + app_v2.js.
@@ -230,6 +257,7 @@ def _document_v2(content_inner, active, user, activities, title='QA Suite',
 {_subtask_modal_v2()}
 <div class="toast" id="toast"></div>
 <div class="drawer-ov" id="drawerOv"></div><aside class="drawer" id="drawer"></aside>
+{_chat_widget()}
 {_json_script('qaNotif', activities)}
 <script>window.__jiraBase={json.dumps(JIRA_URL)};window.__stale={json.dumps(bool(stale))};</script>
 <script>{load_js_v2()}</script>
