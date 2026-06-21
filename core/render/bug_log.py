@@ -200,4 +200,14 @@ def _bug_log_source_modals():
         '<button type="button" class="btn btn-ghost" id="blSrcCancel">Huỷ</button>'
         '<button type="button" class="btn btn-primary" id="blSrcSave">Lưu &amp; đồng bộ</button>'
         '</div></div></div>'
+        # ----- popup tổng kết thay đổi sau đồng bộ (file/sheet/nội dung) -----
+        '<div class="overlay" id="blChgOv"><div class="modal" style="width:680px">'
+        '<div class="modal-head"><span class="material-symbols-rounded">difference</span>'
+        '<h3>Thay đổi sau đồng bộ</h3>'
+        '<button type="button" class="x material-symbols-rounded" id="blChgClose">close</button></div>'
+        '<div class="modal-body"><p class="modal-note" id="blChgSummary"></p>'
+        '<div id="blChgList" class="bl-chg-list"></div></div>'
+        '<div class="modal-foot">'
+        '<button type="button" class="btn btn-primary" id="blChgOk">Đóng &amp; tải lại</button>'
+        '</div></div></div>'
     )

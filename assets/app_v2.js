@@ -2535,7 +2535,12 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     b.innerHTML='<span class="material-symbols-rounded mi-sm" style="animation:spin 1s linear infinite">progress_activity</span> Đang đồng bộ…';
     toast('Đang đọc lại data từ Drive…', true);
     return postJSON('/sync-bug-log', {}, 90000).then(function(j){
-      if(j && j.ok){ toast('Đã đồng bộ ✓ — đang tải lại', true); setTimeout(function(){ location.reload(); }, 900); return true; }
+      if(j && j.ok){
+        var changes=(j&&j.changes)||[];
+        if(changes.length){ showBugChanges(changes, j.changed||changes.length); return true; }
+        toast('Đã đồng bộ ✓ — không có thay đổi, đang tải lại', true);
+        setTimeout(function(){ location.reload(); }, 900); return true;
+      }
       b.innerHTML='<span class="material-symbols-rounded mi-sm">error</span> Đồng bộ lỗi — F5 để thử lại';
       toast((j&&(j.errors&&j.errors[0]))||'Đồng bộ lỗi', false); return false;
     }).catch(function(){
@@ -2546,6 +2551,47 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
   (function(){
     var b=$('blSyncBtn'); if(!b) return;
     b.addEventListener('click', function(){ runBugSync(b); });
+  })();
+
+  // Popup tổng kết thay đổi sau đồng bộ: nêu rõ file / sheet / nội dung đổi. Gom theo
+  // (file, sheet) cho dễ đọc; bấm "Đóng & tải lại" mới reload (để user kịp đọc).
+  function showBugChanges(changes, total){
+    var ov=$('blChgOv'); if(!ov){ setTimeout(function(){ location.reload(); }, 900); return; }
+    var ICON={ 'new':'add_circle', 'status':'sync_alt', 'del':'cancel' };
+    var groups={}, order=[];
+    changes.forEach(function(c){
+      var f=c.file||'(không rõ file)', s=c.sheet||'(không rõ sheet)';
+      var gk=f+' '+s;
+      if(!groups[gk]){ groups[gk]={file:f, sheet:s, items:[]}; order.push(gk); }
+      groups[gk].items.push(c);
+    });
+    var html='';
+    order.forEach(function(gk){
+      var g=groups[gk];
+      html+='<div class="bl-chg-grp"><div class="bl-chg-grp-h">'
+        +'<span class="material-symbols-rounded mi-sm">description</span> '+esc(g.file)
+        +' <span class="bl-chg-sheet">› '+esc(g.sheet)+'</span></div>';
+      g.items.forEach(function(c){
+        var desc=c.desc||'', summ=c.summary?(' — '+c.summary):'', who=c.author?(' · '+c.author):'';
+        html+='<div class="bl-chg-item bl-chg-'+esc(c.kind||'')+'">'
+          +'<span class="material-symbols-rounded mi-sm">'+(ICON[c.kind]||'edit')+'</span>'
+          +'<span class="bl-chg-txt">'+esc(desc)+esc(summ)+'<span class="bl-chg-who">'+esc(who)+'</span></span></div>';
+      });
+      html+='</div>';
+    });
+    var lst=$('blChgList'); if(lst) lst.innerHTML=html;
+    var sm=$('blChgSummary');
+    if(sm) sm.textContent='Đồng bộ xong: '+(total||changes.length)+' thay đổi'
+      +(changes.length<(total||0)?(' (hiện '+changes.length+' dòng đầu)'):'')+'.';
+    ov.classList.add('open');
+  }
+  (function(){
+    var ov=$('blChgOv'); if(!ov) return;
+    function reload(){ location.reload(); }
+    var ok=$('blChgOk'), cl=$('blChgClose');
+    if(ok) ok.addEventListener('click', reload);
+    if(cl) cl.addEventListener('click', reload);
+    ov.addEventListener('click', function(e){ if(e.target===ov) reload(); });
   })();
 
   // Đếm ngược "lần đồng bộ tự động kế tiếp" — next = synced_at + interval. Hết giờ thì
