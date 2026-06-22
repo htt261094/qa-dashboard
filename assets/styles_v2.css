@@ -1,6 +1,10 @@
 /* ===== QA Suite UI v2 (Stitch / Material 3) — dùng cho dashboard QA + roadmap (shell sidebar) ===== */
 /* File RIÊNG, không đụng styles.css. Chỉ _document_v2 inline file này. */
 
+/* ===== Ẩn MỌI thanh trượt toàn workspace (vẫn scroll được bằng chuột/touch) ===== */
+*{scrollbar-width:none;-ms-overflow-style:none}
+*::-webkit-scrollbar{width:0;height:0;display:none}
+
 /* ===== Design tokens ===== */
 :root{
   --surface:#f9f9ff; --surface-low:#f0f3ff; --surface-container:#e7eeff;
@@ -458,7 +462,7 @@ tr.cmt-row:hover td{background:var(--surface-low)}
 .modal-head .x{cursor:pointer;color:var(--outline);background:none;border:none;width:34px;height:34px;
                border-radius:50%;display:flex;align-items:center;justify-content:center}
 .modal-head .x:hover{background:var(--surface-low);color:var(--on-surface)}
-.modal-body{padding:18px 20px;overflow-y:auto;display:flex;flex-direction:column;gap:14px}
+.modal-body{padding:18px 20px;overflow-y:auto;min-height:0;display:flex;flex-direction:column;gap:14px}
 .modal-body p{font-size:13px;color:var(--on-surface-variant);line-height:19px}
 .mfield{display:flex;flex-direction:column;gap:6px}
 .mfield.row2{flex-direction:row;gap:12px}
@@ -998,7 +1002,7 @@ html[data-theme="dark"] .bottom-toast {
 .bl-pick-chk{font-size:21px;color:var(--outline);flex:0 0 auto}
 .bl-pick-row.on .bl-pick-chk{color:var(--primary)}
 /* popup thay đổi sau đồng bộ */
-.bl-chg-list{display:flex;flex-direction:column;gap:14px;max-height:56vh;overflow:auto;margin-top:6px}
+.bl-chg-list{display:flex;flex-direction:column;gap:14px;margin-top:6px}
 .bl-chg-grp{border:1px solid var(--outline-variant);border-radius:12px;overflow:hidden}
 .bl-chg-grp-h{display:flex;align-items:center;gap:6px;padding:9px 12px;background:var(--surface-low);
   font-size:13px;font-weight:600;border-bottom:1px solid var(--outline-variant)}
