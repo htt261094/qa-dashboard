@@ -28,7 +28,8 @@ from auth import (SESSION_COOKIE, SESSION_TTL, email_from_session,
                   session_status, make_session_token)
 from drive_token import has_drive_token, delete_drive_token
 from bug_log_store import (scan as bug_log_scan, start_scheduler as start_bug_log_scheduler,
-                           load_bug_log)
+                           load_bug_log, unseen_changes as bug_log_unseen,
+                           mark_changes_seen as bug_log_mark_seen)
 from bug_log_source import load_sources, save_sources, extract_file_id, MAX_SOURCES
 from task_link import load_links, set_task_links, tasks_of
 from testcase_link import (load_links as tc_load_links, set_folder_links as tc_set_folder_links,
@@ -157,6 +158,11 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         """Jira username của chính người đăng nhập (cho tab My work). Local dev /
         admin-email-không-trong-USERS -> SELF_USER (default thanhht1)."""
         return username_from_email(self._user_email()) or username_from_email(ADMIN_EMAIL) or SELF_USER
+
+    def _seen_key(self):
+        """Khoá watermark "đã xem popup thay đổi bug-log". Email khi đã login, '_local' cho
+        local dev (loopback) — đủ ổn định để giữ trạng thái đã-xem giữa các lần load."""
+        return self._user_email() or '_local'
 
     def _bugs_for_task(self, task_key):
         """Chiều ngược của task_link: list bug ĐÃ LINK tới `task_key`, cho drawer detail.
@@ -496,10 +502,18 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
                                 'sources': load_sources, 'bell': self._bell_activities})
             # Bug Log mở cho MỌI QA (kể cả non-admin): liên kết Task + quản lý link
             # drive nguồn. editable=True cho mọi user đã authed (route đã gate authed).
+            # Popup thay đổi tích luỹ chỉ cho admin (lens quản lý) — non-admin -> None.
+            pending = None
+            if self._is_admin():
+                try:
+                    pending = bug_log_unseen(self._seen_key(),
+                                             activity=(res['bug'] or {}).get('activity'))
+                except Exception:   # noqa: BLE001 — popup là phụ trợ, lỗi -> bỏ qua
+                    pending = None
             self._html(render_bug_log_v2(res['bug'], res['links'],
                                          editable=True,
                                          user=self._user_ctx(), activities=res['bell'],
-                                         sources=res['sources']))
+                                         sources=res['sources'], pending=pending))
         except RuntimeError as e:
             self._html(render_error_page(str(e)))
 
@@ -790,6 +804,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         if self.path == '/save-bug-log-sources':
             self._post_save_bug_log_sources()
             return
+        if self.path == '/seen-bug-log-changes':
+            self._post_seen_bug_log_changes()
+            return
         if self.path == '/link-task':
             self._post_link_task()
             return
@@ -896,8 +913,36 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             res = bug_log_scan()
         except Exception:   # noqa: BLE001 — scan đã redact token; chặn mọi lỗi lạ
             res = {'ok': False, 'errors': ['Lỗi không xác định khi scan.']}
+        # Admin đang xem popup inline (res['changes']) -> đánh dấu đã xem tới giờ này để
+        # KHÔNG popup lại y hệt khi reload sau khi đóng.
+        if res.get('ok'):
+            try:
+                bug_log_mark_seen(self._seen_key())
+            except Exception:   # noqa: BLE001
+                pass
         self._json(200 if res.get('ok') else 400,
                    json.dumps(res, ensure_ascii=False).encode('utf-8'))
+
+    def _post_seen_bug_log_changes(self):
+        # Admin đã xem popup thay đổi tích luỹ -> đẩy watermark lên `watermark` (mốc lớn nhất
+        # vừa hiện). Admin-only (popup chỉ render cho admin). Soft-fail: lỗi -> popup lại lần sau.
+        if not self._is_admin():
+            self._json(403, b'{"ok":false}')
+            return
+        wm = ''
+        try:
+            length = int(self.headers.get('Content-Length', 0))
+            if 0 < length <= 2000:
+                payload = json.loads(self.rfile.read(length).decode('utf-8'))
+                if isinstance(payload, dict):
+                    wm = str(payload.get('watermark') or '')
+        except (ValueError, json.JSONDecodeError, OSError):
+            wm = ''
+        try:
+            bug_log_mark_seen(self._seen_key(), wm)
+        except Exception:   # noqa: BLE001
+            pass
+        self._json(200, b'{"ok":true}')
 
     def _post_save_bug_log_sources(self):
         # Lưu list file Drive nguồn (paste link -> rút id) rồi scan ngay.
@@ -946,6 +991,13 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             res = bug_log_scan()
         except Exception:   # noqa: BLE001 — scan đã redact token
             res = {'ok': False, 'errors': ['Lỗi không xác định khi scan.']}
+        # Lưu nguồn mới thường tạo loạt "bug mới" — admin sẽ reload thẳng (không popup
+        # inline), nên đánh dấu đã xem để không bị popup đè cả màn ngay sau khi thêm nguồn.
+        if res.get('ok') and self._is_admin():
+            try:
+                bug_log_mark_seen(self._seen_key())
+            except Exception:   # noqa: BLE001
+                pass
         res['saved'] = len(out)
         self._json(200, json.dumps(res, ensure_ascii=False).encode('utf-8'))
 

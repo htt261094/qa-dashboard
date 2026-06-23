@@ -17,7 +17,7 @@ from render.shell import _document_v2
 
 
 # ===== Bug Log v2 (issue #55) — bug từ Excel/Drive + link ngược Jira task =====
-def render_bug_log_v2(data, links, editable=True, user=None, activities=None, sources=None):
+def render_bug_log_v2(data, links, editable=True, user=None, activities=None, sources=None, pending=None):
     """Tab Bug Log: bảng bug/test-case (nguồn = cache bug_log_store), tab theo THÁNG
     (mỗi sheet Excel = 1 tháng — Decision #54), cột "Liên kết Task" = link app-side
     do user tự gán (task_link), KHÔNG từ Excel. Toàn bộ bảng render client-side bởi
@@ -163,6 +163,11 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
             'sources': [{'id': s.get('id', ''), 'label': s.get('label', ''), 'service': s.get('service', ''),
                           'name': (files.get(s.get('id', ''), {}) or {}).get('name', '')}
                         for s in (sources or []) if s.get('id')],
+            # Thay đổi bug-log tích luỹ admin chưa xem (popup tự hiện lúc vào màn). [] khi
+            # không có / non-admin -> controller bỏ qua. watermark gửi lại khi báo đã xem.
+            'pendingChanges': (pending or {}).get('changes', []),
+            'pendingTotal': (pending or {}).get('total', 0),
+            'pendingWatermark': (pending or {}).get('watermark', ''),
         })
     )
     return _document_v2(content, 'buglog', user, activities or [],

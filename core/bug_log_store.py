@@ -37,6 +37,10 @@ from bug_log_source import load_sources
 from drive_token import has_drive_token, load_refresh_token
 
 BUG_LOG_PROP = 'qa-dashboard-bug-log'
+# Watermark "admin đã xem popup thay đổi" per-user (email -> mốc `when` lớn nhất đã xem).
+# Tách khỏi BUG_LOG_PROP (data bug) để không đua ghi với scan. Thay đổi nền tích luỹ vào
+# activity[]; admin chưa vào màn Bug Log thì watermark đứng yên -> không "tắt ngầm" update.
+BUG_LOG_SEEN_PROP = 'qa-dashboard-bug-log-seen'
 
 POLL_SECONDS = BUG_LOG_POLL_SECONDS   # nhịp poll Drive (giây), cấu hình qua .env (default 600)
 _STARTUP_DELAY = 20         # đợi server lên + đỡ chậm khởi động trước lần scan đầu
@@ -49,6 +53,8 @@ _scan_lock = threading.Lock()
 # _write_cache chạy từ daemon scan VÀ từ HTTP render (_load_data mỗi request) -> serialize để
 # 2 thread không đua ghi cùng .json.tmp (đua -> file rách -> _read_cache trả None -> mất floor).
 _cache_lock = threading.Lock()
+# Watermark "đã xem" là read-modify-write trên property riêng -> serialize.
+_seen_lock = threading.Lock()
 
 
 def _now_iso():
@@ -253,6 +259,81 @@ def load_bug_log_activity(scope_user=None, days=7):
         item['kind'] = 'bug_log'
         out.append(item)
     return out
+
+
+# ===== Popup "thay đổi chưa xem" cho admin (watermark per-user) =====
+# Thay đổi bug-log (bug mới / đổi status / xoá) sinh ra ở MỌI lần scan nền (10p) rồi nằm
+# trong activity[]. Admin có thể không mở màn Bug Log lúc đó -> popup "sau đồng bộ" cũ chỉ
+# hiện khi bấm Đồng bộ tay nên các thay đổi nền bị "tắt ngầm". Watermark per-user lưu mốc
+# `when` lớn nhất admin đã xem qua popup; unseen = event mới hơn watermark -> tích luỹ cho
+# tới khi admin thực sự vào màn (auto-popup) rồi mới đánh dấu đã xem.
+_CHANGE_KINDS = ('new', 'status', 'del')
+
+
+def _change_item(e):
+    """Map 1 activity event -> shape mà popup showBugChanges (app_v2.js) cần."""
+    return {
+        'file': e.get('file', ''), 'sheet': e.get('sheet', ''),
+        'kind': e.get('kind', ''), 'desc': e.get('new', ''),
+        'key': e.get('key', ''), 'summary': e.get('summary', ''),
+        'author': e.get('author', ''), 'when': e.get('when', ''),
+    }
+
+
+def _load_seen():
+    """{user_key: watermark_iso}. Property lỗi -> {} (coi như chưa xem gì)."""
+    try:
+        d = load_property(BUG_LOG_SEEN_PROP)
+        if isinstance(d, dict):
+            return d
+    except RuntimeError:
+        pass
+    return {}
+
+
+def unseen_changes(user_key, days=_ACT_PRUNE_DAYS, activity=None):
+    """Thay đổi bug-log mà `user_key` CHƯA xem qua popup, mới-nhất-trước.
+
+    Unseen = event kind∈{new,status,del}, `when` trong cửa sổ prune VÀ > watermark của user.
+    Trả {'changes':[...], 'total':n, 'watermark': max_when} — watermark = mốc lớn nhất trong
+    tập unseen (client gửi lại khi báo đã xem -> chỉ đánh dấu đúng cái đã hiện). user_key rỗng
+    -> không có watermark (coi tất cả là chưa xem).
+
+    `activity` truyền vào (vd từ load_bug_log() đã gọi sẵn ở handler) để tránh _load_data()
+    lần hai (đỡ 1 read remote + 1 ghi cache thừa); None -> tự đọc."""
+    cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+    seen = _load_seen().get(user_key, '') if user_key else ''
+    acts = activity if activity is not None else _load_data().get('activity', [])
+    out = []
+    for a in acts:
+        if a.get('kind') not in _CHANGE_KINDS:
+            continue
+        when = a.get('when', '')
+        if when < cutoff or when <= seen:
+            continue
+        out.append(_change_item(a))
+    out.sort(key=lambda c: c.get('when', ''), reverse=True)
+    return {'changes': out, 'total': len(out),
+            'watermark': out[0]['when'] if out else seen}
+
+
+def mark_changes_seen(user_key, watermark=''):
+    """Đẩy watermark "đã xem" của user lên (CHỈ tiến, không lùi). watermark rỗng -> dùng now
+    (cho luồng đồng bộ tay: admin đang xem popup inline). Soft-fail: lỗi property -> False,
+    lần sau popup lại (không mất thay đổi). Trả True nếu watermark đã >= mức yêu cầu."""
+    if not user_key:
+        return False
+    wm = watermark or _now_iso()
+    with _seen_lock:
+        try:
+            cur = _load_seen()
+            if wm <= cur.get(user_key, ''):
+                return True
+            cur[user_key] = wm
+            save_property(BUG_LOG_SEEN_PROP, cur)
+            return True
+        except RuntimeError:
+            return False
 
 
 # ===== Diff snapshot trước vs sau (theo khoá {project}#{month}#{bug_no}) =====
