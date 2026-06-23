@@ -517,7 +517,8 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       if(!t.customs||!t.customs.length) return '';
       return '<div class="cust-chips">'+t.customs.map(function(v){
         return '<span class="cust-chip"><span class="material-symbols-rounded">circle</span>'
-          +esc(custMap[v]||v)+'</span>'; }).join('')+'</div>';
+          +esc(custMap[v]||v)+'<span class="rm material-symbols-rounded" data-key="'+esc(t.key)
+          +'" data-val="'+esc(v)+'">close</span></span>'; }).join('')+'</div>';
     }
 
     function renderRows(){
@@ -541,7 +542,8 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
           +'<td><span class="cell-title">'+esc(t.summary)+'</span></td>'
           +'<td><div class="cell-member"><span class="m-av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span>'
           +'<span>'+esc(t.assignee.name)+'</span></div></td>'
-          +'<td><span class="badge '+badgeCls(t.jira)+'">'+esc(t.jira)+'</span>'+chipHTML(t)+'</td>'
+          +'<td class="status-cell"><div class="stat-wrap"><span class="badge '+badgeCls(t.jira)+'">'+esc(t.jira)+'</span>'
+          +'<button class="caret material-symbols-rounded mi-sm" data-act="smenu" data-key="'+esc(t.key)+'">expand_more</button></div>'+chipHTML(t)+'</td>'
           +'<td class="cell-date"><span class="due '+esc(t.dueCls)+'">'+esc(t.dueDisp)+'</span></td>'
           +'<td class="cell-date">'+esc(t.createdDisp)+'</td>'
           +'<td class="cell-date">'+esc(t.updatedDisp)+'</td></tr>';
@@ -556,6 +558,12 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       for(var i=1;i<=pages;i++) ph+='<button class="pager-page'+(i===curPage?' active':'')+'" data-pg="'+i+'">'+i+'</button>';
       ph+='<button class="pager-btn"'+(curPage>=pages?' disabled':'')+' data-pg="'+(curPage+1)+'"><span class="material-symbols-rounded mi-xs">chevron_right</span></button></div>';
       $('pager').innerHTML=ph;
+      // Giữ smenu mở bám đúng caret sau khi rebuild bảng.
+      if(adCurCaret && adSmenu && adSmenu.classList.contains('open')){
+        var sk=adCurCaret.getAttribute('data-key');
+        var nc=document.querySelector('[data-act="smenu"][data-key="'+sk+'"]');
+        if(nc) adCurCaret=nc;
+      }
     }
 
     function updateCounts(){
@@ -628,6 +636,10 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     // Row clicks -> drawer
     tbody.addEventListener('click', function(e){
       if(e.target.closest('.pager-filler')) return;
+      var rm=e.target.closest('.rm[data-val]');
+      if(rm){ e.stopPropagation(); adRmCust(rm.getAttribute('data-key'), rm.getAttribute('data-val')); return; }
+      var caret=e.target.closest('[data-act="smenu"]');
+      if(caret){ e.stopPropagation(); adOpenStatusMenu(caret); return; }
       var tr=e.target.closest('tr[data-key]'); if(!tr) return;
       var key=tr.getAttribute('data-key');
       openDetail(key);
@@ -733,6 +745,90 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
         if(ok && map[ok]){ var tt=taskByKey(ok); if(tt) renderDrawer(tt); }
       }
     };
+
+    // ----- status menu (.smenu) — đổi status Jira + gắn nhãn nội bộ (parity với QA member) -----
+    var adSmenu=$('smenu'), adCurCaret=null, adCurJira=null;
+    function adCloseSmenu(){ if(adSmenu){ adSmenu.classList.remove('open'); adSmenu.innerHTML=''; } adCurCaret=null; adCurJira=null; }
+    function adRenderSmenu(t, jiraState){
+      adCurJira=jiraState;
+      var cur={}; (t.customs||[]).forEach(function(v){ cur[v]=1; });
+      var h='<div class="smenu-grp">Status Jira</div>';
+      if(jiraState===null) h+='<div class="smenu-note muted"><span class="material-symbols-rounded mi-sm">hourglass_empty</span>Đang tải status…</div>';
+      else if(jiraState.code==='no_pat') h+='<div class="smenu-note" data-sm="nopat"><span class="material-symbols-rounded mi-sm">lock</span>Cần PAT để đổi status Jira — bấm để thêm</div>';
+      else if(!jiraState.ok) h+='<div class="smenu-note muted"><span class="material-symbols-rounded mi-sm">error</span>'+esc(jiraState.msg||'Lỗi tải status')+'</div>';
+      else if(!jiraState.transitions.length) h+='<div class="smenu-note muted"><span class="material-symbols-rounded mi-sm">info</span>Không có bước chuyển khả dụng</div>';
+      else jiraState.transitions.forEach(function(tr){
+        h+='<div class="smenu-opt" data-sm="jira" data-id="'+esc(tr.id)+'" data-to="'+esc(tr.to)+'">'
+          +'<span class="dot" style="background:#0052cc"></span>'+esc(tr.to)+'<span class="chk material-symbols-rounded">check</span></div>'; });
+      var allowed=t.canCustom;
+      h+='<div class="smenu-grp brd">Nhãn nội bộ — chọn nhiều</div>';
+      if(!allowed) h+='<div class="smenu-note muted"><span class="material-symbols-rounded mi-sm">info</span>Chỉ gắn khi <b>TO DO</b> / <b>In Progress</b></div>';
+      (window.QA_CUSTOM_STATUSES||[]).forEach(function(p){
+        var on=cur[p[0]]?' on':'';
+        h+='<div class="smenu-opt'+on+(allowed?'':' disabled')+'"'+(allowed?' data-sm="cust" data-val="'+esc(p[0])+'"':'')+'>'
+          +'<span class="dot" style="background:#6554c0"></span>'+esc(p[1])+'<span class="chk material-symbols-rounded">check</span></div>'; });
+      h+='<div class="smenu-foot"><small>'+((t.customs||[]).length?(t.customs.length+' nhãn'):'Chưa gắn nhãn')+'</small>'
+        +'<button type="button" data-sm="close">Xong</button></div>';
+      adSmenu.innerHTML=h;
+    }
+    function adPositionSmenu(caret){
+      adSmenu.classList.add('open'); adSmenu.style.maxHeight='none';
+      var r=caret.getBoundingClientRect(), gap=6, pad=8;
+      var below=window.innerHeight-r.bottom-gap-pad, above=r.top-gap-pad;
+      var avail=Math.max(below,above); adSmenu.style.maxHeight=avail+'px';
+      var mh=Math.min(adSmenu.offsetHeight, avail);
+      var top=(below>=above)?r.bottom+gap:r.top-gap-mh;
+      adSmenu.style.top=Math.max(pad, top)+'px';
+      adSmenu.style.left=Math.min(r.left, window.innerWidth-292)+'px';
+    }
+    function adOpenStatusMenu(caret){
+      var key=caret.getAttribute('data-key');
+      if(adCurCaret && adCurCaret.getAttribute('data-key')===key && adSmenu.classList.contains('open')){ adCloseSmenu(); return; }
+      adCurCaret=caret; var t=taskByKey(key); if(!t) return;
+      adRenderSmenu(t, null); adPositionSmenu(caret);
+      postJSON('/jira-transitions', { key:key }, 20000)
+        .then(function(j){ if(adCurCaret && adCurCaret.getAttribute('data-key')===key && adSmenu.classList.contains('open')){ adRenderSmenu(t, j); adPositionSmenu(adCurCaret); } })
+        .catch(function(){ if(adCurCaret && adCurCaret.getAttribute('data-key')===key && adSmenu.classList.contains('open')){ adRenderSmenu(t, { ok:false, msg:'Lỗi mạng khi tải status' }); adPositionSmenu(adCurCaret); } });
+    }
+    if(adSmenu) adSmenu.addEventListener('click', function(e){
+      var o=e.target.closest('[data-sm]'); if(!o) return;
+      var kind=o.getAttribute('data-sm'); if(!adCurCaret) return;
+      var key=adCurCaret.getAttribute('data-key'), t=taskByKey(key);
+      if(kind==='close'){ adCloseSmenu(); }
+      else if(kind==='nopat'){ adCloseSmenu(); var ov=$('setOverlay'); if(ov) ov.classList.add('open'); }
+      else if(kind==='jira'){ adCloseSmenu(); adDoTransition(key, o.getAttribute('data-id'), o.getAttribute('data-to')); }
+      else if(kind==='cust'){ adSetCustom(t, key, o.getAttribute('data-val')); }
+    });
+    function adDoTransition(key, id, toName){
+      if(inflight['t'+key]) return; inflight['t'+key]=true;
+      toast(key+': đang đổi status…', true);
+      postJSON('/do-transition', { key:key, id:id }, 20000).then(function(j){
+        inflight['t'+key]=false; if(patToast(j)) return;
+        if(j.ok){ var t=taskByKey(key); if(t){ t.jira=toName; if(!(toName==='TO DO'||toName==='In Progress')) t.customs=[]; }
+          updateCounts(); renderRows(); updateKPIs(); toast(key+' → '+toName+' ✓', true); }
+        else toast(j.msg||('Lỗi đổi status '+key), false);
+      }).catch(function(){ inflight['t'+key]=false; toast('Lỗi mạng khi đổi status', false); });
+    }
+    function adSetCustom(t, key, val){
+      if(!t) return;
+      var fk=key+'#'+val; if(inflight[fk]) return; inflight[fk]=true;
+      postJSON('/set-custom-status', { key:key, status:val, summary:t.summary||'' }, 20000).then(function(j){
+        inflight[fk]=false;
+        if(!j.ok){ toast('Lỗi lưu nhãn '+key, false); return; }
+        t.customs = Array.isArray(j.values) ? j.values : (t.customs||[]);
+        renderRows();
+        if(adCurCaret && adSmenu.classList.contains('open')){ adRenderSmenu(t, adCurJira); adPositionSmenu(adCurCaret); }
+      }).catch(function(){ inflight[fk]=false; toast('Lỗi mạng khi lưu nhãn', false); });
+    }
+    function adRmCust(key, val){ var t=taskByKey(key); if(t) adSetCustom(t, key, val); }
+    document.addEventListener('click', function(e){
+      if(adSmenu && adSmenu.classList.contains('open') && !e.target.closest('#smenu') && !e.target.closest('[data-act="smenu"]')) adCloseSmenu(); });
+    window.addEventListener('scroll', function(e){
+      if(!(adSmenu && adSmenu.classList.contains('open'))) return;
+      if(e.target && e.target.nodeType===1 && (e.target===adSmenu || e.target.closest && e.target.closest('#smenu'))) return;
+      adCloseSmenu();
+    }, true);
+    document.addEventListener('keydown', function(e){ if(e.key==='Escape') adCloseSmenu(); });
 
     // Initial render
     updateCounts(); renderRows(); updateKPIs();
@@ -2601,13 +2697,36 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       +(changes.length<(total||0)?(' (hiện '+changes.length+' dòng đầu)'):'')+'.';
     ov.classList.add('open');
   }
+  // ackWatermark != null => popup đang hiện là "thay đổi tích luỹ" (admin chưa xem): khi đóng
+  // phải BÁO server đã xem (đẩy watermark) RỒI mới reload, để reload không popup lại y hệt.
+  // null => popup đồng bộ tay (server đã đánh dấu đã xem trong /sync-bug-log) -> reload thẳng.
+  var ackWatermark = null;
   (function(){
     var ov=$('blChgOv'); if(!ov) return;
-    function reload(){ location.reload(); }
+    function close(){
+      if(ackWatermark !== null){
+        var wm = ackWatermark; ackWatermark = null;
+        postJSON('/seen-bug-log-changes', { watermark: wm }, 10000)
+          .then(function(){ location.reload(); })
+          .catch(function(){ location.reload(); });   // soft-fail: chưa đẩy được -> lần sau popup lại
+        return;
+      }
+      location.reload();
+    }
     var ok=$('blChgOk'), cl=$('blChgClose');
-    if(ok) ok.addEventListener('click', reload);
-    if(cl) cl.addEventListener('click', reload);
-    ov.addEventListener('click', function(e){ if(e.target===ov) reload(); });
+    if(ok) ok.addEventListener('click', close);
+    if(cl) cl.addEventListener('click', close);
+    ov.addEventListener('click', function(e){ if(e.target===ov) close(); });
+  })();
+
+  // Popup thay đổi TÍCH LUỸ từ các lần đồng bộ nền (admin chưa xem) — nêu mọi thay đổi
+  // bug-log dồn lại từ lần admin vào màn này gần nhất. Hiện ngay khi vào màn; đóng = báo đã
+  // xem + reload. Không vào màn -> giữ nguyên, không update nào bị tắt ngầm.
+  (function(){
+    var pending = DATA.pendingChanges || [];
+    if(!pending.length) return;
+    ackWatermark = DATA.pendingWatermark || '';
+    showBugChanges(pending, DATA.pendingTotal || pending.length);
   })();
 
   // Đếm ngược "lần đồng bộ tự động kế tiếp" — next = synced_at + interval. Hết giờ thì
