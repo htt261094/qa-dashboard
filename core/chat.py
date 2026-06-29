@@ -684,7 +684,7 @@ def _tool_rank_bugs(args, raw):
     hit = _filter_bugs(bugs, project=args.get('project'), month=month, status=args.get('status'))
     counts = {}
     for b in hit:
-        parts = [x.strip() for x in re.split(r'[,;+&]', (b.get(field) or '').strip()) if x.strip()]
+        parts = [x.strip() for x in re.split(r'[,;+&/]', (b.get(field) or '').strip()) if x.strip()]
         if not parts:
             parts = ['Chưa gán']
         frac = 1.0 / len(parts)

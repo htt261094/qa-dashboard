@@ -3280,7 +3280,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     var mBugs = BUGS.filter(function(b){ return getCreatedMonthYear(b.created) === selectedMonth; });
     var devs = {}, projSet = {};
     mBugs.forEach(function(b){
-      var devList = (b.dev||'Chưa gán').trim().split(/[,;+&]/).map(function(s){ return s.trim(); }).filter(Boolean);
+      var devList = (b.dev||'Chưa gán').trim().split(/[,;+&\/]/).map(function(s){ return s.trim(); }).filter(Boolean);
       if(!devList.length) devList = ['Chưa gán'];
       var fraction = 1/devList.length, p = (b.project||'Khác').trim();
       devList.forEach(function(d){
@@ -3358,7 +3358,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     var mBugs = BUGS.filter(function(b){ return getCreatedMonthYear(b.created) === selectedMonth; });
     var bugsPerDev = {}, totalBugs = mBugs.length, bugByKey = {};
     mBugs.forEach(function(b){
-      var devList = (b.dev||'Chưa gán').trim().split(/[,;+&]/).map(function(s){ return s.trim(); }).filter(Boolean);
+      var devList = (b.dev||'Chưa gán').trim().split(/[,;+&\/]/).map(function(s){ return s.trim(); }).filter(Boolean);
       if(!devList.length) devList = ['Chưa gán'];
       var fraction = 1/devList.length;
       devList.forEach(function(d){ bugsPerDev[d] = (bugsPerDev[d]||0) + fraction; });
@@ -3370,7 +3370,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       var b = bugByKey[key];
       if(!b){ var rm = r.month||'', p = rm.split('-'), fm = p.length>=2 ? (p[1]+'/'+p[0]) : rm; if(fm !== selectedMonth) return; }
       var devStr = ((b ? b.dev : r.dev)||'Chưa gán').trim(), fx = fixOf(r);
-      var devList = devStr.split(/[,;+&]/).map(function(s){ return s.trim(); }).filter(Boolean);
+      var devList = devStr.split(/[,;+&\/]/).map(function(s){ return s.trim(); }).filter(Boolean);
       if(!devList.length) devList = ['Chưa gán'];
       var fraction = 1/devList.length; distinctTotal++;
       devList.forEach(function(d){
