@@ -36,3 +36,6 @@ venv/
 # Local uploaded files
 uploads/
 
+# Báo cáo PDF + log cron sinh ra khi chạy reporter
+reports/
+
