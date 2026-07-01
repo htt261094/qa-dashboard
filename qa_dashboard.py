@@ -235,7 +235,14 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             })
         return out
 
-    def _bell_activities(self, with_patch=False):
+    def _wants_fresh(self):
+        """True khi browser F5/hard-reload (gửi Cache-Control: no-cache hoặc max-age=0).
+        Click chuyển tab (thẻ <a>) KHÔNG gửi header này -> vẫn dùng SWR nhanh. Dùng để ép
+        fetch tươi khi user chủ động refresh (Decision #26 bổ sung: 'F5 = luôn tươi')."""
+        cc = (self.headers.get('Cache-Control') or '').lower()
+        return 'no-cache' in cc or 'max-age=0' in cc
+
+    def _bell_activities(self, with_patch=False, force=False):
         """Activities cho chuông notif — TÍNH GIỐNG HỆT ở mọi tab để bell đồng nhất.
         Scope = đúng như dashboard `/`: admin/local -> cả team (None), QA -> chính họ.
         Gồm cả custom-status events (cust_act) + cờ is_unread theo dismissed của người đăng nhập.
@@ -251,7 +258,8 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
                 # block=False (#160): chuông best-effort — cache quá cũ thì feed rỗng + refresh
                 # nền, KHÔNG treo tab (kể cả tab non-Jira) chờ call changelog nặng khi Jira chậm.
                 'feed': lambda: fetch_activity_feed(days=ACTIVITY_DAYS, scope_user=scope,
-                                                    with_status=with_patch, block=False),
+                                                    with_status=with_patch, block=False,
+                                                    force=force),
                 'dismissed': lambda: load_dismissed(email),
                 'custom': lambda: load_bundle(scope, ACTIVITY_DAYS),
             })
@@ -401,9 +409,10 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             self._redirect('/')
             return
         scope = self._self_username()
+        fresh = self._wants_fresh()   # F5 -> ép data tươi; click chuyển tab -> SWR nhanh
         # data full team qua snapshot chéo máy rồi scope về chính admin (xem Decision offline-snapshot).
         try:
-            full, stale = fetch_all_shared(fetched_by=self._user_email())
+            full, stale = fetch_all_shared(fetched_by=self._user_email(), force=fresh)
         except RuntimeError:
             self._html(render_shell_error('mywork', self._user_ctx(),
                                           title='Việc của tôi — QA Workspace'))
@@ -415,7 +424,7 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         except RuntimeError:
             overlay = None
         try:
-            bell = self._bell_activities()
+            bell = self._bell_activities(force=fresh)
         except RuntimeError:
             bell = []
         # UI hệt QA member (render_qa_v2), chỉ highlight tab "Việc của tôi" ở sidebar
@@ -676,8 +685,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         # Task data qua tầng snapshot chéo máy: ai có VPN fetch full team -> ghi KV; người
         # sau (kể cả mất VPN) đọc snapshot KV. stale=True -> Jira không với tới, đang phục vụ
         # snapshot cũ -> render read-only. data LUÔN full team -> scope_data lọc theo người xem.
+        fresh = self._wants_fresh()   # F5 -> ép data tươi; click chuyển tab -> SWR nhanh
         try:
-            full, stale = fetch_all_shared(fetched_by=email)
+            full, stale = fetch_all_shared(fetched_by=email, force=fresh)
         except RuntimeError:
             # Jira không với tới + KV cũng trống -> không có gì hiện vùng task (skeleton + lỗi).
             self._html(render_page(None, [], ACTIVITY_DAYS,
@@ -695,7 +705,8 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             # để notif đồng nhất mọi tab — `/` canonical nên tự tính tại đây (đỡ fetch 2 lần).
             res = run_parallel({
                 # block=False (#160): bell best-effort, không treo `/` chờ changelog khi Jira chậm.
-                'feed': lambda: fetch_activity_feed(days=ACTIVITY_DAYS, scope_user=scope, block=False),
+                'feed': lambda: fetch_activity_feed(days=ACTIVITY_DAYS, scope_user=scope,
+                                                    block=False, force=fresh),
                 'dismissed': lambda: load_dismissed(email),
             })
             feed, dismissed = res['feed'], res['dismissed']

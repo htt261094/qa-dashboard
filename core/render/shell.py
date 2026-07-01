@@ -208,6 +208,22 @@ def _stale_banner(note):
         '</span></div>')
 
 
+def _auth_banner(note, is_admin=False):
+    """Banner khi PAT chung hết hạn/thu hồi (Jira coi request là vô danh). Tách khỏi OFFLINE
+    để khỏi đánh lừa thành lỗi mạng. Admin được chỉ dẫn cách sửa; QA chỉ báo + nhờ admin."""
+    fix = ('Cập nhật <b>JIRA_PAT</b> trong <code>.env</code> bằng token mới '
+           '(Jira → Personal Access Tokens → Create token) rồi restart server.'
+           if is_admin else 'Báo admin cấp lại token để khôi phục.')
+    return (
+        '<div style="background:#fdecea;border:1px solid #e57373;color:#7a1c12;'
+        'border-radius:10px;padding:10px 14px;margin:0 0 16px;font-size:13px;'
+        'display:flex;gap:8px;align-items:center">'
+        '<span style="font-size:16px">🔑</span><span>'
+        f'<b>PAT Jira hết hạn</b> — {esc(note)}. {fix} '
+        'Đang hiển thị dữ liệu lưu tạm (read-only).'
+        '</span></div>')
+
+
 def _chat_widget():
     """Float chat icon góc dưới-phải + panel chatbot. Render trên MỌI trang v2 (shell).
     Chỉ hiện khi CHAT_ENABLED (có OLLAMA_MODEL). Controller `#chatFab`/`#chatPanel`
@@ -241,7 +257,13 @@ def _document_v2(content_inner, active, user, activities, title='QA Suite',
     `activities` = feed (đã lọc dismissed) cho chuông notif (embed JSON #qaNotif).
     stale=True -> Jira không với tới, đang phục vụ snapshot KV cũ: banner + window.__stale
     (app_v2.js chặn write /do-transition + /create-subtask)."""
-    banner = _stale_banner(stale_note) if stale else ''
+    if stale == 'auth':
+        _adm = bool(user[1]) if isinstance(user, (tuple, list)) and len(user) > 1 else False
+        banner = _auth_banner(stale_note, _adm)
+    elif stale:
+        banner = _stale_banner(stale_note)
+    else:
+        banner = ''
     return f"""<!DOCTYPE html>
 <html lang="vi"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
