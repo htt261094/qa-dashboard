@@ -379,6 +379,13 @@ Hiền THƯỜNG là reporter trong các task QA team được giao — vì cô 
 - **Giới hạn**: chỉ T-1 (theo yêu cầu); bug thiếu `created` / created tương lai bị loại khỏi snapshot; bug bị xoá khỏi file sau đó gộp vào "đã xử lý" (không dựng lại được là đóng hay xoá). `_MONTHS_CAP=24`. Cần **restart app** để archive hook + route mới chạy (JS/CSS hot-reload per-render).
 - **Verify** (không mạng): `py_compile` bug_backlog/bug_log_store/analytics/qa_dashboard/monthly_reporter OK; smoke E2E stub remote+live → bootstrap tạo snapshot T-1, tồn đọng=3 (Closed loại), progress resolved/still_open đúng sau khi 1 bug carried được close, new_count đúng, dedup=False khi không đổi, **freeze**: snapshot T-1 giữ 'Fixing' dù live đã 'Closed'; render analytics embed `backlogMonths` OK.
 
+### 34. Bell notification — ẩn noti do CHÍNH người login gây ra (2026-07-02)
+- **Bối cảnh / vì sao**: user tự tạo task / đổi status / comment rồi thấy lại noti của chính mình trong chuông — nhiễu, vô nghĩa. Áp cho CẢ admin lẫn member.
+- **Cách làm** (`qa_dashboard.py`): helper `_drop_own_activities(merged, email)` — map email login → username (`username_from_email`) + tên rút gọn (`display_name`), loại activity mà `by == username` (custom-status events có field `by`) HOẶC `author == tên rút gọn` (feed Jira chỉ có `author`, resolve QA username về đúng `display_name` qua `actor_name`). Gọi ngay sau khi `merged` được sort, TRƯỚC khi gán `is_unread`, ở **2 nguồn chuông**: `_bell_activities()` (poll `/activity-feed` + tab my-work/docs/roadmap/bug-log) và render canonical `/` trong `_get_dashboard()`.
+- **RANH GIỚI có chủ đích**: CHỈ lọc **danh sách notification** (`merged`). Phần `tasks` patch (status Jira + nhãn custom real-time, Decision #24) KHÔNG đụng → tự đổi status vẫn thấy bảng/drawer/KPI cập nhật ngay, chỉ không nhận noti của mình. ⚠ ĐỪNG "sửa gọn" bằng cách lọc luôn ở nguồn feed/patch — sẽ mất real-time patch.
+- **Giới hạn**: không xác định được người login (local dev / email không khớp QA nào → `username_from_email` trả None) → giữ nguyên toàn bộ. System event (`by='system'`, tự gỡ nhãn khi DONE) không bị ảnh hưởng. Cần **restart app** (code Python, không hot-reload).
+- **Verify** (không mạng): `py_compile` OK; smoke `_drop_own_activities` — login thanhht1: lọc đúng noti mình (author='Thành' và by='thanhht1'), giữ người khác + system; email rỗng: giữ tất cả.
+
 ## Issue Tracking & Branch Workflow (QUAN TRỌNG cho Claude Code)
 
 **Quy ước user (áp dụng MẶC ĐỊNH, không hỏi lại):**
