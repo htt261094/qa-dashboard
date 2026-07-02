@@ -187,6 +187,21 @@ async def main():
             print("Đang gửi tin nhắn Google Chat...")
             
             text_content = f"Kính gửi anh Phương,\n\nĐây là báo cáo Bug Metric tháng {month_val} từ hệ thống QA Workspace.\n\n"
+
+            # Tồn đọng T-1 (bug tháng liền trước còn mở lúc chuyển tháng) — tách rõ nợ cũ vs mới.
+            try:
+                from bug_backlog import prev_month_backlog
+                mm, yyyy = month_val.split('/')
+                bl = prev_month_backlog(report_month=f"{yyyy}-{mm}")
+                if bl.get('has_snapshot'):
+                    text_content += (
+                        f"🆕 *Bug mới phát sinh trong tháng*: {bl['new_count']}\n"
+                        f"📌 *Bug tồn đọng từ T-1 ({bl['prev_month']})*: {bl['total']} "
+                        f"(còn: {bl['still_open']}, đã xử lý: {bl['resolved']})\n\n"
+                    )
+            except Exception as e:
+                print(f"Bỏ qua phần tồn đọng T-1 (lỗi tính): {e}")
+
             if img_link:
                 text_content += f"📊 *Ảnh biểu đồ*: {img_link}\n"
             if pdf_link:

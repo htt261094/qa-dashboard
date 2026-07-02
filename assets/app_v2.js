@@ -3330,7 +3330,17 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     });
     var totalHtml = '<div style="text-align:center; margin-bottom:14px; font-size:14px; color:var(--on-surface);">'
       + 'Tổng số bug: <strong style="font-size:16px;">'+grandTotal+'</strong></div>';
+    // Dải tồn đọng T-1 (nằm TRONG khối chart -> có trong ảnh report gửi CTO).
+    var bc = computeBacklog(toYm(selectedMonth)), stripHtml = '';
+    if(bc.hasSnapshot){
+      stripHtml = '<div style="width:100%; max-width:820px; margin:0 auto 20px; padding:14px 18px; border:1px solid var(--outline-variant); border-radius:8px;">'
+        + '<div style="font-size:13.5px; color:var(--on-surface); margin-bottom:10px;">'
+        +   '<strong>'+bc.newCount+'</strong> bug mới phát sinh · Tồn đọng từ T-1 ('+esc(bc.prev)+'): '
+        +   '<strong>'+bc.total+'</strong> (còn <strong style="color:#ff5630;">'+bc.stillOpen+'</strong>, đã xử lý '+bc.resolved+')'
+        + '</div>' + compBar(backlogSegs(bc), 26) + '</div>';
+    }
     metricCharts.innerHTML = '<div style="width:100%; display:flex; flex-direction:column; padding:10px 0;">'
+      + stripHtml
       + totalHtml
       + '<div style="display:flex; justify-content:center; flex-wrap:wrap; margin-bottom:24px;">' + legendHtml + '</div>'
       + '<div style="display:flex; align-items:flex-start;">'
@@ -3417,6 +3427,58 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     reopenExpanded[dev] = !reopenExpanded[dev];
     renderReopen();
   });
+
+  // ---------- Tồn đọng T-1 (dùng cho dải tóm tắt TRONG chart export) ----------
+  var BACKLOG_MONTHS = DATA.backlogMonths || {};
+  function isOpenBug(s){ return !isClosed(s) && !isReject(s); }
+  function toYm(mmYYYY){ var p=(mmYYYY||'').split('/'); return p.length>=2 ? p[1]+'-'+p[0] : ''; }  // MM/YYYY -> YYYY-MM
+  function prevYm(ym){ var y=+ym.slice(0,4), m=+ym.slice(5,7)-1; if(m===0){y--;m=12;} return y+'-'+(m<10?'0'+m:m); }
+  var LIVE_BY_KEY = (function(){ var o={}; BUGS.forEach(function(b){ if(b.key) o[b.key]=b; }); return o; })();
+
+  // Tính tồn đọng T-1 cho tháng report 'YYYY-MM'. Dùng chung cho card + dải trên chart.
+  // 2 nhóm: còn (vẫn mở) vs đã xử lý (đã đóng HOẶC không còn trong file) -> luôn khớp total.
+  function computeBacklog(reportYm){
+    var prev = prevYm(reportYm), snap = BACKLOG_MONTHS[prev];
+    var newCount = BUGS.filter(function(b){ return (b.created||'').slice(0,7) === reportYm; }).length;
+    if(!snap) return { hasSnapshot:false, prev:prev, newCount:newCount, total:0, stillOpen:0, resolved:0 };
+    var total=0, stillOpen=0, resolved=0;
+    Object.keys(snap).forEach(function(key){
+      if(!isOpenBug(snap[key].s)) return;              // cuối T-1 đã đóng -> không phải tồn đọng
+      total++;
+      var b = LIVE_BY_KEY[key];
+      if(b && isOpenBug(b.status)) stillOpen++; else resolved++;   // không còn (b==null) -> gộp đã xử lý
+    });
+    return { hasSnapshot:true, prev:prev, newCount:newCount, total:total,
+             stillOpen:stillOpen, resolved:resolved };
+  }
+
+  // Thanh tỷ lệ ngang: [{label,n,color}] -> stacked bar + chú thích số.
+  function compBar(segs, height){
+    var sum = 0; segs.forEach(function(s){ sum += s.n; });
+    if(sum <= 0) return '<div class="an-empty">Không có bug trong kỳ này</div>';
+    var bar = segs.map(function(s){ if(!s.n) return '';
+      var pct = s.n/sum*100;
+      return '<div title="'+esc(s.label)+': '+s.n+'" style="width:'+pct+'%; background:'+s.color
+        + '; display:flex; align-items:center; justify-content:center; color:#fff; font-size:12.5px; font-weight:700;">'
+        + (pct>7 ? s.n : '') + '</div>';
+    }).join('');
+    var legend = segs.map(function(s){
+      return '<div style="display:flex; align-items:center; gap:6px; font-size:13px; color:var(--on-surface);">'
+        + '<span style="width:12px; height:12px; border-radius:3px; background:'+s.color+'; display:inline-block;"></span>'
+        + esc(s.label)+' <strong>'+s.n+'</strong></div>';
+    }).join('');
+    return '<div style="display:flex; height:'+(height||30)+'px; border-radius:6px; overflow:hidden; background:var(--surface-variant);">'+bar+'</div>'
+      + '<div style="display:flex; gap:20px; flex-wrap:wrap; margin-top:12px;">'+legend+'</div>';
+  }
+
+  // Segment chuẩn cho 1 kỳ: Mới phát sinh · Tồn đọng T-1 còn · đã xử lý.
+  function backlogSegs(c){
+    return [
+      { label:'Mới phát sinh', n:c.newCount, color:'#4c9aff' },
+      { label:'Tồn đọng T-1 còn', n:c.stillOpen, color:'#ff5630' },
+      { label:'Tồn đọng T-1 đã xử lý', n:c.resolved, color:'#36b37e' }
+    ];
+  }
 
   // ---------- Export PDF (bar chart) ----------
   var btnExport = $('anExportChart');

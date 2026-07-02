@@ -615,6 +615,15 @@ def scan():
         if _seed_current_reopens(reopen, all_cur_bugs):
             dirty = True
 
+        # Hướng B (tồn đọng T-1): chốt snapshot status per-bug theo tháng tạo. Tự dedup +
+        # soft-fail bên trong -> không kéo sập scan. Chạy trên MỌI bug hiện tại (gồm file
+        # Tầng-1 skip) để tháng hiện tại luôn = trạng thái live mới nhất.
+        try:
+            from bug_backlog import archive as _archive_backlog
+            _archive_backlog(all_cur_bugs)
+        except Exception as e:   # noqa: BLE001 — archive KHÔNG được làm sập lượt scan
+            _log('backlog archive warn: ' + _safe(e))
+
         if new_events:
             data['activity'] = _prune_activity(new_events + activity)
             result['changed'] = len(new_events)

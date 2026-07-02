@@ -143,6 +143,47 @@ def set_custom_status(email, key, value, summary=''):
     return cur
 
 
+def clear_labels_for_done(statuses_map, done_status='DONE'):
+    """Tự động GỠ HẾT nhãn custom của task đã chuyển sang DONE trên Jira.
+
+    statuses_map = {KEY: status_name} (lấy từ activity feed — nguồn có sẵn, zero extra call).
+    Task nào status == DONE mà đang còn nhãn custom -> gỡ hết + ghi 1 sự kiện 'hệ thống tự gỡ'
+    vào activity log. Trả set(KEY) vừa gỡ để caller cập nhật patch real-time (client xoá chip).
+    set() rỗng nếu không có gì để gỡ (đường thường -> KHÔNG ghi property/KV).
+
+    Lý do: DONE = task đã xong, nhãn tình trạng ('Dev fix bug', 'Chờ BA'...) hết ý nghĩa.
+    Bắt được CẢ 2 đường: đổi status qua drawer dashboard lẫn đổi thẳng trên Jira (cùng lên feed).
+    Sự kiện có by='system' -> chỉ admin (scope None) thấy trong chuông, QA không bị nhiễu.
+    """
+    if not statuses_map:
+        return set()
+    target = (done_status or '').strip().upper()
+    data = _load_data()
+    statuses = data.get('status', {})
+    activity = data.setdefault('activity', [])
+    now = datetime.now()
+    iso = now.isoformat()
+    cleared = set()
+    for key, st in statuses_map.items():
+        if not key or (st or '').strip().upper() != target:
+            continue
+        if not values_of(statuses.get(key)):
+            continue                          # không còn nhãn -> bỏ qua
+        statuses.pop(key, None)
+        cleared.add(key)
+        activity.insert(0, {
+            'id': f"{key}#cstat#done#{now.strftime('%Y%m%d%H%M%S%f')}",
+            'key': key, 'summary': '', 'by': 'system', 'author': 'Hệ thống',
+            'when': iso, 'new': '— (tự gỡ hết nhãn: task đã DONE)',
+        })
+    if not cleared:
+        return set()
+    cutoff = (now - timedelta(days=_ACT_PRUNE_DAYS)).isoformat()
+    data['activity'] = [a for a in activity if a.get('when', '') >= cutoff][:_ACT_CAP]
+    synced_save(CUSTOM_PROP, data, _write_cache, _valid_data)
+    return cleared
+
+
 def _filter_activity(activity, scope_user, days):
     cutoff = (datetime.now() - timedelta(days=days)).isoformat()
     out = []

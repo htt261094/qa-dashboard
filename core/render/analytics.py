@@ -34,12 +34,14 @@ def _flatten_bugs(data):
     return bugs, sorted((m for m in months if m), reverse=True)
 
 
-def render_analytics_v2(data, user=None, activities=None, testcases=None, links=None, tc_links=None):
-    """Trang Analytics: 3 khối metric (Valid Bug Rate · Bug theo dev/dự án · Tỷ lệ Reopen).
-    Toàn bộ render client-side bởi controller `#analyticsData` (app_v2.js)."""
+def render_analytics_v2(data, user=None, activities=None, testcases=None, links=None,
+                        tc_links=None, backlog=None):
+    """Trang Analytics: 3 khối metric (Valid Bug Rate · Bug theo dev/dự án · Tỷ lệ Reopen)
+    + Tồn đọng T-1 vs Mới phát sinh. Toàn bộ render client-side bởi `#analyticsData`."""
     data = data or {}
     bugs, month_list = _flatten_bugs(data)
     reopen = data.get('reopen', {}) or {}
+    backlog_months = (backlog or {}).get('months', {}) or {}
     
     tc_data = testcases or {}
     tc_cases = tc_data.get('cases', [])
@@ -122,11 +124,13 @@ def render_analytics_v2(data, user=None, activities=None, testcases=None, links=
         '</div>'
 
         '</div>'  # end metrics-row
+
         + _json_script('analyticsData', {
             'bugs': bugs, 'months': month_list, 'reopen': reopen,
             'syncedAt': synced_disp,
             'tcData': {'cases': tc_cases, 'folders': tc_folders},
-            'bugLinks': links, 'tcLinks': tc_links
+            'bugLinks': links, 'tcLinks': tc_links,
+            'backlogMonths': backlog_months,
         })
     )
     return _document_v2(content, 'analytics', user, activities or [],

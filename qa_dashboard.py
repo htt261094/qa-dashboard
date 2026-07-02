@@ -43,7 +43,7 @@ from testcase_store import (load_testcases, fetch_sheets as tc_fetch_sheets,
                             import_cases as tc_import_cases, add_folder as tc_add_folder,
                             delete_folder as tc_delete_folder, rename_folder as tc_rename_folder)
 from pat_store import save_user_pat, has_pat, delete_user_pat, load_user_pat
-from custom_status import (load_bundle, values_of)
+from custom_status import (load_bundle, values_of, clear_labels_for_done)
 from render import (render_page, render_qa_v2, render_docs_page,
                     render_roadmap_v2, render_public_roadmap_v2, render_bug_log_v2, render_analytics_v2,
                     render_testcase_v2, render_settings_page, render_error_page,
@@ -274,6 +274,11 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         statuses = {}
         if with_patch:
             feed, statuses = feed
+            # Task vừa chuyển DONE trên Jira -> tự gỡ hết nhãn custom (hết ý nghĩa khi đã xong).
+            # Bắt được cả đổi qua drawer lẫn đổi thẳng trên Jira (đều lên feed). overlay.pop ->
+            # patch gửi customs:[] cho client xoá chip real-time.
+            for k in clear_labels_for_done(statuses):
+                overlay.pop(k, None)
         merged = sorted(feed + cust_act, key=lambda a: a.get('when') or '', reverse=True)
         for a in merged:
             a['is_unread'] = a['id'] not in dismissed
@@ -533,20 +538,23 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             from core.testcase_store import load_testcases
             from core.testcase_link import load_links as tc_load_links
             from core.task_link import load_links
+            from bug_backlog import load_backlog
             res = run_parallel({
-                'bug': load_bug_log, 
+                'bug': load_bug_log,
                 'bell': self._bell_activities,
                 'tc': load_testcases,
                 'links': load_links,
-                'tc_links': tc_load_links
+                'tc_links': tc_load_links,
+                'backlog': load_backlog,
             })
             self._html(render_analytics_v2(
-                res['bug'], 
+                res['bug'],
                 user=self._user_ctx(),
                 activities=res['bell'],
                 testcases=res['tc'],
                 links=res['links'],
-                tc_links=res['tc_links']
+                tc_links=res['tc_links'],
+                backlog=res['backlog']
             ))
         except RuntimeError as e:
             self._html(render_error_page(str(e)))
