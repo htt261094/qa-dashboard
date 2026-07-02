@@ -3833,6 +3833,22 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     lastSheetUrl = '';
     loadSheets();
     if(urlIn) urlIn.focus(); });
+  if($('tcSyncAllBtn')) $('tcSyncAllBtn').addEventListener('click', function(){
+    if(!editable) return;
+    if(!confirm('Đồng bộ lại TẤT CẢ bộ test case đã import từ Google Sheet? '
+      +'Nội dung sẽ được cập nhật theo file mới nhất (kết quả chạy theo ID được giữ lại).')) return;
+    var btn=this; btn.disabled=true;
+    toast('Đang đồng bộ toàn bộ test case từ Google Sheets...', true);
+    postJSON('/tc-sync-all', {}, 180000).then(function(res){
+      btn.disabled=false;
+      if(res && res.ok){
+        window.tcShowSuccess(res.msg || 'Đồng bộ thành công.', 'Đồng bộ toàn bộ');
+      } else {
+        window.tcShowError((res && res.msg) || 'Lỗi đồng bộ.', 'Đồng bộ thất bại');
+      }
+    }).catch(function(){ btn.disabled=false;
+      window.tcShowError('Lỗi mạng khi đồng bộ.', 'Đồng bộ thất bại'); });
+  });
   if(submitBtn) submitBtn.addEventListener('click', function(){
     var u=(urlIn&&urlIn.value||'').trim();
     var sheet=(sheetSel&&sheetSel.value||'').trim();

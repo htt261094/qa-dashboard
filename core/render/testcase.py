@@ -114,8 +114,13 @@ def render_testcase_v2(data=None, editable=True, links=None, user=None, activiti
     folders = data.get('folders') or []
     cases = data.get('cases') or []
 
-    import_btn = ('<button class="btn-pri" id="tcImportBtn">'
+    import_btn = ('<div style="display:flex;gap:10px;align-items:center">'
+                  '<button class="btn btn-ghost" id="tcSyncAllBtn" '
+                  'title="Đồng bộ lại toàn bộ bộ test case đã import từ Google Sheet">'
+                  '<span class="material-symbols-rounded mi-sm">sync</span> Sync tất cả</button>'
+                  '<button class="btn-pri" id="tcImportBtn">'
                   '<span class="material-symbols-rounded mi-sm">upload</span> Import</button>'
+                  '</div>'
                   ) if editable else ''
     repo_add = ('<button class="tc-repo-add" id="tcAddFolder" title="Thêm bộ / folder">'
                 '<span class="material-symbols-rounded">create_new_folder</span></button>'
