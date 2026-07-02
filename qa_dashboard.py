@@ -886,6 +886,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         if self.path == '/tc-sync':
             self._post_tc_sync()
             return
+        if self.path == '/tc-sync-all':
+            self._post_tc_sync_all()
+            return
         self.send_response(404)
         self.end_headers()
 
@@ -1243,6 +1246,53 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
             res = {'ok': False, 'msg': 'Lỗi xử lý yêu cầu.'}
         except Exception:   # noqa: BLE001
+            res = {'ok': False, 'msg': 'Lỗi không xác định khi đồng bộ.'}
+        self._json(200 if res.get('ok') else 400,
+                   json.dumps(res, ensure_ascii=False).encode('utf-8'))
+
+    def _post_tc_sync_all(self):
+        # Đồng bộ lại TẤT CẢ bộ test case đã import từ Google Sheet (lặp qua data['imports']).
+        # Mỗi folder re-import bằng url+sheet đã lưu; gom kết quả tổng hợp.
+        res = {'ok': False, 'msg': 'Lỗi xử lý yêu cầu.'}
+        try:
+            from core.testcase_store import load_testcases
+            data = load_testcases()
+            imports = data.get('imports', {}) or {}
+            folder_name = {f.get('id'): f.get('name', f.get('id'))
+                           for f in data.get('folders', [])}
+            if not imports:
+                res = {'ok': False, 'msg': 'Chưa có bộ test case nào được import từ '
+                                           'Google Sheet để đồng bộ.'}
+            else:
+                ok_folders, fail_lines = 0, []
+                total_count = 0
+                for folder, info in imports.items():
+                    url = (info or {}).get('url', '')
+                    sheet = (info or {}).get('sheet', '')
+                    if sheet == '(toàn bộ file)':
+                        sheet = ''
+                    name = folder_name.get(folder, folder)
+                    if not url:
+                        fail_lines.append(f'• "{name}": thiếu link Google Sheet đã lưu')
+                        continue
+                    try:
+                        r = tc_import_cases(folder, url, sheet, by_email=self._user_email())
+                    except (RuntimeError, OSError) as e:
+                        fail_lines.append(f'• "{name}": {e}')
+                        continue
+                    if r.get('ok'):
+                        ok_folders += 1
+                        total_count += r.get('count', 0)
+                    else:
+                        fail_lines.append(f'• "{name}": {r.get("msg", "lỗi không rõ")}')
+                msg = f'Đã đồng bộ {ok_folders}/{len(imports)} bộ · {total_count} test case.'
+                if fail_lines:
+                    msg += '\n\nMột số bộ lỗi:\n' + '\n'.join(fail_lines)
+                res = {'ok': ok_folders > 0, 'msg': msg,
+                       'synced': ok_folders, 'total': len(imports)}
+        except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
+            res = {'ok': False, 'msg': 'Lỗi xử lý yêu cầu.'}
+        except Exception:   # noqa: BLE001 — store đã redact token
             res = {'ok': False, 'msg': 'Lỗi không xác định khi đồng bộ.'}
         self._json(200 if res.get('ok') else 400,
                    json.dumps(res, ensure_ascii=False).encode('utf-8'))
