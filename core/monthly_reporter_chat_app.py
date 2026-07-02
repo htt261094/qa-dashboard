@@ -14,7 +14,19 @@ from googleapiclient.http import MediaFileUpload, MediaIoBaseUpload
 # Xử lý tham số dòng lệnh
 parser = argparse.ArgumentParser()
 parser.add_argument('--cron', action='store_true', help='Chỉ chạy nếu hôm nay là ngày cuối tháng')
+parser.add_argument('--month', type=int, default=None,
+                    help='Tháng muốn gửi report (1-12). Năm tự lấy năm hiện tại. '
+                         'VD: 6 -> 06/2026, 8 -> 08/2026 (sang 2027 thì 6 -> 06/2027). '
+                         'Bỏ trống = tháng hiện tại (mặc định của trang).')
 args = parser.parse_args()
+
+# Xác định tháng target (MM/YYYY) nếu user truyền --month
+TARGET_MONTH = None
+if args.month is not None:
+    if not (1 <= args.month <= 12):
+        print(f"--month phải trong khoảng 1-12 (nhận: {args.month}).")
+        sys.exit(1)
+    TARGET_MONTH = f"{args.month:02d}/{datetime.date.today().year}"
 
 if args.cron:
     today = datetime.date.today()
@@ -59,10 +71,29 @@ async def main():
         try:
             await page.goto(URL)
             await page.wait_for_selector('#anMetricCharts', timeout=15000)
-            
+
+            # Nếu user chỉ định tháng -> đổi select rồi đợi chart re-render
+            if TARGET_MONTH:
+                options = await page.locator('#anMetricMonth option').evaluate_all(
+                    'els => els.map(e => e.value)')
+                if TARGET_MONTH not in options:
+                    print(f"Tháng {TARGET_MONTH} không có trong danh sách. "
+                          f"Các tháng khả dụng: {options}")
+                    sys.exit(1)
+                print(f"Chọn tháng report: {TARGET_MONTH}")
+                await page.select_option('#anMetricMonth', TARGET_MONTH)
+
             # Đợi một chút để chart render xong animation (nếu có)
             await page.wait_for_timeout(2000)
-            
+
+            # Chặn sớm nếu tháng không có bug: chart rỗng -> nút export return sớm,
+            # KHÔNG tạo download -> expect_download() sẽ treo tới timeout. Fail rõ ràng thay vì treo.
+            charts_html = await page.locator('#anMetricCharts').inner_html()
+            if 'an-empty' in charts_html or not charts_html.strip():
+                month_disp = TARGET_MONTH or 'hiện tại'
+                print(f"Tháng {month_disp} không có dữ liệu bug để export. Bỏ qua gửi report.")
+                sys.exit(1)
+
             print("Đang click Export PDF...")
             # Bấm nút export và đợi file tải về
             async with page.expect_download() as download_info:
