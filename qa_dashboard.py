@@ -55,6 +55,19 @@ from routes.uploads import UploadsMixin
 ACTIVITY_DAYS = 7  # cửa sổ activity feed kéo từ Jira changelog
 
 
+def _drop_own_activities(merged, email):
+    """Bỏ khỏi chuông các noti do CHÍNH người đang login gây ra (tự tạo task/đổi status/
+    comment rồi thấy lại noti của mình). Áp cho cả admin lẫn member.
+    Feed Jira chỉ có 'author' (tên rút gọn = display_name); custom-status có thêm 'by' (username).
+    Không xác định được người login (local dev/email lạ) -> giữ nguyên."""
+    me_user = username_from_email(email)
+    if not me_user:
+        return merged
+    me_name = display_name(me_user)
+    return [a for a in merged
+            if a.get('by') != me_user and a.get('author') != me_name]
+
+
 # ===== HTTP server =====
 class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestHandler):
     # ----- Auth (Google OAuth login + session cookie ký HMAC) -----
@@ -280,6 +293,7 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             for k in clear_labels_for_done(statuses):
                 overlay.pop(k, None)
         merged = sorted(feed + cust_act, key=lambda a: a.get('when') or '', reverse=True)
+        merged = _drop_own_activities(merged, email)
         for a in merged:
             a['is_unread'] = a['id'] not in dismissed
         if not with_patch:
@@ -721,6 +735,7 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         except RuntimeError:
             feed, dismissed = [], {}     # offline -> chuông rỗng, trang vẫn render
         merged = sorted(feed + cust_act, key=lambda a: a.get('when') or '', reverse=True)
+        merged = _drop_own_activities(merged, email)
         for a in merged:
             a['is_unread'] = a['id'] not in dismissed
         self._html(render_page(data, merged, ACTIVITY_DAYS,
