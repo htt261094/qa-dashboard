@@ -6,6 +6,8 @@ PAT riêng truyền vào. PAT luôn redact trong mọi thông báo lỗi (OPSEC)
 
 Layer: config -> (this). Caller (handler) tự lấy PAT qua pat_store rồi truyền vào.
 """
+import re
+
 import requests
 
 from config import (JIRA_URL, SUBTASK_TYPE_ID, TASK_PTSP_TYPE_ID,
@@ -141,6 +143,50 @@ def create_subtask(parent_key, summary, duedate, start_date,
     except ValueError:
         pass
     return False, _err_for(r.status_code, pat)
+
+
+def can_edit_duedate(key, pat):
+    """Task này người dùng (theo PAT cá nhân) CÓ được sửa Due date không?
+
+    Dùng /editmeta — Jira trả đúng tập field mà CHÍNH user hiện tại được sửa trên issue này
+    (đã tính permission Edit Issues + cấu hình field/workflow). 'duedate' có mặt = được sửa.
+    Trả (True, bool) hoặc (False, msg). Đây là gate cho UI; enforce thật vẫn ở set_duedate."""
+    try:
+        r = requests.get(f"{JIRA_URL}/rest/api/2/issue/{key}/editmeta",
+                         headers=_headers(pat), timeout=_TIMEOUT)
+        if r.status_code != 200:
+            return False, _err_for(r.status_code, pat)
+        fields = (r.json() or {}).get('fields') or {}
+        return True, ('duedate' in fields)
+    except requests.RequestException as e:
+        return False, _redact(f'Lỗi mạng: {e}', pat)
+
+
+def set_duedate(key, duedate, pat):
+    """Đổi Due date THẬT bằng PAT cá nhân -> Jira tự enforce quyền (không đủ quyền = 403/400).
+    duedate = 'YYYY-MM-DD' để đặt, '' hoặc None để xoá hạn. Trả (ok, msg)."""
+    duedate = (duedate or '').strip()
+    if duedate and not re.match(r'^\d{4}-\d{2}-\d{2}$', duedate):
+        return False, 'Ngày phải đúng định dạng YYYY-MM-DD.'
+    try:
+        r = requests.put(f"{JIRA_URL}/rest/api/2/issue/{key}",
+                         headers=_headers(pat),
+                         json={'fields': {'duedate': duedate or None}}, timeout=_TIMEOUT)
+        if r.status_code in (200, 204):
+            return True, ('Đã đổi hạn trên Jira.' if duedate else 'Đã xoá hạn trên Jira.')
+        # 400 -> field lỗi cụ thể (vd không có quyền sửa field, giá trị sai)
+        if r.status_code == 400:
+            try:
+                err = r.json()
+                msgs = list((err.get('errors') or {}).values()) + (err.get('errorMessages') or [])
+                if msgs:
+                    return False, _redact('; '.join(str(m) for m in msgs), pat)
+            except ValueError:
+                pass
+            return False, 'Jira từ chối cập nhật hạn (400).'
+        return False, _err_for(r.status_code, pat)
+    except requests.RequestException as e:
+        return False, _redact(f'Lỗi mạng: {e}', pat)
 
 
 def add_comment(key, body, pat):

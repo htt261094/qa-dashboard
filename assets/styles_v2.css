@@ -195,6 +195,18 @@ tr.overdue-row{background:var(--error-bg)}
 .due{white-space:nowrap}
 .due.overdue{color:var(--error);font-weight:600;font-style:italic}
 .due.today{color:var(--warning);font-weight:600}
+/* Đổi due date inline (bảng + drawer) — gate theo quyền Jira */
+.due-cell{display:inline-flex;align-items:center;gap:5px;cursor:pointer;border-radius:6px;
+  padding:2px 4px;margin:-2px -4px;flex-wrap:wrap}
+.due-cell:hover{background:var(--surface-variant)}
+.due-pen{color:var(--primary);opacity:0;transition:opacity .12s}
+.due-cell:hover .due-pen{opacity:.85}
+.due-cell.editing{cursor:default}
+.due-cell.editing:hover{background:none}
+.due-loading{color:var(--on-surface-variant)}
+.due-input{padding:4px 6px;border:1px solid var(--outline);border-radius:6px;font:inherit;
+  background:var(--surface);color:var(--on-surface)}
+.lbtn.due-btn{padding:4px 10px;font-size:12px}
 .act-btn{position:relative;background:none;border:none;cursor:pointer;color:var(--outline);display:inline-flex;
          align-items:center;gap:4px;padding:4px 7px;border-radius:var(--r-sm)}
 .act-btn:hover{color:var(--primary);background:var(--surface-low)}

@@ -19,7 +19,8 @@ import json
 from config import JIRA_URL
 from pat_store import load_user_pat
 from custom_status import set_custom_status, is_valid
-from jira_write import get_transitions, do_transition, add_comment, create_subtask
+from jira_write import (get_transitions, do_transition, add_comment, create_subtask,
+                        can_edit_duedate, set_duedate)
 
 
 class WriteMixin:
@@ -50,6 +51,18 @@ class WriteMixin:
                     self._reply_json(False, {'ok': False, 'msg': 'Thiếu transition id.'})
                     return
                 ok, msg = do_transition(key, tid, pat)
+                self._reply_json(ok, {'ok': ok, 'msg': msg})
+            elif self.path == '/duedate-perm':
+                # UI gate: task này người đăng nhập có quyền sửa Due date trên Jira không?
+                ok, res = can_edit_duedate(key, pat)
+                self._reply_json(ok, {'ok': True, 'canEdit': bool(res)} if ok
+                                 else {'ok': False, 'msg': res})
+            elif self.path == '/set-duedate':
+                due = payload.get('duedate')
+                if due is not None and not isinstance(due, str):
+                    self._reply_json(False, {'ok': False, 'msg': 'Hạn không hợp lệ.'})
+                    return
+                ok, msg = set_duedate(key, due or '', pat)
                 self._reply_json(ok, {'ok': ok, 'msg': msg})
             else:  # /add-comment
                 body = payload.get('body')

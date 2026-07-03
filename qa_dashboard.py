@@ -850,7 +850,8 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         if self.path == '/chat':
             self._post_chat()
             return
-        if self.path in ('/jira-transitions', '/do-transition', '/add-comment'):
+        if self.path in ('/jira-transitions', '/do-transition', '/add-comment',
+                         '/duedate-perm', '/set-duedate'):
             self._handle_jira_write()
             return
         if self.path == '/create-subtask':

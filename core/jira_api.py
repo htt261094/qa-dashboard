@@ -1036,7 +1036,7 @@ def fetch_leader_eval_tasks(category, leader, sel_assignees, year, month):
         parts.append(f'category = "{category}"')
         
     parts.append('type in (Task, Sub-task)')
-    parts.append('NOT ((statusCategory = Done OR status = PENDING) AND "Leader đánh giá (text)" is not EMPTY)')
+    parts.append('"Leader đánh giá (Số)" is EMPTY')
     parts.append(f'("Start date" <= "{end_str}" AND duedate >= "{start_str}")')
     
     if leader:

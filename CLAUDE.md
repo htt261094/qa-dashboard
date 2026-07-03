@@ -386,6 +386,20 @@ Hiền THƯỜNG là reporter trong các task QA team được giao — vì cô 
 - **Giới hạn**: không xác định được người login (local dev / email không khớp QA nào → `username_from_email` trả None) → giữ nguyên toàn bộ. System event (`by='system'`, tự gỡ nhãn khi DONE) không bị ảnh hưởng. Cần **restart app** (code Python, không hot-reload).
 - **Verify** (không mạng): `py_compile` OK; smoke `_drop_own_activities` — login thanhht1: lọc đúng noti mình (author='Thành' và by='thanhht1'), giữ người khác + system; email rỗng: giữ tất cả.
 
+### 35. Đổi Due date inline (bảng + drawer) — gate theo QUYỀN Jira, ghi bằng PAT cá nhân (2026-07-03)
+- **Bối cảnh / vì sao**: user muốn đổi hạn task ngay trên workspace nhưng phải TÔN TRỌNG quyền Jira — ai được sửa trên Jira thì cho, không thì không. Cùng class với đổi status/comment (Decision #20): ghi bằng **PAT cá nhân** → Jira tự attribution + tự enforce quyền. Bổ sung (cùng ngày): user chốt **đổi được NGAY trên bảng dashboard**, không cần mở drawer chi tiết.
+- **2 tầng enforce (backend)**:
+  - **Gate UI** = `GET editmeta` bằng PAT cá nhân (`jira_write.can_edit_duedate`): Jira trả tập field CHÍNH user hiện tại được sửa trên issue đó (đã tính Edit Issues permission + field/workflow config). `'duedate' in fields` → được sửa. Route POST `/duedate-perm` → `{ok, canEdit}`.
+  - **Enforce thật** = `PUT /issue/{key} {fields:{duedate}}` bằng PAT cá nhân (`jira_write.set_duedate`): không đủ quyền → Jira 403/400, KHÔNG ghi được. Route POST `/set-duedate`. `duedate=''`/None → xoá hạn (`null`). Cả 2 route đi qua `_handle_jira_write` (WriteMixin) nên **không có PAT → từ chối `no_pat`** (nhắc vào Cài đặt) như các thao tác ghi khác.
+- **UI (`app_v2.js`)** — helper DÙNG CHUNG ở outer scope, áp cho CẢ ô Hạn trong **bảng** (admin `render_admin_v2` + QA `render_qa_v2`/my-work) LẪN **drawer** (admin/QA/fallback roadmap-docs):
+  - `dueValHTML(t)` = cụm `<span class="due-cell" data-act="due-edit">` (ngày + bút ✎ hiện khi hover) — nhúng vào cột Due Date của bảng + ô "Hạn chót" của drawer.
+  - **Check quyền LAZY lúc BẤM** (không hỏi trước từng dòng → tránh N call editmeta/trang): `ensureDuePerm(key)` cache `DUE_PERM`; bấm ô → nếu `true` mở input date + Lưu/Huỷ (`dueEditor`), nếu `'no_pat'` → mở modal Cài đặt, nếu không có quyền → toast "không có quyền".
+  - `due-save` → POST `/set-duedate` → `window.__applyDuePatch(key,val)` (mỗi branch cập nhật TASKS/CUR qua `recomputeDue` + renderRows/KPI) + `dueAfterChange` (drawer thì re-render drawer, bảng thì `window.__rerenderRows`). KHÔNG reload.
+  - **Chống mở drawer nhầm**: admin tbody row-click bỏ qua khi target trong `.due-cell` (`if(e.target.closest('.due-cell')) return;`); QA/fallback dùng data-act delegation nên không đụng.
+  - CSS `.due-cell/.due-pen/.due-input/.lbtn.due-btn` trong `styles_v2.css`.
+- **Giới hạn**: affordance ✎ hiện cho MỌI người (không eager-hỏi quyền); quyền chỉ kiểm khi bấm (lazy) → người không đủ quyền bấm sẽ bị toast từ chối (enforce thật ở `/set-duedate` vẫn chặn tuyệt đối). Chưa có PAT → không sửa được. Bảng/KPI cập nhật client gần đúng theo `recomputeDue`; số chuẩn tuyệt đối chỉ sau F5. Cần **restart app** (route Python mới; JS/CSS hot-reload per-render).
+- **Verify** (không mạng): `py_compile` qa_dashboard/jira_write/routes.write OK; import `set_duedate`/`can_edit_duedate` OK; bracket-balance `app_v2.js` ngang HEAD.
+
 ## Issue Tracking & Branch Workflow (QUAN TRỌNG cho Claude Code)
 
 **Quy ước user (áp dụng MẶC ĐỊNH, không hỏi lại):**

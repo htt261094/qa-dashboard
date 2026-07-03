@@ -327,6 +327,78 @@ function applyTheme(t){ document.documentElement.setAttribute('data-theme', t);
 function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov) ov.classList.add('open');
   toast(j.msg || 'Cần PAT để thao tác Jira', false); return true; } return false; }
 
+// ---------- Đổi Due date theo QUYỀN Jira (ghi bằng PAT cá nhân) — bảng + drawer, dùng chung ----------
+// DUE_PERM[key]: true = được sửa · false = không được · 'no_pat' = chưa có PAT · 'loading'/undefined.
+// Quyền lấy từ /editmeta (Jira trả field CHÍNH user hiện tại được sửa) — check LAZY lúc bấm ô Hạn
+// (không hỏi trước từng dòng); enforce thật vẫn ở /set-duedate. Ô Hạn hiện được ở CẢ bảng lẫn drawer.
+var DUE_PERM = {};
+function ensureDuePerm(key, cb){
+  var cur = DUE_PERM[key];
+  if(cur!==undefined && cur!=='loading'){ if(cb) cb(cur); return; }
+  if(cur==='loading'){ return; }
+  DUE_PERM[key]='loading';
+  postJSON('/duedate-perm', { key:key }, 15000).then(function(j){
+    DUE_PERM[key] = (j && j.code==='no_pat') ? 'no_pat'
+                    : (j && j.ok && j.canEdit ? true : false);
+    if(cb) cb(DUE_PERM[key]);
+  }).catch(function(){ DUE_PERM[key]=false; if(cb) cb(false); });
+}
+// Ô Hạn chót có thể bấm để sửa (cả bảng lẫn drawer). Trả nguyên cụm <span class="due-cell">.
+function dueValHTML(t){
+  return '<span class="due-cell" data-act="due-edit" data-key="'+esc(t.key)+'" data-due="'+esc(t.due||'')
+    +'" title="Bấm để đổi hạn"><span class="due '+esc(t.dueCls||'')+'">'+esc(t.dueDisp||'—')+'</span>'
+    +'<span class="due-pen material-symbols-rounded mi-xs">edit_calendar</span></span>';
+}
+function dueToday(){ var d=new Date();
+  return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); }
+function recomputeDue(t, val){          // đồng bộ dueDisp/dueCls/overdue sau khi đổi hạn
+  val=(val||'').trim(); t.due=val; t.dueDisp = val || 'Chưa đặt hạn';
+  var st=(t.jira||'').toUpperCase();
+  var od = !!val && val < dueToday() && st!=='DONE' && st!=='CANCELLED';
+  t.overdue = od; t.dueCls = od ? 'overdue' : '';
+}
+window.__recomputeDue = recomputeDue;
+function dueEditor(cell, key, cur){
+  cell.classList.add('editing');
+  cell.innerHTML='<input type="date" class="due-input" value="'+esc(cur)+'">'
+    +'<button class="lbtn primary due-btn" data-act="due-save" data-key="'+esc(key)+'">Lưu</button>'
+    +'<button class="lbtn due-btn" data-act="due-cancel" data-key="'+esc(key)+'">Huỷ</button>';
+  var inp=cell.querySelector('.due-input'); if(inp) inp.focus();
+}
+// Khôi phục ô/bảng/drawer sau save (đã patch) hoặc cancel. inDrawer = ô nằm trong drawer.
+function dueAfterChange(key, inDrawer){
+  if(inDrawer){ if(window.__openDetail) window.__openDetail(key); }
+  else if(window.__rerenderRows){ window.__rerenderRows(); }
+}
+// Click handler dùng chung (event delegation trên document) cho cả bảng lẫn drawer.
+document.addEventListener('click', function(e){
+  var a=e.target.closest('[data-act]'); if(!a) return;
+  var act=a.getAttribute('data-act');
+  if(act==='due-edit'){
+    var cell=a.closest('.due-cell'); if(!cell || cell.classList.contains('editing')) return;
+    var key=a.getAttribute('data-key'), cur=a.getAttribute('data-due')||'';
+    cell.innerHTML='<span class="due-loading">…</span>';
+    ensureDuePerm(key, function(perm){
+      if(perm==='no_pat'){ patToast({code:'no_pat', msg:'Cần PAT để đổi hạn — vào ⚙ Cài đặt'}); dueAfterChange(key, !!cell.closest('#drawer')); return; }
+      if(perm!==true){ toast('Bạn không có quyền đổi hạn task này trên Jira', false); dueAfterChange(key, !!cell.closest('#drawer')); return; }
+      if(document.body.contains(cell)) dueEditor(cell, key, cur);
+    });
+  } else if(act==='due-cancel'){
+    dueAfterChange(a.getAttribute('data-key'), !!a.closest('#drawer'));
+  } else if(act==='due-save'){
+    var k=a.getAttribute('data-key'), cell2=a.closest('.due-cell');
+    var inp2=cell2&&cell2.querySelector('.due-input');
+    var val=(inp2&&inp2.value||'').trim(); var inDrawer=!!a.closest('#drawer');
+    a.disabled=true;
+    postJSON('/set-duedate', { key:k, duedate:val }, 20000).then(function(j){
+      if(patToast(j)){ dueAfterChange(k, inDrawer); return; }
+      if(j.ok){ if(window.__applyDuePatch) window.__applyDuePatch(k, val);
+        toast(val?'Đã đổi hạn ✓':'Đã xoá hạn ✓', true); dueAfterChange(k, inDrawer); }
+      else { a.disabled=false; toast(j.msg||'Lỗi đổi hạn', false); }
+    }).catch(function(){ a.disabled=false; toast('Lỗi mạng', false); });
+  }
+});
+
 // ---------- trang /settings ĐẦY ĐỦ (render_settings_page) — khác modal ở trên (IDs riêng) ----------
 (function(){
   var input=$('patInput'); if(!input) return;   // chỉ chạy trên trang /settings
@@ -544,7 +616,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
           +'<span>'+esc(t.assignee.name)+'</span></div></td>'
           +'<td class="status-cell"><div class="stat-wrap"><span class="badge '+badgeCls(t.jira)+'">'+esc(t.jira)+'</span>'
           +'<button class="caret material-symbols-rounded mi-sm" data-act="smenu" data-key="'+esc(t.key)+'">expand_more</button></div>'+chipHTML(t)+'</td>'
-          +'<td class="cell-date"><span class="due '+esc(t.dueCls)+'">'+esc(t.dueDisp)+'</span></td>'
+          +'<td class="cell-date">'+dueValHTML(t)+'</td>'
           +'<td class="cell-date">'+esc(t.createdDisp)+'</td>'
           +'<td class="cell-date">'+esc(t.updatedDisp)+'</td></tr>';
       }).join('');
@@ -636,6 +708,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     // Row clicks -> drawer
     tbody.addEventListener('click', function(e){
       if(e.target.closest('.pager-filler')) return;
+      if(e.target.closest('.due-cell')) return;   // đổi hạn inline — đừng mở drawer
       var rm=e.target.closest('.rm[data-val]');
       if(rm){ e.stopPropagation(); adRmCust(rm.getAttribute('data-key'), rm.getAttribute('data-val')); return; }
       var caret=e.target.closest('[data-act="smenu"]');
@@ -696,7 +769,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
         +'<div class="drawer-body"><h2>'+esc(t.summary)+'</h2>'
         +'<div class="dt-grid"><div class="lbl">Người xử lý</div><div class="val"><span class="assignee"><span class="av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span> '+esc(t.assignee.name)+'</span></div>'
         +'<div class="lbl">Ngày tạo</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].created)?esc(DETAIL[t.key].created):esc(t.createdDisp||'—'))+'</div>'
-        +'<div class="lbl">Hạn chót</div><div class="val"><span class="due '+esc(t.dueCls)+'">'+esc(t.dueDisp)+'</span></div>'
+        +'<div class="lbl">Hạn chót</div><div class="val" id="dueVal-'+esc(t.key)+'">'+dueValHTML(t)+'</div>'
         +'<div class="lbl">Cập nhật</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].updated)?esc(DETAIL[t.key].updated):'—')+'</div>'
         +'<div class="lbl">Dev phụ trách</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].devs&&DETAIL[t.key].devs.length)?DETAIL[t.key].devs.map(esc).join(', '):'—')+'</div>'
         +'<div class="lbl">Nhãn nội bộ</div><div class="val">'+chips+'</div>'
@@ -745,6 +818,14 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
         if(ok && map[ok]){ var tt=taskByKey(ok); if(tt) renderDrawer(tt); }
       }
     };
+
+    // Vá lại due date sau khi user tự đổi hạn (drawer) -> cập nhật bảng/KPI ngay, không reload.
+    window.__applyDuePatch=function(key, val){
+      var t=taskByKey(key); if(!t) return;
+      recomputeDue(t, val);
+      updateCounts(); renderRows(); updateKPIs();
+    };
+    window.__rerenderRows=renderRows;
 
     // ----- status menu (.smenu) — đổi status Jira + gắn nhãn nội bộ (parity với QA member) -----
     var adSmenu=$('smenu'), adCurCaret=null, adCurJira=null;
@@ -883,7 +964,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       +'<button class="caret material-symbols-rounded mi-sm" data-act="smenu" data-key="'+esc(t.key)+'">expand_more</button></div>'+chipHTML(t)+'</td>'
       +'<td><span class="assignee"><span class="av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span> '+esc(t.assignee.name)+'</span></td>'
       +'<td class="cell-date">'+esc(t.createdDisp)+'</td>'
-      +'<td><span class="due '+esc(t.dueCls)+'">'+esc(t.dueDisp)+'</span></td>'
+      +'<td>'+dueValHTML(t)+'</td>'
       +'<td><button class="act-btn'+(openCmt[t.key]?' on':'')+'" data-act="cmt" data-key="'+esc(t.key)+'" title="Bình luận">'
       +'<span class="material-symbols-rounded mi-sm">chat_bubble_outline</span>'+cnt+'</button></td>'
       +'</tr>' + (openCmt[t.key] ? cmtRow(t.key) : '');
@@ -1007,7 +1088,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       +'<div class="drawer-body"><h2>'+esc(t.summary)+'</h2>'
       +'<div class="dt-grid"><div class="lbl">Người xử lý</div><div class="val"><span class="assignee"><span class="av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span> '+esc(t.assignee.name)+'</span></div>'
       +'<div class="lbl">Ngày tạo</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].created)?esc(DETAIL[t.key].created):esc(t.createdDisp||'—'))+'</div>'
-      +'<div class="lbl">Hạn chót</div><div class="val"><span class="due '+esc(t.dueCls)+'">'+esc(t.dueDisp)+'</span></div>'
+      +'<div class="lbl">Hạn chót</div><div class="val" id="dueVal-'+esc(t.key)+'">'+dueValHTML(t)+'</div>'
       +'<div class="lbl">Cập nhật</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].updated)?esc(DETAIL[t.key].updated):'—')+'</div>'
       +'<div class="lbl">Dev phụ trách</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].devs&&DETAIL[t.key].devs.length)?DETAIL[t.key].devs.map(esc).join(', '):'—')+'</div>'
       +'<div class="lbl">Nhãn nội bộ</div><div class="val">'+chips+'</div>'
@@ -1141,6 +1222,12 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     }
   };
 
+  window.__applyDuePatch=function(key, val){
+    var t=taskByKey(key); if(!t) return;
+    recomputeDue(t, val); renderRows();
+  };
+  window.__rerenderRows=renderRows;
+
   setFilter('all');
 })();
 
@@ -1188,7 +1275,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
       +'<div class="drawer-body"><h2>'+esc(t.summary)+'</h2>'
       +'<div class="dt-grid"><div class="lbl">Người xử lý</div><div class="val"><span class="assignee"><span class="av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span> '+esc(t.assignee.name)+'</span></div>'
       +'<div class="lbl">Ngày tạo</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].created)?esc(DETAIL[t.key].created):esc(t.createdDisp||'—'))+'</div>'
-      +'<div class="lbl">Hạn chót</div><div class="val"><span class="due '+esc(t.dueCls)+'">'+esc(t.dueDisp)+'</span></div>'
+      +'<div class="lbl">Hạn chót</div><div class="val" id="dueVal-'+esc(t.key)+'">'+dueValHTML(t)+'</div>'
       +'<div class="lbl">Cập nhật</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].updated)?esc(DETAIL[t.key].updated):'—')+'</div>'
       +'<div class="lbl">Dev phụ trách</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].devs&&DETAIL[t.key].devs.length)?DETAIL[t.key].devs.map(esc).join(', '):'—')+'</div>'
       +'<div class="lbl">Nhãn nội bộ</div><div class="val">'+chips+'</div>'
@@ -1214,6 +1301,7 @@ function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov)
     }
   }
   window.__openDetail=openDetail;
+  window.__applyDuePatch=function(key, val){ if(CUR[key]) recomputeDue(CUR[key], val); };
   function closeDetail(){ ov.classList.remove('open'); drawer.classList.remove('open'); }
   if(ov) ov.addEventListener('click', closeDetail);
   document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeDetail(); });
