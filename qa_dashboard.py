@@ -11,7 +11,6 @@ import ipaddress
 import json
 import sys
 import os
-import threading
 from datetime import datetime
 from http.cookies import SimpleCookie
 from urllib.parse import urlparse, parse_qs
@@ -21,9 +20,8 @@ from urllib.parse import urlparse, parse_qs
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'core'))
 
 from config import (JIRA_URL, USERS, PORT, ADMIN_EMAIL, ADMIN_EMAILS, ALLOWED_DOMAIN,
-                    AUTH_ENABLED, SELF_USER, PUBLIC_BASE_URL, CHAT_ENABLED,
+                    AUTH_ENABLED, SELF_USER, PUBLIC_BASE_URL,
                     display_name, username_from_email)
-from chat import chat_stream, prewarm as chat_prewarm
 from auth import (SESSION_COOKIE, SESSION_TTL, email_from_session,
                   session_status, make_session_token)
 from drive_token import has_drive_token, delete_drive_token
@@ -460,14 +458,19 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         leader = (q.get('leader') or [''])[0]
         sel_assignees = q.get('assignee', [])
 
-        if not month_str:
+        def _prev_month():
             now = datetime.now()
-            month_str = f"{now.year}-{now.month:02d}"
+            y, m = now.year, now.month - 1
+            if m == 0:
+                y, m = y - 1, 12
+            return y, m
+        if not month_str:
+            y, m = _prev_month()
+            month_str = f"{y}-{m:02d}"
         try:
             y, m = map(int, month_str.split('-'))
         except ValueError:
-            now = datetime.now()
-            y, m = now.year, now.month
+            y, m = _prev_month()
         try:
             from jira_api import fetch_leader_eval_tasks, fetch_project_categories
             res = run_parallel({
@@ -775,44 +778,6 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
     def _reply_json(self, ok, payload):
         self._json(200 if ok else 400, json.dumps(payload).encode('utf-8'))
 
-    def _post_chat(self):
-        # Chatbot: nhận {messages:[{role,content}]} -> stream text trả lời từ LLM local.
-        # Đã gate authed/domain ở do_POST. Stream từng đoạn (text/plain) để UX gõ-dần;
-        # KHÔNG Content-Length -> connection-close báo hết (HTTP/1.0). Client disconnect
-        # giữa chừng -> BrokenPipeError, nuốt êm (generator tự dừng).
-        if not CHAT_ENABLED:
-            self._json(503, b'{"ok":false,"err":"chat_disabled"}')
-            return
-        try:
-            payload = self._read_json_body(200_000)
-            messages = payload.get('messages') if isinstance(payload, dict) else None
-            if not isinstance(messages, list):
-                self._json(400, b'{"ok":false,"err":"bad_request"}')
-                return
-            # Nội dung tab user đang xem (client scrape DOM) — optional, dùng làm context.
-            page_text = payload.get('page') if isinstance(payload, dict) else ''
-            page_text = page_text if isinstance(page_text, str) else ''
-        except (ValueError, json.JSONDecodeError, OSError):
-            self._json(400, b'{"ok":false,"err":"bad_request"}')
-            return
-        self.send_response(200)
-        self.send_header('Content-Type', 'text/plain; charset=utf-8')
-        self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
-        self.send_header('X-Accel-Buffering', 'no')
-        self._security_headers()
-        self._emit_pending_cookies()
-        self.end_headers()
-        try:
-            for chunk in chat_stream(messages, page_text):
-                if not chunk:
-                    continue
-                self.wfile.write(chunk.encode('utf-8'))
-                self.wfile.flush()
-        except (BrokenPipeError, ConnectionResetError):
-            pass   # client đóng tab giữa chừng — bình thường
-        except Exception:   # noqa: BLE001 — đã stream 200, không đổi status được; nuốt êm
-            pass
-
     def do_POST(self):
         # Dispatch mỏng: gate auth/domain rồi route tới method _post_* / _handle_*.
         # Giữ NGUYÊN thứ tự kiểm tra path (zero behavior change — B0b/#112).
@@ -846,9 +811,6 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             return
         if self.path == '/set-custom-status':
             self._post_set_custom_status()
-            return
-        if self.path == '/chat':
-            self._post_chat()
             return
         if self.path in ('/jira-transitions', '/do-transition', '/add-comment',
                          '/duedate-perm', '/set-duedate'):
@@ -1321,8 +1283,6 @@ def main():
     print("  Ctrl+C để stop\n")
 
     start_bug_log_scheduler()   # daemon thread poll Drive 10p (no-op nếu chưa kết nối Drive)
-    # Nạp sẵn model LLM vào GPU (daemon, không chặn khởi động) -> user đầu không chịu cold-load.
-    threading.Thread(target=chat_prewarm, daemon=True).start()
 
     try:
         # ThreadingHTTPServer (issue #129): mỗi request 1 thread → 1 request chạm Jira
