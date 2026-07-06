@@ -99,8 +99,7 @@ def _load_env():
               'JIRA_ADMIN_EMAIL', 'JIRA_ALLOWED_DOMAIN',
               'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'SESSION_SECRET',
               'PUBLIC_BASE_URL', 'BUG_LOG_POLL_SECONDS', 'JIRA_MAX_CONCURRENT',
-              'CF_ACCOUNT_ID', 'CF_KV_NAMESPACE_ID', 'CF_API_TOKEN',
-              'OLLAMA_URL', 'OLLAMA_MODEL'):
+              'CF_ACCOUNT_ID', 'CF_KV_NAMESPACE_ID', 'CF_API_TOKEN'):
         if os.environ.get(k):
             cfg[k] = os.environ[k]
     return cfg
@@ -141,18 +140,6 @@ try:
     JIRA_MAX_CONCURRENT = min(64, max(1, int(CFG.get('JIRA_MAX_CONCURRENT', '12'))))
 except ValueError:
     JIRA_MAX_CONCURRENT = 12
-# ----- Chatbot (LLM local qua Ollama, Decision #32) -----
-# App proxy sang Ollama chạy CÙNG host (KHÔNG expose Ollama ra ngoài — không có auth).
-# Browser nói chuyện với app (đã qua OAuth/domain gate), app stream tiếp sang Ollama.
-# Bỏ trống OLLAMA_MODEL = tắt tính năng chatbot (widget không render).
-OLLAMA_URL = (CFG.get('OLLAMA_URL') or 'http://localhost:11434').rstrip('/')
-OLLAMA_MODEL = CFG.get('OLLAMA_MODEL', 'gemma4:12b').strip()
-CHAT_ENABLED = bool(OLLAMA_MODEL)
-# keep_alive: model nằm thường trú trong GPU/RAM bao lâu sau request cuối. '10m' = nhả sau
-# 10p không dùng (default — host 16GB, model 12B 8GB ghim mãi gây swap ~11GB; nhả khi rảnh để
-# giải phóng RAM, chỉ câu đầu sau idle chịu ~30s nạp lại). '-1' = giữ mãi (không cold-load
-# nhưng swap liên tục — chỉ hợp máy nhiều RAM/chuyên Ollama); '0' = nhả ngay sau mỗi câu.
-OLLAMA_KEEP_ALIVE = (CFG.get('OLLAMA_KEEP_ALIVE') or '10m').strip()
 # ----- Auth (qua Cloudflare Access; identity = header Cf-Access-Authenticated-User-Email) -----
 # Email role ADMIN: được edit roadmap/tài liệu. Rỗng = không khoá (local dev).
 # Hỗ trợ NHIỀU admin (JIRA_ADMIN_EMAIL = danh sách email cách nhau dấu phẩy).
