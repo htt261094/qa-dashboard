@@ -39,7 +39,8 @@ from docs import load_docs, save_docs, valid_tree
 from roadmap import load_roadmap, save_roadmap, valid_roadmap
 from testcase_store import (load_testcases, fetch_sheets as tc_fetch_sheets,
                             import_cases as tc_import_cases, add_folder as tc_add_folder,
-                            delete_folder as tc_delete_folder, rename_folder as tc_rename_folder)
+                            delete_folder as tc_delete_folder, rename_folder as tc_rename_folder,
+                            update_import_url as tc_update_import_url)
 from pat_store import save_user_pat, has_pat, delete_user_pat, load_user_pat
 from custom_status import (load_bundle, values_of, clear_labels_for_done)
 from render import (render_page, render_qa_v2, render_docs_page,
@@ -846,6 +847,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         if self.path == '/tc-link-task':
             self._post_tc_link_task()
             return
+        if self.path == '/tc-update-link':
+            self._post_tc_update_link()
+            return
         if self.path == '/tc-sync':
             self._post_tc_sync()
             return
@@ -1188,6 +1192,34 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             self._json(200, json.dumps({'ok': True, 'tasks': out}).encode('utf-8'))
         else:
             self._json(400, b'{"ok":false}')
+
+    def _post_tc_update_link(self):
+        # Đổi link Google Sheet nguồn đã lưu của 1 bộ (imports[folder].url).
+        # CHỈ cập nhật metadata, không re-import. Admin-only (sửa cấu hình nguồn).
+        if not self._is_admin():
+            self._json(403, b'{"ok":false,"msg":"Chi quan ly moi sua duoc."}')
+            return
+        out, err = None, ''
+        try:
+            payload = self._read_json_body(20_000)
+            folder = payload.get('folder') if isinstance(payload, dict) else None
+            url = payload.get('url') if isinstance(payload, dict) else None
+            if not isinstance(folder, str) or not isinstance(url, str):
+                err = 'Thiếu folder hoặc url.'
+            else:
+                ok, res = tc_update_import_url(folder, url)
+                if ok:
+                    out = res
+                else:
+                    err = res
+        except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
+            err = 'Lỗi xử lý yêu cầu.'
+        if out is None:
+            self._json(400, json.dumps({'ok': False, 'msg': err or 'Lỗi'},
+                                       ensure_ascii=False).encode('utf-8'))
+            return
+        self._json(200, json.dumps({'ok': True, 'imports': out.get('imports', {})},
+                                   ensure_ascii=False).encode('utf-8'))
 
     def _post_tc_sync(self):
         res = {'ok': False, 'msg': 'Lỗi xử lý yêu cầu.'}

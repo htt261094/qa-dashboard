@@ -95,9 +95,10 @@ Hiền THƯỜNG là reporter trong các task QA team được giao — vì cô 
 ### 4b. Bucket `done_week` dùng `status CHANGED TO "DONE" AFTER -3d`, KHÔNG dùng `resolved`
 - Workflow Bảo Kim thường KHÔNG set resolution → `resolutiondate` null → `resolved >= ...` trả RỖNG (bug cũ)
 - `status CHANGED TO "DONE"` bắt theo lịch sử chuyển trạng thái, không phụ thuộc resolution
-- Window = 3 ngày (`AFTER -3d`), order by `updated DESC`. Tên hiển thị: "Done (3 ngày)"
+- **UPDATE 2026-07-07 (user yêu cầu)**: bỏ cửa sổ 3 ngày → hiển thị **TẤT CẢ** task done. JQL đổi sang `status = "DONE" ORDER BY updated DESC` (current-state filter, không còn `CHANGED TO ... AFTER -3d`), `max_results` 100→500. Nhãn KPI "Done (3 ngày)"→"Done". Vào/Ra tuần (`resolved_week`) VẪN dùng `status CHANGED TO "DONE" AFTER startOfWeek()` — không đụng.
+- **BUGFIX cùng ngày**: lens cá nhân (`render_qa_v2` — dùng cho `/my-work` + QA `/`) trước CHỈ build `tasks` từ bucket `active` → KPI "Done" có SỐ nhưng bấm vào không ra dòng nào. Đã: (a) thêm done tasks (`data['done_week']`) vào list `tasks`; (b) `matchFilter` (closure QA app_v2.js) thêm nhánh `done` (=jira DONE) + đổi default `all` = **non-done** (trước `return true`); (c) KPI Done bấm giờ `setFilter('done')` thay vì reset về `all`.
 - Cột thời gian hiển thị `resolutiondate`, fallback `updated` nếu null
-- KHÔNG đổi lại sang `resolved`/`startOfWeek()` trừ khi user yêu cầu
+- KHÔNG đổi lại sang `resolved`/`startOfWeek()`/window thời gian trừ khi user yêu cầu
 
 ### 5. Workload threshold: ≥15 / 5–14 / ≤4
 - Định nghĩa: QUÁ TẢI / OK / NHẸ

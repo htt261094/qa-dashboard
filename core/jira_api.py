@@ -335,6 +335,15 @@ def _comment_snippet(body, n=140):
     return s if len(s) <= n else s[:n].rstrip() + '…'
 
 
+def _comment_full(body, n=8000):
+    """Nội dung comment ĐẦY ĐỦ cho drawer: GIỮ xuống dòng (CSS pre-wrap render),
+    chỉ cap ở ngưỡng cao để chặn payload rác."""
+    if not body:
+        return ''
+    s = str(body).strip()
+    return s if len(s) <= n else s[:n].rstrip() + '…'
+
+
 def fetch_activity_feed(days=7, cap=300, max_issues=120, scope_user=None, with_status=False,
                         block=True, force=False):
     """Reconstruct activity từ Jira changelog/comment trong `days` ngày gần nhất.
@@ -637,7 +646,7 @@ def fetch_issue_detail(key):
     for c in ((f.get('comment') or {}).get('comments') or []):
         comments.append({'author': actor_name(c.get('author')),
                          'when': c.get('created'),
-                         'body': _comment_snippet(c.get('body'), 600)})
+                         'body': _comment_full(c.get('body'))})
     comments.reverse()  # mới nhất lên đầu
     st = (f.get('status') or {}).get('name') or ''
     asg = f.get('assignee') or {}
@@ -837,7 +846,7 @@ def _compute_fetch_all(scope_user):
         'new24': lambda: jira_search(
             f"{rep_clause} AND created >= -24h ORDER BY created DESC", max_results=50),
         'done_week': lambda: jira_search(
-            f'{a_clause} AND status CHANGED TO "DONE" AFTER -3d ORDER BY updated DESC', max_results=100),
+            f'{a_clause} AND status = "DONE" ORDER BY updated DESC', max_results=500),
         # weekly inflow vs outflow (count-only, cheap)
         'created_week': lambda: jira_count(f"{a_clause} AND created >= startOfWeek()"),
         'resolved_week': lambda: jira_count(

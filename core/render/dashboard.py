@@ -155,7 +155,7 @@ def render_admin_v2(data, activities, cmap, user, bug_log_data=None,
             'jiraUrl': f'{JIRA_URL}/browse/{key}',
         })
 
-    # Done tasks (3 ngày)
+    # Done tasks (tất cả)
     for iss in done:
         key = iss['key']
         if key in seen:
@@ -325,6 +325,21 @@ def render_qa_v2(data, activities, cmap, user, nav_active='dashboard',
             'created': (i_created(iss) or '')[:10], 'createdDisp': (i_created(iss) or '')[:10] or '—',
             'jiraUrl': f'{JIRA_URL}/browse/{iss["key"]}',
         })
+    # Done tasks (tất cả) — để tab/KPI "Done" xem được list, không chỉ số đếm.
+    for iss in data['done_week']:
+        st = i_status(iss)
+        a = i_assignee(iss)
+        aname = i_assignee_name(iss)
+        init, cls = _avatar(a, aname)
+        tasks.append({
+            'key': iss['key'], 'summary': i_summary(iss), 'jira': st,
+            'customs': [], 'canCustom': False,
+            'assignee': {'name': aname, 'init': init, 'cls': cls},
+            'due': i_duedate(iss) or '', 'dueDisp': i_duedate(iss) or '',
+            'dueCls': '', 'overdue': False, 'stuck': False, 'dueWeek': False,
+            'created': (i_created(iss) or '')[:10], 'createdDisp': (i_created(iss) or '')[:10] or '—',
+            'jiraUrl': f'{JIRA_URL}/browse/{iss["key"]}',
+        })
     meta = {'active': len(active), 'overdue': n_over, 'stuck': n_stuck,
             'dueweek': n_dueweek, 'done': len(data['done_week']), 'stuckDays': STUCK_DAYS}
 
@@ -341,7 +356,7 @@ def render_qa_v2(data, activities, cmap, user, nav_active='dashboard',
         f'<div class="kpi warn" data-f="overdue"><div class="label">Quá hạn</div><div class="value">{n_over}</div></div>'
         f'<div class="kpi stuck" data-f="stuck"><div class="label">Kẹt ≥ {STUCK_DAYS} ngày</div><div class="value">{n_stuck}</div></div>'
         f'<div class="kpi" data-f="dueweek"><div class="label">Due tuần này</div><div class="value">{n_dueweek}</div></div>'
-        f'<div class="kpi success" data-f="done"><div class="label">Done (3 ngày)</div><div class="value">{meta["done"]}</div></div>'
+        f'<div class="kpi success" data-f="done"><div class="label">Done</div><div class="value">{meta["done"]}</div></div>'
         '</div>'
     )
     table = (

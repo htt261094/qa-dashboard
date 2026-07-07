@@ -167,6 +167,28 @@ def rename_folder(folder_id, new_name):
     return True, data
 
 
+# ===== Quản lý link Google Sheet nguồn (imports) =====
+def update_import_url(folder_id, url):
+    """Đổi link Google Sheet nguồn đã lưu của 1 bộ (`imports[folder_id].url`).
+
+    CHỈ cập nhật metadata link — KHÔNG re-import (user bấm Sync sau nếu muốn kéo lại).
+    Dùng khi file bị move/đổi link mà nội dung chưa cần đồng bộ ngay.
+    Trả (ok, data|msg)."""
+    folder_id = (folder_id or '').strip()
+    url = (url or '').strip()
+    if not extract_file_id(url):
+        return False, 'Link Google Sheet không hợp lệ.'
+    data = load_testcases()
+    info = data.get('imports', {}).get(folder_id)
+    if not info:
+        return False, 'Bộ này chưa từng import từ Google Sheet.'
+    info['url'] = url
+    info['fileId'] = extract_file_id(url)
+    if not save_testcases(data):
+        return False, 'Không lưu được (KV/local lỗi).'
+    return True, data
+
+
 # ===== Parse sheet test case (convention 5/6 cột) =====
 # Map TÊN header (chuẩn hoá lower+trim) -> field, defensive với schema drift + đa ngôn ngữ.
 # ID là cột BẮT BUỘC; dòng thiếu ID bị skip (report số lượng). Priority tuỳ chọn.

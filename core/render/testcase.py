@@ -102,6 +102,29 @@ def _link_modal():
     """
 
 
+def _source_links_modal():
+    """Modal quản lý link Google Sheet nguồn của các bộ đã import (danh sách JS render)."""
+    return """
+    <div class="overlay" id="tcLinksOverlay" onclick="if(event.target===this)tcCloseLinks()">
+      <div class="modal" style="width:640px">
+        <div class="modal-head">
+          <span class="material-symbols-rounded">link</span>
+          <h3>Quản lý link Google Sheet nguồn</h3>
+          <button type="button" class="x material-symbols-rounded" onclick="tcCloseLinks()">close</button>
+        </div>
+        <div class="modal-body">
+          <span class="tc-hint">Danh sách các bộ đã import từ Google Sheet. Sửa link để trỏ
+            sang file mới (đổi tên/di chuyển) rồi bấm <b>Lưu</b>; bấm <b>Sync</b> để kéo lại nội dung.</span>
+          <div class="tc-links-list" id="tcLinksList"><!-- JS render --></div>
+        </div>
+        <div class="modal-foot">
+          <button type="button" class="btn btn-ghost" onclick="tcCloseLinks()">Đóng</button>
+        </div>
+      </div>
+    </div>
+    """
+
+
 def render_testcase_v2(data=None, editable=True, links=None, user=None, activities=None):
     """Khung trang /test-cases. `data` = {folders:[...], cases:[...]}.
     `links` = {folderId: {tasks:[...]}} link bộ ↔ task Jira (#155)."""
@@ -115,6 +138,9 @@ def render_testcase_v2(data=None, editable=True, links=None, user=None, activiti
     cases = data.get('cases') or []
 
     import_btn = ('<div style="display:flex;gap:10px;align-items:center">'
+                  '<button class="btn btn-ghost" id="tcLinksBtn" '
+                  'title="Xem / sửa link Google Sheet nguồn của các bộ đã import">'
+                  '<span class="material-symbols-rounded mi-sm">link</span> Quản lý link</button>'
                   '<button class="btn btn-ghost" id="tcSyncAllBtn" '
                   'title="Đồng bộ lại toàn bộ bộ test case đã import từ Google Sheet">'
                   '<span class="material-symbols-rounded mi-sm">sync</span> Sync tất cả</button>'
@@ -178,6 +204,8 @@ def render_testcase_v2(data=None, editable=True, links=None, user=None, activiti
     {_import_modal()}
 
     {_link_modal()}
+
+    {_source_links_modal()}
 
     <!-- Modal tạo thư mục/bộ (lưu thật nối ở #152) -->
     <div class="overlay" id="tcFolderOverlay" onclick="if(event.target===this)tcCloseFolder()">

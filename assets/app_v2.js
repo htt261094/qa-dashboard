@@ -509,7 +509,14 @@ document.addEventListener('click', function(e){
 
       var ph='<span class="pager-summary">'+(start+1)+'–'+(start+slice.length)+' / '+total+' task · trang '+curPage+'/'+pages+'</span>'
         +'<div class="pager-nav"><button class="pager-btn"'+(curPage<=1?' disabled':'')+' data-pg="'+(curPage-1)+'"><span class="material-symbols-rounded mi-xs">chevron_left</span></button>';
-      for(var i=1;i<=pages;i++) ph+='<button class="pager-page'+(i===curPage?' active':'')+'" data-pg="'+i+'">'+i+'</button>';
+      var win=1, last=0; // luôn hiện trang 1, trang cuối, và current ± win; còn lại rút gọn '…'
+      for(var i=1;i<=pages;i++){
+        if(i===1 || i===pages || (i>=curPage-win && i<=curPage+win)){
+          if(last && i-last>1) ph+='<span class="pager-ellipsis">…</span>';
+          ph+='<button class="pager-page'+(i===curPage?' active':'')+'" data-pg="'+i+'">'+i+'</button>';
+          last=i;
+        }
+      }
       ph+='<button class="pager-btn"'+(curPage>=pages?' disabled':'')+' data-pg="'+(curPage+1)+'"><span class="material-symbols-rounded mi-xs">chevron_right</span></button></div>';
       $('pager').innerHTML=ph;
       // Giữ smenu mở bám đúng caret sau khi rebuild bảng.
@@ -822,7 +829,9 @@ document.addEventListener('click', function(e){
       jiraUrl:(window.__jiraBase||'')+'/browse/'+key };
   }
   function matchFilter(t,f){ if(f==='overdue') return t.overdue; if(f==='stuck') return t.stuck;
-    if(f==='dueweek') return !!t.dueWeek; return true; }
+    if(f==='dueweek') return !!t.dueWeek;
+    if(f==='done') return t.jira.toUpperCase()==='DONE';
+    return t.jira.toUpperCase()!=='DONE'; }
   function visibleTasks(){
     var q=(($('searchInp')||{}).value||'').toLowerCase();
     return TASKS.filter(function(t){ return matchFilter(t,curFilter) &&
@@ -908,7 +917,7 @@ document.addEventListener('click', function(e){
   });
   document.querySelectorAll('#tabs button').forEach(function(b){ b.addEventListener('click', function(){ setFilter(b.getAttribute('data-f')); }); });
   document.querySelectorAll('#kpis .kpi').forEach(function(k){ k.addEventListener('click', function(){
-    var f=k.getAttribute('data-f'); setFilter(f==='done'?'all':f); }); });
+    var f=k.getAttribute('data-f'); setFilter(f); }); });
   var si=$('searchInp'); if(si) si.addEventListener('input', function(){ curPage=1; renderRows(); });
 
   // ----- comment panel -----
@@ -3105,11 +3114,11 @@ document.addEventListener('click', function(e){
     } else {
       var covPct = (tasksWithTc / totalTasks) * 100;
       var covDisp = (covPct % 1 === 0 ? covPct.toFixed(0) : covPct.toFixed(1)) + '%';
-      anTcCoverageBox.innerHTML = 
-        '<div class="an-valid-main"><span class="an-valid-pct">'+covDisp+'</span>'
+      anTcCoverageBox.innerHTML =
+        '<div class="an-valid-main"><span class="an-valid-pct an-good">'+covDisp+'</span>'
         + '<span class="an-valid-cap">task có test case</span></div>'
         + '<div class="an-valid-break">'
-        +   '<div class="an-stat"><span class="an-stat-n">'+tasksWithTc+'</span><span class="an-stat-l">Task có TC</span></div>'
+        +   '<div class="an-stat an-num-good"><span class="an-stat-n">'+tasksWithTc+'</span><span class="an-stat-l">Task có TC</span></div>'
         +   '<div class="an-stat-op">/</div>'
         +   '<div class="an-stat"><span class="an-stat-n">'+totalTasks+'</span><span class="an-stat-l">Tổng số Task (có hoạt động)</span></div>'
         + '</div>';
@@ -3121,11 +3130,11 @@ document.addEventListener('click', function(e){
     } else {
       var density = totalBugCountLinked / totalTasks;
       var denDisp = density.toFixed(2);
-      anBugDensityBox.innerHTML = 
-        '<div class="an-valid-main"><span class="an-valid-pct">'+denDisp+'</span>'
+      anBugDensityBox.innerHTML =
+        '<div class="an-valid-main"><span class="an-valid-pct an-warn">'+denDisp+'</span>'
         + '<span class="an-valid-cap">bug / task</span></div>'
         + '<div class="an-valid-break">'
-        +   '<div class="an-stat"><span class="an-stat-n">'+totalBugCountLinked+'</span><span class="an-stat-l">Tổng số Bug liên kết</span></div>'
+        +   '<div class="an-stat an-num-warn"><span class="an-stat-n">'+totalBugCountLinked+'</span><span class="an-stat-l">Tổng số Bug liên kết</span></div>'
         +   '<div class="an-stat-op">/</div>'
         +   '<div class="an-stat"><span class="an-stat-n">'+totalTasks+'</span><span class="an-stat-l">Tổng số Task (có hoạt động)</span></div>'
         + '</div>';
@@ -3152,21 +3161,21 @@ document.addEventListener('click', function(e){
         passRateDisp = (pr % 1 === 0 ? pr.toFixed(0) : pr.toFixed(1)) + '%';
       }
 
-      anTcExecutionBox.innerHTML = 
+      anTcExecutionBox.innerHTML =
         '<div style="flex:1;">'
-        + '<div class="an-valid-main"><span class="an-valid-pct">'+execDisp+'</span>'
+        + '<div class="an-valid-main"><span class="an-valid-pct an-info">'+execDisp+'</span>'
         + '<span class="an-valid-cap">tiến độ chạy</span></div>'
         + '<div class="an-valid-break">'
-        +   '<div class="an-stat"><span class="an-stat-n">'+executed+'</span><span class="an-stat-l">Đã chạy</span></div>'
+        +   '<div class="an-stat an-num-info"><span class="an-stat-n">'+executed+'</span><span class="an-stat-l">Đã chạy</span></div>'
         +   '<div class="an-stat-op">/</div>'
         +   '<div class="an-stat"><span class="an-stat-n">'+total+'</span><span class="an-stat-l">Tổng số Case</span></div>'
         + '</div>'
         + '</div>'
         + '<div style="flex:1; border-left:1px solid var(--outline-variant); padding-left:32px;">'
-        + '<div class="an-valid-main"><span class="an-valid-pct">'+passRateDisp+'</span>'
+        + '<div class="an-valid-main"><span class="an-valid-pct an-good">'+passRateDisp+'</span>'
         + '<span class="an-valid-cap">tỷ lệ Pass</span></div>'
         + '<div class="an-valid-break">'
-        +   '<div class="an-stat"><span class="an-stat-n">'+pass+'</span><span class="an-stat-l">Pass</span></div>'
+        +   '<div class="an-stat an-num-good"><span class="an-stat-n">'+pass+'</span><span class="an-stat-l">Pass</span></div>'
         +   '<div class="an-stat-op">/</div>'
         +   '<div class="an-stat"><span class="an-stat-n">'+executed+'</span><span class="an-stat-l">Đã chạy</span></div>'
         + '</div>'
@@ -3222,19 +3231,19 @@ document.addEventListener('click', function(e){
 
     validBox.innerHTML =
       '<div style="flex:1;">'
-      + '<div class="an-valid-main"><span class="an-valid-pct">'+pctDisp+'</span>'
+      + '<div class="an-valid-main"><span class="an-valid-pct an-good">'+pctDisp+'</span>'
       + '<span class="an-valid-cap">bug hợp lệ đã đóng</span></div>'
       + '<div class="an-valid-break">'
-      +   '<div class="an-stat"><span class="an-stat-n">'+closed+'</span><span class="an-stat-l">Closed</span></div>'
+      +   '<div class="an-stat an-num-good"><span class="an-stat-n">'+closed+'</span><span class="an-stat-l">Closed</span></div>'
       +   '<div class="an-stat-op">/</div>'
       +   '<div class="an-stat"><span class="an-stat-n">'+denom+'</span><span class="an-stat-l">Tổng '+total+' − Reject '+reject+'</span></div>'
       + '</div>'
       + '</div>'
       + '<div style="flex:1; border-left:1px solid var(--outline-variant); padding-left:32px;">'
-      + '<div class="an-valid-main"><span class="an-valid-pct">'+rejDisp+'</span>'
+      + '<div class="an-valid-main"><span class="an-valid-pct an-bad">'+rejDisp+'</span>'
       + '<span class="an-valid-cap">tỷ lệ Reject</span></div>'
       + '<div class="an-valid-break">'
-      +   '<div class="an-stat"><span class="an-stat-n">'+reject+'</span><span class="an-stat-l">Reject</span></div>'
+      +   '<div class="an-stat an-num-bad"><span class="an-stat-n">'+reject+'</span><span class="an-stat-l">Reject</span></div>'
       +   '<div class="an-stat-op">/</div>'
       +   '<div class="an-stat"><span class="an-stat-n">'+total+'</span><span class="an-stat-l">Tổng số Bug</span></div>'
       + '</div>'
@@ -3821,6 +3830,72 @@ document.addEventListener('click', function(e){
     }).catch(function(){ btn.disabled=false; btn.innerHTML=orig;
       window.tcShowError('Lỗi mạng khi đồng bộ.', 'Đồng bộ thất bại'); });
   });
+  // ---- Modal Quản lý link Google Sheet nguồn (#152) ----
+  var linksOv=$('tcLinksOverlay');
+  window.tcCloseLinks=function(){ if(linksOv) linksOv.classList.remove('open'); };
+  function impFolderName(fid){
+    for(var i=0;i<folders.length;i++){ if(folders[i].id===fid) return folders[i].name||fid; }
+    return fid;
+  }
+  function renderLinksList(){
+    var box=$('tcLinksList'); if(!box) return;
+    var imports=(data.imports)||{};
+    var ids=Object.keys(imports);
+    if(!ids.length){ box.innerHTML='<div class="tc-links-empty">Chưa có bộ nào được import từ Google Sheet.</div>'; return; }
+    box.innerHTML = ids.map(function(fid){
+      var info=imports[fid]||{};
+      var meta=[];
+      if(info.sheet) meta.push('Sheet: '+esc(info.sheet));
+      if(typeof info.count==='number') meta.push(info.count+' test case');
+      if(info.at) meta.push('Import: '+esc(info.at));
+      if(info.by) meta.push('bởi '+esc(info.by));
+      return '<div class="tc-link-item" data-fid="'+esc(fid)+'">'
+        +'<div class="tc-link-item-name"><span class="material-symbols-rounded mi-sm">folder</span> '+esc(impFolderName(fid))+'</div>'
+        +'<div class="tc-link-item-row">'
+        +'<input type="text" class="tc-link-url" value="'+esc(info.url||'')+'" placeholder="Link Google Sheet" spellcheck="false">'
+        +'<button class="btn btn-ghost tc-link-open" title="Mở link"><span class="material-symbols-rounded mi-sm">open_in_new</span></button>'
+        +'<button class="btn btn-primary tc-link-save">Lưu</button>'
+        +'<button class="btn btn-ghost tc-link-sync" title="Đồng bộ lại từ link này"><span class="material-symbols-rounded mi-sm">sync</span></button>'
+        +'</div>'
+        +(meta.length?'<div class="tc-link-item-meta">'+meta.join(' · ')+'</div>':'')
+        +'</div>';
+    }).join('');
+    box.querySelectorAll('.tc-link-item').forEach(function(row){
+      var fid=row.getAttribute('data-fid');
+      var inp=row.querySelector('.tc-link-url');
+      row.querySelector('.tc-link-open').addEventListener('click', function(){
+        var u=(inp.value||'').trim();
+        if(/^https?:\/\//.test(u)) window.open(u,'_blank');
+        else toast('Link không hợp lệ', false);
+      });
+      row.querySelector('.tc-link-save').addEventListener('click', function(){
+        var u=(inp.value||'').trim();
+        if(!u){ toast('Chưa nhập link', false); return; }
+        var b=this; b.disabled=true;
+        postJSON('/tc-update-link', { folder:fid, url:u }).then(function(j){
+          b.disabled=false;
+          if(j&&j.ok){ data.imports=j.imports||data.imports; toast('Đã lưu link', true); renderTree(); }
+          else toast((j&&j.msg)||'Không lưu được link', false);
+        }).catch(function(){ b.disabled=false; toast('Lỗi mạng khi lưu', false); });
+      });
+      row.querySelector('.tc-link-sync').addEventListener('click', function(){
+        var u=(inp.value||'').trim();
+        if(!u){ toast('Chưa nhập link', false); return; }
+        // Lưu link trước (nếu user vừa sửa) rồi sync để dùng đúng URL mới.
+        var b=this; b.disabled=true;
+        postJSON('/tc-update-link', { folder:fid, url:u }).then(function(j){
+          b.disabled=false;
+          if(j&&j.ok) data.imports=j.imports||data.imports;
+          window.tcCloseLinks();
+          doTcSync(fid);
+        }).catch(function(){ b.disabled=false; window.tcCloseLinks(); doTcSync(fid); });
+      });
+    });
+  }
+  if($('tcLinksBtn')) $('tcLinksBtn').addEventListener('click', function(){
+    if(!linksOv) return; renderLinksList(); linksOv.classList.add('open');
+  });
+
   if(submitBtn) submitBtn.addEventListener('click', function(){
     var u=(urlIn&&urlIn.value||'').trim();
     var sheet=(sheetSel&&sheetSel.value||'').trim();

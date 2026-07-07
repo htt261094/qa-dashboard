@@ -197,7 +197,7 @@ tr.overdue-row{background:var(--error-bg)}
 .due.today{color:var(--warning);font-weight:600}
 /* Đổi due date inline (bảng + drawer) — gate theo quyền Jira */
 .due-cell{display:inline-flex;align-items:center;gap:5px;cursor:pointer;border-radius:6px;
-  padding:2px 4px;margin:-2px -4px;flex-wrap:wrap}
+  padding:2px 4px;margin:-2px -4px;flex-wrap:nowrap;white-space:nowrap}
 .due-cell:hover{background:var(--surface-variant)}
 .due-pen{color:var(--primary);opacity:0;transition:opacity .12s}
 .due-cell:hover .due-pen{opacity:.85}
@@ -1131,10 +1131,28 @@ html[data-theme="dark"] .bl-reopen-kpi .rk-pct { color: #ff7b72; }
 .an-valid-main { display: flex; flex-direction: column; }
 .an-valid-pct { font-size: 44px; font-weight: 800; line-height: 1; color: #079455; }
 html[data-theme="dark"] .an-valid-pct { color: #47cd89; }
+/* Semantic accent theo ý nghĩa metric (good=xanh lá · info=xanh dương · warn=hổ phách · bad=đỏ) */
+.an-valid-pct.an-good { color: #079455; }
+html[data-theme="dark"] .an-valid-pct.an-good { color: #47cd89; }
+.an-valid-pct.an-info { color: #2563eb; }
+html[data-theme="dark"] .an-valid-pct.an-info { color: #6ea8fe; }
+.an-valid-pct.an-warn { color: #b54708; }
+html[data-theme="dark"] .an-valid-pct.an-warn { color: #f5a524; }
+.an-valid-pct.an-bad { color: #d92d20; }
+html[data-theme="dark"] .an-valid-pct.an-bad { color: #ff7b72; }
 .an-valid-cap { font-size: 13px; color: var(--on-surface-variant); margin-top: 6px; }
 .an-valid-break { display: flex; align-items: center; gap: 18px; }
 .an-valid-break .an-stat { display: flex; flex-direction: column; align-items: center; }
+/* tô nhẹ 2 số tử/mẫu để không đơn sắc: tử theo accent card, mẫu giữ trung tính */
 .an-valid-break .an-stat-n { font-size: 24px; font-weight: 700; color: var(--on-surface); }
+.an-valid-break .an-stat.an-num-good .an-stat-n { color: #079455; }
+html[data-theme="dark"] .an-valid-break .an-stat.an-num-good .an-stat-n { color: #47cd89; }
+.an-valid-break .an-stat.an-num-info .an-stat-n { color: #2563eb; }
+html[data-theme="dark"] .an-valid-break .an-stat.an-num-info .an-stat-n { color: #6ea8fe; }
+.an-valid-break .an-stat.an-num-warn .an-stat-n { color: #b54708; }
+html[data-theme="dark"] .an-valid-break .an-stat.an-num-warn .an-stat-n { color: #f5a524; }
+.an-valid-break .an-stat.an-num-bad .an-stat-n { color: #d92d20; }
+html[data-theme="dark"] .an-valid-break .an-stat.an-num-bad .an-stat-n { color: #ff7b72; }
 .an-valid-break .an-stat-l { font-size: 12px; color: var(--on-surface-variant); margin-top: 2px; }
 .an-valid-break .an-stat-op { font-size: 28px; color: var(--on-surface-variant); }
 .metric-table tr.rk-total td { font-weight: 700; border-top: 2px solid var(--outline-variant); background: var(--surface-low); }
@@ -1242,6 +1260,17 @@ html[data-theme="dark"] .rk-bug-n { color: #ff7b72; }
 .tc-link-lbl b{color:var(--on-surface)}
 .tc-link-tasks{display:inline-flex;flex-wrap:wrap;gap:6px;flex:1;min-width:0}
 .tc-link-none{color:var(--on-surface-variant);font-style:italic}
+.tc-links-list{margin-top:12px;display:flex;flex-direction:column;gap:10px;max-height:52vh;overflow-y:auto}
+.tc-links-empty{color:var(--on-surface-variant);font-style:italic;padding:16px 4px;text-align:center}
+.tc-link-item{border:1px solid var(--divider);border-radius:var(--r-md);padding:10px 12px;background:var(--surface-low)}
+.tc-link-item-name{display:flex;align-items:center;gap:6px;font-weight:600;color:var(--on-surface);margin-bottom:8px}
+.tc-link-item-row{display:flex;align-items:center;gap:6px}
+.tc-link-url{flex:1;min-width:0;font-family:inherit;font-size:13px;padding:7px 10px;
+             border:1px solid var(--outline-variant);border-radius:var(--r-md);
+             background:var(--surface);color:var(--on-surface)}
+.tc-link-url:focus{outline:none;border-color:var(--primary)}
+.tc-link-item-row .btn{padding:6px 10px;white-space:nowrap}
+.tc-link-item-meta{margin-top:6px;font-size:11.5px;color:var(--on-surface-variant)}
 .tc-task-chip{display:inline-flex;align-items:center;gap:2px;background:var(--primary-tint);
               border:1px solid var(--outline-variant);border-radius:999px;padding:2px 4px 2px 10px}
 .tc-task-key{font-weight:700;color:var(--primary);text-decoration:none;font-size:12px}
