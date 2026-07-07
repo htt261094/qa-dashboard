@@ -492,7 +492,7 @@ document.addEventListener('click', function(e){
 
       var html=slice.map(function(t){
         return '<tr data-key="'+esc(t.key)+'">'
-          +'<td><a class="cell-key" href="'+esc(t.jiraUrl)+'" target="_blank" onclick="event.stopPropagation()">'+esc(t.key)+'</a></td>'
+          +'<td><a class="cell-key'+(t.hasTc?'':' no-tc')+'" href="'+esc(t.jiraUrl)+'" target="_blank" onclick="event.stopPropagation()"'+(t.hasTc?'':' title="Chưa link bộ test case"')+'>'+esc(t.key)+'</a></td>'
           +'<td><span class="cell-title">'+esc(t.summary)+'</span></td>'
           +'<td><div class="cell-member"><span class="m-av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span>'
           +'<span>'+esc(t.assignee.name)+'</span></div></td>'
@@ -846,10 +846,12 @@ document.addEventListener('click', function(e){
         +'" data-val="'+esc(v)+'">close</span></span>'; }).join('')+'</div>';
   }
   function rowHTML(t){
-    var nc=(COMMENTS[t.key]||[]).length;
+    // COMMENTS[key] là mảng khi đã fetch (dùng số live); chưa fetch (undefined/null=đang tải)
+    // -> dùng số đếm server nhúng sẵn (t.nComments) để hiện NGAY, không cần mở panel/drawer.
+    var nc=COMMENTS[t.key] ? COMMENTS[t.key].length : (t.nComments||0);
     var cnt = nc ? '<span class="cmt-count">'+nc+'</span>' : '';
     return '<tr'+(t.overdue?' class="overdue-row"':'')+' data-key="'+esc(t.key)+'">'
-      +'<td><a class="key" href="'+esc(t.jiraUrl)+'" target="_blank">'+esc(t.key)+'</a></td>'
+      +'<td><a class="key'+(t.hasTc?'':' no-tc')+'" href="'+esc(t.jiraUrl)+'" target="_blank"'+(t.hasTc?'':' title="Chưa link bộ test case"')+'>'+esc(t.key)+'</a></td>'
       +'<td class="title clickable" data-act="detail" data-key="'+esc(t.key)+'">'+esc(t.summary)+'</td>'
       +'<td class="status-cell"><div class="stat-wrap"><span class="badge '+jiraCls(t.jira)+'">'+esc(t.jira)+'</span>'
       +'<button class="caret material-symbols-rounded mi-sm" data-act="smenu" data-key="'+esc(t.key)+'">expand_more</button></div>'+chipHTML(t)+'</td>'

@@ -13,11 +13,25 @@ from datetime import datetime, timedelta
 
 from config import JIRA_URL, STUCK_DAYS
 from issues import (parse_date, i_assignee, i_assignee_name, i_status, i_summary,
-                    i_duedate, i_created, i_updated, days_overdue, is_stuck, esc)
+                    i_duedate, i_created, i_updated, i_comment_count, days_overdue, is_stuck, esc)
 from custom_status import CUSTOM_STATUSES, values_of
+from testcase_link import load_links, tasks_of
+from testcase_store import load_testcases
 
 from render.base import _json_script
 from render.shell import _avatar, _document_v2, _conn_error_card
+
+
+def _tc_linked_keys():
+    """Set task key ĐÃ link tới 1 bộ test case (folder) CÒN TỒN TẠI. Bỏ link "mồ côi"
+    (folder đã xoá khỏi testcase config nhưng entry link còn sót) — khớp với drawer detail
+    (chỉ hiện bộ còn tồn tại). Best-effort: lỗi kho -> set rỗng, KHÔNG chặn render."""
+    try:
+        valid_fids = {f.get('id') for f in (load_testcases() or {}).get('folders', [])}
+        return {t for fid, v in load_links().items()
+                if fid in valid_fids for t in tasks_of(v)}
+    except Exception:
+        return set()
 
 
 # Markup card "Metric Bug" — KHÔNG cần Jira (nguồn = bug_log_store cache local). Tách
@@ -119,6 +133,8 @@ def render_admin_v2(data, activities, cmap, user, bug_log_data=None,
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     today_str = today.strftime('%Y-%m-%d')
 
+    linked_keys = _tc_linked_keys()
+
     tasks = []
     seen = set()
 
@@ -144,6 +160,7 @@ def render_admin_v2(data, activities, cmap, user, bug_log_data=None,
         upd_date = (upd_src or '')[:10]
         tasks.append({
             'key': key, 'summary': i_summary(iss), 'jira': st,
+            'hasTc': key in linked_keys,
             'customs': customs, 'canCustom': st in ('TO DO', 'In Progress'),
             'assignee': {'name': aname, 'init': init, 'cls': cls},
             'due': i_duedate(iss) or '', 'dueDisp': i_duedate(iss) or 'Chưa đặt hạn',
@@ -168,6 +185,7 @@ def render_admin_v2(data, activities, cmap, user, bug_log_data=None,
         upd_date = (i_updated(iss) or '')[:10]
         tasks.append({
             'key': key, 'summary': i_summary(iss), 'jira': st,
+            'hasTc': key in linked_keys,
             'customs': [], 'canCustom': False,
             'assignee': {'name': aname, 'init': init, 'cls': cls},
             'due': i_duedate(iss) or '', 'dueDisp': i_duedate(iss) or '',
@@ -293,6 +311,7 @@ def render_qa_v2(data, activities, cmap, user, nav_active='dashboard',
                             title='QA Workspace — Việc của tôi')
 
     active = data['active']
+    linked_keys = _tc_linked_keys()
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     week_start = today - timedelta(days=today.weekday())
     week_end = week_start + timedelta(days=7)
@@ -318,11 +337,13 @@ def render_qa_v2(data, activities, cmap, user, nav_active='dashboard',
         customs = values_of((cmap or {}).get(iss['key']))   # values; JS map -> label qua QA_CUSTOM_STATUSES
         tasks.append({
             'key': iss['key'], 'summary': i_summary(iss), 'jira': st,
+            'hasTc': iss['key'] in linked_keys,
             'customs': customs, 'canCustom': st in ('TO DO', 'In Progress'),
             'assignee': {'name': aname, 'init': init, 'cls': cls},
             'due': i_duedate(iss) or '', 'dueDisp': i_duedate(iss) or 'Chưa đặt hạn',
             'dueCls': duecls, 'overdue': overdue, 'stuck': stuck, 'dueWeek': dueweek,
             'created': (i_created(iss) or '')[:10], 'createdDisp': (i_created(iss) or '')[:10] or '—',
+            'nComments': i_comment_count(iss),
             'jiraUrl': f'{JIRA_URL}/browse/{iss["key"]}',
         })
     # Done tasks (tất cả) — để tab/KPI "Done" xem được list, không chỉ số đếm.
@@ -333,15 +354,22 @@ def render_qa_v2(data, activities, cmap, user, nav_active='dashboard',
         init, cls = _avatar(a, aname)
         tasks.append({
             'key': iss['key'], 'summary': i_summary(iss), 'jira': st,
+            'hasTc': iss['key'] in linked_keys,
             'customs': [], 'canCustom': False,
             'assignee': {'name': aname, 'init': init, 'cls': cls},
             'due': i_duedate(iss) or '', 'dueDisp': i_duedate(iss) or '',
             'dueCls': '', 'overdue': False, 'stuck': False, 'dueWeek': False,
             'created': (i_created(iss) or '')[:10], 'createdDisp': (i_created(iss) or '')[:10] or '—',
+            'nComments': i_comment_count(iss),
             'jiraUrl': f'{JIRA_URL}/browse/{iss["key"]}',
         })
     meta = {'active': len(active), 'overdue': n_over, 'stuck': n_stuck,
             'dueweek': n_dueweek, 'done': len(data['done_week']), 'stuckDays': STUCK_DAYS}
+
+    # Bao nhiêu task đã được link tới bộ test case (folder).
+    all_keys = {iss['key'] for iss in active} | {iss['key'] for iss in data['done_week']}
+    n_linked = sum(1 for k in all_keys if k in linked_keys)
+    n_total = len(all_keys)
 
     tabs = (
         '<div class="tabs" id="tabs">'
@@ -365,7 +393,10 @@ def render_qa_v2(data, activities, cmap, user, nav_active='dashboard',
         '<th style="width:150px">Người xử lý</th><th style="width:110px">Ngày tạo</th><th style="width:130px">Hạn chót</th>'
         '<th style="width:70px">Thao tác</th>'
         '</tr></thead><tbody id="rows"></tbody></table></div>'
+        '<div class="pager-row">'
+        f'<div class="tc-linked-note">🔗 {n_linked}/{n_total} task đã link bộ test case</div>'
         '<div class="pager" id="pager"></div>'
+        '</div>'
     )
     content = (
         '<div class="page-head"><div class="page-title">Tổng quan — Việc của tôi</div></div>'

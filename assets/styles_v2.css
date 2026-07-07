@@ -283,6 +283,9 @@ html[data-theme="dark"] .cust-chip{background:#2a2342;color:#b3a6f0}
 /* ===== Pager ===== */
 .pager{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:14px;font-size:13px}
 .pager .pinfo{color:var(--on-surface-variant)}
+.pager-row{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:14px}
+.pager-row .pager{margin-top:0}
+.tc-linked-note{font-size:12.5px;color:#d32f2f;font-weight:500}
 .pager button{display:inline-flex;align-items:center;gap:3px;padding:6px 12px;border-radius:var(--r-md);
               border:1px solid var(--outline-variant);background:var(--card);color:var(--on-surface);
               font-family:inherit;font-size:13px;font-weight:600;cursor:pointer}
@@ -611,6 +614,7 @@ tbody tr:not(.pager-filler):hover{background:var(--surface-low)}
 .cell-key{font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--primary);
   text-decoration:none;font-weight:500}
 .cell-key:hover{text-decoration:underline}
+.cell-key.no-tc,.key.no-tc{color:#d32f2f}
 .cell-title{font-weight:600;color:var(--on-surface);display:block;white-space:nowrap;
   overflow:hidden;text-overflow:ellipsis;max-width:420px}
 .cell-title-sub{font-size:12px;font-weight:400;color:var(--on-surface-variant);display:block;margin-top:1px}
