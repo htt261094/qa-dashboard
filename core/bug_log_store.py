@@ -624,6 +624,14 @@ def scan():
         except Exception as e:   # noqa: BLE001 — archive KHÔNG được làm sập lượt scan
             _log('backlog archive warn: ' + _safe(e))
 
+        # Stamp fingerprint lên link bug->task khi dòng bug gốc còn trong file, để link ngược
+        # bền qua việc copy bug sang sheet tháng mới (key đổi). Soft-fail, KHÔNG làm sập scan.
+        try:
+            from task_link import backfill_fingerprints as _backfill_link_fp
+            _backfill_link_fp(all_cur_bugs)
+        except Exception as e:   # noqa: BLE001
+            _log('link fp backfill warn: ' + _safe(e))
+
         if new_events:
             data['activity'] = _prune_activity(new_events + activity)
             result['changed'] = len(new_events)

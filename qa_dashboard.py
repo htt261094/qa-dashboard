@@ -29,7 +29,8 @@ from bug_log_store import (scan as bug_log_scan, start_scheduler as start_bug_lo
                            load_bug_log, unseen_changes as bug_log_unseen,
                            mark_changes_seen as bug_log_mark_seen)
 from bug_log_source import load_sources, save_sources, extract_file_id, MAX_SOURCES
-from task_link import load_links, set_task_links, tasks_of
+from task_link import load_links, set_task_links, tasks_of, fp_of
+from bug_backlog import fingerprint as bug_fingerprint
 from testcase_link import (load_links as tc_load_links, set_folder_links as tc_set_folder_links,
                            folders_for_task as tc_folders_for_task)
 from jira_api import (fetch_all_shared, scope_data, fetch_activity_feed, load_dismissed,
@@ -184,22 +185,39 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             links = load_links()
         except Exception:
             return []
-        bug_keys = [bk for bk, v in links.items() if task_key in tasks_of(v)]
-        if not bug_keys:
+        # Entry link tới task này + fingerprint đã stamp (để bám bug qua copy sang sheet mới).
+        linked = [(bk, fp_of(v)) for bk, v in links.items() if task_key in tasks_of(v)]
+        if not linked:
             return []
         try:
             files = (load_bug_log() or {}).get('files', {}) or {}
         except Exception:
             return []
-        idx = {}
+        by_key, by_fp = {}, {}
         for f in files.values():
             for k, b in (f.get('bugs', {}) or {}).items():
-                idx[k] = b
-        out = []
-        for bk in bug_keys:
-            b = idx.get(bk)
-            if not b:
+                by_key[k] = b
+                by_fp.setdefault(bug_fingerprint(b), []).append(b)
+
+        def _newest(bugs):
+            # Bản mới nhất thắng: bug live có created lớn nhất (khi cùng nội dung sang nhiều sheet).
+            return max(bugs, key=lambda x: (x.get('created', '') or ''))
+
+        out, seen = [], set()
+        for bk, fp in linked:
+            cands = []
+            if bk in by_key:
+                cands.append(by_key[bk])
+            if fp:
+                cands += by_fp.get(fp, [])
+            if not cands:
                 continue
+            b = _newest(cands)
+            # Dedupe theo bug đã resolve (nhiều entry link có thể trỏ về cùng 1 bug live).
+            ident = bug_fingerprint(b) or id(b)
+            if ident in seen:
+                continue
+            seen.add(ident)
             out.append({
                 'id': f"{b.get('project', '')}-{b.get('service') + '-' if b.get('service') else ''}{b.get('bug_no', '')}".strip('-'),
                 'summary': b.get('summary', ''),
@@ -1250,7 +1268,7 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         # Mỗi folder re-import bằng url+sheet đã lưu; gom kết quả tổng hợp.
         res = {'ok': False, 'msg': 'Lỗi xử lý yêu cầu.'}
         try:
-            from core.testcase_store import load_testcases
+            from core.testcase_store import load_testcases, save_testcases
             data = load_testcases()
             imports = data.get('imports', {}) or {}
             folder_name = {f.get('id'): f.get('name', f.get('id'))
@@ -1259,9 +1277,11 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
                 res = {'ok': False, 'msg': 'Chưa có bộ test case nào được import từ '
                                            'Google Sheet để đồng bộ.'}
             else:
-                ok_folders, fail_lines = 0, []
+                ok_folders, fail_lines, missing_lines = 0, [], []
                 total_count = 0
-                for folder, info in imports.items():
+                # Load 1 lần / save 1 lần: mỗi bộ chỉ download+parse+apply lên `data`
+                # chung (KHÔNG tự save toàn store mỗi bộ -> tránh timeout khi nhiều bộ).
+                for folder, info in list(imports.items()):
                     url = (info or {}).get('url', '')
                     sheet = (info or {}).get('sheet', '')
                     if sheet == '(toàn bộ file)':
@@ -1271,20 +1291,34 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
                         fail_lines.append(f'• "{name}": thiếu link Google Sheet đã lưu')
                         continue
                     try:
-                        r = tc_import_cases(folder, url, sheet, by_email=self._user_email())
+                        r = tc_import_cases(folder, url, sheet,
+                                            by_email=self._user_email(), _data=data)
                     except (RuntimeError, OSError) as e:
                         fail_lines.append(f'• "{name}": {e}')
                         continue
                     if r.get('ok'):
                         ok_folders += 1
                         total_count += r.get('count', 0)
+                        for s, miss in r.get('missing_sheets', []):
+                            preview = ', '.join(str(x) for x in miss[:10])
+                            more = f' …(+{len(miss) - 10})' if len(miss) > 10 else ''
+                            missing_lines.append(
+                                f'• "{name}" › sheet "{s}": {len(miss)} dòng thiếu ID '
+                                f'(dòng {preview}{more})')
                     else:
                         fail_lines.append(f'• "{name}": {r.get("msg", "lỗi không rõ")}')
-                msg = f'Đã đồng bộ {ok_folders}/{len(imports)} bộ · {total_count} test case.'
-                if fail_lines:
-                    msg += '\n\nMột số bộ lỗi:\n' + '\n'.join(fail_lines)
-                res = {'ok': ok_folders > 0, 'msg': msg,
-                       'synced': ok_folders, 'total': len(imports)}
+                if ok_folders and not save_testcases(data):
+                    res = {'ok': False, 'msg': 'Đồng bộ xong nhưng KHÔNG lưu được '
+                                               '(KV/local lỗi). Thử lại.'}
+                else:
+                    msg = f'Đã đồng bộ {ok_folders}/{len(imports)} bộ · {total_count} test case.'
+                    if missing_lines:
+                        msg += '\n\nCác dòng thiếu ID (đã bỏ qua):\n' + '\n'.join(missing_lines)
+                    if fail_lines:
+                        msg += '\n\nMột số bộ lỗi:\n' + '\n'.join(fail_lines)
+                    res = {'ok': ok_folders > 0, 'msg': msg,
+                           'synced': ok_folders, 'total': len(imports),
+                           'missing_id_rows': bool(missing_lines)}
         except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
             res = {'ok': False, 'msg': 'Lỗi xử lý yêu cầu.'}
         except Exception:   # noqa: BLE001 — store đã redact token

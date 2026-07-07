@@ -847,6 +847,9 @@ def _compute_fetch_all(scope_user):
             f"{rep_clause} AND created >= -24h ORDER BY created DESC", max_results=50),
         'done_week': lambda: jira_search(
             f'{a_clause} AND status = "DONE" ORDER BY updated DESC', max_results=500),
+        # Tổng DONE thật (count-only, rẻ) — bucket done_week bị cắt 500 nên len() sai số
+        # khi team có >500 task done. KPI/pill "Done" dùng số này, KHÔNG dùng len(done_week).
+        'done_total': lambda: jira_count(f'{a_clause} AND status = "DONE"'),
         # weekly inflow vs outflow (count-only, cheap)
         'created_week': lambda: jira_count(f"{a_clause} AND created >= startOfWeek()"),
         'resolved_week': lambda: jira_count(
@@ -900,7 +903,7 @@ def _snap_age(data):
 def _snap_payload_hash(data):
     """Hash phần NỘI DUNG (bỏ fetched_at/fetched_by volatile) để dedup PUT."""
     core = {k: data.get(k) for k in
-            ('active', 'new24', 'done_week', 'created_week', 'resolved_week')}
+            ('active', 'new24', 'done_week', 'done_total', 'created_week', 'resolved_week')}
     return hashlib.sha256(
         json.dumps(core, sort_keys=True, default=str).encode('utf-8')).hexdigest()
 
@@ -1012,6 +1015,9 @@ def scope_data(data, scope_user):
     out['active'] = [i for i in data.get('active', []) if i_assignee(i) == scope_user]
     out['done_week'] = [i for i in data.get('done_week', []) if i_assignee(i) == scope_user]
     out['new24'] = [i for i in data.get('new24', []) if i_reporter(i) == scope_user]
+    # done_total team-wide không lọc được theo người (count-only). Xấp xỉ bằng số done
+    # của người đó trong bucket đã kéo (QA lens vốn dùng len(done_week), giữ nguyên hành vi).
+    out['done_total'] = len(out['done_week'])
     out['created_week'] = 0
     out['resolved_week'] = 0
     return out

@@ -287,7 +287,7 @@ def parse_testcase_rows(rows):
     - total   = số dòng dữ liệu (sau header) có nội dung.
     - skipped = số dòng bị bỏ vì thiếu dữ liệu bắt buộc khác (item/expected) NHƯNG cũng không có ID/nội dung.
     - missing_id_rows = list số dòng (1-based theo sheet) CÓ nội dung (mô tả/expected/step) NHƯNG thiếu ID.
-      Caller dùng cái này để CHẶN import + báo lỗi thiếu ID.
+      Các dòng này KHÔNG được đưa vào cases (bị bỏ qua); caller dùng để báo lại dòng nào bị skip.
     Raise RuntimeError nếu không nhận diện được hàng tiêu đề (sai convention cột)."""
     hidx, col = _find_header(rows)
     if hidx is None:
@@ -532,14 +532,20 @@ def fetch_sheets(url):
             'sheets': list_sheet_names(content)}
 
 
-def import_cases(folder_id, url, sheet, by_email=''):
+def import_cases(folder_id, url, sheet, by_email='', _data=None):
     """Import test case vào folder = mỗi sheet GHI ĐÈ 1 sub-folder cùng tên.
 
     `sheet` rỗng -> import CẢ FILE (mọi sheet trừ template: Cover/Guide/Result/Function 1).
     GIỮ result đã chấm theo case id (re-import nội dung không mất công chấm).
-    Trả dict {ok, count, skipped, msg}. CHẶN toàn bộ import nếu BẤT KỲ sheet nào có dòng thiếu ID."""
+    Trả dict {ok, count, skipped, msg}. Dòng thiếu ID bị BỎ QUA (không chặn import) —
+    vẫn báo lại chi tiết dòng nào bị skip trong msg (missing_id_rows=True).
+
+    `_data` (nội bộ): nếu truyền vào -> thao tác trực tiếp trên store đã load sẵn và
+    KHÔNG tự load/save (caller lo save 1 lần). Dùng cho sync-all để tránh N lần
+    load+save toàn store qua mạng (nguyên nhân timeout khi nhiều bộ)."""
     folder_id = (folder_id or '').strip()
-    data = load_testcases()
+    shared = _data is not None
+    data = _data if shared else load_testcases()
     folder = next((f for f in data['folders'] if f.get('id') == folder_id), None)
     if folder is None:
         return {'ok': False, 'msg': 'Thư mục đích không tồn tại.'}
@@ -575,17 +581,19 @@ def import_cases(folder_id, url, sheet, by_email=''):
     except RuntimeError as e:
         return {'ok': False, 'msg': str(e)}   # bug_log đã redact token
 
-    # Có dòng mang nội dung (step/expected) nhưng thiếu ID ở BẤT KỲ sheet -> CHẶN cả import.
+    # Có dòng mang nội dung (step/expected) nhưng thiếu ID ở BẤT KỲ sheet.
+    # KHÔNG chặn import nữa: bỏ qua các dòng thiếu ID, vẫn import phần còn lại,
+    # rồi báo lại chi tiết (giữ nguyên thông báo cũ) để user biết dòng nào bị skip.
     err_sheets = [(s, miss) for (s, _c, _sk, miss) in parsed if miss]
+    missing_note = ''
+    total_missing = sum(len(miss) for _s, miss in err_sheets)
     if err_sheets:
         lines = []
         for s, miss in err_sheets:
             preview = ', '.join(str(r) for r in miss[:10])
             more = f' …(+{len(miss) - 10} dòng)' if len(miss) > 10 else ''
             lines.append(f'• Sheet "{s}": {len(miss)} dòng thiếu ID (dòng {preview}{more})')
-        return {'ok': False, 'missing_id_rows': True,
-                'msg': 'Import thất bại — thiếu ID:\n' + '\n'.join(lines)
-                       + '\nBổ sung cột ID rồi import lại.'}
+        missing_note = 'Các dòng thiếu ID (đã bỏ qua):\n' + '\n'.join(lines)
 
     # Apply mọi sheet hợp lệ (mutate data trong RAM, chỉ lưu khi qua hết check).
     applied, empty_sheets, total_skipped, total_count = [], [], 0, 0
@@ -614,7 +622,7 @@ def import_cases(folder_id, url, sheet, by_email=''):
         'at': time.strftime('%Y-%m-%d %H:%M'), 'by': by_email or '',
         'count': total_count,
     }
-    if not save_testcases(data):
+    if not shared and not save_testcases(data):
         return {'ok': False, 'msg': 'Không lưu được (KV/local lỗi).'}
 
     if sheet:
@@ -641,4 +649,9 @@ def import_cases(folder_id, url, sheet, by_email=''):
             extra.append(f'cập nhật kết quả cho {total_updated_results} test case')
         if extra:
             msg += ' (' + ', '.join(extra) + ').'
-    return {'ok': True, 'count': total_count, 'skipped': total_skipped, 'msg': msg}
+    if missing_note:
+        msg += '\n\n' + missing_note
+    # `missing_sheets` = list (sheet, [row,...]) để caller (sync-all) gộp báo cáo theo bộ.
+    return {'ok': True, 'count': total_count, 'skipped': total_skipped,
+            'missing_id_rows': bool(total_missing),
+            'missing_sheets': [(s, list(miss)) for s, miss in err_sheets], 'msg': msg}

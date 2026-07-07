@@ -90,9 +90,16 @@ def _norm(s):
     return ' '.join((s or '').strip().lower().split())
 
 
-def _fp(b):
+def fingerprint(b):
+    """Fingerprint nội dung của 1 bug = project|service|feature|summary (đã _norm).
+    Định danh bền qua việc copy sang sheet tháng mới (STT + tên sheet đổi, key đổi).
+    Public: dùng chung cho task_link (link ngược task theo nội dung, không theo key sheet)."""
     return '|'.join((_norm(b.get('project', '')), _norm(b.get('service', '')),
                      _norm(b.get('feature', '')), _norm(b.get('summary', ''))))
+
+
+def _fp(b):
+    return fingerprint(b)
 
 
 def _carry_rec(b):
