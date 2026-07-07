@@ -546,7 +546,17 @@ document.addEventListener('click', function(e){
     function updateKPIs(){
       var active=TASKS.filter(function(t){ return memberMatch(t)&&t.jira.toUpperCase()!=='DONE'; });
       var done=TASKS.filter(function(t){ return memberMatch(t)&&t.jira.toUpperCase()==='DONE'; });
-      var vel=(done.length/7+0.1).toFixed(1);
+      // Velocity = task done TRONG TUẦN NÀY / số ngày đã trôi qua trong tuần (Mon-start).
+      // Bucket done giờ trả TẤT CẢ done (Decision #4b) → KHÔNG chia cả kho cho 7.
+      var wk=new Date(); wk.setHours(0,0,0,0);
+      var dow=(wk.getDay()+6)%7;            // Mon=0..Sun=6
+      wk.setDate(wk.getDate()-dow);          // đầu tuần (thứ Hai)
+      var wkStart=wk.getTime(), daysElapsed=dow+1;
+      var doneWeek=done.filter(function(t){
+        var d=t.updated? new Date(t.updated+'T00:00:00').getTime() : NaN;
+        return !isNaN(d) && d>=wkStart;
+      }).length;
+      var vel=(doneWeek/daysElapsed).toFixed(1);
       var ov=active.filter(function(t){ return t.overdue; }).length;
       var v=$('kpiVelocity'); if(v) v.textContent=vel+' Tasks/Day';
       var tt=$('kpiTotalTasks'); if(tt) tt.textContent=active.length+' Tasks';
@@ -3411,18 +3421,38 @@ document.addEventListener('click', function(e){
 
   // ---------- Tồn đọng T-1 (dùng cho dải tóm tắt TRONG chart export) ----------
   var BACKLOG_MONTHS = DATA.backlogMonths || {};
+  var CARRY_MONTHS = DATA.carryMonths || {};
   function isOpenBug(s){ return !isClosed(s) && !isReject(s); }
   function toYm(mmYYYY){ var p=(mmYYYY||'').split('/'); return p.length>=2 ? p[1]+'-'+p[0] : ''; }  // MM/YYYY -> YYYY-MM
   function prevYm(ym){ var y=+ym.slice(0,4), m=+ym.slice(5,7)-1; if(m===0){y--;m=12;} return y+'-'+(m<10?'0'+m:m); }
   var LIVE_BY_KEY = (function(){ var o={}; BUGS.forEach(function(b){ if(b.key) o[b.key]=b; }); return o; })();
+  // Fingerprint nội dung — PHẢI khớp _norm/_fp phía Python (bug_backlog.py) để match 2 phía.
+  function _bnorm(s){ return (s==null?'':(''+s)).toLowerCase().split(/\s+/).filter(Boolean).join(' '); }
+  function _fpOf(b){ return _bnorm(b.project)+'|'+_bnorm(b.service)+'|'+_bnorm(b.feature)+'|'+_bnorm(b.summary); }
 
   // Tính tồn đọng T-1 cho tháng report 'YYYY-MM'. Dùng chung cho card + dải trên chart.
   // 2 nhóm: còn (vẫn mở) vs đã xử lý (đã đóng HOẶC không còn trong file) -> luôn khớp total.
   function computeBacklog(reportYm){
-    var prev = prevYm(reportYm), snap = BACKLOG_MONTHS[prev];
+    var prev = prevYm(reportYm);
     var newCount = BUGS.filter(function(b){ return (b.created||'').slice(0,7) === reportYm; }).length;
-    if(!snap) return { hasSnapshot:false, prev:prev, newCount:newCount, total:0, stillOpen:0, resolved:0 };
     var total=0, stillOpen=0, resolved=0;
+    var carry = CARRY_MONTHS[prev];
+    if(carry){
+      // Cách MỚI (chính xác): carry[T-1] = bug MỞ cuối T-1, đối chiếu theo fingerprint nội dung.
+      var liveFp = {};
+      BUGS.forEach(function(b){ var f=_fpOf(b); (liveFp[f]=liveFp[f]||[]).push(b); });
+      Object.keys(carry).forEach(function(fp){
+        if(!isOpenBug(carry[fp].s)) return;            // phòng hờ (carry vốn chỉ chứa bug mở)
+        total++;
+        var matches = liveFp[fp] || [];
+        if(matches.some(function(m){ return isOpenBug(m.status); })) stillOpen++; else resolved++;
+      });
+      return { hasSnapshot:true, prev:prev, newCount:newCount, total:total,
+               stillOpen:stillOpen, resolved:resolved };
+    }
+    // Fallback (tháng chưa có carry, vd 2026-06/07): theo tháng-tạo + key sheet.
+    var snap = BACKLOG_MONTHS[prev];
+    if(!snap) return { hasSnapshot:false, prev:prev, newCount:newCount, total:0, stillOpen:0, resolved:0 };
     Object.keys(snap).forEach(function(key){
       if(!isOpenBug(snap[key].s)) return;              // cuối T-1 đã đóng -> không phải tồn đọng
       total++;
