@@ -538,6 +538,10 @@ document.addEventListener('click', function(e){
         if(t.active && t.jira!=='TO DO' && !t.stuck && !t.overdue) counts.progress++;
         if(t.jira.toUpperCase()==='DONE') counts.done++;
       });
+      // Done thật = tổng team từ server (bucket done_week bị cắt 500 → đếm client thiếu).
+      // Chỉ áp khi KHÔNG lọc member/search (lọc thì đếm theo subset đang hiển thị).
+      var _q=(($('searchInp')||{}).value||'').trim();
+      if(curMember==='all' && !_q && DATA.meta && typeof DATA.meta.done==='number') counts.done=DATA.meta.done;
       ['todo','progress','new','stuck','overdue','done'].forEach(function(k){
         var el=$('count-'+k); if(el) el.textContent=counts[k];
       });
@@ -3801,13 +3805,19 @@ document.addEventListener('click', function(e){
   function doTcSync(fid){
     if(!editable) return;
     toast('Đang đồng bộ từ Google Sheets...', true);
-    postJSON('/tc-sync', { folder: fid }, 60000).then(function(res){
+    postJSON('/tc-sync', { folder: fid }, 180000).then(function(res){
       if(res && res.ok){
         window.tcShowSuccess(res.msg || 'Đồng bộ thành công.', 'Đồng bộ thành công');
       } else {
         window.tcShowError((res && res.msg) || 'Lỗi đồng bộ.', 'Đồng bộ thất bại');
       }
-    }).catch(function(){ window.tcShowError('Lỗi mạng khi đồng bộ.', 'Đồng bộ thất bại'); });
+    }).catch(function(e){
+      var timed = e && (e.name==='AbortError' || /abort/i.test(String(e.message||e)));
+      window.tcShowError(timed
+        ? 'Đồng bộ quá lâu (quá thời gian chờ). File có thể quá lớn hoặc mạng/VPN chậm — thử lại.'
+        : 'Lỗi mạng khi đồng bộ (không kết nối được server). Kiểm tra mạng/VPN rồi thử lại.',
+        'Đồng bộ thất bại');
+    });
   }
 
   function fillFolderSel(){
@@ -3859,8 +3869,12 @@ document.addEventListener('click', function(e){
       } else {
         window.tcShowError((res && res.msg) || 'Lỗi đồng bộ.', 'Đồng bộ thất bại');
       }
-    }).catch(function(){ btn.disabled=false; btn.innerHTML=orig;
-      window.tcShowError('Lỗi mạng khi đồng bộ.', 'Đồng bộ thất bại'); });
+    }).catch(function(e){ btn.disabled=false; btn.innerHTML=orig;
+      var timed = e && (e.name==='AbortError' || /abort/i.test(String(e.message||e)));
+      window.tcShowError(timed
+        ? 'Đồng bộ quá lâu (quá thời gian chờ). Quá nhiều bộ hoặc mạng/VPN chậm — thử lại.'
+        : 'Lỗi mạng khi đồng bộ (không kết nối được server). Kiểm tra mạng/VPN rồi thử lại.',
+        'Đồng bộ thất bại'); });
   });
   // ---- Modal Quản lý link Google Sheet nguồn (#152) ----
   var linksOv=$('tcLinksOverlay');
@@ -3941,8 +3955,16 @@ document.addEventListener('click', function(e){
     submitBtn.disabled=true;
     postJSON('/tc-import', { url:u, sheet:sheet, folder:folder }, 60000).then(function(j){
       submitBtn.disabled=false;
-      if(j&&j.ok){ toast(j.msg||'Import thành công', true); window.tcCloseImport();
-        setTimeout(function(){ location.reload(); }, 600); }
+      if(j&&j.ok){
+        window.tcCloseImport();
+        if(j.missing_id_rows){
+          // Import xong nhưng có dòng thiếu ID bị bỏ qua -> modal chi tiết, reload khi bấm OK
+          window.tcShowSuccess(j.msg||'Import thành công', 'Import xong — đã bỏ qua dòng thiếu ID');
+        } else {
+          toast(j.msg||'Import thành công', true);
+          setTimeout(function(){ location.reload(); }, 600);
+        }
+      }
       else { window.tcShowError((j&&j.msg)||'Import thất bại',
                (j&&j.missing_id_rows)?'Thiếu ID — không thể import':'Import thất bại'); }
     }).catch(function(){ submitBtn.disabled=false; toast('Lỗi mạng khi import', false); });

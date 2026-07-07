@@ -205,7 +205,8 @@ def render_admin_v2(data, activities, cmap, user, bug_log_data=None,
     n_new = sum(1 for t in tasks if t['isNew'])
     n_stuck = sum(1 for t in tasks if t['stuck'])
     n_over = sum(1 for t in tasks if t['overdue'])
-    n_done = sum(1 for t in tasks if t['jira'].upper() == 'DONE')
+    # "Done" = TỔNG THẬT từ Jira (jira_count), KHÔNG phải len(done_week) vì bucket bị cắt 500.
+    n_done = data.get('done_total', sum(1 for t in tasks if t['jira'].upper() == 'DONE'))
 
     # Unique member names for dropdown
     members = []
@@ -394,7 +395,7 @@ def render_qa_v2(data, activities, cmap, user, nav_active='dashboard',
         '<th style="width:70px">Thao tác</th>'
         '</tr></thead><tbody id="rows"></tbody></table></div>'
         '<div class="pager-row">'
-        f'<div class="tc-linked-note">🔗 {n_linked}/{n_total} task đã link bộ test case</div>'
+        f'<div class="tc-linked-note{" all-linked" if n_total and n_linked == n_total else ""}">🔗 {n_linked}/{n_total} task đã link bộ test case</div>'
         '<div class="pager" id="pager"></div>'
         '</div>'
     )

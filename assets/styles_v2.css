@@ -286,6 +286,7 @@ html[data-theme="dark"] .cust-chip{background:#2a2342;color:#b3a6f0}
 .pager-row{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:14px}
 .pager-row .pager{margin-top:0}
 .tc-linked-note{font-size:12.5px;color:#d32f2f;font-weight:500}
+.tc-linked-note.all-linked{color:#2e7d32}
 .pager button{display:inline-flex;align-items:center;gap:3px;padding:6px 12px;border-radius:var(--r-md);
               border:1px solid var(--outline-variant);background:var(--card);color:var(--on-surface);
               font-family:inherit;font-size:13px;font-weight:600;cursor:pointer}

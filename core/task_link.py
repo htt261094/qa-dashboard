@@ -19,6 +19,7 @@ from datetime import datetime
 
 from config import BUG_TASK_LINK_FILE, username_from_email, atomic_write
 from remote_store import synced_load, synced_save
+from bug_backlog import fingerprint
 
 LINK_PROP = 'qa-dashboard-bug-task-link'
 _KEY_RE = re.compile(r'^[A-Za-z][A-Za-z0-9]*-\d+$')   # PROJ-123 (key Jira hợp lệ)
@@ -74,6 +75,49 @@ def valid_task_key(task):
     return bool(_KEY_RE.match((task or '').strip()))
 
 
+def fp_of(link_val):
+    """Fingerprint nội dung của bug đã lưu trong entry link (rỗng nếu chưa stamp)."""
+    return (link_val.get('fp') or '') if isinstance(link_val, dict) else ''
+
+
+def _live_bug_index():
+    """{bugKey: bug} tất cả bug hiện tại (lazy-import, tránh cycle với bug_log_store).
+    Dùng để stamp fingerprint lúc tạo link. Lỗi -> {} (bỏ qua stamp)."""
+    out = {}
+    try:
+        from bug_log_store import load_bug_log
+        for f in (load_bug_log() or {}).get('files', {}).values():
+            for k, b in (f.get('bugs', {}) or {}).items():
+                out[k] = b
+    except Exception:      # noqa: BLE001 — link không được sập vì bug-log lỗi
+        pass
+    return out
+
+
+def backfill_fingerprints(cur_bugs):
+    """Stamp `fp` (fingerprint nội dung) lên các link entry đang thiếu, lấy từ bug hiện tại.
+
+    Gọi từ bug_log_store.scan(cur_bugs={key:bug}). Vì một khi dòng bug tháng cũ bị xoá khỏi
+    file thì KHÔNG suy lại được fp từ key (key không chứa summary/feature), phải chốt fp trong
+    khi dòng gốc còn trong file. Idempotent: chỉ stamp entry chưa có fp và có bug khớp key.
+    Soft-fail: lỗi -> bỏ qua (không kéo sập scan)."""
+    try:
+        data = _load_data()
+        links = data.get('links', {}) or {}
+        changed = False
+        for k, v in links.items():
+            if isinstance(v, dict) and not v.get('fp'):
+                b = cur_bugs.get(k)
+                if b:
+                    v['fp'] = fingerprint(b)
+                    changed = True
+        if changed:
+            synced_save(LINK_PROP, data, _write_cache, _valid_data)
+        return changed
+    except Exception:      # noqa: BLE001
+        return False
+
+
 def set_task_links(email, bug_keys, task_key, op='add'):
     """Đổi link task của list `bug_keys`. Author = người đăng nhập (không cần PAT —
     đây là lớp app-side, không ghi Jira). 1 bug có thể link NHIỀU task.
@@ -100,11 +144,15 @@ def set_task_links(email, bug_keys, task_key, op='add'):
     links = data.setdefault('links', {})
     username = username_from_email(email) or 'local'
     iso = datetime.now().isoformat()
+    # Stamp fingerprint nội dung để link bền qua việc copy bug sang sheet tháng mới (key đổi).
+    # Chỉ lấy bug index khi thực sự thêm link mới (add) — remove/clear không cần.
+    bug_idx = _live_bug_index() if op == 'add' else {}
     out = {}
     for k in bug_keys:
         if not isinstance(k, str) or not k:
             continue
-        cur = tasks_of(links.get(k))
+        prev = links.get(k)
+        cur = tasks_of(prev)
         if op == 'add':
             for t in task_keys:
                 if t not in cur:
@@ -114,7 +162,14 @@ def set_task_links(email, bug_keys, task_key, op='add'):
         else:  # clear
             cur = []
         if cur:
-            links[k] = {'tasks': cur, 'by': username, 'at': iso}
+            entry = {'tasks': cur, 'by': username, 'at': iso}
+            # Giữ fp cũ nếu có; else tính từ bug hiện tại (dòng gốc còn trong file lúc link).
+            fp = fp_of(prev)
+            if not fp and k in bug_idx:
+                fp = fingerprint(bug_idx[k])
+            if fp:
+                entry['fp'] = fp
+            links[k] = entry
         else:
             links.pop(k, None)
         out[k] = cur
