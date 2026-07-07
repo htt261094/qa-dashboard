@@ -429,6 +429,21 @@ Hiền THƯỜNG là reporter trong các task QA team được giao — vì cô 
 - **Bulk actions = DEFER** (Jira DC không có bulk-transition REST; N call tuần tự + transition set khác nhau per workflow + partial-failure UX đắt — team 5 người không đáng. `__openSmenu`/`smDoTransition` chính là primitive nếu sau cần).
 - **Verify**: py_compile OK; bracket-balance ngang HEAD (false positive docs breadcrumb quen thuộc); preview tĩnh admin+QA — Ctrl+K mở/đóng, filter không dấu ("danh gia"→"Đánh giá"), ↑↓/Esc, smenu mở+toggle từ row caret + drawer caret cả 2 lens, row-acts hiện, 0 lỗi console; smoke `search_bugs('thanh toan')` trên cache thật ra 5 bug đúng; `_fold` parity test. ⚠ Route + shell đổi → cần **restart app**.
 
+### 40. Insight "Cần chú ý hôm nay" — server-computed, dashboard admin (2026-07-07)
+- **Bối cảnh**: nhánh 3 (cuối) của overhaul. Branch `feat/smart-insights` (stack trên `feat/smart-palette-actions`).
+- **`core/insights.py`** — pure function `compute_insights(data, buglog) -> [{icon, severity: crit|warn|info, text, keys(≤3), href}]`, 0 network 0 state (triết lý issues.py). Input = data đã fetch ở `/` + cache bug log → **0 Jira call thêm**. Constants: `WORKLOAD_HIGH=15/WORKLOAD_LOW=4` (Decision #5, KHÔNG đổi), `REOPEN_ALERT=2`, `MAX_ITEMS=8`. 6 rule:
+  1. Quá hạn (crit) — top 3 keys theo ngày quá hạn (business days).
+  2. Sắp tới hạn (warn) — due hôm nay/ngày làm việc kế, **EXCLUDE task đã quá hạn** (không đếm đôi).
+  3. Kẹt ≥ STUCK_DAYS (warn) — top 3 theo days_since_update.
+  4. Quá tải per person (crit khi ≥15 active, 1 item/người) + info "nhẹ việc, cân nhắc chia lại" khi có người ≤4 TRONG KHI có người quá tải.
+  5. Bug reopen ≥2 lần THÁNG HIỆN TẠI (warn, cap 3, sort count desc) — `href=/bug-log?bug=<key>` với key **PHẢI `quote(key, safe='')`** (key chứa `#` → không quote là browser cắt thành fragment; bug đã dính lúc verify. Palette JS dùng encodeURIComponent sẵn — parity).
+  6. Backlog trend: vào > ra tuần (warn nếu chênh ≥5, else info; cả hai =0 → skip).
+  Rank crit→warn→info; MỌI rule bọc `safe()` → lỗi là skip rule, KHÔNG BAO GIỜ vỡ render.
+- **Wiring** (`_get_dashboard`): `insights = compute_insights(data, buglog) if scope is None else []` (CHỈ lens quản lý; QA non-admin + `/my-work` không có) → `render_page(..., insights=)` → `render_admin_v2` (kw default None; nhánh jira_error return sớm không đụng). `insights=None` → không render block (caller khác không vỡ); `[]` → dòng ✓ "Không có gì cần chú ý".
+- **Render** (`_insights_block`, dashboard.py): card giữa page-head và status pills. Item = icon + text + chip: `[data-key]` mở drawer (delegation trong admin controller → `openDetail`), `[href]` = link thường (reopen → bug-log deep-link #39). **Collapse, KHÔNG per-item dismiss** (dismiss cần server state per-day mà item tự tính lại mỗi load — không đáng): `#insToggle` toggle class + `localStorage qa-ins-collapsed`.
+- **CSS**: `.ins-card/.ins-head/.ins-item.sev-{crit,warn,info,ok}` (border-left + tinted bg theo severity), `.ins-chip` mono pill. JS ~15 dòng trong admin branch.
+- **Verify**: py_compile OK; unit test 6 rule (quá tải 16 task→crit + nhẹ việc info, defensive data rác không raise, cap 8, sắp-hạn exclude quá hạn, reopen chỉ tháng hiện tại + cap 3 + href quoted không còn `#`, backlog warn khi chênh ≥5); render preview tĩnh: 6 item đúng severity, chip mở drawer đúng key, collapse persist localStorage, href encoded. ⚠ Cần **restart app** (module + wiring Python mới).
+
 ## Issue Tracking & Branch Workflow (QUAN TRỌNG cho Claude Code)
 
 **Quy ước user (áp dụng MẶC ĐỊNH, không hỏi lại):**

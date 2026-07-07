@@ -1045,6 +1045,21 @@ window.__smSetCustom=function(t, key, val, onChanged){
     function adRmCust(key, val){ var t=taskByKey(key);
       if(t) window.__smSetCustom(t, key, val, adOnChanged); }
 
+    // ----- insight "Cần chú ý hôm nay": collapse (localStorage) + chip mở drawer -----
+    (function(){
+      var card=$('insCard'); if(!card) return;
+      var tg=$('insToggle');
+      try{ if(localStorage.getItem('qa-ins-collapsed')==='1') card.classList.add('collapsed'); }catch(e){}
+      if(tg) tg.addEventListener('click', function(){
+        var c=card.classList.toggle('collapsed');
+        try{ localStorage.setItem('qa-ins-collapsed', c?'1':'0'); }catch(e){}
+      });
+      card.addEventListener('click', function(e){
+        var chip=e.target.closest('.ins-chip[data-key]'); if(!chip) return;
+        e.stopPropagation(); openDetail(chip.getAttribute('data-key'));
+      });
+    })();
+
     // Initial render
     updateCounts(); renderRows(true); updateKPIs();
     return; // <-- skip QA member code below

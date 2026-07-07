@@ -44,6 +44,7 @@ from testcase_store import (load_testcases, fetch_sheets as tc_fetch_sheets,
                             update_import_url as tc_update_import_url)
 from pat_store import save_user_pat, has_pat, delete_user_pat, load_user_pat
 from custom_status import (load_bundle, values_of, clear_labels_for_done)
+from insights import compute_insights
 from render import (render_page, render_qa_v2, render_docs_page,
                     render_roadmap_v2, render_public_roadmap_v2, render_bug_log_v2, render_analytics_v2,
                     render_testcase_v2, render_settings_page, render_error_page,
@@ -752,6 +753,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
                                    custom_overlay=None, bug_log_data=buglog, jira_error=True))
             return
         data = scope_data(full, scope)
+        # Insight "Cần chú ý hôm nay" — chỉ lens quản lý (admin, scope team). Pure compute
+        # từ data đã fetch + cache bug log -> 0 Jira call thêm; lỗi gì cũng trả [].
+        insights = compute_insights(data, buglog) if scope is None else []
         # nhãn custom qua KV -> sống cả khi offline; feed/dismissed qua Jira -> có thể fail.
         try:
             overlay, cust_act = load_bundle(scope, ACTIVITY_DAYS)
@@ -775,7 +779,8 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             a['is_unread'] = a['id'] not in dismissed
         self._html(render_page(data, merged, ACTIVITY_DAYS,
                                roadmap_data=roadmap, user=self._user_ctx(),
-                               custom_overlay=overlay, bug_log_data=buglog, stale=stale))
+                               custom_overlay=overlay, bug_log_data=buglog, stale=stale,
+                               insights=insights))
 
     def _emit_pending_cookies(self):
         """Gắn Set-Cookie đã stash (sliding session #161). An toàn gọi nhiều lần (chỉ có khi
