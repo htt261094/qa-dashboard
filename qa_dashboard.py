@@ -378,25 +378,25 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         if path.startswith('/uploads/'):
             self._get_uploads(path)
             return
-        if self.path in ('/my-work', '/my-work.html'):
+        if path in ('/my-work', '/my-work.html'):
             self._get_my_work()
             return
-        if self.path.startswith('/leader-eval'):
+        if path.startswith('/leader-eval'):
             self._get_leader_eval()
             return
-        if self.path in ('/docs', '/docs.html'):
+        if path in ('/docs', '/docs.html'):
             self._get_docs()
             return
-        if self.path in ('/roadmap', '/roadmap.html'):
+        if path in ('/roadmap', '/roadmap.html'):
             self._get_roadmap()
             return
-        if self.path in ('/bug-log', '/bug-log.html'):
+        if path in ('/bug-log', '/bug-log.html'):
             self._get_bug_log()
             return
-        if self.path in ('/analytics', '/analytics.html'):
+        if path in ('/analytics', '/analytics.html'):
             self._get_analytics()
             return
-        if self.path in ('/test-cases', '/test-cases.html'):
+        if path in ('/test-cases', '/test-cases.html'):
             self._get_test_cases()
             return
         if path == '/issue-comments':
@@ -426,10 +426,10 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         if path == '/tc-sheets':
             self._get_tc_sheets()
             return
-        if self.path in ('/settings', '/settings.html'):
+        if path in ('/settings', '/settings.html'):
             self._get_settings()
             return
-        if self.path not in ('/', '/index.html'):
+        if path not in ('/', '/index.html'):
             self.send_response(404)
             self.end_headers()
             return
@@ -804,74 +804,75 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         if not self._authed() or not self._domain_ok():
             self._json(403, b'{"ok":false,"err":"forbidden"}')
             return
-        if self.path == '/dismiss':
+        path = urlparse(self.path).path
+        if path == '/dismiss':
             self._post_dismiss()
             return
-        if self.path == '/save-pat':
+        if path == '/save-pat':
             self._post_save_pat()
             return
-        if self.path == '/delete-pat':
+        if path == '/delete-pat':
             self._post_delete_pat()
             return
-        if self.path == '/disconnect-drive':
+        if path == '/disconnect-drive':
             self._post_disconnect_drive()
             return
-        if self.path == '/sync-bug-log':
+        if path == '/sync-bug-log':
             self._post_sync_bug_log()
             return
-        if self.path == '/save-bug-log-sources':
+        if path == '/save-bug-log-sources':
             self._post_save_bug_log_sources()
             return
-        if self.path == '/seen-bug-log-changes':
+        if path == '/seen-bug-log-changes':
             self._post_seen_bug_log_changes()
             return
-        if self.path == '/link-task':
+        if path == '/link-task':
             self._post_link_task()
             return
-        if self.path == '/set-custom-status':
+        if path == '/set-custom-status':
             self._post_set_custom_status()
             return
-        if self.path in ('/jira-transitions', '/do-transition', '/add-comment',
+        if path in ('/jira-transitions', '/do-transition', '/add-comment',
                          '/duedate-perm', '/set-duedate'):
             self._handle_jira_write()
             return
-        if self.path == '/create-subtask':
+        if path == '/create-subtask':
             self._handle_create_subtask()
             return
-        if self.path == '/batch-eval':
+        if path == '/batch-eval':
             self._post_batch_eval()
             return
-        if self.path == '/upload-file':
+        if path == '/upload-file':
             self._post_upload_file()
             return
-        if self.path == '/save-docs':
+        if path == '/save-docs':
             self._post_save_docs()
             return
-        if self.path == '/save-roadmap':
+        if path == '/save-roadmap':
             self._post_save_roadmap()
             return
-        if self.path == '/tc-add-folder':
+        if path == '/tc-add-folder':
             self._post_tc_add_folder()
             return
-        if self.path == '/tc-rename-folder':
+        if path == '/tc-rename-folder':
             self._post_tc_rename_folder()
             return
-        if self.path == '/tc-delete-folder':
+        if path == '/tc-delete-folder':
             self._post_tc_delete_folder()
             return
-        if self.path == '/tc-import':
+        if path == '/tc-import':
             self._post_tc_import()
             return
-        if self.path == '/tc-link-task':
+        if path == '/tc-link-task':
             self._post_tc_link_task()
             return
-        if self.path == '/tc-update-link':
+        if path == '/tc-update-link':
             self._post_tc_update_link()
             return
-        if self.path == '/tc-sync':
+        if path == '/tc-sync':
             self._post_tc_sync()
             return
-        if self.path == '/tc-sync-all':
+        if path == '/tc-sync-all':
             self._post_tc_sync_all()
             return
         self.send_response(404)
