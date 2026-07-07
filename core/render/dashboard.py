@@ -8,13 +8,12 @@
 Tách từ render/__init__.py (issue #106 / #86). Zero behavior change — chỉ di
 chuyển định nghĩa, re-export ở __init__ để chỗ gọi không phải đổi import.
 """
-import json
 from datetime import datetime, timedelta
 
 from config import JIRA_URL, STUCK_DAYS
 from issues import (parse_date, i_assignee, i_assignee_name, i_status, i_summary,
                     i_duedate, i_created, i_updated, i_comment_count, days_overdue, is_stuck, esc)
-from custom_status import CUSTOM_STATUSES, values_of
+from custom_status import values_of
 from testcase_link import load_links, tasks_of
 from testcase_store import load_testcases
 
@@ -285,11 +284,9 @@ def render_admin_v2(data, activities, cmap, user, bug_log_data=None,
         '<span>need attention</span></div></div></div></div>'
         # ===== Metric Bug (nguồn = bug_log_store; chọn theo file + sheet; lịch sử mỗi sync)
         + _bug_metric_card_html()
-        # Status menu (drawer DOM nằm ở shell _document_v2 -> mọi trang dùng chung)
-        + '<div class="smenu" id="smenu"></div>'
+        # Status menu #smenu + QA_CUSTOM_STATUSES giờ ở shell _document_v2 (mọi trang dùng chung)
         + _json_script('bugMetrics', _bug_metrics_payload(bug_log_data))
         + _json_script('qaData', {'tasks': tasks, 'meta': meta})
-        + f'<script>window.QA_CUSTOM_STATUSES={json.dumps(CUSTOM_STATUSES, ensure_ascii=False)};</script>'
     )
     return _document_v2(content, 'dashboard', user, activities,
                         title='QA Workspace — Task Management',
@@ -402,9 +399,7 @@ def render_qa_v2(data, activities, cmap, user, nav_active='dashboard',
     content = (
         '<div class="page-head"><div class="page-title">Tổng quan — Việc của tôi</div></div>'
         + tabs + kpis + table
-        + '<div class="smenu" id="smenu"></div>'
         + _json_script('qaData', {'tasks': tasks, 'meta': meta})
-        + f'<script>window.QA_CUSTOM_STATUSES={json.dumps(CUSTOM_STATUSES, ensure_ascii=False)};</script>'
     )
     return _document_v2(content, nav_active, user, activities, title='QA Workspace — Việc của tôi',
                         stale=stale, stale_note=_snap_note(data) if stale else '')

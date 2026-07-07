@@ -27,7 +27,7 @@ from auth import (SESSION_COOKIE, SESSION_TTL, email_from_session,
 from drive_token import has_drive_token, delete_drive_token
 from bug_log_store import (scan as bug_log_scan, start_scheduler as start_bug_log_scheduler,
                            load_bug_log, unseen_changes as bug_log_unseen,
-                           mark_changes_seen as bug_log_mark_seen)
+                           mark_changes_seen as bug_log_mark_seen, search_bugs)
 from bug_log_source import load_sources, save_sources, extract_file_id, MAX_SOURCES
 from task_link import load_links, set_task_links, tasks_of, fp_of
 from bug_backlog import fingerprint as bug_fingerprint
@@ -420,6 +420,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         if path == '/global-search':
             self._get_global_search()
             return
+        if path == '/search-bugs':
+            self._get_search_bugs()
+            return
         if path == '/search-people':
             self._get_search_people()
             return
@@ -676,6 +679,16 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
                 {'ok': True, 'results': global_search(q)}).encode('utf-8'))
         except RuntimeError:
             self._json(400, b'{"ok":false}')
+
+    def _get_search_bugs(self):
+        # Command palette: tìm bug trong bug log (cache local, 0 call Jira/Drive, 0 PAT).
+        q = (parse_qs(urlparse(self.path).query).get('q') or [''])[0]
+        try:
+            self._json(200, json.dumps(
+                {'ok': True, 'results': search_bugs(q)},
+                ensure_ascii=False).encode('utf-8'))
+        except Exception:   # noqa: BLE001 — cache hỏng thì trả rỗng, không 500
+            self._json(200, b'{"ok":true,"results":[]}')
 
     def _get_search_people(self):
         # type-ahead user (field Leader) cho form tạo sub-task. Read-only PAT chung.

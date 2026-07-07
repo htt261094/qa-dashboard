@@ -246,6 +246,45 @@ def load_bug_log():
     return _load_data()
 
 
+def _fold(s):
+    """lower + bỏ dấu tiếng Việt (NFD strip combining) — match accent-insensitive,
+    parity với `norm()` phía JS (command palette)."""
+    import unicodedata
+    s = unicodedata.normalize('NFD', (s or '').lower())
+    return ''.join(c for c in s if not unicodedata.combining(c)).replace('đ', 'd')
+
+
+def search_bugs(query, limit=10):
+    """Tìm bug trong cache bug log cho command palette (Ctrl+K). Pure cache read —
+    0 call Jira/Drive, 0 PAT. Match substring accent/case-insensitive trên id hiển thị
+    (project-service-bug_no), summary, feature. Mới nhất (created) trước."""
+    q = _fold((query or '').strip())
+    if len(q) < 2:
+        return []
+    out = []
+    for fid, f in (_load_data().get('files', {}) or {}).items():
+        fname = f.get('name', '')
+        for key, b in (f.get('bugs', {}) or {}).items():
+            service = b.get('service', '')
+            disp = f"{b.get('project', '')}-{service + '-' if service else ''}{b.get('bug_no', '')}".strip('-')
+            hay = _fold(disp + ' ' + b.get('summary', '') + ' ' + b.get('feature', ''))
+            if q not in hay:
+                continue
+            out.append({
+                'key': key, 'id': disp,
+                'summary': b.get('summary', ''),
+                'severity': b.get('severity', ''),
+                'status': b.get('status', ''),
+                'project': b.get('project', ''),
+                'file': fname,
+                'created': b.get('created', ''),
+            })
+    out.sort(key=lambda x: x.get('created') or '', reverse=True)
+    for r in out:
+        r.pop('created', None)
+    return out[:limit]
+
+
 def load_bug_log_activity(scope_user=None, days=7):
     """Activity events bug log (shape ~ feed item, kind='bug_log'). scope_user=None -> tất cả."""
     cutoff = (datetime.now() - timedelta(days=days)).isoformat()

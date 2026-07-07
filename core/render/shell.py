@@ -8,6 +8,7 @@ import json
 from datetime import datetime
 
 from config import JIRA_URL, USERS, display_name, username_from_email
+from custom_status import CUSTOM_STATUSES
 from issues import esc
 
 from render.base import load_css_v2, load_js_v2, _json_script
@@ -96,7 +97,7 @@ def render_topbar_v2():
     return (
         '<div class="topbar">'
         '<div class="search"><span class="si material-symbols-rounded mi-sm">search</span>'
-        '<input type="text" id="searchInp" placeholder="Tìm task, kế hoạch..."></div>'
+        '<input type="text" id="searchInp" placeholder="Tìm task, kế hoạch...  (Ctrl+K mở bảng lệnh)"></div>'
         '<div class="top-right">'
         '<button class="topcreate" id="createSubBtn" title="Tạo sub-task QA dưới 1 Task-PTSP">'
         '<span class="material-symbols-rounded mi-sm">add</span> Tạo Sub-task</button>'
@@ -196,6 +197,22 @@ def _subtask_modal_v2():
     )
 
 
+def _palette_modal_v2():
+    """Command palette Ctrl+K (dùng chung mọi trang v2). JS điều khiển trong app_v2.js
+    (guard #cpOverlay): điều hướng + hành động + tìm task Jira + tìm bug trong bug log."""
+    return (
+        '<div class="cp-overlay" id="cpOverlay">'
+        '<div class="cp-panel">'
+        '<div class="cp-inputwrap"><span class="material-symbols-rounded mi-sm">search</span>'
+        '<input type="text" id="cpInput" placeholder="Tìm task, bug, trang, hành động…" '
+        'autocomplete="off" spellcheck="false"><kbd>esc</kbd></div>'
+        '<div class="cp-list" id="cpList"></div>'
+        '<div class="cp-foot"><span><kbd>↑</kbd><kbd>↓</kbd> chọn</span>'
+        '<span><kbd>Enter</kbd> mở</span><span><kbd>Esc</kbd> đóng</span></div>'
+        '</div></div>'
+    )
+
+
 def _stale_banner(note):
     """Banner OFFLINE: đang phục vụ snapshot KV cũ (Jira không với tới). `note` = mô tả nguồn."""
     return (
@@ -250,9 +267,11 @@ def _document_v2(content_inner, active, user, activities, title='QA Suite',
 <div class="content">{banner}{content_inner}</div></div></div>
 {_settings_modal_v2(user)}
 {_subtask_modal_v2()}
+{_palette_modal_v2()}
 <div class="drawer-ov" id="drawerOv"></div><aside class="drawer" id="drawer"></aside>
+<div class="smenu" id="smenu"></div>
 {_json_script('qaNotif', activities)}
-<script>window.__jiraBase={json.dumps(JIRA_URL)};window.__stale={json.dumps(bool(stale))};</script>
+<script>window.__jiraBase={json.dumps(JIRA_URL)};window.__stale={json.dumps(bool(stale))};window.__isAdmin={json.dumps(bool(user[1]) if isinstance(user, (tuple, list)) and len(user) > 1 else True)};window.QA_CUSTOM_STATUSES={json.dumps(CUSTOM_STATUSES, ensure_ascii=False)};</script>
 <script>{load_js_v2()}</script>
 </body></html>"""
 
