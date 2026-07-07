@@ -27,6 +27,8 @@ def _flatten_bugs(data):
                 'summary': b.get('summary', ''),
                 'status': b.get('status', ''),
                 'project': b.get('project', ''),
+                'service': b.get('service', ''),
+                'feature': b.get('feature', ''),
                 'month': month,
                 'dev': b.get('dev_pic', ''),
                 'created': (b.get('created', '') or '')[:10],
@@ -41,7 +43,9 @@ def render_analytics_v2(data, user=None, activities=None, testcases=None, links=
     data = data or {}
     bugs, month_list = _flatten_bugs(data)
     reopen = data.get('reopen', {}) or {}
-    backlog_months = (backlog or {}).get('months', {}) or {}
+    backlog = backlog or {}
+    backlog_months = backlog.get('months', {}) or {}
+    carry_months = backlog.get('carry', {}) or {}
     
     tc_data = testcases or {}
     tc_cases = tc_data.get('cases', [])
@@ -131,6 +135,7 @@ def render_analytics_v2(data, user=None, activities=None, testcases=None, links=
             'tcData': {'cases': tc_cases, 'folders': tc_folders},
             'bugLinks': links, 'tcLinks': tc_links,
             'backlogMonths': backlog_months,
+            'carryMonths': carry_months,
         })
     )
     return _document_v2(content, 'analytics', user, activities or [],
