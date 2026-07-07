@@ -2,9 +2,17 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "stitch-preview",
-      "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "8099"],
+      "name": "qa-dashboard",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["qa_dashboard.py"],
+      "port": 8090,
+      "env": { "JIRA_PORT": "8090" }
+    },
+    {
+      "name": "static-preview",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8099", "--directory",
+        "C:\\Users\\tuant\\AppData\\Local\\Temp\\claude\\C--Users-tuant-Desktop-Work-qa-dashboard\\7ec72a2a-6434-4356-98b7-2de33356f103\\scratchpad"],
       "port": 8099
     }
   ]

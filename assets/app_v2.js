@@ -74,19 +74,68 @@ function testcaseSectionHtml(d){
   return '<div class="dt-sec-title">Bộ test case liên quan ('+tcs.length+')</div><div class="dt-tcs">'+rows+'</div>';
 }
 
-// ---------- toast ----------
-var toastT;
-function toast(msg, ok){ var el=$('toast'); if(!el) return; el.textContent=msg;
-  el.className = 'toast show' + (ok===false?' err':'');
-  clearTimeout(toastT); toastT=setTimeout(function(){ el.className='toast'; }, 2200); }
+// ---------- toast (stack queue, max 3, giữ nguyên signature toast(msg, ok)) ----------
+function toast(msg, ok){
+  var wrap=$('toastWrap');
+  if(!wrap){ wrap=document.createElement('div'); wrap.className='toast-wrap'; wrap.id='toastWrap';
+    document.body.appendChild(wrap); }
+  while(wrap.children.length>=3) wrap.removeChild(wrap.firstChild);
+  var el=document.createElement('div');
+  el.className='toast'+(ok===false?' err':'');
+  el.innerHTML='<span class="material-symbols-rounded">'+(ok===false?'error':'check_circle')+'</span><span></span>';
+  el.lastChild.textContent=msg;
+  wrap.appendChild(el);
+  setTimeout(function(){ el.classList.add('out');
+    setTimeout(function(){ if(el.parentNode) el.parentNode.removeChild(el); }, 250); }, 2600);
+}
 
 // ---------- theme ----------
-function applyTheme(t){ document.documentElement.setAttribute('data-theme', t);
+function setThemeAttr(t){ document.documentElement.setAttribute('data-theme', t);
   try{ localStorage.setItem('qa-theme', t); }catch(e){}
   var ic=$('themeIc'); if(ic) ic.textContent = t==='dark'?'light_mode':'dark_mode'; }
+function applyTheme(t, animate){
+  if(animate && document.startViewTransition){ document.startViewTransition(function(){ setThemeAttr(t); }); return; }
+  if(animate){ var h=document.documentElement; h.classList.add('theme-anim');
+    setTimeout(function(){ h.classList.remove('theme-anim'); }, 380); }
+  setThemeAttr(t);
+}
 (function(){ var t='light'; try{ t=localStorage.getItem('qa-theme')||'light'; }catch(e){} applyTheme(t); })();
 (function(){ var b=$('themeBtn'); if(b) b.addEventListener('click', function(){
-  applyTheme(document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark'); }); })();
+  applyTheme(document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark', true); }); })();
+
+// ---------- progress bar điều hướng (che server render chậm khi chuyển tab) ----------
+(function(){
+  var bar=document.createElement('div'); bar.className='nav-progress'; bar.innerHTML='<i></i>';
+  document.body.appendChild(bar);
+  function show(){ bar.classList.add('on'); }
+  document.addEventListener('click', function(e){
+    var a=e.target.closest('.nav a[href], .pmenu a[href]');
+    if(!a) return;
+    if(a.target==='_blank' || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    show();
+  });
+  // back-forward cache: trang cũ hiện lại -> tắt bar
+  window.addEventListener('pageshow', function(){ bar.classList.remove('on'); });
+})();
+
+// ---------- row stagger helper (gọi sau tbody.innerHTML=) ----------
+function animRows(tb){ if(!tb) return; tb.classList.remove('anim');
+  void tb.offsetWidth; tb.classList.add('anim'); }
+
+// ---------- skeleton helpers ----------
+function skelDrawer(){
+  return '<div class="skel skel-line w60" style="height:18px"></div>'
+    +'<div class="skel skel-line w80" style="height:18px;margin-bottom:16px"></div>'
+    +'<div class="skel skel-line w40"></div><div class="skel skel-line w60"></div>'
+    +'<div class="skel skel-line w40"></div><div class="skel skel-line w80"></div>'
+    +'<div class="skel skel-block"></div>'
+    +skelComments();
+}
+function skelComments(){
+  var row='<div class="skel-row"><div class="skel skel-av"></div>'
+    +'<div class="skel-main"><div class="skel skel-line w40"></div><div class="skel skel-line w80"></div></div></div>';
+  return row+row;
+}
 
 // ---------- profile menu ----------
 (function(){
@@ -131,7 +180,9 @@ function applyTheme(t){ document.documentElement.setAttribute('data-theme', t);
   }
   function run(q){
     var my=++seq; lastQ=q;
-    dd.innerHTML='<div class="gs-empty">Đang tìm…</div>'; open();
+    dd.innerHTML='<div class="skel-row"><div class="skel skel-badge"></div><div class="skel-main"><div class="skel skel-line w80"></div></div></div>'
+      +'<div class="skel-row"><div class="skel skel-badge"></div><div class="skel-main"><div class="skel skel-line w60"></div></div></div>'
+      +'<div class="skel-row"><div class="skel skel-badge"></div><div class="skel-main"><div class="skel skel-line w40"></div></div></div>'; open();
     getJSON('/global-search?q='+encodeURIComponent(q), 15000).then(function(j){
       if(my!==seq) return;                 // kết quả cũ -> bỏ
       curRows=(j&&j.ok&&j.results)||[]; active=-1; render();
@@ -409,7 +460,10 @@ document.addEventListener('click', function(e){
     });
     NOTIFS = acts;
     render();
-    if(freshUnread>0) toast('🔔 '+freshUnread+' thông báo mới', true);
+    if(freshUnread>0){ toast('🔔 '+freshUnread+' thông báo mới', true);
+      // pulse chuông khi có unread MỚI (không pulse khi chỉ re-render)
+      if(dot){ dot.classList.remove('pulse'); void dot.offsetWidth; dot.classList.add('pulse'); }
+    }
   }
   function poll(){
     if(document.hidden) return;                        // tab ẩn -> bỏ qua, đỡ tải Jira
@@ -475,7 +529,7 @@ document.addEventListener('click', function(e){
           +'" data-val="'+esc(v)+'">close</span></span>'; }).join('')+'</div>';
     }
 
-    function renderRows(){
+    function renderRows(anim){
       var all=filtered(), total=all.length;
       var pages=Math.max(1,Math.ceil(total/PER_PAGE));
       if(curPage>pages) curPage=pages; if(curPage<1) curPage=1;
@@ -486,7 +540,11 @@ document.addEventListener('click', function(e){
       $('tableTitleText').innerHTML='<span class="material-symbols-rounded">assignment</span><span>'+(label[curPill]||'Tasks')+'</span>';
 
       if(!total){
-        tbody.innerHTML='<tr><td colspan="6"><div class="empty-state"><span class="material-symbols-rounded">folder_off</span>Không tìm thấy task nào.</div></td></tr>';
+        tbody.innerHTML='<tr><td colspan="7"><div class="empty-state">'
+          +'<span class="es-ic"><span class="material-symbols-rounded">folder_off</span></span>'
+          +'<div class="es-title">Không tìm thấy task nào</div>'
+          +'<div class="es-hint">Thử đổi bộ lọc trạng thái hoặc thành viên.</div>'
+          +'</div></td></tr>';
         $('pager').innerHTML=''; return;
       }
 
@@ -506,6 +564,7 @@ document.addEventListener('click', function(e){
         html+='<tr class="pager-filler"><td>&nbsp;</td><td><span class="cell-title">&nbsp;</span></td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>';
       }
       tbody.innerHTML=html;
+      if(anim) animRows(tbody);
 
       var ph='<span class="pager-summary">'+(start+1)+'–'+(start+slice.length)+' / '+total+' task · trang '+curPage+'/'+pages+'</span>'
         +'<div class="pager-nav"><button class="pager-btn"'+(curPage<=1?' disabled':'')+' data-pg="'+(curPage-1)+'"><span class="material-symbols-rounded mi-xs">chevron_left</span></button>';
@@ -573,7 +632,7 @@ document.addEventListener('click', function(e){
         document.querySelectorAll('.pill-btn').forEach(function(b){ b.classList.remove('active'); });
         btn.classList.add('active');
         curPill=btn.getAttribute('data-pill'); curPage=1;
-        renderRows();
+        renderRows(true);
       });
     });
 
@@ -590,7 +649,7 @@ document.addEventListener('click', function(e){
           curMember=opt.getAttribute('data-member');
           $('selectedMemberLabel').textContent=opt.textContent;
           curPage=1; mDrop.classList.remove('open');
-          updateCounts(); renderRows(); updateKPIs();
+          updateCounts(); renderRows(true); updateKPIs();
         });
       });
       document.addEventListener('click', function(e){
@@ -599,13 +658,13 @@ document.addEventListener('click', function(e){
     }
 
     // Search
-    var si=$('searchInp'); if(si) si.addEventListener('input', function(){ curPage=1; updateCounts(); renderRows(); updateKPIs(); });
+    var si=$('searchInp'); if(si) si.addEventListener('input', function(){ curPage=1; updateCounts(); renderRows(true); updateKPIs(); });
 
     // Pager clicks
     $('pager').addEventListener('click', function(e){
       var b=e.target.closest('[data-pg]'); if(!b) return;
       curPage=parseInt(b.getAttribute('data-pg'),10);
-      renderRows();
+      renderRows(true);
     });
 
     // Row clicks -> drawer
@@ -637,7 +696,7 @@ document.addEventListener('click', function(e){
       var t=taskByKey(key);
       $('drawerOv').classList.add('open'); $('drawer').classList.add('open');
       if(t) renderDrawer(t);
-      else $('drawer').innerHTML='<div class="drawer-body"><div class="cmt-empty">Đang tải…</div></div>';
+      else $('drawer').innerHTML='<div class="drawer-body">'+skelDrawer()+'</div>';
       if(COMMENTS[key]===undefined){
         COMMENTS[key]=null;
         getJSON('/issue-comments?key='+encodeURIComponent(key), 20000)
@@ -660,7 +719,7 @@ document.addEventListener('click', function(e){
       if(t.stuck) flags+='<span class="dt-flag st"><span class="material-symbols-rounded mi-xs">hourglass_bottom</span>Kẹt</span>';
       if(!flags) flags='<span style="color:var(--on-surface-variant)">—</span>';
       var list=COMMENTS[t.key]; var hist;
-      if(list===null||list===undefined) hist='<div class="cmt-empty">Đang tải…</div>';
+      if(list===null||list===undefined) hist=skelComments();
       else if(!list.length) hist='<div class="cmt-empty">Chưa có bình luận nào</div>';
       else hist=list.map(function(c){ return '<div class="cmt-item"><span class="av '+avById(c.author)+'">'+esc(initOf(c.author))+'</span>'
         +'<div class="cmt-main"><div class="cmt-meta"><b>'+esc(c.author)+'</b><span>'+esc((c.when||'').slice(0,16).replace('T',' '))+'</span></div>'
@@ -737,7 +796,7 @@ document.addEventListener('click', function(e){
       adCurJira=jiraState;
       var cur={}; (t.customs||[]).forEach(function(v){ cur[v]=1; });
       var h='<div class="smenu-grp">Status Jira</div>';
-      if(jiraState===null) h+='<div class="smenu-note muted"><span class="material-symbols-rounded mi-sm">hourglass_empty</span>Đang tải status…</div>';
+      if(jiraState===null) h+='<div style="padding:6px 14px"><div class="skel skel-line w80"></div><div class="skel skel-line w60"></div></div>';
       else if(jiraState.code==='no_pat') h+='<div class="smenu-note" data-sm="nopat"><span class="material-symbols-rounded mi-sm">lock</span>Cần PAT để đổi status Jira — bấm để thêm</div>';
       else if(!jiraState.ok) h+='<div class="smenu-note muted"><span class="material-symbols-rounded mi-sm">error</span>'+esc(jiraState.msg||'Lỗi tải status')+'</div>';
       else if(!jiraState.transitions.length) h+='<div class="smenu-note muted"><span class="material-symbols-rounded mi-sm">info</span>Không có bước chuyển khả dụng</div>';
@@ -815,7 +874,7 @@ document.addEventListener('click', function(e){
     document.addEventListener('keydown', function(e){ if(e.key==='Escape') adCloseSmenu(); });
 
     // Initial render
-    updateCounts(); renderRows(); updateKPIs();
+    updateCounts(); renderRows(true); updateKPIs();
     return; // <-- skip QA member code below
   }
   // --------- END ADMIN DASHBOARD ---------
@@ -879,7 +938,7 @@ document.addEventListener('click', function(e){
   function cmtRow(key){
     var list=COMMENTS[key]||null;
     var hist;
-    if(list===null) hist='<div class="cmt-empty">Đang tải bình luận…</div>';
+    if(list===null) hist=skelComments();
     else if(!list.length) hist='<div class="cmt-empty">Chưa có bình luận nào</div>';
     else hist=list.map(function(c){ return '<div class="cmt-item"><span class="av '+avById(c.author)+'">'+esc(initOf(c.author))+'</span>'
       +'<div class="cmt-main"><div class="cmt-meta"><b>'+esc(c.author)+'</b><span>'+esc((c.when||'').slice(0,16).replace('T',' '))+'</span></div>'
@@ -892,14 +951,23 @@ document.addEventListener('click', function(e){
       +'<button class="lbtn primary" data-act="cmt-send" data-key="'+esc(key)+'">Gửi</button>'
       +'</div></div></div></td></tr>';
   }
-  function renderRows(){
+  function renderRows(anim){
     var all=visibleTasks();
-    if(!all.length){ tbody.innerHTML='<tr><td colspan="7"><div class="empty">Không có task nào 🎉</div></td></tr>';
+    if(!all.length){ tbody.innerHTML='<tr><td colspan="7"><div class="empty-state">'
+        +'<span class="es-ic"><span class="material-symbols-rounded">celebration</span></span>'
+        +'<div class="es-title">Không có task nào 🎉</div>'
+        +'<div class="es-hint">Sạch việc ở bộ lọc này — nghỉ tay chút đi.</div>'
+        +'</div></td></tr>';
       $('pager').innerHTML=''; return; }
     var pages=Math.max(1, Math.ceil(all.length/PER_PAGE));
     if(curPage>pages) curPage=pages; if(curPage<1) curPage=1;
     var start=(curPage-1)*PER_PAGE, slice=all.slice(start, start+PER_PAGE);
-    tbody.innerHTML=slice.map(rowHTML).join('');
+    var html=slice.map(rowHTML).join('');
+    for(var k=slice.length;k<PER_PAGE;k++){
+      html+='<tr class="pager-filler"><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>';
+    }
+    tbody.innerHTML=html;
+    if(anim) animRows(tbody);
     $('pager').innerHTML='<span class="pinfo">'+(start+1)+'–'+(start+slice.length)+' / '+all.length+' task · trang '+curPage+'/'+pages+'</span>'
       +'<button '+(curPage<=1?'disabled':'')+' data-pg="-1"><span class="material-symbols-rounded mi-sm">chevron_left</span>Trước</button>'
       +'<button '+(curPage>=pages?'disabled':'')+' data-pg="1">Sau<span class="material-symbols-rounded mi-sm">chevron_right</span></button>';
@@ -913,7 +981,7 @@ document.addEventListener('click', function(e){
   function setFilter(f){ curFilter=f; curPage=1;
     document.querySelectorAll('#tabs button').forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-f')===f); });
     document.querySelectorAll('#kpis .kpi').forEach(function(k){ k.classList.toggle('sel', k.getAttribute('data-f')===f); });
-    renderRows(); }
+    renderRows(true); }
 
   // dueWeek flag (cho filter) — tính nhanh client từ dueCls? dueweek đã đếm server; ở đây
   // filter dueweek dùng cờ: task không overdue và dueCls!=overdue và due trong tuần.
@@ -921,7 +989,7 @@ document.addEventListener('click', function(e){
 
   // event delegation
   document.addEventListener('click', function(e){
-    var pg=e.target.closest('[data-pg]'); if(pg && pg.closest('#pager')){ curPage+=parseInt(pg.getAttribute('data-pg'),10); renderRows(); return; }
+    var pg=e.target.closest('[data-pg]'); if(pg && pg.closest('#pager')){ curPage+=parseInt(pg.getAttribute('data-pg'),10); renderRows(true); return; }
     var rm=e.target.closest('.rm[data-val]'); if(rm){ rmCust(rm.getAttribute('data-key'), rm.getAttribute('data-val')); return; }
     var a=e.target.closest('[data-act]'); if(!a) return;
     var act=a.getAttribute('data-act'), key=a.getAttribute('data-key');
@@ -934,7 +1002,7 @@ document.addEventListener('click', function(e){
   document.querySelectorAll('#tabs button').forEach(function(b){ b.addEventListener('click', function(){ setFilter(b.getAttribute('data-f')); }); });
   document.querySelectorAll('#kpis .kpi').forEach(function(k){ k.addEventListener('click', function(){
     var f=k.getAttribute('data-f'); setFilter(f); }); });
-  var si=$('searchInp'); if(si) si.addEventListener('input', function(){ curPage=1; renderRows(); });
+  var si=$('searchInp'); if(si) si.addEventListener('input', function(){ curPage=1; renderRows(true); });
 
   // ----- comment panel -----
   function fetchComments(key){ return getJSON('/issue-comments?key='+encodeURIComponent(key), 20000)
@@ -968,7 +1036,7 @@ document.addEventListener('click', function(e){
   function openDetail(key){ var t=taskByKey(key);
     $('drawerOv').classList.add('open'); $('drawer').classList.add('open');
     if(t) renderDrawer(t);
-    else $('drawer').innerHTML='<div class="drawer-body"><div class="cmt-empty">Đang tải…</div></div>';
+    else $('drawer').innerHTML='<div class="drawer-body">'+skelDrawer()+'</div>';
     if(COMMENTS[key]===undefined){ COMMENTS[key]=null; fetchComments(key).then(function(){
       var tt=taskByKey(key);
       if(tt && $('drawer').classList.contains('open')) renderDrawer(tt); }); } }
@@ -983,7 +1051,7 @@ document.addEventListener('click', function(e){
     if(!flags) flags='<span style="color:var(--on-surface-variant)">—</span>';
     var list=COMMENTS[t.key];
     var hist;
-    if(list===null||list===undefined) hist='<div class="cmt-empty">Đang tải…</div>';
+    if(list===null||list===undefined) hist=skelComments();
     else if(!list.length) hist='<div class="cmt-empty">Chưa có bình luận nào</div>';
     else hist=list.map(function(c){ return '<div class="cmt-item"><span class="av '+avById(c.author)+'">'+esc(initOf(c.author))+'</span>'
       +'<div class="cmt-main"><div class="cmt-meta"><b>'+esc(c.author)+'</b><span>'+esc((c.when||'').slice(0,16).replace('T',' '))+'</span></div>'
@@ -1170,7 +1238,7 @@ document.addEventListener('click', function(e){
     if(t.stuck) flags+='<span class="dt-flag st"><span class="material-symbols-rounded mi-xs">hourglass_bottom</span>Kẹt</span>';
     if(!flags) flags='<span style="color:var(--on-surface-variant)">—</span>';
     var list=COMMENTS[t.key], hist;
-    if(list==null) hist='<div class="cmt-empty">Đang tải…</div>';
+    if(list==null) hist=skelComments();
     else if(!list.length) hist='<div class="cmt-empty">Chưa có bình luận nào</div>';
     else hist=list.map(function(c){ return '<div class="cmt-item"><span class="av '+avById(c.author)+'">'+esc(initOf(c.author))+'</span>'
       +'<div class="cmt-main"><div class="cmt-meta"><b>'+esc(c.author)+'</b><span>'+esc((c.when||'').slice(0,16).replace('T',' '))+'</span></div>'
@@ -1198,7 +1266,7 @@ document.addEventListener('click', function(e){
   function openDetail(key){
     ov.classList.add('open'); drawer.classList.add('open');
     if(CUR[key]) renderDrawer(CUR[key]);
-    else drawer.innerHTML='<div class="drawer-body"><div class="cmt-empty">Đang tải…</div></div>';
+    else drawer.innerHTML='<div class="drawer-body">'+skelDrawer()+'</div>';
     if(COMMENTS[key]===undefined){ COMMENTS[key]=null;
       getJSON('/issue-comments?key='+encodeURIComponent(key), 20000).then(function(j){
         if(j&&j.ok&&j.detail){ COMMENTS[key]=j.detail.comments||[]; DETAIL[key]=j.detail; CUR[key]=synth(key,j.detail); }
@@ -1769,6 +1837,7 @@ document.addEventListener('click', function(e){
         actCol +
       '</tr>';
     }).join('');
+    animRows(tbody);
   }
 
   // Chỉ mở link an toàn (chặn javascript:/data: kể cả khi lọt qua validate server)
@@ -2570,9 +2639,14 @@ document.addEventListener('click', function(e){
     }).join('');
     if(!total){
       var cols = EDIT?9:8;
-      html = '<tr><td colspan="'+cols+'" style="text-align:center;color:var(--on-surface-variant);padding:30px">Không có bug nào trong tháng này.</td></tr>';
+      html = '<tr><td colspan="'+cols+'"><div class="empty-state">'
+        +'<span class="es-ic"><span class="material-symbols-rounded">bug_report</span></span>'
+        +'<div class="es-title">Không có bug nào trong tháng này</div>'
+        +'<div class="es-hint">Đổi tháng hoặc bộ lọc tester/dev để xem bug khác.</div>'
+        +'</div></td></tr>';
     }
     rows.innerHTML = html;
+    animRows(rows);
     cnt.textContent = 'Hiển thị '+slice.length+' / '+total+' bản ghi';
     // pager
     if(pages>1){
@@ -3727,6 +3801,7 @@ document.addEventListener('click', function(e){
       + '<td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>';
     var filler=''; for(var f=slice.length; f<PER; f++) filler+=fillerHtml;
     body.insertAdjacentHTML('beforeend', filler);
+    animRows(body);
     body.querySelectorAll('tr[data-idx]').forEach(function(tr){
       tr.style.cursor='pointer';
       tr.addEventListener('click', function(){ openDrawer(list[+tr.dataset.idx]); });

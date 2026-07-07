@@ -17,7 +17,7 @@ from render.base import load_css_v2, load_js_v2, _json_script
 # ===================================================================
 _FONTS_V2 = (
     '<link rel="preconnect" href="https://fonts.googleapis.com">'
-    '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700'
+    '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700'
     '&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">'
     '<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:'
     'opsz,wght,FILL,GRAD@20,400,0,0" rel="stylesheet">'
@@ -130,7 +130,7 @@ def _settings_modal_v2(user=None):
             'Kết nối Google Drive (Bug Log)</label>'
             '<p class="modal-note">Cấp quyền <b>chỉ đọc</b> để background sync đọc file <code>.xlsx</code> bug log. '
             'Khi Google hỏi, chọn tài khoản <b>@baokim.vn</b>. Token được mã hoá khi lưu.</p>'
-            '<div class="set-drive-state" id="setDriveState">Đang kiểm tra…</div>'
+            '<div class="set-drive-state" id="setDriveState"><span class="skel skel-line w60" style="display:inline-block;width:180px"></span></div>'
             '<div class="set-drive-acts">'
             '<a class="btn btn-ghost" id="setDriveConnect" href="/drive/connect">Kết nối Drive</a>'
             '<button type="button" class="btn btn-danger" id="setDriveDisconnect" style="display:none;margin-right:0">Ngắt kết nối</button>'
@@ -250,7 +250,6 @@ def _document_v2(content_inner, active, user, activities, title='QA Suite',
 <div class="content">{banner}{content_inner}</div></div></div>
 {_settings_modal_v2(user)}
 {_subtask_modal_v2()}
-<div class="toast" id="toast"></div>
 <div class="drawer-ov" id="drawerOv"></div><aside class="drawer" id="drawer"></aside>
 {_json_script('qaNotif', activities)}
 <script>window.__jiraBase={json.dumps(JIRA_URL)};window.__stale={json.dumps(bool(stale))};</script>
@@ -282,7 +281,6 @@ def _document_public_v2(content_inner, title='QA Suite'):
 <div class="content">{content_inner}</div>
 </div>
 </div>
-<div class="toast" id="toast"></div>
 <script>window.__stale=false;</script>
 <script>{load_js_v2()}</script>
 </body></html>"""
