@@ -226,7 +226,10 @@ _RESULT_MAP = {
 
 
 def _norm(s):
-    return re.sub(r'\s+', ' ', str(s or '').strip()).lower()
+    # Bỏ khoảng trắng quanh gạch nối để "Pre - Condition"/"Pre-Condition"/"Pre -Condition"
+    # đều chuẩn hoá về "pre-condition" -> khớp synonym (defensive với cách gõ header khác nhau).
+    s = re.sub(r'\s*-\s*', '-', str(s or '').strip())
+    return re.sub(r'\s+', ' ', s).lower()
 
 
 def _norm_priority(v):
