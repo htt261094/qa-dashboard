@@ -12,6 +12,8 @@ import requests
 
 from config import (JIRA_URL, SUBTASK_TYPE_ID, TASK_PTSP_TYPE_ID,
                     START_DATE_FIELD, LEADER_FIELD,
+                    DEPARTMENT_FIELD, BK_TEAM_FIELD,
+                    SUBTASK_DEPARTMENT_ID, SUBTASK_BK_TEAM_ID,
                     LEADER_EVAL_NUM_FIELD, LEADER_EVAL_TEXT_FIELD)
 
 _TIMEOUT = 20
@@ -122,6 +124,9 @@ def create_subtask(parent_key, summary, duedate, start_date,
         'summary': summary[:250],
         'duedate': duedate,
         START_DATE_FIELD: start_date,
+        # Auto-tick sẵn (multi-checkbox): Department=IT (10123), BK Team=IT-QA (10128)
+        DEPARTMENT_FIELD: [{'id': SUBTASK_DEPARTMENT_ID}],
+        BK_TEAM_FIELD: [{'id': SUBTASK_BK_TEAM_ID}],
     }
     if assignee:
         fields['assignee'] = {'name': assignee}

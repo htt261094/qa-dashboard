@@ -380,6 +380,7 @@ function skelComments(){
   var c=$('setClose'); if(c) c.addEventListener('click', close);
   var cc=$('setCancel'); if(cc) cc.addEventListener('click', close);
   ov.addEventListener('click', function(e){ if(e.target===ov) close(); });
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape' && ov.classList.contains('open')) close(); });
   var show=$('patShowBtn'), inp=$('patInp');
   if(show&&inp) show.addEventListener('click', function(){
     if(inp.type==='password'){ inp.type='text'; show.textContent='visibility_off'; }
@@ -2428,6 +2429,14 @@ window.__smSetCustom=function(t, key, val, onChanged){
     }
   });
 
+  // Đóng modal/context-menu docs bằng phím Esc
+  document.addEventListener('keydown', function(e) {
+    if (e.key !== 'Escape') return;
+    ['folderModal', 'linkModal', 'uploadModal', 'contextMenu'].forEach(function(id) {
+      var m = $(id); if (m) m.classList.remove('open');
+    });
+  });
+
   // Initial renders
   renderFolders();
   renderTable();
@@ -3946,7 +3955,14 @@ window.__smSetCustom=function(t, key, val, onChanged){
   function closeDrawer(){ dov.classList.remove('open'); dr.classList.remove('open'); }
   if(dov) dov.addEventListener('click', closeDrawer);
   if($('tcdClose')) $('tcdClose').addEventListener('click', closeDrawer);
-  document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeDrawer(); });
+  document.addEventListener('keydown', function(e){
+    if(e.key!=='Escape') return;
+    closeDrawer();
+    // Đóng luôn các modal test-case đang mở bằng Esc
+    ['tcImportOverlay','tcErrorOverlay','tcLinksOverlay','tcFolderOverlay'].forEach(function(id){
+      var m=$(id); if(m) m.classList.remove('open');
+    });
+  });
 
   // ---- Modal Import (Drive: dán link -> chọn sheet -> chọn folder -> ghi đè) #152 ----
   var imp=$('tcImportOverlay');

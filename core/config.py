@@ -74,6 +74,10 @@ SUBTASK_TYPE_ID = '10003'              # issuetype "Sub-task"
 TASK_PTSP_TYPE_ID = '10103'            # issuetype "Task-PTSP" (parent của sub-task QA)
 START_DATE_FIELD = 'customfield_10208'  # "Start date" (required khi tạo, default = hôm nay)
 LEADER_FIELD = 'customfield_10606'      # "Leader" (user-picker, optional)
+DEPARTMENT_FIELD = 'customfield_10213'  # "Department" (multi-checkbox) — auto-tick IT khi tạo sub-task
+BK_TEAM_FIELD = 'customfield_10214'     # "BK Team" (multi-checkbox) — auto-tick IT-QA khi tạo sub-task
+SUBTASK_DEPARTMENT_ID = '10123'         # option "IT" tick sẵn (Department)
+SUBTASK_BK_TEAM_ID = '10128'            # option "IT-QA" tick sẵn (BK Team)
 LEADER_EVAL_NUM_FIELD = 'customfield_10605'  # "Leader đánh giá (Số)" (number)
 LEADER_EVAL_TEXT_FIELD = 'customfield_10604' # "Leader đánh giá (Text)" (text)
 
