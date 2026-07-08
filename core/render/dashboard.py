@@ -58,8 +58,7 @@ def _bug_metric_card_html():
 
 # ===== Full page =====
 def render_page(data, activities, activity_days=7, roadmap_data=None,
-                user=None, custom_overlay=None, bug_log_data=None, jira_error=False, stale=False,
-                insights=None):
+                user=None, custom_overlay=None, bug_log_data=None, jira_error=False, stale=False):
     is_admin = user[1] if (user and len(user) > 1) else True
 
     # QA thường (non-admin): data đã auto-scope về chính họ -> UI v2 (shell sidebar Stitch).
@@ -69,8 +68,7 @@ def render_page(data, activities, activity_days=7, roadmap_data=None,
 
     # Admin -> new v2 dashboard (pills + member filter + 5-col table + KPI cards)
     return render_admin_v2(data, activities, custom_overlay, user,
-                           bug_log_data=bug_log_data, jira_error=jira_error, stale=stale,
-                           insights=insights)
+                           bug_log_data=bug_log_data, jira_error=jira_error, stale=stale)
 
 
 def _bug_metrics_payload(bug_log_data):
@@ -100,40 +98,6 @@ def _bug_metrics_payload(bug_log_data):
     return {'files': files, 'metrics': metrics, 'syncedAt': synced or 'chưa đồng bộ'}
 
 
-# ===== Insight "Cần chú ý hôm nay" (core/insights.py compute; chỉ lens admin) =====
-def _insights_block(items):
-    """Card insight trên dashboard admin. items = compute_insights() output. Rỗng ->
-    dòng ✓ "không có gì cần chú ý" (tín hiệu tin cậy rẻ). Chip [data-key] mở drawer
-    (delegation trong admin controller); chip href = link thường (vd /bug-log?bug=)."""
-    if items:
-        rows = ''
-        for it in items:
-            chips = ''.join(
-                f'<a class="ins-chip" data-key="{esc(k)}">{esc(k)}</a>' for k in it.get('keys', []))
-            if it.get('href'):
-                chips += (f'<a class="ins-chip" href="{esc(it["href"])}">'
-                          'Xem bug <span class="material-symbols-rounded mi-xs">arrow_forward</span></a>')
-            rows += (f'<div class="ins-item sev-{esc(it.get("severity", "info"))}">'
-                     f'<span class="material-symbols-rounded mi-sm">{esc(it.get("icon", "info"))}</span>'
-                     f'<span class="ins-text">{esc(it.get("text", ""))}</span>{chips}</div>')
-        body = f'<div class="ins-list">{rows}</div>'
-        count = f'<span class="ins-count">{len(items)}</span>'
-    else:
-        body = ('<div class="ins-list"><div class="ins-item sev-ok">'
-                '<span class="material-symbols-rounded mi-sm">verified</span>'
-                '<span class="ins-text">Không có gì cần chú ý — mọi thứ trong tầm kiểm soát</span>'
-                '</div></div>')
-        count = ''
-    return (
-        '<div class="card ins-card" id="insCard">'
-        '<div class="ins-head" id="insToggle">'
-        '<span class="material-symbols-rounded">crisis_alert</span>'
-        f'<b>Cần chú ý hôm nay</b>{count}'
-        '<span class="ins-caret material-symbols-rounded">expand_less</span></div>'
-        f'{body}</div>'
-    )
-
-
 # ===== Admin Dashboard v2 (team-wide — pills + member filter + 5-col table + KPI cards) =====
 def _snap_note(data):
     """Mô tả nguồn snapshot cho banner offline: 'dữ liệu lúc HH:MM dd/mm (fetch bởi X)'."""
@@ -144,7 +108,7 @@ def _snap_note(data):
 
 
 def render_admin_v2(data, activities, cmap, user, bug_log_data=None,
-                    jira_error=False, stale=False, insights=None):
+                    jira_error=False, stale=False):
     """Admin dashboard v2: team-wide view with status pills, member dropdown, paginated
     5-column table, 3 KPI cards, and a task detail drawer. Data is embedded as JSON and
     rendered entirely client-side by the admin controller in app_v2.js.
@@ -276,8 +240,6 @@ def render_admin_v2(data, activities, cmap, user, bug_log_data=None,
         '</button>'
         f'<div class="member-dropdown" id="memberDropdown">{member_opts}</div>'
         '</div></div>'
-        # Insight "Cần chú ý hôm nay" (chỉ khi có compute — nhánh lỗi/stale truyền None)
-        + (_insights_block(insights) if insights is not None else '') +
         # Status pills
         '<div class="status-pills" id="statusPills">'
         f'<button class="pill-btn active" data-pill="todo">To Do <span class="pill-badge" id="count-todo">{n_todo}</span></button>'

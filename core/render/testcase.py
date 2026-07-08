@@ -193,10 +193,7 @@ def render_testcase_v2(data=None, editable=True, links=None, user=None, activiti
             </tr></thead>
             <tbody id="tcBody"><!-- JS render --></tbody>
           </table>
-          <div class="pager" id="tcPager" style="display:none">
-            <span class="pager-summary" id="tcPagerInfo"></span>
-            <div class="pager-nav" id="tcPagerNav"></div>
-          </div>
+          <div class="pager" id="tcPager" style="display:none"></div>
         </div>
       </div>
     </div>

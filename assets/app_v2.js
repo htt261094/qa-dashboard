@@ -9,6 +9,23 @@ function esc(s){ return (s==null?'':String(s))
   .replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 function $(id){ return document.getElementById(id); }
 function readJSON(id){ var el=$(id); if(!el) return null; try{ return JSON.parse(el.textContent); }catch(e){ return null; } }
+// Pager numbered DÙNG CHUNG toàn app (đồng bộ: range info + số trang + ellipsis + mũi tên).
+// data-pg = số trang TUYỆT ĐỐI; container tự bắt click qua delegation. start là index 0-based.
+function pagerHTML(page, pages, total, start, count, unit){
+  unit = unit || 'mục';
+  var ph='<span class="pager-summary">'+(start+1)+'–'+(start+count)+' / '+total+' '+unit+' · trang '+page+'/'+pages+'</span>'
+    +'<div class="pager-nav"><button class="pager-btn"'+(page<=1?' disabled':'')+' data-pg="'+(page-1)+'"><span class="material-symbols-rounded mi-xs">chevron_left</span></button>';
+  var win=1, last=0; // luôn hiện trang 1, trang cuối, và current ± win; còn lại rút gọn '…'
+  for(var i=1;i<=pages;i++){
+    if(i===1 || i===pages || (i>=page-win && i<=page+win)){
+      if(last && i-last>1) ph+='<span class="pager-ellipsis">…</span>';
+      ph+='<button class="pager-page'+(i===page?' active':'')+'" data-pg="'+i+'">'+i+'</button>';
+      last=i;
+    }
+  }
+  ph+='<button class="pager-btn"'+(page>=pages?' disabled':'')+' data-pg="'+(page+1)+'"><span class="material-symbols-rounded mi-xs">chevron_right</span></button></div>';
+  return ph;
+}
 // Write cần Jira -> chặn khi đang xem snapshot OFFLINE (window.__stale). /set-custom-status
 // ghi Cloudflare KV nên VẪN cho (sống offline); /dismiss cũng KV -> không chặn.
 var JIRA_WRITE = { '/do-transition':1, '/create-subtask':1 };
@@ -795,11 +812,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
           +'<button class="caret material-symbols-rounded mi-sm" data-act="smenu" data-key="'+esc(t.key)+'">expand_more</button></div>'+chipHTML(t)+'</td>'
           +'<td class="cell-date">'+dueValHTML(t)+'</td>'
           +'<td class="cell-date">'+esc(t.createdDisp)+'</td>'
-          +'<td class="cell-date cell-acts">'+esc(t.updatedDisp)
-          +'<span class="row-acts">'
-          +'<button class="ra-btn" data-act="row-detail" data-key="'+esc(t.key)+'" title="Xem chi tiết"><span class="material-symbols-rounded mi-sm">right_panel_open</span></button>'
-          +'<a class="ra-btn" href="'+esc(t.jiraUrl)+'" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Mở trên Jira"><span class="material-symbols-rounded mi-sm">open_in_new</span></a>'
-          +'</span></td></tr>';
+          +'<td class="cell-date">'+esc(t.updatedDisp)+'</td></tr>';
       }).join('');
       for(var k=slice.length;k<PER_PAGE;k++){
         html+='<tr class="pager-filler"><td>&nbsp;</td><td><span class="cell-title">&nbsp;</span></td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>';
@@ -807,18 +820,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
       tbody.innerHTML=html;
       if(anim) animRows(tbody);
 
-      var ph='<span class="pager-summary">'+(start+1)+'–'+(start+slice.length)+' / '+total+' task · trang '+curPage+'/'+pages+'</span>'
-        +'<div class="pager-nav"><button class="pager-btn"'+(curPage<=1?' disabled':'')+' data-pg="'+(curPage-1)+'"><span class="material-symbols-rounded mi-xs">chevron_left</span></button>';
-      var win=1, last=0; // luôn hiện trang 1, trang cuối, và current ± win; còn lại rút gọn '…'
-      for(var i=1;i<=pages;i++){
-        if(i===1 || i===pages || (i>=curPage-win && i<=curPage+win)){
-          if(last && i-last>1) ph+='<span class="pager-ellipsis">…</span>';
-          ph+='<button class="pager-page'+(i===curPage?' active':'')+'" data-pg="'+i+'">'+i+'</button>';
-          last=i;
-        }
-      }
-      ph+='<button class="pager-btn"'+(curPage>=pages?' disabled':'')+' data-pg="'+(curPage+1)+'"><span class="material-symbols-rounded mi-xs">chevron_right</span></button></div>';
-      $('pager').innerHTML=ph;
+      $('pager').innerHTML=pagerHTML(curPage, pages, total, start, slice.length, 'task');
       // Giữ smenu mở bám đúng caret sau khi rebuild bảng.
       if(window.__smRebind) window.__smRebind();
     }
@@ -899,8 +901,8 @@ window.__smSetCustom=function(t, key, val, onChanged){
 
     // Pager clicks
     $('pager').addEventListener('click', function(e){
-      var b=e.target.closest('[data-pg]'); if(!b) return;
-      curPage=parseInt(b.getAttribute('data-pg'),10);
+      var b=e.target.closest('[data-pg]'); if(!b||b.disabled) return;
+      curPage=parseInt(b.getAttribute('data-pg'),10)||1;
       renderRows(true);
     });
 
@@ -964,7 +966,6 @@ window.__smSetCustom=function(t, key, val, onChanged){
       var desc=(DETAIL[t.key]&&DETAIL[t.key].description)?esc(DETAIL[t.key].description):esc(t.summary);
       $('drawer').innerHTML='<div class="drawer-head"><a class="key" href="'+esc(t.jiraUrl)+'" target="_blank">'+esc(t.key)+'</a>'
         +'<span class="badge '+badgeCls(t.jira)+'">'+esc(t.jira)+'</span>'
-        +'<button class="caret material-symbols-rounded mi-sm" data-act="smenu" data-key="'+esc(t.key)+'" title="Đổi status / nhãn">expand_more</button>'
         +'<button class="x material-symbols-rounded" data-act="drawer-close">close</button></div>'
         +'<div class="drawer-body"><h2>'+esc(t.summary)+'</h2>'
         +'<div class="dt-grid"><div class="lbl">Người xử lý</div><div class="val"><span class="assignee"><span class="av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span> '+esc(t.assignee.name)+'</span></div>'
@@ -1045,21 +1046,6 @@ window.__smSetCustom=function(t, key, val, onChanged){
     function adRmCust(key, val){ var t=taskByKey(key);
       if(t) window.__smSetCustom(t, key, val, adOnChanged); }
 
-    // ----- insight "Cần chú ý hôm nay": collapse (localStorage) + chip mở drawer -----
-    (function(){
-      var card=$('insCard'); if(!card) return;
-      var tg=$('insToggle');
-      try{ if(localStorage.getItem('qa-ins-collapsed')==='1') card.classList.add('collapsed'); }catch(e){}
-      if(tg) tg.addEventListener('click', function(){
-        var c=card.classList.toggle('collapsed');
-        try{ localStorage.setItem('qa-ins-collapsed', c?'1':'0'); }catch(e){}
-      });
-      card.addEventListener('click', function(e){
-        var chip=e.target.closest('.ins-chip[data-key]'); if(!chip) return;
-        e.stopPropagation(); openDetail(chip.getAttribute('data-key'));
-      });
-    })();
-
     // Initial render
     updateCounts(); renderRows(true); updateKPIs();
     return; // <-- skip QA member code below
@@ -1120,9 +1106,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
       +'<td>'+dueValHTML(t)+'</td>'
       +'<td><span style="display:inline-flex;align-items:center;gap:2px">'
       +'<button class="act-btn'+(openCmt[t.key]?' on':'')+'" data-act="cmt" data-key="'+esc(t.key)+'" title="Bình luận">'
-      +'<span class="material-symbols-rounded mi-sm">chat_bubble_outline</span>'+cnt+'</button>'
-      +'<button class="act-btn" data-act="detail" data-key="'+esc(t.key)+'" title="Xem chi tiết">'
-      +'<span class="material-symbols-rounded mi-sm">right_panel_open</span></button></span></td>'
+      +'<span class="material-symbols-rounded mi-sm">chat_bubble_outline</span>'+cnt+'</button></span></td>'
       +'</tr>' + (openCmt[t.key] ? cmtRow(t.key) : '');
   }
   function cmtRow(key){
@@ -1158,9 +1142,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     }
     tbody.innerHTML=html;
     if(anim) animRows(tbody);
-    $('pager').innerHTML='<span class="pinfo">'+(start+1)+'–'+(start+slice.length)+' / '+all.length+' task · trang '+curPage+'/'+pages+'</span>'
-      +'<button '+(curPage<=1?'disabled':'')+' data-pg="-1"><span class="material-symbols-rounded mi-sm">chevron_left</span>Trước</button>'
-      +'<button '+(curPage>=pages?'disabled':'')+' data-pg="1">Sau<span class="material-symbols-rounded mi-sm">chevron_right</span></button>';
+    $('pager').innerHTML=pagerHTML(curPage, pages, all.length, start, slice.length, 'task');
 
     if(window.__smRebind) window.__smRebind();
   }
@@ -1175,7 +1157,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
 
   // event delegation
   document.addEventListener('click', function(e){
-    var pg=e.target.closest('[data-pg]'); if(pg && pg.closest('#pager')){ curPage+=parseInt(pg.getAttribute('data-pg'),10); renderRows(true); return; }
+    var pg=e.target.closest('[data-pg]'); if(pg && !pg.disabled && pg.closest('#pager')){ curPage=parseInt(pg.getAttribute('data-pg'),10)||1; renderRows(true); return; }
     var rm=e.target.closest('.rm[data-val]'); if(rm){ rmCust(rm.getAttribute('data-key'), rm.getAttribute('data-val')); return; }
     var a=e.target.closest('[data-act]'); if(!a) return;
     var act=a.getAttribute('data-act'), key=a.getAttribute('data-key');
@@ -1245,7 +1227,6 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var desc=(DETAIL[t.key]&&DETAIL[t.key].description) ? esc(DETAIL[t.key].description) : esc(t.summary);
     $('drawer').innerHTML='<div class="drawer-head"><a class="key" href="'+esc(t.jiraUrl)+'" target="_blank">'+esc(t.key)+'</a>'
       +'<span class="badge '+jiraCls(t.jira)+'">'+esc(t.jira)+'</span>'
-      +'<button class="caret material-symbols-rounded mi-sm" data-act="smenu" data-key="'+esc(t.key)+'" title="Đổi status / nhãn">expand_more</button>'
       +'<button class="x material-symbols-rounded" data-act="drawer-close">close</button></div>'
       +'<div class="drawer-body"><h2>'+esc(t.summary)+'</h2>'
       +'<div class="dt-grid"><div class="lbl">Người xử lý</div><div class="val"><span class="assignee"><span class="av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span> '+esc(t.assignee.name)+'</span></div>'
@@ -1359,7 +1340,6 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var desc=(DETAIL[t.key]&&DETAIL[t.key].description)?esc(DETAIL[t.key].description):esc(t.summary);
     drawer.innerHTML='<div class="drawer-head"><a class="key" href="'+esc(t.jiraUrl)+'" target="_blank">'+esc(t.key)+'</a>'
       +'<span class="badge '+badgeCls(t.jira)+'">'+esc(t.jira)+'</span>'
-      +'<button class="caret material-symbols-rounded mi-sm" data-act="smenu" data-key="'+esc(t.key)+'" title="Đổi status / nhãn">expand_more</button>'
       +'<button class="x material-symbols-rounded" data-act="drawer-close">close</button></div>'
       +'<div class="drawer-body"><h2>'+esc(t.summary)+'</h2>'
       +'<div class="dt-grid"><div class="lbl">Người xử lý</div><div class="val"><span class="assignee"><span class="av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span> '+esc(t.assignee.name)+'</span></div>'
@@ -2765,14 +2745,8 @@ window.__smSetCustom=function(t, key, val, onChanged){
     rows.innerHTML = html;
     animRows(rows);
     cnt.textContent = 'Hiển thị '+slice.length+' / '+total+' bản ghi';
-    // pager
-    if(pages>1){
-      var ph='<span class="pager-summary">trang '+page+'/'+pages+'</span><div class="pager-nav">'
-        +'<button class="pager-btn" '+(page<=1?'disabled':'')+' data-pg="'+(page-1)+'"><span class="material-symbols-rounded mi-xs">chevron_left</span></button>';
-      for(var i=1;i<=pages;i++) ph+='<button class="pager-page'+(i===page?' active':'')+'" data-pg="'+i+'">'+i+'</button>';
-      ph+='<button class="pager-btn" '+(page>=pages?'disabled':'')+' data-pg="'+(page+1)+'"><span class="material-symbols-rounded mi-xs">chevron_right</span></button></div>';
-      pager.innerHTML=ph;
-    } else pager.innerHTML='';
+    // pager (dùng chung — số trang + ellipsis + range info)
+    pager.innerHTML = total ? pagerHTML(page, pages, total, start, slice.length, 'bản ghi') : '';
     syncCheckAll();
     updateLinkBtn();
   }
@@ -3109,7 +3083,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
 
   if(activeFid){ var av0=availMonths(); if(av0.indexOf(curMonth)<0) curMonth = av0.length?av0[0]:''; }
 
-  // Deep-link ?bug=<key> (từ command palette / insights): nhảy đúng file + tháng + trang,
+  // Deep-link ?bug=<key> (từ command palette): nhảy đúng file + tháng + trang,
   // highlight dòng. Copy pattern ?folder= của test-cases.
   var deepBug = null;
   try{ deepBug = new URLSearchParams(location.search).get('bug'); }catch(e){}
@@ -3771,6 +3745,9 @@ window.__smSetCustom=function(t, key, val, onChanged){
 // Guard #tcBody: chỉ chạy ở trang /test-cases. Data từ #tcData (rỗng tới #152).
 (function(){
   var body = $('tcBody'); if(!body) return;
+  (function(){ var pg=$('tcPager'); if(!pg) return; pg.addEventListener('click', function(e){
+    var b=e.target.closest('[data-pg]'); if(!b||b.disabled) return;
+    page=parseInt(b.getAttribute('data-pg'),10)||1; render(); }); })();
   var data = readJSON('tcData') || {};
   var folders = data.folders || [];
   var cases = data.cases || [];
@@ -3947,30 +3924,9 @@ window.__smSetCustom=function(t, key, val, onChanged){
       tr.style.cursor='pointer';
       tr.addEventListener('click', function(){ openDrawer(list[+tr.dataset.idx]); });
     });
-    // pager
+    // pager (dùng chung — số trang + ellipsis + range info)
     var pg=$('tcPager'); pg.style.display='';
-    var from=(page-1)*PER+1, to=Math.min(page*PER, list.length);
-    $('tcPagerInfo').textContent='Hiển thị '+from+'–'+to+' trong '+list.length+' test case';
-    var nav=$('tcPagerNav'); nav.innerHTML='';
-    function btn(label,disabled,goto,active){
-      var b=document.createElement('button');
-      b.className = active ? 'pager-page active' : (label.indexOf('chevron')>=0 ? 'pager-btn' : 'pager-page');
-      b.innerHTML = label.indexOf('chevron')>=0 ? '<span class="material-symbols-rounded mi-sm">'+label+'</span>' : label;
-      b.disabled=!!disabled;
-      if(!disabled && goto) b.addEventListener('click',function(){ page=goto; render(); });
-      nav.appendChild(b);
-    }
-    function ellipsis(){ var s=document.createElement('span'); s.className='pager-ellipsis'; s.textContent='…'; nav.appendChild(s); }
-    btn('chevron_left', page<=1, page-1);
-    var win=1, last=0; // luôn hiện trang 1, trang cuối, và current ± win
-    for(var p=1;p<=pages;p++){
-      if(p===1 || p===pages || (p>=page-win && p<=page+win)){
-        if(last && p-last>1) ellipsis();
-        btn(String(p), false, p, p===page);
-        last=p;
-      }
-    }
-    btn('chevron_right', page>=pages, page+1);
+    pg.innerHTML=pagerHTML(page, pages, list.length, (page-1)*PER, slice.length, 'test case');
   }
 
   // ---- Drawer chi tiết (full Pre/Step/Expected) ----
