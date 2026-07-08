@@ -3990,10 +3990,10 @@ window.__smSetCustom=function(t, key, val, onChanged){
         ok.onclick = function() { location.reload(); };
     }
   };
-  function doTcSync(fid){
+  function doTcSync(fid, overwrite){
     if(!editable) return;
-    toast('Đang đồng bộ từ Google Sheets...', true);
-    postJSON('/tc-sync', { folder: fid }, 180000).then(function(res){
+    toast(overwrite ? 'Đang đồng bộ (ghi đè cả kết quả)...' : 'Đang đồng bộ từ Google Sheets...', true);
+    postJSON('/tc-sync', { folder: fid, overwrite_results: !!overwrite }, 180000).then(function(res){
       if(res && res.ok){
         window.tcShowSuccess(res.msg || 'Đồng bộ thành công.', 'Đồng bộ thành công');
       } else {
@@ -4042,28 +4042,51 @@ window.__smSetCustom=function(t, key, val, onChanged){
     lastSheetUrl = '';
     loadSheets();
     if(urlIn) urlIn.focus(); });
-  if($('tcSyncAllBtn')) $('tcSyncAllBtn').addEventListener('click', function(){
+  function doTcSyncAll(overwrite){
     if(!editable) return;
-    if(!confirm('Đồng bộ lại TẤT CẢ bộ test case đã import từ Google Sheet? '
-      +'Nội dung sẽ được cập nhật theo file mới nhất (kết quả chạy theo ID được giữ lại).')) return;
-    var btn=this; if(btn.disabled) return;
-    var orig=btn.innerHTML; btn.disabled=true;
-    btn.innerHTML='<span class="material-symbols-rounded mi-sm" style="animation:spin 1s linear infinite">progress_activity</span> Đang đồng bộ…';
-    toast('Đang đồng bộ toàn bộ test case từ Google Sheets...', true);
-    postJSON('/tc-sync-all', {}, 180000).then(function(res){
-      btn.disabled=false; btn.innerHTML=orig;
+    var btn=$('tcSyncAllBtn'); var orig='';
+    if(btn){ if(btn.disabled) return; orig=btn.innerHTML; btn.disabled=true;
+      btn.innerHTML='<span class="material-symbols-rounded mi-sm" style="animation:spin 1s linear infinite">progress_activity</span> Đang đồng bộ…'; }
+    toast(overwrite ? 'Đang đồng bộ toàn bộ (ghi đè cả kết quả)...' : 'Đang đồng bộ toàn bộ test case từ Google Sheets...', true);
+    postJSON('/tc-sync-all', { overwrite_results: !!overwrite }, 180000).then(function(res){
+      if(btn){ btn.disabled=false; btn.innerHTML=orig; }
       if(res && res.ok){
         window.tcShowSuccess(res.msg || 'Đồng bộ thành công.', 'Đồng bộ toàn bộ');
       } else {
         window.tcShowError((res && res.msg) || 'Lỗi đồng bộ.', 'Đồng bộ thất bại');
       }
-    }).catch(function(e){ btn.disabled=false; btn.innerHTML=orig;
+    }).catch(function(e){ if(btn){ btn.disabled=false; btn.innerHTML=orig; }
       var timed = e && (e.name==='AbortError' || /abort/i.test(String(e.message||e)));
       window.tcShowError(timed
         ? 'Đồng bộ quá lâu (quá thời gian chờ). Quá nhiều bộ hoặc mạng/VPN chậm — thử lại.'
         : 'Lỗi mạng khi đồng bộ (không kết nối được server). Kiểm tra mạng/VPN rồi thử lại.',
         'Đồng bộ thất bại'); });
+  }
+  // Modal xác nhận đồng bộ + tuỳ chọn "ghi đè cả kết quả" (dùng chung sync 1 bộ / tất cả).
+  var syncOv=$('tcSyncOverlay'), syncPending=null;
+  window.tcCloseSync=function(){ if(syncOv) syncOv.classList.remove('open'); syncPending=null; };
+  function openSyncModal(mode, fid){
+    if(!editable) return;
+    if(!syncOv){   // fallback nếu template chưa có modal (chưa restart app): giữ hành vi cũ
+      if(mode==='all') doTcSyncAll(false); else doTcSync(fid, false);
+      return;
+    }
+    syncPending={ mode: mode, fid: fid };
+    var msg=$('tcSyncMsg'), cb=$('tcSyncOverwrite');
+    if(cb) cb.checked=false;
+    if(msg) msg.textContent = (mode==='all')
+      ? 'Đồng bộ lại TẤT CẢ bộ test case đã import từ Google Sheet, cập nhật nội dung theo file mới nhất.'
+      : 'Đồng bộ lại bộ này từ Google Sheet, cập nhật nội dung theo file mới nhất.';
+    syncOv.classList.add('open');
+  }
+  if($('tcSyncGo')) $('tcSyncGo').addEventListener('click', function(){
+    if(!syncPending) return;
+    var cb=$('tcSyncOverwrite'); var ow=!!(cb && cb.checked);
+    var p=syncPending; window.tcCloseSync();
+    if(p.mode==='all') doTcSyncAll(ow); else doTcSync(p.fid, ow);
   });
+  if(syncOv) syncOv.addEventListener('click', function(e){ if(e.target===syncOv) window.tcCloseSync(); });
+  if($('tcSyncAllBtn')) $('tcSyncAllBtn').addEventListener('click', function(){ openSyncModal('all'); });
   // ---- Modal Quản lý link Google Sheet nguồn (#152) ----
   var linksOv=$('tcLinksOverlay');
   window.tcCloseLinks=function(){ if(linksOv) linksOv.classList.remove('open'); };
@@ -4307,7 +4330,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
         var fid = btn.getAttribute('data-fid');
         if(action==='rename') renameFolder(fid);
         else if(action==='delete') deleteFolder(fid);
-        else if(action==='sync') doTcSync(fid);
+        else if(action==='sync') openSyncModal('one', fid);
       });
     });
   };

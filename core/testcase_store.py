@@ -431,10 +431,15 @@ def _get_content_sig(c):
     return f"{c.get('item','')}||{c.get('pre','')}||{c.get('step','')}||{c.get('exp','')}"
 
 
-def _apply_sheet_cases(data, parent_folder_id, sheet, new_cases):
+def _apply_sheet_cases(data, parent_folder_id, sheet, new_cases, overwrite_results=False):
     """Ghi đè cases của sub-folder (theo tên sheet) trong parent. Mutates `data`. Trả count.
 
-    GIỮ result đã chấm bằng Smart Sync (Sequence Alignment + Fuzzy Match + ID Fallback)."""
+    GIỮ result đã chấm bằng Smart Sync (Sequence Alignment + Fuzzy Match + ID Fallback).
+
+    `overwrite_results=True` -> ĐẢO hành vi giữ result: ô Result để TRỐNG trong sheet sẽ ép
+    case về 'norun' (thay vì giữ kết quả chấm cũ). Dùng cho chế độ "đồng bộ ghi đè cả kết quả"
+    khi user chủ động xoá kết quả trong sheet và muốn dashboard phản ánh đúng. Ô Result CÓ giá
+    trị -> luôn theo sheet (không đổi hai chiều)."""
     sub_folder = next((f for f in data['folders']
                        if f.get('parent_id') == parent_folder_id and f.get('name') == sheet), None)
     if not sub_folder:
@@ -464,6 +469,10 @@ def _apply_sheet_cases(data, parent_folder_id, sheet, new_cases):
                     if parsed != r_norm:
                         updated_result_count += 1
                     new_cases[j]['result'] = parsed
+                elif overwrite_results:
+                    if r_norm != 'norun':
+                        updated_result_count += 1
+                    new_cases[j]['result'] = 'norun'
                 else:
                     new_cases[j]['result'] = r_norm
                 mapped_old_indices.add(i)
@@ -487,6 +496,10 @@ def _apply_sheet_cases(data, parent_folder_id, sheet, new_cases):
                 if parsed != r_norm:
                     updated_result_count += 1
                 c['result'] = parsed
+            elif overwrite_results:
+                if r_norm != 'norun':
+                    updated_result_count += 1
+                c['result'] = 'norun'
             else:
                 c['result'] = r_norm
             mapped_old_indices.add(best_i)
@@ -508,6 +521,10 @@ def _apply_sheet_cases(data, parent_folder_id, sheet, new_cases):
             if old_c and parsed != r_norm:
                 updated_result_count += 1
             c['result'] = parsed
+        elif overwrite_results:
+            if old_c and r_norm != 'norun':
+                updated_result_count += 1
+            c['result'] = 'norun'
         else:
             c['result'] = r_norm
 
@@ -532,11 +549,13 @@ def fetch_sheets(url):
             'sheets': list_sheet_names(content)}
 
 
-def import_cases(folder_id, url, sheet, by_email='', _data=None):
+def import_cases(folder_id, url, sheet, by_email='', _data=None, overwrite_results=False):
     """Import test case vào folder = mỗi sheet GHI ĐÈ 1 sub-folder cùng tên.
 
     `sheet` rỗng -> import CẢ FILE (mọi sheet trừ template: Cover/Guide/Result/Function 1).
     GIỮ result đã chấm theo case id (re-import nội dung không mất công chấm).
+    `overwrite_results=True` -> chế độ "ghi đè cả kết quả": ô Result để trống trong sheet ép
+    case về 'norun' (không giữ kết quả cũ). Xem _apply_sheet_cases.
     Trả dict {ok, count, skipped, msg}. Dòng thiếu ID bị BỎ QUA (không chặn import) —
     vẫn báo lại chi tiết dòng nào bị skip trong msg (missing_id_rows=True).
 
@@ -603,7 +622,8 @@ def import_cases(folder_id, url, sheet, by_email='', _data=None):
         if not cases_s:
             empty_sheets.append(s)
             continue
-        cnt, upd = _apply_sheet_cases(data, folder_id, s, cases_s)
+        cnt, upd = _apply_sheet_cases(data, folder_id, s, cases_s,
+                                      overwrite_results=overwrite_results)
         total_count += cnt
         total_updated_results += upd
         applied.append(s)
