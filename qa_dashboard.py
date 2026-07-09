@@ -1259,6 +1259,7 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             payload = self._read_json_body(20_000)
             if isinstance(payload, dict):
                 folder = str(payload.get('folder') or '')
+                overwrite = bool(payload.get('overwrite_results'))
                 from core.testcase_store import load_testcases
                 data = load_testcases()
                 imports_info = data.get('imports', {}).get(folder)
@@ -1269,7 +1270,8 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
                     sheet = imports_info.get('sheet', '')
                     if sheet == '(toàn bộ file)':
                         sheet = ''
-                    res = tc_import_cases(folder, url, sheet, by_email=self._user_email())
+                    res = tc_import_cases(folder, url, sheet, by_email=self._user_email(),
+                                          overwrite_results=overwrite)
         except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
             res = {'ok': False, 'msg': 'Lỗi xử lý yêu cầu.'}
         except Exception:   # noqa: BLE001
@@ -1282,6 +1284,8 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         # Mỗi folder re-import bằng url+sheet đã lưu; gom kết quả tổng hợp.
         res = {'ok': False, 'msg': 'Lỗi xử lý yêu cầu.'}
         try:
+            payload = self._read_json_body(20_000)
+            overwrite = bool(isinstance(payload, dict) and payload.get('overwrite_results'))
             from core.testcase_store import load_testcases, save_testcases
             data = load_testcases()
             imports = data.get('imports', {}) or {}
@@ -1306,7 +1310,8 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
                         continue
                     try:
                         r = tc_import_cases(folder, url, sheet,
-                                            by_email=self._user_email(), _data=data)
+                                            by_email=self._user_email(), _data=data,
+                                            overwrite_results=overwrite)
                     except (RuntimeError, OSError) as e:
                         fail_lines.append(f'• "{name}": {e}')
                         continue

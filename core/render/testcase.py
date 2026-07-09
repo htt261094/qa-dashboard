@@ -240,6 +240,31 @@ def render_testcase_v2(data=None, editable=True, links=None, user=None, activiti
       </div>
     </div>
 
+    <!-- Modal xác nhận đồng bộ + tuỳ chọn ghi đè kết quả (dùng chung sync 1 bộ / tất cả) -->
+    <div class="overlay" id="tcSyncOverlay" onclick="if(event.target===this)tcCloseSync()">
+      <div class="modal" style="width:480px">
+        <div class="modal-head">
+          <span class="material-symbols-rounded">sync</span>
+          <h3>Đồng bộ test case</h3>
+          <button type="button" class="x material-symbols-rounded" onclick="tcCloseSync()">close</button>
+        </div>
+        <div class="modal-body">
+          <div id="tcSyncMsg" style="margin-bottom:14px"></div>
+          <label style="display:flex;gap:9px;align-items:flex-start;cursor:pointer;line-height:1.45">
+            <input type="checkbox" id="tcSyncOverwrite" style="margin-top:3px;flex:0 0 auto">
+            <span>Ghi đè cả <b>kết quả đã chấm</b> — ô <b>Result</b> để trống trong sheet sẽ đưa
+            test case về <b>“Chưa chạy”</b>.<br>
+            <span style="color:var(--on-surface-variant);font-size:.9em">Bỏ chọn (mặc định) =
+            giữ nguyên kết quả bạn đã chấm tay khi ô Result trống.</span></span>
+          </label>
+        </div>
+        <div class="modal-foot">
+          <button type="button" class="btn btn-ghost" onclick="tcCloseSync()">Hủy</button>
+          <button type="button" class="btn btn-primary" id="tcSyncGo">Đồng bộ</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Drawer chi tiết test case (riêng với drawer task #drawer ở shell) -->
     <div class="drawer-ov" id="tcDrawerOv"></div>
     <aside class="drawer" id="tcDrawer">
