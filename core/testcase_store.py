@@ -636,6 +636,35 @@ def import_cases(folder_id, url, sheet, by_email='', _data=None, overwrite_resul
     if len(data['cases']) > MAX_CASES:
         return {'ok': False, 'msg': f'Vượt quá tối đa {MAX_CASES} test case toàn hệ thống.'}
 
+    # Mirror Drive 100% (chỉ khi sync TOÀN FILE): sheet đã bị XOÁ / ĐỔI TÊN khỏi file thì
+    # sub-folder + cases cũ của nó là "mồ côi" — sync cũ không đụng tới nên tồn mãi trong store
+    # (donut đếm dư). Dọn: xoá mọi sub-folder trực thuộc folder_id mà tên KHÔNG còn là 1 sheet
+    # trong file (cascade cả folder con + cases + metadata import). KHÔNG áp cho sync 1 sheet
+    # (chỉ đồng bộ đúng sheet đó, không được đụng sheet khác). Đổi tên sheet = coi như xoá +
+    # thêm mới -> mất result đã chấm của sheet đó (đánh đổi để phản ánh Drive tuyệt đối).
+    removed_sheets, removed_cases = [], 0
+    if not sheet:
+        live_names = set(all_sheets)
+        stale_ids = {f['id'] for f in data['folders']
+                     if f.get('parent_id') == folder_id and f.get('name') not in live_names}
+        if stale_ids:
+            removed_sheets = sorted(f['name'] for f in data['folders']
+                                    if f['id'] in stale_ids)
+            # cascade n-level (phòng sheet có folder con — hiện sheet 1 tầng nhưng an toàn)
+            while True:
+                added = False
+                for f in data['folders']:
+                    if f.get('parent_id') in stale_ids and f.get('id') not in stale_ids:
+                        stale_ids.add(f['id'])
+                        added = True
+                if not added:
+                    break
+            removed_cases = sum(1 for c in data['cases'] if c.get('folder') in stale_ids)
+            data['folders'] = [f for f in data['folders'] if f['id'] not in stale_ids]
+            data['cases'] = [c for c in data['cases'] if c.get('folder') not in stale_ids]
+            for sid in stale_ids:
+                data.get('imports', {}).pop(sid, None)
+
     data.setdefault('imports', {})[folder_id] = {
         'url': url, 'fileId': fid,
         'sheet': sheet if sheet else '(toàn bộ file)',
@@ -669,9 +698,16 @@ def import_cases(folder_id, url, sheet, by_email='', _data=None, overwrite_resul
             extra.append(f'cập nhật kết quả cho {total_updated_results} test case')
         if extra:
             msg += ' (' + ', '.join(extra) + ').'
+    if removed_sheets:
+        preview = ', '.join(f'"{s}"' for s in removed_sheets[:8])
+        more = f' …(+{len(removed_sheets) - 8})' if len(removed_sheets) > 8 else ''
+        msg += (f'\n\nĐã xoá {len(removed_sheets)} sheet không còn trong file '
+                f'({removed_cases} test case): {preview}{more}.')
     if missing_note:
         msg += '\n\n' + missing_note
     # `missing_sheets` = list (sheet, [row,...]) để caller (sync-all) gộp báo cáo theo bộ.
+    # `removed_sheets`/`removed_cases` = sheet đã xoá khỏi file -> dọn khỏi store (mirror Drive).
     return {'ok': True, 'count': total_count, 'skipped': total_skipped,
             'missing_id_rows': bool(total_missing),
+            'removed_sheets': removed_sheets, 'removed_cases': removed_cases,
             'missing_sheets': [(s, list(miss)) for s, miss in err_sheets], 'msg': msg}

@@ -1297,6 +1297,7 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             else:
                 ok_folders, fail_lines, missing_lines = 0, [], []
                 total_count = 0
+                removed_lines, removed_cases_total = [], 0
                 # Load 1 lần / save 1 lần: mỗi bộ chỉ download+parse+apply lên `data`
                 # chung (KHÔNG tự save toàn store mỗi bộ -> tránh timeout khi nhiều bộ).
                 for folder, info in list(imports.items()):
@@ -1318,6 +1319,14 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
                     if r.get('ok'):
                         ok_folders += 1
                         total_count += r.get('count', 0)
+                        rm = r.get('removed_sheets') or []
+                        if rm:
+                            removed_cases_total += r.get('removed_cases', 0)
+                            preview = ', '.join(f'"{s}"' for s in rm[:8])
+                            more = f' …(+{len(rm) - 8})' if len(rm) > 8 else ''
+                            removed_lines.append(
+                                f'• "{name}": {len(rm)} sheet '
+                                f'({r.get("removed_cases", 0)} test case) — {preview}{more}')
                         for s, miss in r.get('missing_sheets', []):
                             preview = ', '.join(str(x) for x in miss[:10])
                             more = f' …(+{len(miss) - 10})' if len(miss) > 10 else ''
@@ -1331,12 +1340,17 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
                                                '(KV/local lỗi). Thử lại.'}
                 else:
                     msg = f'Đã đồng bộ {ok_folders}/{len(imports)} bộ · {total_count} test case.'
+                    if removed_lines:
+                        msg += (f'\n\nĐã dọn {removed_cases_total} test case của sheet '
+                                f'không còn trong file (mirror Drive):\n'
+                                + '\n'.join(removed_lines))
                     if missing_lines:
                         msg += '\n\nCác dòng thiếu ID (đã bỏ qua):\n' + '\n'.join(missing_lines)
                     if fail_lines:
                         msg += '\n\nMột số bộ lỗi:\n' + '\n'.join(fail_lines)
                     res = {'ok': ok_folders > 0, 'msg': msg,
                            'synced': ok_folders, 'total': len(imports),
+                           'removed_cases': removed_cases_total,
                            'missing_id_rows': bool(missing_lines)}
         except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
             res = {'ok': False, 'msg': 'Lỗi xử lý yêu cầu.'}
