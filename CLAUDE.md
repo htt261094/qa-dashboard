@@ -453,6 +453,13 @@ Hiền THƯỜNG là reporter trong các task QA team được giao — vì cô 
 - **KHÔNG đụng CSS**: dùng lại nguyên `.pager-summary/.pager-nav/.pager-page/.pager-btn/.pager-ellipsis` (styles_v2.css ~674) mà admin/bug-log/test-cases đã dùng → My-Work giờ khớp y hệt. `.pinfo` + `.pager button` cũ thành dead CSS (vô hại, giữ lại). Filler rows của từng bảng KHÔNG đụng.
 - **Verify** (không mạng): `node --check app_v2.js` + `ast.parse testcase.py` OK; unit-test `pagerHTML` (1 trang; p1/7 `*1* 2 … 7`; p4/7 `1 … 3 *4* 5 … 7`; p7/7 `1 … 6 *7*`; range trang cuối lẻ đúng). Chưa chạy live browser (cần VPN+PAT).
 
+### 43. Bug Log changelog — khử noise transition "→ New" (copy-paste tạo bug mới) (2026-07-09)
+- **Bối cảnh / vì sao**: changelog bug-log (`_diff_events`, bug_log_store.py) sinh event "Status X → Y" theo diff status giữa 2 lần scan, khoá theo STT (`{project}#{service}#{month}#{bug_no}`). QA hay tạo bug mới bằng cách **copy dòng bug cũ ở trên xuống dòng mới rồi sửa lại nội dung**. Dòng mới thừa hưởng status của bug được copy (vd `Closed`) trước khi bị sửa về `New` → nếu 2 sự kiện rơi vào 2 cửa sổ scan khác nhau, diff bắt được **transition giả** `Closed → New` (hoặc `<status bất kỳ> → New`) → feed/chuông/popup "sau đồng bộ" đầy noise.
+- **Fix**: trong `_diff_events`, **bỏ qua mọi transition có đích = `'New'`** (thêm điều kiện `and (b.get('status') or '') != 'New'` ở nhánh status-change). Lý do đúng: vòng đời bug thật KHÔNG bao giờ quay lại `New` (New chỉ là trạng thái khởi đầu; reactivation dùng `Reopen`) → mọi `→ New` là artifact copy-paste.
+- **KHÔNG đụng**: event `log bug` (khi key lần đầu xuất hiện, `old is None`) VẪN giữ — đó là bug mới thật, đáng lên feed. Event `xoá bug` + các transition hợp lệ khác (New→Fixing, Closed→Reopen, …) không đổi.
+- **Đánh đổi**: bug bị QA sửa nhầm rồi reset về `New` sẽ không lên feed — hiếm, user coi mọi `→ New` là noise nên chấp nhận. Giới hạn: nếu artifact copy-paste kết thúc ở status KHÁC `New` (vd copy bug Closed rồi để nguyên Fixing) thì không khử được — nhưng bug mới luôn khởi đầu ở `New` nên `→ New` là chữ ký tin cậy.
+- **Verify** (không mạng): `py_compile` OK; smoke `_diff_events`: new bug→giữ `log bug`; `Closed→New`/`Fixing→New`→rỗng (suppressed); `New→Fixing`/`Closed→Reopen`→giữ.
+
 ## Issue Tracking & Branch Workflow (QUAN TRỌNG cho Claude Code)
 
 **Quy ước user (áp dụng MẶC ĐỊNH, không hỏi lại):**
