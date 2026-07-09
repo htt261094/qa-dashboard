@@ -384,6 +384,14 @@ def _diff_events(prev_bugs, cur_bugs, file_name=''):
     - key mất  -> 'xoá bug'
     Field khác KHÔNG sinh event (giữ feed gọn — chủ yếu quan tâm vòng đời status).
 
+    ⚠ NOISE COPY-PASTE (issue: QA copy row cũ xuống dòng mới rồi edit thành bug mới):
+    dòng mới thừa hưởng status của bug được copy (vd 'Closed') rồi bị sửa lại thành 'New'
+    -> diff bắt được transition giả 'X → New'. Vòng đời bug thật KHÔNG bao giờ quay lại
+    'New' (New chỉ là trạng thái khởi đầu; reactivation dùng 'Reopen'). Nên BỎ QUA mọi
+    transition có đích = 'New' -> khử noise. Event 'log bug' lúc key lần đầu xuất hiện VẪN
+    giữ (đó là bug mới thật). Đánh đổi: bug bị QA sửa nhầm rồi reset về New sẽ không lên
+    feed — hiếm, và user coi mọi '→ New' là noise.
+
     Mỗi event mang `file` (tên file Drive) + `sheet` (= bug['month'], tên tab tháng) để
     popup "sau đồng bộ" nêu rõ thay đổi nằm ở file/sheet nào (issue popup thay đổi)."""
     events = []
@@ -406,7 +414,7 @@ def _diff_events(prev_bugs, cur_bugs, file_name=''):
                 'new': f"log bug {label(b)}", 'kind': 'new',
                 'file': file_name, 'sheet': sheet,
             })
-        elif (old.get('status') or '') != (b.get('status') or ''):
+        elif (old.get('status') or '') != (b.get('status') or '') and (b.get('status') or '') != 'New':
             events.append({
                 'id': f"{key}#bstat#{stamp}", 'key': key, 'summary': summ,
                 'by': author, 'author': author or '?', 'when': iso,
