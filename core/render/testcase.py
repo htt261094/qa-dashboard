@@ -22,15 +22,15 @@ def _import_modal():
     <div class="overlay" id="tcImportOverlay" onclick="if(event.target===this)tcCloseImport()">
       <div class="modal">
         <div class="modal-head">
-          <span class="tc-gs-ic"><span class="material-symbols-rounded">table_chart</span></span>
+          <span class="tc-gs-ic"><span class="material-symbols-rounded ph-light ph-table"></span></span>
           <h3>Nhập Test Case từ Google Sheets</h3>
-          <button type="button" class="x material-symbols-rounded" onclick="tcCloseImport()">close</button>
+          <button type="button" class="x material-symbols-rounded ph-light ph-x" onclick="tcCloseImport()"></button>
         </div>
         <div class="modal-body">
           <div class="mfield">
             <label>Link Google Sheet</label>
             <div class="tc-iwrap">
-              <span class="lead material-symbols-rounded mi-sm">link</span>
+              <span class="lead material-symbols-rounded ph-light ph-link mi-sm"></span>
               <input type="text" id="tcImpUrl" placeholder="Dán đường dẫn tại đây..." autocomplete="off" spellcheck="false">
             </div>
             <span class="tc-hint">Lưu ý: Sheet của bạn phải ở chế độ công khai hoặc chia sẻ quyền xem cho hệ thống.</span>
@@ -40,26 +40,26 @@ def _import_modal():
               <label>Chọn Sheet</label>
               <div class="tc-iwrap trailing">
                 <select id="tcImpSheet"><option value="">Tất cả sheet (bỏ qua template)</option></select>
-                <span class="trail material-symbols-rounded mi-sm">expand_more</span>
+                <span class="trail material-symbols-rounded ph-light ph-caret-down mi-sm"></span>
               </div>
             </div>
             <div>
               <label>Chọn Folder Test Case</label>
               <div class="tc-iwrap trailing">
                 <select id="tcImpFolder"><option value="">Chọn thư mục...</option></select>
-                <span class="trail material-symbols-rounded mi-sm">folder_open</span>
+                <span class="trail material-symbols-rounded ph-light ph-folder-open mi-sm"></span>
               </div>
             </div>
           </div>
           <div class="tc-infobox">
-            <span class="material-symbols-rounded">info</span>
+            <span class="material-symbols-rounded ph-light ph-info"></span>
             <span><b>Định dạng cột bắt buộc</b>Sheet cần có các tiêu đề: ID, Test Item, Pre-Condition, Step, Expected Output, Priority. Để trống ô "Chọn Sheet" sẽ import toàn bộ file (bỏ qua các sheet template: Cover, Guide, Result, Function 1).</span>
           </div>
         </div>
         <div class="modal-foot">
           <button type="button" class="btn btn-ghost" onclick="tcCloseImport()">Hủy</button>
           <button type="button" class="btn btn-primary" id="tcImpSubmit">
-            <span class="material-symbols-rounded mi-sm">download</span> Tiến hành Nhập</button>
+            <span class="material-symbols-rounded ph-light ph-download-simple mi-sm"></span> Tiến hành Nhập</button>
         </div>
       </div>
     </div>
@@ -72,9 +72,9 @@ def _link_modal():
     <div class="overlay" id="tcLinkOverlay" onclick="if(event.target===this)tcCloseLink()">
       <div class="modal" style="width:480px">
         <div class="modal-head">
-          <span class="material-symbols-rounded">link</span>
+          <span class="material-symbols-rounded ph-light ph-link"></span>
           <h3>Liên kết bộ test case với Task</h3>
-          <button type="button" class="x material-symbols-rounded" onclick="tcCloseLink()">close</button>
+          <button type="button" class="x material-symbols-rounded ph-light ph-x" onclick="tcCloseLink()"></button>
         </div>
         <div class="modal-body">
           <div class="mfield">
@@ -84,7 +84,7 @@ def _link_modal():
           <div class="mfield">
             <label>Tìm task Jira</label>
             <div class="tc-iwrap">
-              <span class="lead material-symbols-rounded mi-sm">search</span>
+              <span class="lead material-symbols-rounded ph-light ph-magnifying-glass mi-sm"></span>
               <input type="text" id="tcLinkSearch" placeholder="Gõ key / số / tóm tắt task..." autocomplete="off" spellcheck="false">
             </div>
             <div class="tc-link-results" id="tcLinkResults"></div>
@@ -108,9 +108,9 @@ def _source_links_modal():
     <div class="overlay" id="tcLinksOverlay" onclick="if(event.target===this)tcCloseLinks()">
       <div class="modal" style="width:640px">
         <div class="modal-head">
-          <span class="material-symbols-rounded">link</span>
+          <span class="material-symbols-rounded ph-light ph-link"></span>
           <h3>Quản lý link Google Sheet nguồn</h3>
-          <button type="button" class="x material-symbols-rounded" onclick="tcCloseLinks()">close</button>
+          <button type="button" class="x material-symbols-rounded ph-light ph-x" onclick="tcCloseLinks()"></button>
         </div>
         <div class="modal-body">
           <span class="tc-hint">Danh sách các bộ đã import từ Google Sheet. Sửa link để trỏ
@@ -140,16 +140,16 @@ def render_testcase_v2(data=None, editable=True, links=None, user=None, activiti
     import_btn = ('<div style="display:flex;gap:10px;align-items:center">'
                   '<button class="btn btn-ghost" id="tcLinksBtn" '
                   'title="Xem / sửa link Google Sheet nguồn của các bộ đã import">'
-                  '<span class="material-symbols-rounded mi-sm">link</span> Quản lý link</button>'
+                  '<span class="material-symbols-rounded ph-light ph-link mi-sm"></span> Quản lý link</button>'
                   '<button class="btn btn-ghost" id="tcSyncAllBtn" '
                   'title="Đồng bộ lại toàn bộ bộ test case đã import từ Google Sheet">'
-                  '<span class="material-symbols-rounded mi-sm">sync</span> Sync tất cả</button>'
+                  '<span class="material-symbols-rounded ph-light ph-arrows-clockwise mi-sm"></span> Sync tất cả</button>'
                   '<button class="btn-pri" id="tcImportBtn">'
-                  '<span class="material-symbols-rounded mi-sm">upload</span> Import</button>'
+                  '<span class="material-symbols-rounded ph-light ph-upload-simple mi-sm"></span> Import</button>'
                   '</div>'
                   ) if editable else ''
     repo_add = ('<button class="tc-repo-add" id="tcAddFolder" title="Thêm bộ / folder">'
-                '<span class="material-symbols-rounded">create_new_folder</span></button>'
+                '<span class="material-symbols-rounded ph-light ph-folder-plus"></span></button>'
                 ) if editable else ''
     ro_note = ('' if editable else
                '<div class="tc-repo-ro">👁 Chỉ xem — chỉ quản lý mới Import/sửa được.</div>')
@@ -208,9 +208,9 @@ def render_testcase_v2(data=None, editable=True, links=None, user=None, activiti
     <div class="overlay" id="tcFolderOverlay" onclick="if(event.target===this)tcCloseFolder()">
       <div class="modal" style="width:420px">
         <div class="modal-head">
-          <span class="material-symbols-rounded">create_new_folder</span>
+          <span class="material-symbols-rounded ph-light ph-folder-plus"></span>
           <h3>Thêm bộ / thư mục</h3>
-          <button type="button" class="x material-symbols-rounded" onclick="tcCloseFolder()">close</button>
+          <button type="button" class="x material-symbols-rounded ph-light ph-x" onclick="tcCloseFolder()"></button>
         </div>
         <div class="modal-body">
           <div class="mfield"><label>Tên thư mục</label>
@@ -227,9 +227,9 @@ def render_testcase_v2(data=None, editable=True, links=None, user=None, activiti
     <div class="overlay" id="tcErrorOverlay" onclick="if(event.target===this)tcCloseError()">
       <div class="modal" style="width:460px">
         <div class="modal-head">
-          <span class="tc-err-ic material-symbols-rounded">error</span>
+          <span class="tc-err-ic material-symbols-rounded ph-light ph-warning-circle"></span>
           <h3 id="tcErrorTitle">Có lỗi xảy ra</h3>
-          <button type="button" class="x material-symbols-rounded" onclick="tcCloseError()">close</button>
+          <button type="button" class="x material-symbols-rounded ph-light ph-x" onclick="tcCloseError()"></button>
         </div>
         <div class="modal-body">
           <div class="tc-err-msg" id="tcErrorMsg"></div>
@@ -244,9 +244,9 @@ def render_testcase_v2(data=None, editable=True, links=None, user=None, activiti
     <div class="overlay" id="tcSyncOverlay" onclick="if(event.target===this)tcCloseSync()">
       <div class="modal" style="width:480px">
         <div class="modal-head">
-          <span class="material-symbols-rounded">sync</span>
+          <span class="material-symbols-rounded ph-light ph-arrows-clockwise"></span>
           <h3>Đồng bộ test case</h3>
-          <button type="button" class="x material-symbols-rounded" onclick="tcCloseSync()">close</button>
+          <button type="button" class="x material-symbols-rounded ph-light ph-x" onclick="tcCloseSync()"></button>
         </div>
         <div class="modal-body">
           <div id="tcSyncMsg" style="margin-bottom:14px"></div>
@@ -269,7 +269,7 @@ def render_testcase_v2(data=None, editable=True, links=None, user=None, activiti
     <div class="drawer-ov" id="tcDrawerOv"></div>
     <aside class="drawer" id="tcDrawer">
       <div class="drawer-head"><span class="tc-id" id="tcdKey"></span>
-        <button class="x material-symbols-rounded" id="tcdClose">close</button></div>
+        <button class="x material-symbols-rounded ph-light ph-x" id="tcdClose"></button></div>
       <div class="drawer-body" id="tcdBody"></div>
     </aside>
     """

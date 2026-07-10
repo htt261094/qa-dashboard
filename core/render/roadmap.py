@@ -16,9 +16,9 @@ def render_roadmap_v2(data, editable=True, user=None, activities=None):
     top_actions = ''
     if editable:
         top_actions = '''<div class="rm-top-actions">
-            <button class="btn-sec" id="rmShareBtn" onclick="if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(window.location.origin + '/public/roadmap').then(function(){ toast('Đã copy link chia sẻ roadmap', true); }).catch(function(){ prompt('Link chia sẻ roadmap:', window.location.origin + '/public/roadmap'); }); } else { prompt('Link chia sẻ roadmap:', window.location.origin + '/public/roadmap'); }"><span class="material-symbols-rounded mi-sm">share</span> Chia sẻ</button>
-            <button class="btn-sec" id="rmToggleMode"><span class="material-symbols-rounded mi-sm">edit</span> Bật chỉnh sửa</button>
-            <button class="btn-pri" id="rmAddPlan" style="display:none;"><span class="material-symbols-rounded mi-sm">add_circle</span> Thêm kế hoạch</button>
+            <button class="btn-sec" id="rmShareBtn" onclick="if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(window.location.origin + '/public/roadmap').then(function(){ toast('Đã copy link chia sẻ roadmap', true); }).catch(function(){ prompt('Link chia sẻ roadmap:', window.location.origin + '/public/roadmap'); }); } else { prompt('Link chia sẻ roadmap:', window.location.origin + '/public/roadmap'); }"><span class="material-symbols-rounded ph-light ph-share-network mi-sm"></span> Chia sẻ</button>
+            <button class="btn-sec" id="rmToggleMode"><span class="material-symbols-rounded ph-light ph-pencil-simple mi-sm"></span> Bật chỉnh sửa</button>
+            <button class="btn-pri" id="rmAddPlan" style="display:none;"><span class="material-symbols-rounded ph-light ph-plus-circle mi-sm"></span> Thêm kế hoạch</button>
         </div>'''
     
     banner = '' if editable else '<div class="ro-banner">👁 Chế độ chỉ xem — chỉ quản lý mới chỉnh sửa được.</div>'
@@ -35,9 +35,9 @@ def render_roadmap_v2(data, editable=True, user=None, activities=None):
     modal = (
         '<div class="overlay" id="modalOverlay">'
         '<div class="modal">'
-        '<div class="modal-head"><span class="material-symbols-rounded" id="modalIcon">edit</span>'
+        '<div class="modal-head"><span class="material-symbols-rounded ph-light ph-pencil-simple" id="modalIcon"></span>'
         '<h3 id="modalTitle">Sửa</h3>'
-        '<button type="button" class="x material-symbols-rounded" id="modalClose">close</button></div>'
+        '<button type="button" class="x material-symbols-rounded ph-light ph-x" id="modalClose"></button></div>'
         '<div class="modal-body" id="modalBody"></div>'
         '<div class="modal-foot"><button type="button" class="btn btn-ghost" id="modalCancel">Huỷ</button>'
         '<button type="button" class="btn btn-primary" id="modalSave">Lưu</button></div>'
@@ -68,9 +68,9 @@ def render_public_roadmap_v2(data):
     modal = (
         '<div class="overlay" id="modalOverlay" style="display:none">'
         '<div class="modal">'
-        '<div class="modal-head"><span class="material-symbols-rounded" id="modalIcon">edit</span>'
+        '<div class="modal-head"><span class="material-symbols-rounded ph-light ph-pencil-simple" id="modalIcon"></span>'
         '<h3 id="modalTitle">Sửa</h3>'
-        '<button type="button" class="x material-symbols-rounded" id="modalClose">close</button></div>'
+        '<button type="button" class="x material-symbols-rounded ph-light ph-x" id="modalClose"></button></div>'
         '<div class="modal-body" id="modalBody"></div>'
         '<div class="modal-foot"><button type="button" class="btn btn-ghost" id="modalCancel">Huỷ</button>'
         '<button type="button" class="btn btn-primary" id="modalSave">Lưu</button></div>'

@@ -51,10 +51,10 @@ html[data-theme="dark"]{
   ::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation:none!important}
 }
 *{box-sizing:border-box;margin:0;padding:0}
-.material-symbols-rounded{font-family:'Material Symbols Rounded';font-weight:normal;font-style:normal;
-  line-height:1;letter-spacing:normal;text-transform:none;display:inline-block;white-space:nowrap;
-  word-wrap:normal;direction:ltr;-webkit-font-feature-settings:'liga';-webkit-font-smoothing:antialiased;
-  vertical-align:middle;font-size:20px}
+/* Icon = Phosphor (light/fill từ CDN cấp font-family qua .ph-light/.ph-fill). Class
+   `material-symbols-rounded` GIỮ lại làm hook CSS (nhiều rule cũ nhắm nó) — chỉ lo cỡ + căn. */
+.material-symbols-rounded{line-height:1;display:inline-flex;align-items:center;justify-content:center;
+  vertical-align:middle;font-size:20px;-webkit-font-smoothing:antialiased}
 .mi-sm{font-size:18px}.mi-xs{font-size:16px}.mi-lg{font-size:26px}
 html,body{height:100%}
 body{font-family:Inter,"Segoe UI",system-ui,-apple-system,sans-serif;background:var(--canvas);color:var(--on-surface);
@@ -539,6 +539,23 @@ tr.cmt-row:hover td{background:var(--surface-low)}
 .btn-primary:hover{background:var(--primary-strong)}
 .btn-danger{background:none;color:var(--error);border-color:transparent;margin-right:auto}
 .btn-danger:hover{background:var(--error-bg)}
+.btn-danger-solid{background:var(--error);color:#fff;border-color:transparent}
+.btn-danger-solid:hover{filter:brightness(1.07)}
+.btn-danger-solid:active{transform:scale(.985)}
+
+/* ===== Confirm modal (thay confirm() native — Promise<bool>, dùng chung mọi trang) ===== */
+.confirm-ov{position:fixed;inset:0;background:rgba(9,30,66,.5);display:none;align-items:center;
+   justify-content:center;z-index:200;padding:20px}
+.confirm-ov.open{display:flex}
+.cmodal{background:var(--card);border-radius:var(--r-2xl);width:420px;max-width:100%;box-shadow:var(--e3);
+   overflow:hidden;animation:cmodal-in var(--dur-2) var(--ease-out)}
+@keyframes cmodal-in{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:none}}
+.cmodal-head{display:flex;align-items:center;gap:10px;padding:18px 20px 6px}
+.cmodal-head .material-symbols-rounded{color:var(--primary);font-size:24px}
+.cmodal.danger .cmodal-head .material-symbols-rounded{color:var(--error)}
+.cmodal-head h3{font-size:17px;font-weight:700;color:var(--on-surface)}
+.cmodal-body{padding:2px 20px 18px;font-size:14px;color:var(--on-surface-variant);line-height:1.5;white-space:pre-line}
+.cmodal-foot{display:flex;gap:10px;justify-content:flex-end;padding:0 20px 18px}
 /* Generic input (dùng ngoài .mfield / .modal) */
 .set-input{width:100%;padding:9px 11px;border:1px solid var(--outline-variant);
    border-radius:var(--r-md);font-family:inherit;font-size:14px;background:var(--surface-low);color:inherit;

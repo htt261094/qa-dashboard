@@ -9,12 +9,43 @@ function esc(s){ return (s==null?'':String(s))
   .replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 function $(id){ return document.getElementById(id); }
 function readJSON(id){ var el=$(id); if(!el) return null; try{ return JSON.parse(el.textContent); }catch(e){ return null; } }
+// Phosphor (light) icon — map tên Material cũ -> glyph Phosphor. Giữ class `material-symbols-rounded`
+// làm hook CSS (nhiều rule nhắm nó), thêm `ph-light ph-<name>`. Đồng bộ với bảng map ở render (Python).
+var PHMAP={
+ 'close':'x','link':'link','info':'info','edit':'pencil-simple','create_new_folder':'folder-plus',
+ 'upload':'upload-simple','sync':'arrows-clockwise','search':'magnifying-glass','expand_more':'caret-down',
+ 'calendar_month':'calendar-dots','bug_report':'bug-beetle','warning':'warning','trending_up':'trend-up',
+ 'settings':'gear-six','folder_open':'folder-open','error':'warning-circle','dark_mode':'moon','circle':'circle',
+ 'chevron_right':'caret-right','check':'check','assignment':'clipboard-text','add':'plus','visibility':'eye',
+ 'unfold_more':'arrows-down-up','table_view':'table','table_chart':'table','tab':'browsers','speed':'gauge',
+ 'share':'share-network','search_off':'magnifying-glass-minus','refresh':'arrow-clockwise','picture_as_pdf':'file-pdf',
+ 'person_search':'user-focus','open_in_new':'arrow-square-out','notifications':'bell','logout':'sign-out','lock':'lock',
+ 'hub':'graph','hourglass_bottom':'hourglass','history':'clock-counter-clockwise','group':'users','folder_off':'folder-minus',
+ 'folder':'folder','event_busy':'calendar-x','engineering':'wrench','edit_calendar':'calendar-plus','download':'download-simple',
+ 'difference':'git-diff','description':'file-text','delete':'trash','content_copy':'copy','cloud_upload':'cloud-arrow-up',
+ 'cloud_off':'cloud-slash','cloud':'cloud','chevron_left':'caret-left','check_circle':'check-circle','autorenew':'arrows-clockwise',
+ 'add_task':'plus-circle','add_link':'link-simple','add_circle':'plus-circle','checklist':'list-checks','monitoring':'chart-line-up',
+ 'map':'map-trifold','person':'user','star':'star','space_dashboard':'squares-four','contrast':'circle-half','key':'key',
+ 'hourglass_empty':'hourglass-simple','progress_activity':'circle-notch','light_mode':'sun','visibility_off':'eye-slash',
+ 'chat_bubble_outline':'chat-circle','expand_less':'caret-up','celebration':'confetti','event':'calendar-blank',
+ 'more_vert':'dots-three-vertical','remove':'minus','check_box':'check-square','indeterminate_check_box':'minus-square',
+ 'check_box_outline_blank':'square','slideshow':'presentation','article':'article','sync_alt':'arrows-left-right',
+ 'cancel':'x-circle','trending_down':'trend-down','apps':'squares-four','radio_button_unchecked':'circle',
+ 'fiber_new':'sparkle','chat_bubble':'chat-circle-dots','swap_horiz':'arrows-left-right','person_add':'user-plus',
+ 'bolt':'lightning','sell':'tag','remove_circle_outline':'minus-circle','subdirectory_arrow_right':'arrow-elbow-down-right',
+ 'library_books':'books','fact_check':'check-square','format_list_numbered':'list-numbers','task_alt':'check-circle',
+ 'keyboard_arrow_down':'caret-down','keyboard_arrow_right':'caret-right'
+};
+function phIcon(name, extra, weight){
+  var ph=PHMAP[name]||name;
+  return '<span class="material-symbols-rounded'+(extra?' '+extra:'')+' ph-'+(weight||'light')+' ph-'+ph+'"></span>';
+}
 // Pager numbered DÙNG CHUNG toàn app (đồng bộ: range info + số trang + ellipsis + mũi tên).
 // data-pg = số trang TUYỆT ĐỐI; container tự bắt click qua delegation. start là index 0-based.
 function pagerHTML(page, pages, total, start, count, unit){
   unit = unit || 'mục';
   var ph='<span class="pager-summary">'+(start+1)+'–'+(start+count)+' / '+total+' '+unit+' · trang '+page+'/'+pages+'</span>'
-    +'<div class="pager-nav"><button class="pager-btn"'+(page<=1?' disabled':'')+' data-pg="'+(page-1)+'"><span class="material-symbols-rounded mi-xs">chevron_left</span></button>';
+    +'<div class="pager-nav"><button class="pager-btn"'+(page<=1?' disabled':'')+' data-pg="'+(page-1)+'"><span class="material-symbols-rounded ph-light ph-caret-left mi-xs"></span></button>';
   var win=1, last=0; // luôn hiện trang 1, trang cuối, và current ± win; còn lại rút gọn '…'
   for(var i=1;i<=pages;i++){
     if(i===1 || i===pages || (i>=page-win && i<=page+win)){
@@ -23,7 +54,7 @@ function pagerHTML(page, pages, total, start, count, unit){
       last=i;
     }
   }
-  ph+='<button class="pager-btn"'+(page>=pages?' disabled':'')+' data-pg="'+(page+1)+'"><span class="material-symbols-rounded mi-xs">chevron_right</span></button></div>';
+  ph+='<button class="pager-btn"'+(page>=pages?' disabled':'')+' data-pg="'+(page+1)+'"><span class="material-symbols-rounded ph-light ph-caret-right mi-xs"></span></button></div>';
   return ph;
 }
 // Write cần Jira -> chặn khi đang xem snapshot OFFLINE (window.__stale). /set-custom-status
@@ -82,7 +113,7 @@ function testcaseSectionHtml(d){
     if(t.fail) meta.push('<span class="dt-tc-fail">'+t.fail+' fail</span>');
     var href='/test-cases?folder='+encodeURIComponent(t.id||'');
     return '<a class="dt-tc" href="'+href+'" target="_blank">'
-      +'<span class="material-symbols-rounded mi-sm">folder</span>'
+      +'<span class="material-symbols-rounded ph-light ph-folder mi-sm"></span>'
       +'<span class="dt-tc-name">'+esc(t.name||'')+'</span>'
       +'<span class="dt-tc-count">'+(t.count||0)+' TC</span>'
       +(meta.length?'<span class="dt-tc-meta">'+meta.join(' · ')+'</span>':'')
@@ -99,17 +130,68 @@ function toast(msg, ok){
   while(wrap.children.length>=3) wrap.removeChild(wrap.firstChild);
   var el=document.createElement('div');
   el.className='toast'+(ok===false?' err':'');
-  el.innerHTML='<span class="material-symbols-rounded">'+(ok===false?'error':'check_circle')+'</span><span></span>';
+  el.innerHTML=phIcon(ok===false?'error':'check_circle')+'<span></span>';
   el.lastChild.textContent=msg;
   wrap.appendChild(el);
   setTimeout(function(){ el.classList.add('out');
     setTimeout(function(){ if(el.parentNode) el.parentNode.removeChild(el); }, 250); }, 2600);
 }
 
+// ---------- confirm modal (thay confirm() native — Promise<bool>, dùng chung mọi trang) ----------
+// confirmModal({title, message, confirmText, cancelText, danger}) -> Promise resolve true/false.
+// danger mặc định TRUE (phần lớn dùng cho thao tác xoá/phá huỷ). Enter = đồng ý, Esc = huỷ.
+// Keydown bắt ở capture + stopImmediatePropagation -> KHÔNG đóng nhầm drawer/palette phía sau.
+function confirmModal(opts){
+  opts = opts || {};
+  return new Promise(function(resolve){
+    var ov=$('confirmOv');
+    if(!ov){
+      ov=document.createElement('div'); ov.className='confirm-ov'; ov.id='confirmOv';
+      ov.innerHTML='<div class="cmodal"><div class="cmodal-head">'
+        +'<span class="material-symbols-rounded ph-light ph-warning" id="cmIcon"></span>'
+        +'<h3 id="cmTitle"></h3></div>'
+        +'<div class="cmodal-body" id="cmBody"></div>'
+        +'<div class="cmodal-foot">'
+        +'<button type="button" class="btn btn-ghost" id="cmCancel"></button>'
+        +'<button type="button" class="btn" id="cmOk"></button></div></div>';
+      document.body.appendChild(ov);
+    }
+    var modal=ov.querySelector('.cmodal');
+    var okBtn=$('cmOk'), cancelBtn=$('cmCancel'), icon=$('cmIcon');
+    var danger = opts.danger !== false;
+    $('cmTitle').textContent = opts.title || 'Xác nhận';
+    $('cmBody').textContent = opts.message || '';
+    okBtn.textContent = opts.confirmText || 'Đồng ý';
+    cancelBtn.textContent = opts.cancelText || 'Huỷ';
+    modal.classList.toggle('danger', danger);
+    okBtn.className = 'btn ' + (danger ? 'btn-danger-solid' : 'btn-primary');
+    icon.textContent = danger ? 'warning' : 'help';
+    var done=false;
+    function cleanup(val){
+      if(done) return; done=true;
+      ov.classList.remove('open');
+      document.removeEventListener('keydown', onKey, true);
+      okBtn.onclick=cancelBtn.onclick=ov.onclick=null;
+      resolve(val);
+    }
+    function onKey(e){
+      if(!ov.classList.contains('open')) return;
+      if(e.key==='Escape'){ e.preventDefault(); e.stopImmediatePropagation(); cleanup(false); }
+      else if(e.key==='Enter'){ e.preventDefault(); e.stopImmediatePropagation(); cleanup(true); }
+    }
+    okBtn.onclick=function(){ cleanup(true); };
+    cancelBtn.onclick=function(){ cleanup(false); };
+    ov.onclick=function(e){ if(e.target===ov) cleanup(false); };
+    document.addEventListener('keydown', onKey, true);
+    ov.classList.add('open');
+    setTimeout(function(){ okBtn.focus(); }, 30);
+  });
+}
+
 // ---------- theme ----------
 function setThemeAttr(t){ document.documentElement.setAttribute('data-theme', t);
   try{ localStorage.setItem('qa-theme', t); }catch(e){}
-  var ic=$('themeIc'); if(ic) ic.textContent = t==='dark'?'light_mode':'dark_mode'; }
+  var ic=$('themeIc'); if(ic) ic.className='material-symbols-rounded ph-light ph-'+(t==='dark'?'sun':'moon'); }
 function applyTheme(t, animate){
   if(animate && document.startViewTransition){ document.startViewTransition(function(){ setThemeAttr(t); }); return; }
   if(animate){ var h=document.documentElement; h.classList.add('theme-anim');
@@ -264,7 +346,7 @@ function skelComments(){
   function itemHtml(it, idx){
     var right=it.right||'';
     return '<div class="cp-item'+(idx===active?' active':'')+'" data-i="'+idx+'">'
-      +'<span class="material-symbols-rounded mi-sm">'+it.icon+'</span>'
+      +phIcon(it.icon,'mi-sm')
       +'<span class="cp-lbl">'+it.html+'</span>'+right+'</div>';
   }
   function render(){
@@ -373,18 +455,18 @@ function skelComments(){
   var s=$('pmSettings'); if(s) s.addEventListener('click', open);
   var ddc=$('setDriveDisconnect');
   if(ddc) ddc.addEventListener('click', function(){
-    if(!confirm('Ngắt kết nối Drive? Background sync bug log sẽ ngừng đọc file cho tới khi kết nối lại.')) return;
+    confirmModal({title:'Ngắt kết nối Drive', message:'Background sync bug log sẽ ngừng đọc file cho tới khi kết nối lại.', confirmText:'Ngắt kết nối'}).then(function(ok){ if(!ok) return;
     fetch('/disconnect-drive', { method:'POST' }).then(function(r){ return r.json(); })
       .then(function(j){ toast(j.ok?'Đã ngắt kết nối Drive':'Lỗi ngắt kết nối', j.ok); if(j.ok) loadDrive(); })
-      .catch(function(){ toast('Lỗi mạng', false); }); });
+      .catch(function(){ toast('Lỗi mạng', false); }); }); });
   var c=$('setClose'); if(c) c.addEventListener('click', close);
   var cc=$('setCancel'); if(cc) cc.addEventListener('click', close);
   ov.addEventListener('click', function(e){ if(e.target===ov) close(); });
   document.addEventListener('keydown', function(e){ if(e.key==='Escape' && ov.classList.contains('open')) close(); });
   var show=$('patShowBtn'), inp=$('patInp');
   if(show&&inp) show.addEventListener('click', function(){
-    if(inp.type==='password'){ inp.type='text'; show.textContent='visibility_off'; }
-    else { inp.type='password'; show.textContent='visibility'; } });
+    if(inp.type==='password'){ inp.type='text'; show.className='eye material-symbols-rounded mi-sm ph-light ph-eye-slash'; }
+    else { inp.type='password'; show.className='eye material-symbols-rounded mi-sm ph-light ph-eye'; } });
   var save=$('patSaveBtn');
   if(save) save.addEventListener('click', function(){
     var v=(inp.value||'').trim(); if(!v){ toast('Chưa nhập PAT', false); return; }
@@ -395,10 +477,10 @@ function skelComments(){
     }).catch(function(){ save.disabled=false; toast('Lỗi mạng khi lưu PAT', false); }); });
   var del=$('patDelBtn');
   if(del) del.addEventListener('click', function(){
-    if(!confirm('Xoá PAT đã lưu? Thao tác Jira sẽ không còn ghi tên bạn.')) return;
+    confirmModal({title:'Xoá PAT', message:'Xoá PAT đã lưu? Thao tác Jira sẽ không còn ghi tên bạn.', confirmText:'Xoá PAT'}).then(function(ok){ if(!ok) return;
     fetch('/delete-pat', { method:'POST' }).then(function(r){ return r.json(); })
       .then(function(j){ toast(j.ok?'Đã xoá PAT':'Lỗi xoá', j.ok); if(j.ok) close(); })
-      .catch(function(){ toast('Lỗi mạng', false); }); });
+      .catch(function(){ toast('Lỗi mạng', false); }); }); });
 })();
 // popup nhắc PAT khi server trả no_pat
 function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov) ov.classList.add('open');
@@ -424,7 +506,7 @@ function ensureDuePerm(key, cb){
 function dueValHTML(t){
   return '<span class="due-cell" data-act="due-edit" data-key="'+esc(t.key)+'" data-due="'+esc(t.due||'')
     +'" title="Bấm để đổi hạn"><span class="due '+esc(t.dueCls||'')+'">'+esc(t.dueDisp||'—')+'</span>'
-    +'<span class="due-pen material-symbols-rounded mi-xs">edit_calendar</span></span>';
+    +'<span class="due-pen material-symbols-rounded ph-light ph-calendar-plus mi-xs"></span></span>';
 }
 function dueToday(){ var d=new Date();
   return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); }
@@ -491,19 +573,19 @@ function smRender(t, jiraState){
   var cur={}; (t.customs||[]).forEach(function(v){ cur[v]=1; });
   var h='<div class="smenu-grp">Status Jira</div>';
   if(jiraState===null) h+='<div style="padding:6px 14px"><div class="skel skel-line w80"></div><div class="skel skel-line w60"></div></div>';
-  else if(jiraState.code==='no_pat') h+='<div class="smenu-note" data-sm="nopat"><span class="material-symbols-rounded mi-sm">lock</span>Cần PAT để đổi status Jira — bấm để thêm</div>';
-  else if(!jiraState.ok) h+='<div class="smenu-note muted"><span class="material-symbols-rounded mi-sm">error</span>'+esc(jiraState.msg||'Lỗi tải status')+'</div>';
-  else if(!jiraState.transitions.length) h+='<div class="smenu-note muted"><span class="material-symbols-rounded mi-sm">info</span>Không có bước chuyển khả dụng</div>';
+  else if(jiraState.code==='no_pat') h+='<div class="smenu-note" data-sm="nopat"><span class="material-symbols-rounded ph-light ph-lock mi-sm"></span>Cần PAT để đổi status Jira — bấm để thêm</div>';
+  else if(!jiraState.ok) h+='<div class="smenu-note muted"><span class="material-symbols-rounded ph-light ph-warning-circle mi-sm"></span>'+esc(jiraState.msg||'Lỗi tải status')+'</div>';
+  else if(!jiraState.transitions.length) h+='<div class="smenu-note muted"><span class="material-symbols-rounded ph-light ph-info mi-sm"></span>Không có bước chuyển khả dụng</div>';
   else jiraState.transitions.forEach(function(tr){
     h+='<div class="smenu-opt" data-sm="jira" data-id="'+esc(tr.id)+'" data-to="'+esc(tr.to)+'">'
-      +'<span class="dot" style="background:#0052cc"></span>'+esc(tr.to)+'<span class="chk material-symbols-rounded">check</span></div>'; });
+      +'<span class="dot" style="background:#0052cc"></span>'+esc(tr.to)+'<span class="chk material-symbols-rounded ph-light ph-check"></span></div>'; });
   var allowed=t.canCustom;
   h+='<div class="smenu-grp brd">Nhãn nội bộ — chọn nhiều</div>';
-  if(!allowed) h+='<div class="smenu-note muted"><span class="material-symbols-rounded mi-sm">info</span>Chỉ gắn khi <b>TO DO</b> / <b>In Progress</b></div>';
+  if(!allowed) h+='<div class="smenu-note muted"><span class="material-symbols-rounded ph-light ph-info mi-sm"></span>Chỉ gắn khi <b>TO DO</b> / <b>In Progress</b></div>';
   (window.QA_CUSTOM_STATUSES||[]).forEach(function(p){
     var on=cur[p[0]]?' on':'';
     h+='<div class="smenu-opt'+on+(allowed?'':' disabled')+'"'+(allowed?' data-sm="cust" data-val="'+esc(p[0])+'"':'')+'>'
-      +'<span class="dot" style="background:#6554c0"></span>'+esc(p[1])+'<span class="chk material-symbols-rounded">check</span></div>'; });
+      +'<span class="dot" style="background:#6554c0"></span>'+esc(p[1])+'<span class="chk material-symbols-rounded ph-light ph-check"></span></div>'; });
   h+='<div class="smenu-foot"><small>'+((t.customs||[]).length?(t.customs.length+' nhãn'):'Chưa gắn nhãn')+'</small>'
     +'<button type="button" data-sm="close">Xong</button></div>';
   smEl().innerHTML=h;
@@ -601,18 +683,18 @@ window.__smSetCustom=function(t, key, val, onChanged){
   if(showBtn) showBtn.addEventListener('click', function(){
     input.type = input.type==='password' ? 'text' : 'password'; });
   if(delBtn) delBtn.addEventListener('click', function(){
-    if(!confirm('Xoá PAT đã lưu? Sau đó thao tác Jira sẽ không còn ghi tên bạn.')) return;
+    confirmModal({title:'Xoá PAT', message:'Xoá PAT đã lưu? Sau đó thao tác Jira sẽ không còn ghi tên bạn.', confirmText:'Xoá PAT'}).then(function(ok){ if(!ok) return;
     fetch('/delete-pat', { method:'POST' }).then(function(r){ return r.json(); })
       .then(function(j){ toast(j.ok?'Đã xoá PAT':'Lỗi xoá', j.ok);
         if(j.ok) setTimeout(function(){ location.reload(); }, 1200); })
-      .catch(function(){ toast('Lỗi mạng', false); }); });
+      .catch(function(){ toast('Lỗi mạng', false); }); }); });
   var driveDc=$('driveDisconnect');
   if(driveDc) driveDc.addEventListener('click', function(){
-    if(!confirm('Ngắt kết nối Drive? Background sync bug log sẽ ngừng đọc file cho tới khi kết nối lại.')) return;
+    confirmModal({title:'Ngắt kết nối Drive', message:'Background sync bug log sẽ ngừng đọc file cho tới khi kết nối lại.', confirmText:'Ngắt kết nối'}).then(function(ok){ if(!ok) return;
     fetch('/disconnect-drive', { method:'POST' }).then(function(r){ return r.json(); })
       .then(function(j){ toast(j.ok?'Đã ngắt kết nối Drive':'Lỗi ngắt kết nối', j.ok);
         if(j.ok) setTimeout(function(){ location.reload(); }, 1200); })
-      .catch(function(){ toast('Lỗi mạng', false); }); });
+      .catch(function(){ toast('Lỗi mạng', false); }); }); });
 })();
 
 // ---------- notifications bell ----------
@@ -663,7 +745,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
       var dotHtml = n.is_unread ? '<span class="ndot"></span>' : '';
       return '<div class="notif-item'+unreadCls+'" data-actid="'+esc(n.id)+'" data-key="'+esc(n.key)+'">'
         +'<span class="nav-wrap"><span class="av '+av+'">'+esc(initOf(n.author))+'</span>'
-        +'<span class="nkind '+kindCls(n)+' material-symbols-rounded">'+ic+'</span></span>'
+        +phIcon(ic,'nkind '+kindCls(n))+'</span>'
         +'<div class="ncontent"><div class="nt">'+ntext(n)+'</div>'+snip
         +'<div class="nmeta">'+rsn+'<span class="ntime">'+timeAgo(minsAgo(n.when))+'</span></div></div>'
         +dotHtml+'</div>';
@@ -779,9 +861,9 @@ window.__smSetCustom=function(t, key, val, onChanged){
     function chipHTML(t){
       if(!t.customs||!t.customs.length) return '';
       return '<div class="cust-chips">'+t.customs.map(function(v){
-        return '<span class="cust-chip"><span class="material-symbols-rounded">circle</span>'
-          +esc(custMap[v]||v)+'<span class="rm material-symbols-rounded" data-key="'+esc(t.key)
-          +'" data-val="'+esc(v)+'">close</span></span>'; }).join('')+'</div>';
+        return '<span class="cust-chip"><span class="material-symbols-rounded ph-light ph-circle"></span>'
+          +esc(custMap[v]||v)+'<span class="rm material-symbols-rounded ph-light ph-x" data-key="'+esc(t.key)
+          +'" data-val="'+esc(v)+'"></span></span>'; }).join('')+'</div>';
     }
 
     function renderRows(anim){
@@ -792,11 +874,11 @@ window.__smSetCustom=function(t, key, val, onChanged){
 
       var label={todo:'To Do Tasks',progress:'In Progress Tasks',new:'New Tasks',
                  stuck:'Stuck Tasks',overdue:'Overdue Tasks',done:'Done Tasks'};
-      $('tableTitleText').innerHTML='<span class="material-symbols-rounded">assignment</span><span>'+(label[curPill]||'Tasks')+'</span>';
+      $('tableTitleText').innerHTML='<span class="material-symbols-rounded ph-light ph-clipboard-text"></span><span>'+(label[curPill]||'Tasks')+'</span>';
 
       if(!total){
         tbody.innerHTML='<tr><td colspan="7"><div class="empty-state">'
-          +'<span class="es-ic"><span class="material-symbols-rounded">folder_off</span></span>'
+          +'<span class="es-ic"><span class="material-symbols-rounded ph-light ph-folder-minus"></span></span>'
           +'<div class="es-title">Không tìm thấy task nào</div>'
           +'<div class="es-hint">Thử đổi bộ lọc trạng thái hoặc thành viên.</div>'
           +'</div></td></tr>';
@@ -810,7 +892,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
           +'<td><div class="cell-member"><span class="m-av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span>'
           +'<span>'+esc(t.assignee.name)+'</span></div></td>'
           +'<td class="status-cell"><div class="stat-wrap"><span class="badge '+badgeCls(t.jira)+'">'+esc(t.jira)+'</span>'
-          +'<button class="caret material-symbols-rounded mi-sm" data-act="smenu" data-key="'+esc(t.key)+'">expand_more</button></div>'+chipHTML(t)+'</td>'
+          +'<button class="caret material-symbols-rounded ph-light ph-caret-down mi-sm" data-act="smenu" data-key="'+esc(t.key)+'"></button></div>'+chipHTML(t)+'</td>'
           +'<td class="cell-date">'+dueValHTML(t)+'</td>'
           +'<td class="cell-date">'+esc(t.createdDisp)+'</td>'
           +'<td class="cell-date">'+esc(t.updatedDisp)+'</td></tr>';
@@ -952,11 +1034,11 @@ window.__smSetCustom=function(t, key, val, onChanged){
     function closeDetail(){ $('drawerOv').classList.remove('open'); $('drawer').classList.remove('open'); }
     function renderDrawer(t){
       var chips=(t.customs&&t.customs.length)?t.customs.map(function(v){
-        return '<span class="cust-chip"><span class="material-symbols-rounded">circle</span>'+esc(custMap[v]||v)+'</span>';}).join('')
+        return '<span class="cust-chip"><span class="material-symbols-rounded ph-light ph-circle"></span>'+esc(custMap[v]||v)+'</span>';}).join('')
         :'<span style="color:var(--on-surface-variant)">—</span>';
       var flags='';
-      if(t.overdue) flags+='<span class="dt-flag od"><span class="material-symbols-rounded mi-xs">event_busy</span>Quá hạn</span>';
-      if(t.stuck) flags+='<span class="dt-flag st"><span class="material-symbols-rounded mi-xs">hourglass_bottom</span>Kẹt</span>';
+      if(t.overdue) flags+='<span class="dt-flag od"><span class="material-symbols-rounded ph-light ph-calendar-x mi-xs"></span>Quá hạn</span>';
+      if(t.stuck) flags+='<span class="dt-flag st"><span class="material-symbols-rounded ph-light ph-hourglass mi-xs"></span>Kẹt</span>';
       if(!flags) flags='<span style="color:var(--on-surface-variant)">—</span>';
       var list=COMMENTS[t.key]; var hist;
       if(list===null||list===undefined) hist=skelComments();
@@ -967,7 +1049,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
       var desc=(DETAIL[t.key]&&DETAIL[t.key].description)?esc(DETAIL[t.key].description):esc(t.summary);
       $('drawer').innerHTML='<div class="drawer-head"><a class="key" href="'+esc(t.jiraUrl)+'" target="_blank">'+esc(t.key)+'</a>'
         +'<span class="badge '+badgeCls(t.jira)+'">'+esc(t.jira)+'</span>'
-        +'<button class="x material-symbols-rounded" data-act="drawer-close">close</button></div>'
+        +'<button class="x material-symbols-rounded ph-light ph-x" data-act="drawer-close"></button></div>'
         +'<div class="drawer-body"><h2>'+esc(t.summary)+'</h2>'
         +'<div class="dt-grid"><div class="lbl">Người xử lý</div><div class="val"><span class="assignee"><span class="av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span> '+esc(t.assignee.name)+'</span></div>'
         +'<div class="lbl">Ngày tạo</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].created)?esc(DETAIL[t.key].created):esc(t.createdDisp||'—'))+'</div>'
@@ -1088,9 +1170,9 @@ window.__smSetCustom=function(t, key, val, onChanged){
   function chipHTML(t){
     if(!t.customs || !t.customs.length) return '';
     return '<div class="cust-chips">'+t.customs.map(function(v){
-      return '<span class="cust-chip"><span class="material-symbols-rounded">circle</span>'
-        +esc(custMap[v]||v)+'<span class="rm material-symbols-rounded" data-key="'+esc(t.key)
-        +'" data-val="'+esc(v)+'">close</span></span>'; }).join('')+'</div>';
+      return '<span class="cust-chip"><span class="material-symbols-rounded ph-light ph-circle"></span>'
+        +esc(custMap[v]||v)+'<span class="rm material-symbols-rounded ph-light ph-x" data-key="'+esc(t.key)
+        +'" data-val="'+esc(v)+'"></span></span>'; }).join('')+'</div>';
   }
   function rowHTML(t){
     // COMMENTS[key] là mảng khi đã fetch (dùng số live); chưa fetch (undefined/null=đang tải)
@@ -1101,13 +1183,13 @@ window.__smSetCustom=function(t, key, val, onChanged){
       +'<td><a class="key'+(t.hasTc?'':' no-tc')+'" href="'+esc(t.jiraUrl)+'" target="_blank"'+(t.hasTc?'':' title="Chưa link bộ test case"')+'>'+esc(t.key)+'</a></td>'
       +'<td class="title clickable" data-act="detail" data-key="'+esc(t.key)+'">'+esc(t.summary)+'</td>'
       +'<td class="status-cell"><div class="stat-wrap"><span class="badge '+jiraCls(t.jira)+'">'+esc(t.jira)+'</span>'
-      +'<button class="caret material-symbols-rounded mi-sm" data-act="smenu" data-key="'+esc(t.key)+'">expand_more</button></div>'+chipHTML(t)+'</td>'
+      +'<button class="caret material-symbols-rounded ph-light ph-caret-down mi-sm" data-act="smenu" data-key="'+esc(t.key)+'"></button></div>'+chipHTML(t)+'</td>'
       +'<td><span class="assignee"><span class="av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span> '+esc(t.assignee.name)+'</span></td>'
       +'<td class="cell-date">'+esc(t.createdDisp)+'</td>'
       +'<td>'+dueValHTML(t)+'</td>'
       +'<td><span style="display:inline-flex;align-items:center;gap:2px">'
       +'<button class="act-btn'+(openCmt[t.key]?' on':'')+'" data-act="cmt" data-key="'+esc(t.key)+'" title="Bình luận">'
-      +'<span class="material-symbols-rounded mi-sm">chat_bubble_outline</span>'+cnt+'</button></span></td>'
+      +'<span class="material-symbols-rounded ph-light ph-chat-circle mi-sm"></span>'+cnt+'</button></span></td>'
       +'</tr>' + (openCmt[t.key] ? cmtRow(t.key) : '');
   }
   function cmtRow(key){
@@ -1122,14 +1204,14 @@ window.__smSetCustom=function(t, key, val, onChanged){
       +'<div class="cmt-history">'+hist+'</div>'
       +'<div class="cmt-box"><textarea id="cmtTa-'+esc(key)+'" placeholder="Viết bình luận của bạn..."></textarea>'
       +'<div class="cmt-foot">'
-      +'<button class="lbtn close" data-act="cmt-close" data-key="'+esc(key)+'"><span class="material-symbols-rounded mi-xs">expand_less</span>Đóng</button>'
+      +'<button class="lbtn close" data-act="cmt-close" data-key="'+esc(key)+'"><span class="material-symbols-rounded ph-light ph-caret-up mi-xs"></span>Đóng</button>'
       +'<button class="lbtn primary" data-act="cmt-send" data-key="'+esc(key)+'">Gửi</button>'
       +'</div></div></div></td></tr>';
   }
   function renderRows(anim){
     var all=visibleTasks();
     if(!all.length){ tbody.innerHTML='<tr><td colspan="7"><div class="empty-state">'
-        +'<span class="es-ic"><span class="material-symbols-rounded">celebration</span></span>'
+        +'<span class="es-ic"><span class="material-symbols-rounded ph-light ph-confetti"></span></span>'
         +'<div class="es-title">Không có task nào 🎉</div>'
         +'<div class="es-hint">Sạch việc ở bộ lọc này — nghỉ tay chút đi.</div>'
         +'</div></td></tr>';
@@ -1213,10 +1295,10 @@ window.__smSetCustom=function(t, key, val, onChanged){
   function closeDetail(){ $('drawerOv').classList.remove('open'); $('drawer').classList.remove('open'); }
   function renderDrawer(t){
     var chips = (t.customs&&t.customs.length) ? t.customs.map(function(v){
-      return '<span class="cust-chip"><span class="material-symbols-rounded">circle</span>'+esc(custMap[v]||v)+'</span>'; }).join('')
+      return '<span class="cust-chip"><span class="material-symbols-rounded ph-light ph-circle"></span>'+esc(custMap[v]||v)+'</span>'; }).join('')
       : '<span style="color:var(--on-surface-variant)">—</span>';
-    var flags=''; if(t.overdue) flags+='<span class="dt-flag od"><span class="material-symbols-rounded mi-xs">event_busy</span>Quá hạn</span>';
-    if(t.stuck) flags+='<span class="dt-flag st"><span class="material-symbols-rounded mi-xs">hourglass_bottom</span>Kẹt</span>';
+    var flags=''; if(t.overdue) flags+='<span class="dt-flag od"><span class="material-symbols-rounded ph-light ph-calendar-x mi-xs"></span>Quá hạn</span>';
+    if(t.stuck) flags+='<span class="dt-flag st"><span class="material-symbols-rounded ph-light ph-hourglass mi-xs"></span>Kẹt</span>';
     if(!flags) flags='<span style="color:var(--on-surface-variant)">—</span>';
     var list=COMMENTS[t.key];
     var hist;
@@ -1228,7 +1310,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var desc=(DETAIL[t.key]&&DETAIL[t.key].description) ? esc(DETAIL[t.key].description) : esc(t.summary);
     $('drawer').innerHTML='<div class="drawer-head"><a class="key" href="'+esc(t.jiraUrl)+'" target="_blank">'+esc(t.key)+'</a>'
       +'<span class="badge '+jiraCls(t.jira)+'">'+esc(t.jira)+'</span>'
-      +'<button class="x material-symbols-rounded" data-act="drawer-close">close</button></div>'
+      +'<button class="x material-symbols-rounded ph-light ph-x" data-act="drawer-close"></button></div>'
       +'<div class="drawer-body"><h2>'+esc(t.summary)+'</h2>'
       +'<div class="dt-grid"><div class="lbl">Người xử lý</div><div class="val"><span class="assignee"><span class="av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span> '+esc(t.assignee.name)+'</span></div>'
       +'<div class="lbl">Ngày tạo</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].created)?esc(DETAIL[t.key].created):esc(t.createdDisp||'—'))+'</div>'
@@ -1326,11 +1408,11 @@ window.__smSetCustom=function(t, key, val, onChanged){
   }
   function renderDrawer(t){
     var chips=(t.customs&&t.customs.length)?t.customs.map(function(v){
-      return '<span class="cust-chip"><span class="material-symbols-rounded">circle</span>'+esc(custMap[v]||v)+'</span>';}).join('')
+      return '<span class="cust-chip"><span class="material-symbols-rounded ph-light ph-circle"></span>'+esc(custMap[v]||v)+'</span>';}).join('')
       :'<span style="color:var(--on-surface-variant)">—</span>';
     var flags='';
-    if(t.overdue) flags+='<span class="dt-flag od"><span class="material-symbols-rounded mi-xs">event_busy</span>Quá hạn</span>';
-    if(t.stuck) flags+='<span class="dt-flag st"><span class="material-symbols-rounded mi-xs">hourglass_bottom</span>Kẹt</span>';
+    if(t.overdue) flags+='<span class="dt-flag od"><span class="material-symbols-rounded ph-light ph-calendar-x mi-xs"></span>Quá hạn</span>';
+    if(t.stuck) flags+='<span class="dt-flag st"><span class="material-symbols-rounded ph-light ph-hourglass mi-xs"></span>Kẹt</span>';
     if(!flags) flags='<span style="color:var(--on-surface-variant)">—</span>';
     var list=COMMENTS[t.key], hist;
     if(list==null) hist=skelComments();
@@ -1341,7 +1423,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var desc=(DETAIL[t.key]&&DETAIL[t.key].description)?esc(DETAIL[t.key].description):esc(t.summary);
     drawer.innerHTML='<div class="drawer-head"><a class="key" href="'+esc(t.jiraUrl)+'" target="_blank">'+esc(t.key)+'</a>'
       +'<span class="badge '+badgeCls(t.jira)+'">'+esc(t.jira)+'</span>'
-      +'<button class="x material-symbols-rounded" data-act="drawer-close">close</button></div>'
+      +'<button class="x material-symbols-rounded ph-light ph-x" data-act="drawer-close"></button></div>'
       +'<div class="drawer-body"><h2>'+esc(t.summary)+'</h2>'
       +'<div class="dt-grid"><div class="lbl">Người xử lý</div><div class="val"><span class="assignee"><span class="av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span> '+esc(t.assignee.name)+'</span></div>'
       +'<div class="lbl">Ngày tạo</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].created)?esc(DETAIL[t.key].created):esc(t.createdDisp||'—'))+'</div>'
@@ -1455,17 +1537,17 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var sum = fr ? '<div class="rm-headsum"><span class="rm-pcount">'+fr.done+'/'+fr.total+' task</span>'
         +'<div class="rm-pbar"><i class="'+(fr.pct>=100?'full':'')+'" style="width:'+fr.pct+'%"></i></div></div>' : '';
     var acts = EDIT ? '<div class="rm-actions">'
-        +'<button data-rm="edit-plan" data-p="'+esc(p.id)+'" title="Sửa"><span class="material-symbols-rounded mi-sm">edit</span></button>'
-        +'<button class="del" data-rm="del-plan" data-p="'+esc(p.id)+'" title="Xoá"><span class="material-symbols-rounded mi-sm">delete</span></button></div>' : '';
-    var over = (!plan_isDone(p) && dp.over) ? '<span class="od"><span class="material-symbols-rounded">warning</span>Quá hạn</span>' : '';
+        +'<button data-rm="edit-plan" data-p="'+esc(p.id)+'" title="Sửa"><span class="material-symbols-rounded ph-light ph-pencil-simple mi-sm"></span></button>'
+        +'<button class="del" data-rm="del-plan" data-p="'+esc(p.id)+'" title="Xoá"><span class="material-symbols-rounded ph-light ph-trash mi-sm"></span></button></div>' : '';
+    var over = (!plan_isDone(p) && dp.over) ? '<span class="od"><span class="material-symbols-rounded ph-light ph-warning"></span>Quá hạn</span>' : '';
     return '<div class="rm-plan'+(p.open?' open':'')+'" data-id="'+esc(p.id)+'">'
       +'<div class="rm-plan-head" data-rm="toggle" data-p="'+esc(p.id)+'">'
         +'<div class="rm-date '+scls+'"><span class="m">'+esc(dp.m)+'</span><span class="d">'+esc(dp.d)+'</span></div>'
-        +'<div class="rm-main"><div class="rm-titlerow"><span class="rm-caret material-symbols-rounded">'+caret+'</span>'
+        +'<div class="rm-main"><div class="rm-titlerow">'+phIcon(caret,'rm-caret')
           +'<span class="rm-title">'+esc(p.title)+'</span><span class="rm-badge '+scls+'">'+esc(STLABEL[st]||st)+'</span></div>'
           +(p.desc?'<div class="rm-desc">'+esc(p.desc)+'</div>':'')
-          +'<div class="rm-meta"><span><span class="material-symbols-rounded">person</span>'+esc(p.pic||'Chưa giao')+'</span>'
-          +'<span><span class="material-symbols-rounded">event</span>'+esc(dp.disp)+'</span>'+over+'</div></div>'
+          +'<div class="rm-meta"><span><span class="material-symbols-rounded ph-light ph-user"></span>'+esc(p.pic||'Chưa giao')+'</span>'
+          +'<span><span class="material-symbols-rounded ph-light ph-calendar-blank"></span>'+esc(dp.disp)+'</span>'+over+'</div></div>'
         +'<div class="rm-headright">'+sum+acts+'</div>'
       +'</div>' + (p.open?bodyHTML(p):'') + '</div>';
   }
@@ -1473,7 +1555,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
   function bodyHTML(p){
     var tasks=(p.tasks||[]).map(function(t){ return taskHTML(p,t); }).join('');
     if(!tasks) tasks='<div class="rm-empty-task">Chưa có task nào.'+(EDIT?' Bấm "Thêm Task".':'')+'</div>';
-    var add= EDIT?'<button class="rm-addbtn" data-rm="add-task" data-p="'+esc(p.id)+'"><span class="material-symbols-rounded mi-sm">add</span> Thêm Task</button>':'';
+    var add= EDIT?'<button class="rm-addbtn" data-rm="add-task" data-p="'+esc(p.id)+'"><span class="material-symbols-rounded ph-light ph-plus mi-sm"></span> Thêm Task</button>':'';
     return '<div class="rm-body"><div class="rm-body-head"><span class="ttl">Công việc trong kế hoạch</span>'+add+'</div>'
       +'<div class="rm-tasks">'+tasks+'</div></div>';
   }
@@ -1484,22 +1566,22 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var fr=taskFrac(t), right='';
     if(fr) right+='<span class="rm-frac">'+fr.done+'/'+fr.total+' sub</span><div class="rm-tbar"><i class="'+(fr.pct>=100?'full':'')+'" style="width:'+fr.pct+'%"></i></div>';
     if(t.pic) right+='<span class="rm-av '+avById(t.pic)+'" title="'+esc(t.pic)+'">'+esc(initOf(t.pic))+'</span>';
-    var mini= EDIT?'<div class="rm-tmini"><button data-rm="edit-task" data-p="'+esc(p.id)+'" data-t="'+esc(t.id)+'"><span class="material-symbols-rounded mi-sm">edit</span></button>'
-      +'<button class="del" data-rm="del-task" data-p="'+esc(p.id)+'" data-t="'+esc(t.id)+'"><span class="material-symbols-rounded mi-sm">delete</span></button></div>':'';
+    var mini= EDIT?'<div class="rm-tmini"><button data-rm="edit-task" data-p="'+esc(p.id)+'" data-t="'+esc(t.id)+'"><span class="material-symbols-rounded ph-light ph-pencil-simple mi-sm"></span></button>'
+      +'<button class="del" data-rm="del-task" data-p="'+esc(p.id)+'" data-t="'+esc(t.id)+'"><span class="material-symbols-rounded ph-light ph-trash mi-sm"></span></button></div>':'';
     var subs=(t.subs&&t.subs.length)?t.subs.map(function(s){ return subHTML(p,t,s); }).join(''):'';
-    var subadd= EDIT?'<button class="rm-subadd" data-rm="add-sub" data-p="'+esc(p.id)+'" data-t="'+esc(t.id)+'"><span class="material-symbols-rounded mi-xs">add</span> Thêm Sub-task</button>':'';
+    var subadd= EDIT?'<button class="rm-subadd" data-rm="add-sub" data-p="'+esc(p.id)+'" data-t="'+esc(t.id)+'"><span class="material-symbols-rounded ph-light ph-plus mi-xs"></span> Thêm Sub-task</button>':'';
     return '<div class="rm-task'+(done?' done':'')+'"><div class="rm-task-row">'
-      +'<span class="rm-chk '+ccls+'" data-rm="toggle-task" data-p="'+esc(p.id)+'" data-t="'+esc(t.id)+'"><span class="material-symbols-rounded">'+ic+'</span></span>'
+      +'<span class="rm-chk '+ccls+'" data-rm="toggle-task" data-p="'+esc(p.id)+'" data-t="'+esc(t.id)+'">'+phIcon(ic)+'</span>'
       +'<span class="rm-task-name">'+esc(t.title)+'</span><div class="rm-task-right">'+right+mini+'</div></div>'
       +(t.desc?'<div class="rm-desc" style="font-size:13px; margin:4px 0 0 32px; color:var(--on-surface-variant)">'+esc(t.desc)+'</div>':'')
       +'<div class="rm-subs">'+subs+subadd+'</div></div>';
   }
   function leafHTML(p,t,s,l){
     var ic=l.done?'check_box':'check_box_outline_blank';
-    var mini= EDIT?'<div class="rm-tmini"><button data-rm="edit-leaf" data-p="'+esc(p.id)+'" data-t="'+esc(t.id)+'" data-s="'+esc(s.id)+'" data-l="'+esc(l.id)+'"><span class="material-symbols-rounded mi-xs">edit</span></button>'
-      +'<button class="del" data-rm="del-leaf" data-p="'+esc(p.id)+'" data-t="'+esc(t.id)+'" data-s="'+esc(s.id)+'" data-l="'+esc(l.id)+'"><span class="material-symbols-rounded mi-xs">close</span></button></div>':'';
+    var mini= EDIT?'<div class="rm-tmini"><button data-rm="edit-leaf" data-p="'+esc(p.id)+'" data-t="'+esc(t.id)+'" data-s="'+esc(s.id)+'" data-l="'+esc(l.id)+'"><span class="material-symbols-rounded ph-light ph-pencil-simple mi-xs"></span></button>'
+      +'<button class="del" data-rm="del-leaf" data-p="'+esc(p.id)+'" data-t="'+esc(t.id)+'" data-s="'+esc(s.id)+'" data-l="'+esc(l.id)+'"><span class="material-symbols-rounded ph-light ph-x mi-xs"></span></button></div>':'';
     return '<div class="rm-leaf'+(l.done?' done':'')+'"><div class="rm-leaf-left">'
-      +'<span class="rm-chk '+(l.done?'on':'off')+'" data-rm="toggle-leaf" data-p="'+esc(p.id)+'" data-t="'+esc(t.id)+'" data-s="'+esc(s.id)+'" data-l="'+esc(l.id)+'"><span class="material-symbols-rounded mi-sm">'+ic+'</span></span>'
+      +'<span class="rm-chk '+(l.done?'on':'off')+'" data-rm="toggle-leaf" data-p="'+esc(p.id)+'" data-t="'+esc(t.id)+'" data-s="'+esc(s.id)+'" data-l="'+esc(l.id)+'">'+phIcon(ic,'mi-sm')+'</span>'
       +'<span class="rm-leaf-name">'+esc(l.title)+'</span></div>'+mini+'</div>'
       +(l.desc?'<div class="rm-desc" style="font-size:13px; margin:4px 0 0 32px; color:var(--on-surface-variant)">'+esc(l.desc)+'</div>':'');
   }
@@ -1510,12 +1592,12 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var ccls=done?'on':(partial?'partial':'off');
     var fr=subFrac(s), right='';
     if(fr) right+='<span class="rm-frac" style="font-size:11px;color:var(--on-surface-variant);margin-right:8px;">'+fr.done+'/'+fr.total+' micro</span>';
-    var mini= EDIT?'<div class="rm-tmini"><button data-rm="edit-sub" data-p="'+esc(p.id)+'" data-t="'+esc(t.id)+'" data-s="'+esc(s.id)+'"><span class="material-symbols-rounded mi-xs">edit</span></button>'
-      +'<button class="del" data-rm="del-sub" data-p="'+esc(p.id)+'" data-t="'+esc(t.id)+'" data-s="'+esc(s.id)+'"><span class="material-symbols-rounded mi-xs">close</span></button></div>':'';
+    var mini= EDIT?'<div class="rm-tmini"><button data-rm="edit-sub" data-p="'+esc(p.id)+'" data-t="'+esc(t.id)+'" data-s="'+esc(s.id)+'"><span class="material-symbols-rounded ph-light ph-pencil-simple mi-xs"></span></button>'
+      +'<button class="del" data-rm="del-sub" data-p="'+esc(p.id)+'" data-t="'+esc(t.id)+'" data-s="'+esc(s.id)+'"><span class="material-symbols-rounded ph-light ph-x mi-xs"></span></button></div>':'';
     var leaves=(s.leaves&&s.leaves.length)?s.leaves.map(function(l){ return leafHTML(p,t,s,l); }).join(''):'';
-    var leafadd= EDIT?'<button class="rm-leafadd" data-rm="add-leaf" data-p="'+esc(p.id)+'" data-t="'+esc(t.id)+'" data-s="'+esc(s.id)+'"><span class="material-symbols-rounded mi-xs">add</span> Thêm Micro-task</button>':'';
+    var leafadd= EDIT?'<button class="rm-leafadd" data-rm="add-leaf" data-p="'+esc(p.id)+'" data-t="'+esc(t.id)+'" data-s="'+esc(s.id)+'"><span class="material-symbols-rounded ph-light ph-plus mi-xs"></span> Thêm Micro-task</button>':'';
     return '<div class="rm-sub-wrap'+(done?' done':'')+'"><div class="rm-sub"><div class="rm-sub-left">'
-      +'<span class="rm-chk '+ccls+'" data-rm="toggle-sub" data-p="'+esc(p.id)+'" data-t="'+esc(t.id)+'" data-s="'+esc(s.id)+'"><span class="material-symbols-rounded mi-sm">'+ic+'</span></span>'
+      +'<span class="rm-chk '+ccls+'" data-rm="toggle-sub" data-p="'+esc(p.id)+'" data-t="'+esc(t.id)+'" data-s="'+esc(s.id)+'">'+phIcon(ic,'mi-sm')+'</span>'
       +'<span class="rm-sub-name">'+esc(s.title)+'</span></div><div style="display:flex;align-items:center;">'+right+mini+'</div></div>'
       +(s.desc?'<div class="rm-desc" style="font-size:13px; margin:4px 0 0 32px; color:var(--on-surface-variant)">'+esc(s.desc)+'</div>':'')
       +'<div class="rm-leaves">'+leaves+leafadd+'</div></div>';
@@ -1566,8 +1648,8 @@ window.__smSetCustom=function(t, key, val, onChanged){
       p.title=v.title; p.desc=v.desc; p.due=v.due; p.pic=v.pic; if(!has) p.status=v.status;
       render(); save(); toast('Đã cập nhật', true); } }); }
   function delPlan(id){ var p=planById(id); if(!p) return;
-    if(!confirm('Xoá kế hoạch "'+p.title+'"'+((p.tasks&&p.tasks.length)?' và toàn bộ task':'')+'?')) return;
-    PLANS=PLANS.filter(function(x){ return x.id!==id; }); render(); save(); toast('Đã xoá', true); }
+    confirmModal({title:'Xoá kế hoạch', message:'Xoá kế hoạch "'+p.title+'"'+((p.tasks&&p.tasks.length)?' và toàn bộ task bên trong':'')+'?', confirmText:'Xoá'}).then(function(ok){ if(!ok) return;
+    PLANS=PLANS.filter(function(x){ return x.id!==id; }); render(); save(); toast('Đã xoá', true); }); }
   function addTask(pid){ var p=planById(pid); if(!p) return;
     openModal({ icon:'add', title:'Thêm Task', saveLabel:'Tạo', fields:[
       {key:'title',label:'Tên task',type:'text',placeholder:'VD: Cập nhật Playwright'},
@@ -1584,8 +1666,8 @@ window.__smSetCustom=function(t, key, val, onChanged){
       onSave:function(v){ if(!v.title) return 'Cần nhập tên task';
         t.title=v.title; t.desc=v.desc; t.pic=v.pic; render(); save(); toast('Đã cập nhật', true); } }); }
   function delTask(pid,tid){ var p=planById(pid), t=taskById(p,tid); if(!t) return;
-    if(!confirm('Xoá task "'+t.title+'"?')) return;
-    p.tasks=p.tasks.filter(function(x){ return x.id!==tid; }); render(); save(); toast('Đã xoá', true); }
+    confirmModal({title:'Xoá task', message:'Xoá task "'+t.title+'"?', confirmText:'Xoá'}).then(function(ok){ if(!ok) return;
+    p.tasks=p.tasks.filter(function(x){ return x.id!==tid; }); render(); save(); toast('Đã xoá', true); }); }
   function addSub(pid,tid){ var p=planById(pid), t=taskById(p,tid); if(!t) return;
     openModal({ icon:'add', title:'Thêm Sub-task', saveLabel:'Tạo', fields:[
       {key:'title',label:'Tên sub-task',type:'text',placeholder:'VD: Cập nhật config'},
@@ -1649,11 +1731,11 @@ window.__smSetCustom=function(t, key, val, onChanged){
     if(!HAS_PERM) return;
     EDIT = !EDIT;
     if(EDIT){
-      tgl.innerHTML = '<span class="material-symbols-rounded mi-sm">visibility</span> Tắt chỉnh sửa';
+      tgl.innerHTML = '<span class="material-symbols-rounded ph-light ph-eye mi-sm"></span> Tắt chỉnh sửa';
       tgl.classList.add('active');
       if(add) add.style.display = 'inline-flex';
     }else{
-      tgl.innerHTML = '<span class="material-symbols-rounded mi-sm">edit</span> Bật chỉnh sửa';
+      tgl.innerHTML = '<span class="material-symbols-rounded ph-light ph-pencil-simple mi-sm"></span> Bật chỉnh sửa';
       tgl.classList.remove('active');
       if(add) add.style.display = 'none';
     }
@@ -1846,7 +1928,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
       var count = getFolderCount(f);
       return '<div class="folder-card" onclick="navigateToFolder(\'' + esc(f.id) + '\')">' +
         '<div class="folder-icon-box folder-' + esc(f.color || 'blue') + '">' +
-          '<span class="material-symbols-rounded">folder</span>' +
+          '<span class="material-symbols-rounded ph-light ph-folder"></span>' +
         '</div>' +
         '<div class="folder-info">' +
           '<div class="folder-name">' + esc(f.name) + '</div>' +
@@ -1920,13 +2002,13 @@ window.__smSetCustom=function(t, key, val, onChanged){
     tbody.innerHTML = filtered.map(function(d) {
       var fileData = getFileIconClass(d.name, d.type, d.url);
       var actCol = EDIT ? '<td class="action-col" onclick="event.stopPropagation()">' +
-          '<button class="action-btn material-symbols-rounded" onclick="openContextMenu(event, \'' + esc(d.id) + '\')">more_vert</button>' +
+          '<button class="action-btn material-symbols-rounded ph-light ph-dots-three-vertical" onclick="openContextMenu(event, \'' + esc(d.id) + '\')"></button>' +
         '</td>' : '';
       return '<tr class="doc-row" data-url="' + esc(d.url) + '">' +
         '<td>' +
           '<div class="file-name-cell">' +
             '<span class="file-icon-wrapper ' + esc(fileData.cls) + '">' +
-              '<span class="material-symbols-rounded">' + esc(fileData.icon) + '</span>' +
+              phIcon(fileData.icon) +
             '</span>' +
             '<span class="file-name">' + esc(d.name.replace(/\.url$/i, '')) + '</span>' +
           '</div>' +
@@ -2099,16 +2181,16 @@ window.__smSetCustom=function(t, key, val, onChanged){
 
   window.deleteDoc = function() {
     var indexInfo = findFileParentAndIndex(DOC_TREE, contextMenuSelectedId);
-    if (indexInfo) {
-      if (confirm('Bạn có chắc chắn muốn xoá tài liệu này?')) {
-        var docName = indexInfo.parentList[indexInfo.index].name;
-        indexInfo.parentList.splice(indexInfo.index, 1);
-        renderFolders();
-        renderTable();
-        saveDocs();
-        showBottomToast('Đã xoá tài liệu: ' + docName);
-      }
-    }
+    if (!indexInfo) return;
+    confirmModal({title:'Xoá tài liệu', message:'Bạn có chắc chắn muốn xoá tài liệu này?', confirmText:'Xoá'}).then(function(ok){
+      if(!ok) return;
+      var docName = indexInfo.parentList[indexInfo.index].name;
+      indexInfo.parentList.splice(indexInfo.index, 1);
+      renderFolders();
+      renderTable();
+      saveDocs();
+      showBottomToast('Đã xoá tài liệu: ' + docName);
+    });
   };
 
   // Collect flat folders for selects
@@ -2465,7 +2547,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     function hide(){ res.classList.remove('open'); res.innerHTML=''; opts=[]; active=-1; }
     function show(){ place(); res.classList.add('open'); }
     function showChip(label){ chip.innerHTML = label +
-        '<button type="button" class="ta-x material-symbols-rounded mi-sm" title="Bỏ chọn">close</button>';
+        '<button type="button" class="ta-x material-symbols-rounded ph-light ph-x mi-sm" title="Bỏ chọn"></button>';
       chip.style.display='flex'; inp.style.display='none';
       chip.querySelector('.ta-x').addEventListener('click', function(){
         chip.style.display='none'; chip.innerHTML=''; inp.style.display=''; inp.value=''; onPick(null); inp.focus(); });
@@ -2632,7 +2714,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
       // 1 bug có thể link nhiều task -> mỗi task 1 chip, × gỡ riêng task đó.
       // × để NGOÀI <a> (nếu nằm trong sẽ đi theo href + bị bắt nhầm).
       return '<span class="bl-jira-wrap">' + tasks.map(function(t){
-        var unlink = EDIT ? '<span class="unlink material-symbols-rounded mi-xs" data-unlink="'+esc(b.key)+'" data-task="'+esc(t)+'" title="Gỡ liên kết">close</span>' : '';
+        var unlink = EDIT ? '<span class="unlink material-symbols-rounded ph-light ph-x mi-xs" data-unlink="'+esc(b.key)+'" data-task="'+esc(t)+'" title="Gỡ liên kết"></span>' : '';
         return '<span class="bl-jira-chip"><a class="bl-jira" href="'+esc(base)+'/browse/'+esc(t)+'" target="_blank" rel="noopener">🔗 '+esc(t)+'</a>'+unlink+'</span>';
       }).join('') + '</span>';
     }
@@ -2721,7 +2803,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     tabs.innerHTML = av.map(function(m){
       var n = fileBugs().filter(function(b){return b.month===m;}).length;
       return '<button class="bl-tab'+(m===curMonth?' active':'')+'" data-m="'+esc(m)+'">'
-        +'<span class="material-symbols-rounded">calendar_month</span> '+esc(m)+' ('+n+')</button>';
+        +'<span class="material-symbols-rounded ph-light ph-calendar-dots"></span> '+esc(m)+' ('+n+')</button>';
     }).join('');
   }
 
@@ -2746,7 +2828,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     if(!total){
       var cols = EDIT?9:8;
       html = '<tr><td colspan="'+cols+'"><div class="empty-state">'
-        +'<span class="es-ic"><span class="material-symbols-rounded">bug_report</span></span>'
+        +'<span class="es-ic"><span class="material-symbols-rounded ph-light ph-bug-beetle"></span></span>'
         +'<div class="es-title">Không có bug nào trong tháng này</div>'
         +'<div class="es-hint">Đổi tháng hoặc bộ lọc tester/dev để xem bug khác.</div>'
         +'</div></td></tr>';
@@ -2813,7 +2895,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
   function runBugSync(b){
     if(!b || b.disabled) return Promise.resolve(false);
     b.disabled=true;
-    b.innerHTML='<span class="material-symbols-rounded mi-sm" style="animation:spin 1s linear infinite">progress_activity</span> Đang đồng bộ…';
+    b.innerHTML='<span class="material-symbols-rounded ph-light ph-circle-notch mi-sm" style="animation:spin 1s linear infinite"></span> Đang đồng bộ…';
     toast('Đang đọc lại data từ Drive…', true);
     return postJSON('/sync-bug-log', {}, 90000).then(function(j){
       if(j && j.ok){
@@ -2822,10 +2904,10 @@ window.__smSetCustom=function(t, key, val, onChanged){
         toast('Đã đồng bộ ✓ — không có thay đổi, đang tải lại', true);
         setTimeout(function(){ location.reload(); }, 900); return true;
       }
-      b.innerHTML='<span class="material-symbols-rounded mi-sm">error</span> Đồng bộ lỗi — F5 để thử lại';
+      b.innerHTML='<span class="material-symbols-rounded ph-light ph-warning-circle mi-sm"></span> Đồng bộ lỗi — F5 để thử lại';
       toast((j&&(j.errors&&j.errors[0]))||'Đồng bộ lỗi', false); return false;
     }).catch(function(){
-      b.innerHTML='<span class="material-symbols-rounded mi-sm">error</span> Đồng bộ lỗi — F5 để thử lại';
+      b.innerHTML='<span class="material-symbols-rounded ph-light ph-warning-circle mi-sm"></span> Đồng bộ lỗi — F5 để thử lại';
       toast('Lỗi mạng khi đồng bộ', false); return false;
     });
   }
@@ -2850,12 +2932,12 @@ window.__smSetCustom=function(t, key, val, onChanged){
     order.forEach(function(gk){
       var g=groups[gk];
       html+='<div class="bl-chg-grp"><div class="bl-chg-grp-h">'
-        +'<span class="material-symbols-rounded mi-sm">description</span> '+esc(g.file)
+        +'<span class="material-symbols-rounded ph-light ph-file-text mi-sm"></span> '+esc(g.file)
         +' <span class="bl-chg-sheet">› '+esc(g.sheet)+'</span></div>';
       g.items.forEach(function(c){
         var desc=c.desc||'', summ=c.summary?(' — '+c.summary):'', who=c.author?(' · '+c.author):'';
         html+='<div class="bl-chg-item bl-chg-'+esc(c.kind||'')+'">'
-          +'<span class="material-symbols-rounded mi-sm">'+(ICON[c.kind]||'edit')+'</span>'
+          +phIcon(ICON[c.kind]||'edit','mi-sm')
           +'<span class="bl-chg-txt">'+esc(desc)+esc(summ)+'<span class="bl-chg-who">'+esc(who)+'</span></span></div>';
       });
       html+='</div>';
@@ -2927,7 +3009,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
         var m=Math.floor(left/60), s=left%60;
         tail='lần tới sau <span style="font-variant-numeric:tabular-nums;font-family:\'JetBrains Mono\',monospace;font-weight:500">'+(m<10?'0'+m:m)+':'+(s<10?'0'+s:s)+'</span>';
       }
-      el.innerHTML='<span class="material-symbols-rounded mi-sm">autorenew</span> Tự đồng bộ lại toàn bộ file mỗi '+mins+' phút · '+tail;
+      el.innerHTML='<span class="material-symbols-rounded ph-light ph-arrows-clockwise mi-sm"></span> Tự đồng bộ lại toàn bộ file mỗi '+mins+' phút · '+tail;
     }
     tick(); setInterval(tick, 1000);
   })();
@@ -2939,10 +3021,10 @@ window.__smSetCustom=function(t, key, val, onChanged){
     function rowHtml(fid, label, sub){
       var on = (activeFid===fid);
       return '<button type="button" class="bl-pick-row'+(on?' on':'')+'" data-fid="'+esc(fid)+'">'
-        +'<span class="material-symbols-rounded bl-pick-ic">'+(fid?'description':'apps')+'</span>'
+        +phIcon(fid?'description':'apps','bl-pick-ic')
         +'<span class="bl-pick-meta"><span class="bl-pick-name">'+esc(label)+'</span>'
         +(sub?'<span class="bl-pick-sub">'+esc(sub)+'</span>':'')+'</span>'
-        +'<span class="material-symbols-rounded bl-pick-chk">'+(on?'check_circle':'radio_button_unchecked')+'</span>'
+        +phIcon(on?'check_circle':'radio_button_unchecked','bl-pick-chk')
         +'</button>';
     }
     function renderPick(){
@@ -2977,7 +3059,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
         +'<input type="text" class="bl-src-label" placeholder="Nhãn (tuỳ chọn)" value="'+esc(label||'')+'" style="width:140px;">'
         +'<input type="text" class="bl-src-service" placeholder="Hậu tố (VD: FE)" value="'+esc(service||'')+'" style="width:110px;">'
         +'<input type="text" class="bl-src-link" placeholder="Link Google Drive" value="'+esc(link||'')+'">'
-        +'<button type="button" class="del material-symbols-rounded mi-sm" title="Xoá">delete</button></div>';
+        +'<button type="button" class="del material-symbols-rounded ph-light ph-trash mi-sm" title="Xoá"></button></div>';
     }
     function renderList(){
       if(!SOURCES.length){ listEl.innerHTML='<div class="bl-src-empty">Chưa có link nào — bấm “Thêm link”.</div>'; return; }
@@ -3024,7 +3106,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
       chips.querySelectorAll('.bl-ta-chip').forEach(function(c){ c.remove(); });
       taskSel.forEach(function(k){
         var el=document.createElement('span'); el.className='bl-ta-chip';
-        el.innerHTML='<b>'+esc(k)+'</b><span class="x material-symbols-rounded mi-sm" data-rm="'+esc(k)+'">close</span>';
+        el.innerHTML='<b>'+esc(k)+'</b><span class="x material-symbols-rounded ph-light ph-x mi-sm" data-rm="'+esc(k)+'"></span>';
         chips.insertBefore(el, inp);
       });
     }
@@ -3148,13 +3230,13 @@ window.__smSetCustom=function(t, key, val, onChanged){
   function deltaCard(cur, prev, good){
     if(prev==null) return '';
     var d=(cur||0)-(prev||0);
-    if(!d) return '<span class="bm-delta flat">0%<span class="material-symbols-rounded bm-arr">remove</span></span>';
+    if(!d) return '<span class="bm-delta flat">0%<span class="material-symbols-rounded ph-light ph-minus bm-arr"></span></span>';
     var benefit = good ? d>0 : d<0;          // thay đổi này có lợi?
     var cls = benefit ? 'down' : 'up';        // down=xanh(tốt) · up=đỏ(xấu)
     var txt = (d>0?'+':'')+d;          // số tăng/giảm tuyệt đối (bỏ %, base nhỏ làm % nổ)
     var arr = d>0 ? 'trending_up' : 'trending_down';
     return '<span class="bm-delta '+cls+'">'+txt+
-      '<span class="material-symbols-rounded bm-arr">'+arr+'</span></span>';
+      phIcon(arr,'bm-arr')+'</span>';
   }
 
   if(!FILES.length){
@@ -3607,7 +3689,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     reopenRows.innerHTML = devList.map(function(d){
       var nb = distinctPerDev[d], fx = fixPerDev[d], denom = bugsPerDev[d]||0, open = !!reopenExpanded[d];
       var row = '<tr class="rk-row'+(open?' open':'')+'" data-dev="'+esc(d)+'">'
-        + '<td><span class="rk-caret material-symbols-rounded">'+(open?'expand_more':'chevron_right')+'</span>'+esc(d)+'</td>'
+        + '<td>'+phIcon(open?'expand_more':'chevron_right','rk-caret')+esc(d)+'</td>'
         + '<td>'+(+(nb.toFixed(2)))+'</td><td>'+(+(fx.toFixed(2)))+'</td>'
         + '<td class="col-total">'+rateCell(nb, denom)+'</td></tr>';
       if(open) row += detailRow(d);
@@ -3698,7 +3780,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
   if(btnExport) btnExport.addEventListener('click', function(){
     if(!metricCharts || !metricCharts.innerHTML || metricCharts.innerHTML.indexOf('an-empty') >= 0){ toast('Không có dữ liệu để export', false); return; }
     var origText = btnExport.innerHTML;
-    btnExport.innerHTML = '<span class="material-symbols-rounded mi-sm">sync</span> Đang xuất...';
+    btnExport.innerHTML = '<span class="material-symbols-rounded ph-light ph-arrows-clockwise mi-sm"></span> Đang xuất...';
     btnExport.disabled = true;
     function doExport(){
       var titleEl = document.createElement('div');
@@ -3772,9 +3854,9 @@ window.__smSetCustom=function(t, key, val, onChanged){
   function priHtml(p){ var d=PRI[p]; return d ? '<span class="badge '+d[0]+'">'+d[1]+'</span>'
                                               : '<span class="badge b-todo">'+esc(p||'—')+'</span>'; }
   function resHtml(r){ var d=RES[r]||RES.norun;
-    return '<span class="tc-result '+d[0]+'"><span class="material-symbols-rounded">'+d[1]+'</span> '+d[2]+'</span>'; }
+    return '<span class="tc-result '+d[0]+'">'+phIcon(d[1])+' '+d[2]+'</span>'; }
   function longCell(t){ t=t||''; var n=t.split('\n').length;
-    var hint = n>3 ? '<span class="tc-more"><span class="material-symbols-rounded">unfold_more</span>Xem thêm</span>' : '';
+    var hint = n>3 ? '<span class="tc-more"><span class="material-symbols-rounded ph-light ph-arrows-down-up"></span>Xem thêm</span>' : '';
     return '<div class="tc-long">'+esc(t)+'</div>'+hint; }
 
   // ---- Repository panel (folder filter) ----
@@ -3793,11 +3875,11 @@ window.__smSetCustom=function(t, key, val, onChanged){
   function renderTree(){
     var tree=$('tcTree'); if(!tree) return;
     var html = '<div class="tc-node'+(curFolder===''?' active':'')+'" data-folder="">'
-             + '<span class="material-symbols-rounded">folder_open</span> Tất cả dự án'
+             + '<span class="material-symbols-rounded ph-light ph-folder-open"></span> Tất cả dự án'
              + '<span class="tc-node-count">'+cases.length+'</span></div>';
     folders.forEach(function(f){
       html += '<div class="tc-node'+(curFolder===f.id?' active':'')+'" data-folder="'+esc(f.id)+'" style="margin-left:14px">'
-            + '<span class="material-symbols-rounded">folder</span> '+esc(f.name||f.id)
+            + '<span class="material-symbols-rounded ph-light ph-folder"></span> '+esc(f.name||f.id)
             + '<span class="tc-node-count">'+casesIn(f.id).length+'</span></div>';
     });
     tree.innerHTML = html;
@@ -3815,7 +3897,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
       if(r==='pass')pass++; else if(r==='fail')fail++; if(r!=='norun')run++; });
     var norun=list.length-run;
     function card(cls,ic,lbl,val){ return '<div class="tc-metric '+cls+'"><div class="ic '+cls+'">'
-      +'<span class="material-symbols-rounded">'+ic+'</span></div>'
+      +phIcon(ic)+'</div>'
       +'<div><div class="lbl">'+lbl+'</div><div class="val">'+val+'</div></div></div>'; }
     box.innerHTML = card('total','library_books','Tổng số TC',list.length)
       + card('pass','check_circle','Đã Pass',pass)
@@ -3904,7 +3986,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var list=casesIn(curFolder);
     if(!list.length){
       body.innerHTML = '<tr><td colspan="7"><div class="tc-empty">'
-        + '<span class="material-symbols-rounded">checklist</span>'
+        + '<span class="material-symbols-rounded ph-light ph-list-checks"></span>'
         + (editable ? 'Chưa có test case. Bấm <b>Import</b> để nhập từ Google Sheet.'
                     : 'Chưa có test case nào trong bộ này.')
         + '</div></td></tr>';
@@ -3941,7 +4023,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
   // ---- Drawer chi tiết (full Pre/Step/Expected) ----
   var dov=$('tcDrawerOv'), dr=$('tcDrawer');
   function field(ic,lbl,val,mono){ return '<div class="tc-d-field"><div class="tc-d-label">'
-    +'<span class="material-symbols-rounded">'+ic+'</span>'+lbl+'</div>'
+    +phIcon(ic)+lbl+'</div>'
     +'<div class="tc-d-box'+(mono?' mono':'')+'">'+esc(val||'—')+'</div></div>'; }
   function openDrawer(c){
     $('tcdKey').textContent=c.id||'';
@@ -4046,7 +4128,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     if(!editable) return;
     var btn=$('tcSyncAllBtn'); var orig='';
     if(btn){ if(btn.disabled) return; orig=btn.innerHTML; btn.disabled=true;
-      btn.innerHTML='<span class="material-symbols-rounded mi-sm" style="animation:spin 1s linear infinite">progress_activity</span> Đang đồng bộ…'; }
+      btn.innerHTML='<span class="material-symbols-rounded ph-light ph-circle-notch mi-sm" style="animation:spin 1s linear infinite"></span> Đang đồng bộ…'; }
     toast(overwrite ? 'Đang đồng bộ toàn bộ (ghi đè cả kết quả)...' : 'Đang đồng bộ toàn bộ test case từ Google Sheets...', true);
     postJSON('/tc-sync-all', { overwrite_results: !!overwrite }, 180000).then(function(res){
       if(btn){ btn.disabled=false; btn.innerHTML=orig; }
@@ -4107,12 +4189,12 @@ window.__smSetCustom=function(t, key, val, onChanged){
       if(info.at) meta.push('Import: '+esc(info.at));
       if(info.by) meta.push('bởi '+esc(info.by));
       return '<div class="tc-link-item" data-fid="'+esc(fid)+'">'
-        +'<div class="tc-link-item-name"><span class="material-symbols-rounded mi-sm">folder</span> '+esc(impFolderName(fid))+'</div>'
+        +'<div class="tc-link-item-name"><span class="material-symbols-rounded ph-light ph-folder mi-sm"></span> '+esc(impFolderName(fid))+'</div>'
         +'<div class="tc-link-item-row">'
         +'<input type="text" class="tc-link-url" value="'+esc(info.url||'')+'" placeholder="Link Google Sheet" spellcheck="false">'
-        +'<button class="btn btn-ghost tc-link-open" title="Mở link"><span class="material-symbols-rounded mi-sm">open_in_new</span></button>'
+        +'<button class="btn btn-ghost tc-link-open" title="Mở link"><span class="material-symbols-rounded ph-light ph-arrow-square-out mi-sm"></span></button>'
         +'<button class="btn btn-primary tc-link-save">Lưu</button>'
-        +'<button class="btn btn-ghost tc-link-sync" title="Đồng bộ lại từ link này"><span class="material-symbols-rounded mi-sm">sync</span></button>'
+        +'<button class="btn btn-ghost tc-link-sync" title="Đồng bộ lại từ link này"><span class="material-symbols-rounded ph-light ph-arrows-clockwise mi-sm"></span></button>'
         +'</div>'
         +(meta.length?'<div class="tc-link-item-meta">'+meta.join(' · ')+'</div>':'')
         +'</div>';
@@ -4161,24 +4243,28 @@ window.__smSetCustom=function(t, key, val, onChanged){
     if(!folder){ toast('Chưa chọn folder đích', false); return; }
     // sheet rỗng = import cả file (bỏ qua sheet template) — backend lo phần này
     var hasCases = cases.some(function(c){ return c.folder===folder; });
-    if(hasCases && !confirm('Bộ này đã có test case. Import sẽ GHI ĐÈ toàn bộ (kết quả chạy '
-        +'theo ID được giữ lại). Tiếp tục?')) return;
-    submitBtn.disabled=true;
-    postJSON('/tc-import', { url:u, sheet:sheet, folder:folder }, 60000).then(function(j){
-      submitBtn.disabled=false;
-      if(j&&j.ok){
-        window.tcCloseImport();
-        if(j.missing_id_rows){
-          // Import xong nhưng có dòng thiếu ID bị bỏ qua -> modal chi tiết, reload khi bấm OK
-          window.tcShowSuccess(j.msg||'Import thành công', 'Import xong — đã bỏ qua dòng thiếu ID');
-        } else {
-          toast(j.msg||'Import thành công', true);
-          setTimeout(function(){ location.reload(); }, 600);
+    function doImport(){
+      submitBtn.disabled=true;
+      postJSON('/tc-import', { url:u, sheet:sheet, folder:folder }, 60000).then(function(j){
+        submitBtn.disabled=false;
+        if(j&&j.ok){
+          window.tcCloseImport();
+          if(j.missing_id_rows){
+            // Import xong nhưng có dòng thiếu ID bị bỏ qua -> modal chi tiết, reload khi bấm OK
+            window.tcShowSuccess(j.msg||'Import thành công', 'Import xong — đã bỏ qua dòng thiếu ID');
+          } else {
+            toast(j.msg||'Import thành công', true);
+            setTimeout(function(){ location.reload(); }, 600);
+          }
         }
-      }
-      else { window.tcShowError((j&&j.msg)||'Import thất bại',
-               (j&&j.missing_id_rows)?'Thiếu ID — không thể import':'Import thất bại'); }
-    }).catch(function(){ submitBtn.disabled=false; toast('Lỗi mạng khi import', false); });
+        else { window.tcShowError((j&&j.msg)||'Import thất bại',
+                 (j&&j.missing_id_rows)?'Thiếu ID — không thể import':'Import thất bại'); }
+      }).catch(function(){ submitBtn.disabled=false; toast('Lỗi mạng khi import', false); });
+    }
+    if(hasCases){
+      confirmModal({title:'Ghi đè test case', message:'Bộ này đã có test case. Import sẽ GHI ĐÈ toàn bộ (kết quả chạy theo ID được giữ lại). Tiếp tục?', confirmText:'Ghi đè'})
+        .then(function(ok){ if(ok) doImport(); });
+    } else { doImport(); }
   });
 
   // ---- Modal tạo thư mục (lưu thật qua /tc-add-folder, /tc-rename-folder) #152 ----
@@ -4237,7 +4323,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var cnt = casesIn(fid).length;
     var msg = 'Bạn có chắc chắn muốn xoá thư mục "'+f.name+'"?';
     if(cnt > 0) msg += '\n\n⚠ Có '+cnt+' test case trong thư mục này cũng sẽ bị XOÁ VĨNH VIỄN!';
-    if(!confirm(msg)) return;
+    confirmModal({title:'Xoá thư mục', message:msg, confirmText:'Xoá thư mục'}).then(function(ok){ if(!ok) return;
     postJSON('/tc-delete-folder', { id: fid }).then(function(j){
       if(j&&j.ok){
         folders=j.folders||folders;
@@ -4246,7 +4332,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
         renderTree(); page=1; render(); fillFolderSel();
         toast('Đã xoá thư mục', true);
       } else { toast((j&&j.msg)||'Không xoá được thư mục', false); }
-    }).catch(function(){ toast('Lỗi mạng khi xoá', false); });
+    }).catch(function(){ toast('Lỗi mạng khi xoá', false); }); });
   }
 
   var _origRenderTree = renderTree;
@@ -4254,7 +4340,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var tree=$('tcTree'); if(!tree) return;
     var html = '<div class="tc-node'+(curFolder===''?' active':'')+'" data-folder="">'+
                '<span class="tc-twisty spacer"></span>'+
-               '<span class="material-symbols-rounded">folder_open</span> Tất cả dự án'+
+               '<span class="material-symbols-rounded ph-light ph-folder-open"></span> Tất cả dự án'+
                '<span class="tc-node-count">'+cases.length+'</span></div>';
     
     var tops = folders.filter(function(f){ return !f.parent_id; });
@@ -4269,12 +4355,12 @@ window.__smSetCustom=function(t, key, val, onChanged){
     function renderNode(f, depth){
       var actions = '';
       if(editable){
-        var renBtn = depth === 0 ? '<button class="tc-fa-btn" data-action="rename" data-fid="'+esc(f.id)+'" title="Đổi tên"><span class="material-symbols-rounded mi-xs">edit</span></button>' : '';
-        var syncBtn = (data.imports && data.imports[f.id]) ? '<button class="tc-fa-btn" data-action="sync" data-fid="'+esc(f.id)+'" title="Đồng bộ lại từ Google Sheets"><span class="material-symbols-rounded mi-xs">sync</span></button>' : '';
+        var renBtn = depth === 0 ? '<button class="tc-fa-btn" data-action="rename" data-fid="'+esc(f.id)+'" title="Đổi tên"><span class="material-symbols-rounded ph-light ph-pencil-simple mi-xs"></span></button>' : '';
+        var syncBtn = (data.imports && data.imports[f.id]) ? '<button class="tc-fa-btn" data-action="sync" data-fid="'+esc(f.id)+'" title="Đồng bộ lại từ Google Sheets"><span class="material-symbols-rounded ph-light ph-arrows-clockwise mi-xs"></span></button>' : '';
         actions = '<span class="tc-folder-actions">'
           + syncBtn
           + renBtn
-          + '<button class="tc-fa-btn danger" data-action="delete" data-fid="'+esc(f.id)+'" title="Xoá"><span class="material-symbols-rounded mi-xs">delete</span></button>'
+          + '<button class="tc-fa-btn danger" data-action="delete" data-fid="'+esc(f.id)+'" title="Xoá"><span class="material-symbols-rounded ph-light ph-trash mi-xs"></span></button>'
           + '</span>';
       }
       var children = subsByParent[f.id] || [];
@@ -4283,13 +4369,13 @@ window.__smSetCustom=function(t, key, val, onChanged){
       // Nút thu gọn/mở (chỉ folder có con); folder không con -> spacer giữ thẳng hàng.
       var twisty = hasKids
         ? '<button class="tc-twisty" data-twisty="'+esc(f.id)+'" title="'+(isCol?'Mở':'Thu gọn')+'">'
-          + '<span class="material-symbols-rounded mi-sm">'+(isCol?'chevron_right':'expand_more')+'</span></button>'
+          + phIcon(isCol?'chevron_right':'expand_more','mi-sm')+'</button>'
         : '<span class="tc-twisty spacer"></span>';
       var ml = 14 + (depth * 16);
       var ic = depth > 0 ? 'subdirectory_arrow_right' : 'folder';
       html += '<div class="tc-node'+(curFolder===f.id?' active':'')+'" data-folder="'+esc(f.id)+'" style="margin-left:'+ml+'px">'+
               twisty+
-              '<span class="material-symbols-rounded">'+ic+'</span> '+
+              phIcon(ic)+' '+
               '<span style="flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="'+esc(f.name||f.id)+'">'+esc(f.name||f.id)+'</span>'+
               '<span class="tc-node-count">'+casesIn(f.id).length+'</span>'+
               actions+'</div>';
@@ -4347,7 +4433,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
   }
   function taskChip(fid, key){
     var rm = editable ? '<button class="tc-task-x" data-rm="'+esc(key)+'" title="Gỡ link">'
-      +'<span class="material-symbols-rounded mi-xs">close</span></button>' : '';
+      +'<span class="material-symbols-rounded ph-light ph-x mi-xs"></span></button>' : '';
     return '<span class="tc-task-chip"><a class="tc-task-key" data-key="'+esc(key)+'" href="'
       +(window.__jiraBase||'')+'/browse/'+encodeURIComponent(key)+'">'+esc(key)+'</a>'+rm+'</span>';
   }
@@ -4361,8 +4447,8 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var chips = ts.length ? ts.map(function(k){ return taskChip(curFolder,k); }).join('')
                           : '<span class="tc-link-none">Chưa liên kết task nào.</span>';
     var btn = editable ? '<button class="tc-link-add" id="tcLinkAdd">'
-      +'<span class="material-symbols-rounded mi-sm">add_link</span> Liên kết task</button>' : '';
-    bar.innerHTML = '<span class="tc-link-lbl"><span class="material-symbols-rounded mi-sm">link</span> '
+      +'<span class="material-symbols-rounded ph-light ph-link-simple mi-sm"></span> Liên kết task</button>' : '';
+    bar.innerHTML = '<span class="tc-link-lbl"><span class="material-symbols-rounded ph-light ph-link mi-sm"></span> '
       +'Task Jira của <b>'+esc(folderName(curFolder))+'</b>:</span>'
       +'<span class="tc-link-tasks">'+chips+'</span>'+btn;
     var add=$('tcLinkAdd'); if(add) add.addEventListener('click', openLinkModal);
@@ -4436,8 +4522,8 @@ window.__smSetCustom=function(t, key, val, onChanged){
             return '<div class="tc-link-res'+(linked?' linked':'')+'" data-key="'+esc(r.key)+'">'
               +'<span class="tc-link-res-key">'+esc(r.key)+'</span>'
               +'<span class="tc-link-res-sum">'+esc(r.summary||'')+'</span>'
-              +(linked?'<span class="material-symbols-rounded mi-sm">check</span>'
-                      :'<span class="material-symbols-rounded mi-sm">add</span>')+'</div>';
+              +(linked?'<span class="material-symbols-rounded ph-light ph-check mi-sm"></span>'
+                      :'<span class="material-symbols-rounded ph-light ph-plus mi-sm"></span>')+'</div>';
           }).join('');
           lresults.querySelectorAll('.tc-link-res').forEach(function(el){
             el.addEventListener('click', function(){
@@ -4446,7 +4532,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
               persistLink(linkFid, key, 'add').then(function(ok){
                 if(ok){ toast('Đã liên kết '+key, true);
                   el.classList.add('linked');
-                  el.querySelector('.material-symbols-rounded').textContent='check'; } });
+                  el.querySelector('.material-symbols-rounded').className='material-symbols-rounded ph-light ph-check'; } });
             });
           });
         }).catch(function(){ if(my!==lseq) return;

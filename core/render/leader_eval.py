@@ -66,7 +66,7 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
             </tr>
         </thead>
         <tbody id="evalTbody">
-            {''.join(rows) if rows else '<tr><td colspan="7"><div class="empty-state"><span class="es-ic"><span class="material-symbols-rounded">search_off</span></span><div class="es-title">Không có task nào</div><div class="es-hint">Thử đổi bộ lọc dự án / tháng / người xử lý.</div></div></td></tr>'}
+            {''.join(rows) if rows else '<tr><td colspan="7"><div class="empty-state"><span class="es-ic"><span class="material-symbols-rounded ph-light ph-magnifying-glass-minus"></span></span><div class="es-title">Không có task nào</div><div class="es-hint">Thử đổi bộ lọc dự án / tháng / người xử lý.</div></div></td></tr>'}
         </tbody>
     </table>
     </div>

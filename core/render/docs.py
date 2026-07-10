@@ -19,22 +19,22 @@ def render_docs_page(tree, editable=True, user=None, activities=None):
     if editable:
         action_buttons_html = """
           <button class="btn-sec" onclick="openModal('folderModal')">
-            <span class="material-symbols-rounded">create_new_folder</span>
+            <span class="material-symbols-rounded ph-light ph-folder-plus"></span>
             Tạo thư mục
           </button>
           <button class="btn-pri" onclick="openModal('uploadModal')">
-            <span class="material-symbols-rounded">upload</span>
+            <span class="material-symbols-rounded ph-light ph-upload-simple"></span>
             Tải lên tài liệu
           </button>
           <button class="btn-sec" onclick="openModal('linkModal')">
-            <span class="material-symbols-rounded">link</span>
+            <span class="material-symbols-rounded ph-light ph-link"></span>
             Thêm link Drive
           </button>
         """
 
     ro_banner = ""
     if not editable:
-        ro_banner = '<div style="margin: 0 32px 16px; padding: 12px 16px; background: var(--surface-variant); color: var(--on-surface-variant); border-radius: 8px; font-size: 13px; display: flex; align-items: center; gap: 8px;"><span class="material-symbols-rounded" style="color: var(--primary);">info</span>👁 Chế độ chỉ xem — chỉ quản lý mới chỉnh sửa được.</div>'
+        ro_banner = '<div style="margin: 0 32px 16px; padding: 12px 16px; background: var(--surface-variant); color: var(--on-surface-variant); border-radius: 8px; font-size: 13px; display: flex; align-items: center; gap: 8px;"><span class="material-symbols-rounded ph-light ph-info" style="color: var(--primary);"></span>👁 Chế độ chỉ xem — chỉ quản lý mới chỉnh sửa được.</div>'
 
     content_inner = f"""
     <div class="content">
@@ -67,7 +67,7 @@ def render_docs_page(tree, editable=True, user=None, activities=None):
       <div>
         <div class="section-title-row">
           <h3 id="tableTitle">Tài liệu gần đây</h3>
-          <a class="view-all-link" id="viewAllDocs" onclick="navigateBackToRoot()">Xem tất cả <span class="material-symbols-rounded">chevron_right</span></a>
+          <a class="view-all-link" id="viewAllDocs" onclick="navigateBackToRoot()">Xem tất cả <span class="material-symbols-rounded ph-light ph-caret-right"></span></a>
         </div>
         
         <div class="table-card">
@@ -89,16 +89,16 @@ def render_docs_page(tree, editable=True, user=None, activities=None):
 
     <!-- ===== Floating Context Menu ===== -->
     <div class="context-menu" id="contextMenu">
-      {"" if not editable else '<button onclick="editDoc()"><span class="material-symbols-rounded mi-sm">edit</span>Sửa đổi</button>'}
-      <button onclick="openLink()"><span class="material-symbols-rounded mi-sm">open_in_new</span>Mở link</button>
-      <button onclick="copyDocLink()"><span class="material-symbols-rounded mi-sm">content_copy</span>Sao chép link</button>
+      {"" if not editable else '<button onclick="editDoc()"><span class="material-symbols-rounded ph-light ph-pencil-simple mi-sm"></span>Sửa đổi</button>'}
+      <button onclick="openLink()"><span class="material-symbols-rounded ph-light ph-arrow-square-out mi-sm"></span>Mở link</button>
+      <button onclick="copyDocLink()"><span class="material-symbols-rounded ph-light ph-copy mi-sm"></span>Sao chép link</button>
       {"<div class='divider'></div>" if editable else ""}
-      {"" if not editable else '<button class="danger" onclick="deleteDoc()"><span class="material-symbols-rounded mi-sm">delete</span>Xoá tài liệu</button>'}
+      {"" if not editable else '<button class="danger" onclick="deleteDoc()"><span class="material-symbols-rounded ph-light ph-trash mi-sm"></span>Xoá tài liệu</button>'}
     </div>
 
     <!-- ===== Processing Status Toast ===== -->
     <div class="bottom-toast" id="bottomToast">
-      <span class="material-symbols-rounded icon-success">check_circle</span>
+      <span class="material-symbols-rounded ph-light ph-check-circle icon-success"></span>
       <span class="toast-text" id="bottomToastText">Đang xử lý yêu cầu...</span>
     </div>
     """
@@ -109,9 +109,9 @@ def render_docs_page(tree, editable=True, user=None, activities=None):
     <div class="overlay" id="folderModal" onclick="if(event.target===this)closeModal('folderModal')">
       <div class="modal">
         <div class="modal-head">
-          <span class="material-symbols-rounded">create_new_folder</span>
+          <span class="material-symbols-rounded ph-light ph-folder-plus"></span>
           <h3>Tạo thư mục mới</h3>
-          <button class="x material-symbols-rounded" onclick="closeModal('folderModal')">close</button>
+          <button class="x material-symbols-rounded ph-light ph-x" onclick="closeModal('folderModal')"></button>
         </div>
         <div class="modal-body">
           <div class="mfield">
@@ -145,9 +145,9 @@ def render_docs_page(tree, editable=True, user=None, activities=None):
     <div class="overlay" id="linkModal" onclick="if(event.target===this)closeModal('linkModal')">
       <div class="modal">
         <div class="modal-head">
-          <span class="material-symbols-rounded">link</span>
+          <span class="material-symbols-rounded ph-light ph-link"></span>
           <h3>Thêm link tài liệu Google Drive</h3>
-          <button class="x material-symbols-rounded" onclick="closeModal('linkModal')">close</button>
+          <button class="x material-symbols-rounded ph-light ph-x" onclick="closeModal('linkModal')"></button>
         </div>
         <div class="modal-body">
           <div class="mfield">
@@ -175,13 +175,13 @@ def render_docs_page(tree, editable=True, user=None, activities=None):
     <div class="overlay" id="uploadModal" onclick="if(event.target===this)closeModal('uploadModal')">
       <div class="modal">
         <div class="modal-head">
-          <span class="material-symbols-rounded">upload</span>
+          <span class="material-symbols-rounded ph-light ph-upload-simple"></span>
           <h3>Tải lên tài liệu</h3>
-          <button class="x material-symbols-rounded" onclick="closeModal('uploadModal')">close</button>
+          <button class="x material-symbols-rounded ph-light ph-x" onclick="closeModal('uploadModal')"></button>
         </div>
         <div class="modal-body">
           <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
-            <span class="material-symbols-rounded icon">cloud_upload</span>
+            <span class="material-symbols-rounded ph-light ph-cloud-arrow-up icon"></span>
             <div class="text">Kéo thả tệp tin hoặc Click để chọn tệp tải lên</div>
             <div class="hint" style="font-size: 11px; color: var(--on-surface-variant); margin-top: 4px;">Hỗ trợ .pdf, .xlsx, .docx, .png (tối đa 20MB)</div>
             <input type="file" id="fileInput" onchange="handleFileSelect(event)">
