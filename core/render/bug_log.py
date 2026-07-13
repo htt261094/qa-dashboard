@@ -10,7 +10,8 @@ chuyển định nghĩa, re-export ở __init__ để chỗ gọi không phải 
 """
 from config import normalize_tester
 from issues import esc
-from task_link import tasks_of
+from task_link import tasks_of, fp_of
+from bug_backlog import fingerprint
 from bug_log_store import POLL_SECONDS as BUG_LOG_POLL_SECONDS
 from render.base import _json_script
 from render.shell import _document_v2
@@ -32,6 +33,15 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
     files = data.get('files', {}) or {}
     reopen = data.get('reopen', {}) or {}
 
+    # Index fingerprint -> union task (Decision #51): dòng bug copy sang sheet tháng mới có KEY
+    # khác nhưng CÙNG nội dung -> thừa hưởng chip link. Tra fp TRƯỚC, key sau (giống chiều
+    # task->bug ở _bugs_for_task #50). Entry legacy chưa có fp vẫn tra theo đúng key.
+    fp_tasks = {}
+    for _v in links.values():
+        _f = fp_of(_v)
+        if _f:
+            fp_tasks.setdefault(_f, set()).update(tasks_of(_v))
+
     bugs = []
     months = set()
     src_files = []   # file Drive đã scan (name/project/count) — cho source card; KHÁC `sources` param
@@ -41,7 +51,11 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
         for key, b in (f.get('bugs', {}) or {}).items():
             month = b.get('month', '') or ''
             months.add(month)
-            link = links.get(key) or {}
+            _fb = fingerprint(b)
+            if _fb in fp_tasks:
+                bug_tasks = sorted(fp_tasks[_fb])          # fp-match (gồm cả bản copy)
+            else:
+                bug_tasks = tasks_of(links.get(key) or {})  # legacy no-fp: theo đúng key
             bugs.append({
                 'key': key,
                 'fid': fid,
@@ -55,7 +69,7 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
                 'qa': normalize_tester(b.get('qa_pic', '')),
                 'dev': b.get('dev_pic', ''),
                 'created': (b.get('created', '') or '')[:10],
-                'tasks': tasks_of(link),
+                'tasks': bug_tasks,
             })
     # tháng mới nhất trước (chuỗi 'YYYY-MM' hoặc tên sheet -> sort desc theo chuỗi)
     month_list = sorted((m for m in months if m), reverse=True)

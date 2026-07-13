@@ -80,6 +80,12 @@ def fp_of(link_val):
     return (link_val.get('fp') or '') if isinstance(link_val, dict) else ''
 
 
+def _fp_valid(f):
+    """fp dùng được để định danh: khác rỗng VÀ không phải toàn dấu '|' (bug rỗng
+    project/service/feature/summary -> '|||' không phân biệt được, coi như vô hiệu)."""
+    return bool(f and f.strip('|'))
+
+
 def _live_bug_index():
     """{bugKey: bug} tất cả bug hiện tại (lazy-import, tránh cycle với bug_log_store).
     Dùng để stamp fingerprint lúc tạo link. Lỗi -> {} (bỏ qua stamp)."""
@@ -130,8 +136,14 @@ def set_task_links(email, bug_keys, task_key, op='add'):
       'remove' -> gỡ task(s) khỏi tasks của mỗi bug
       'clear'  -> gỡ HẾT task của mỗi bug (`task_key` bỏ qua)
 
-    Trả {bugKey: [tasks...]} (trạng thái MỚI) cho các key vừa đổi nếu lưu được lên Jira;
-    None nếu lỗi (caller phân biệt fail vs map rỗng). Khoá bug không hợp lệ -> bỏ qua."""
+    ĐỊNH DANH THEO FINGERPRINT (Decision #51): thao tác resolve theo NỘI DUNG bug (fp),
+    KHÔNG theo key STT. Mọi bản copy cùng nội dung (T6/T7...) chia sẻ CHUNG 1 link set —
+    gộp về 1 entry canonical/fp. Nhờ vậy tick bản T7 để gỡ/link cũng ăn vào đúng link dù
+    entry đang lưu dưới key T6. Bug không xác định fp (legacy no-fp / nội dung rỗng) -> op
+    theo key như cũ.
+
+    Trả {bugKey: [tasks...]} (trạng thái MỚI) — fan-out cho MỌI bản copy live cùng fp để
+    client cập nhật tức thì mọi dòng; None nếu lỗi. Khoá bug không hợp lệ -> bỏ qua."""
     if not isinstance(bug_keys, list) or not bug_keys:
         return None
     # chuẩn hoá task_key -> list các task hợp lệ (cho add/remove)
@@ -144,35 +156,69 @@ def set_task_links(email, bug_keys, task_key, op='add'):
     links = data.setdefault('links', {})
     username = username_from_email(email) or 'local'
     iso = datetime.now().isoformat()
-    # Stamp fingerprint nội dung để link bền qua việc copy bug sang sheet tháng mới (key đổi).
-    # Chỉ lấy bug index khi thực sự thêm link mới (add) — remove/clear không cần.
-    bug_idx = _live_bug_index() if op == 'add' else {}
-    out = {}
-    for k in bug_keys:
-        if not isinstance(k, str) or not k:
-            continue
-        prev = links.get(k)
-        cur = tasks_of(prev)
+    bug_idx = _live_bug_index()   # cần cho MỌI op: suy fp của key được tick + fan-out bản copy
+
+    # fingerprint -> list key bug live cùng nội dung (để trả kết quả cho mọi bản copy)
+    livekeys_by_fp = {}
+    for lk, lb in bug_idx.items():
+        lf = fingerprint(lb)
+        if _fp_valid(lf):
+            livekeys_by_fp.setdefault(lf, []).append(lk)
+
+    def _fp_of_key(k):
+        # fp của bug được tick: ưu tiên NỘI DUNG bug live (user tick bug hiện tại); else fp đã
+        # stamp trên entry của chính key đó (bug không còn trong file live nhưng entry có fp).
+        return fingerprint(bug_idx[k]) if k in bug_idx else fp_of(links.get(k))
+
+    def _apply(cur):
         if op == 'add':
             for t in task_keys:
                 if t not in cur:
                     cur.append(t)
-        elif op == 'remove':
-            cur = [t for t in cur if t not in task_keys]
-        else:  # clear
+            return cur
+        if op == 'remove':
+            return [t for t in cur if t not in task_keys]
+        return []  # clear
+
+    out = {}
+    done_fps = set()
+    for k in bug_keys:
+        if not isinstance(k, str) or not k:
+            continue
+        F = _fp_of_key(k)
+        if _fp_valid(F):
+            if F in done_fps:      # đã xử lý qua 1 bản copy khác cùng fp
+                continue
+            done_fps.add(F)
+            # Gộp MỌI entry hiện có cùng fp -> 1 tập task (consolidate), rồi áp op, ghi 1 entry.
+            same = sorted(ek for ek, ev in links.items() if fp_of(ev) == F)
             cur = []
-        if cur:
-            entry = {'tasks': cur, 'by': username, 'at': iso}
-            # Giữ fp cũ nếu có; else tính từ bug hiện tại (dòng gốc còn trong file lúc link).
-            fp = fp_of(prev)
-            if not fp and k in bug_idx:
-                fp = fingerprint(bug_idx[k])
-            if fp:
-                entry['fp'] = fp
-            links[k] = entry
+            for ek in same:
+                for t in tasks_of(links[ek]):
+                    if t not in cur:
+                        cur.append(t)
+            cur = _apply(cur)
+            for ek in same:        # xoá hết entry cũ cùng fp (kể cả trùng lặp)
+                links.pop(ek, None)
+            canon = same[0] if same else k   # giữ vị trí entry cũ nếu có, else key vừa tick
+            if cur:
+                links[canon] = {'tasks': cur, 'by': username, 'at': iso, 'fp': F}
+            # fan-out: mọi bản copy live + entry canonical + key được tick
+            for tk in set(livekeys_by_fp.get(F, [])) | {canon, k}:
+                out[tk] = list(cur)
         else:
-            links.pop(k, None)
-        out[k] = cur
+            # legacy no-fp / bug không xác định nội dung -> op theo đúng key như cũ
+            prev = links.get(k)
+            cur = _apply(tasks_of(prev))
+            if cur:
+                entry = {'tasks': cur, 'by': username, 'at': iso}
+                fp = fp_of(prev)
+                if fp:
+                    entry['fp'] = fp
+                links[k] = entry
+            else:
+                links.pop(k, None)
+            out[k] = cur
     if not out:
         return None
     # Local-first: luôn an toàn ở local, đẩy KV best-effort (không còn fail vì mạng).
