@@ -3396,6 +3396,11 @@ window.__smSetCustom=function(t, key, val, onChanged){
 (function(){
   var DATA = readJSON('analyticsData'); if(!DATA) return;
   var BUGS = DATA.bugs||[], REOPEN = DATA.reopen||{};
+  // Chart FROZEN cho tháng đã đóng (Decision #47) — số liệu chốt cuối tháng, KHÔNG trôi khi
+  // team sửa/copy sheet tháng sau. chartMonths[YYYY-MM] = {grand,devs,bl}. Tháng hiện tại +
+  // tháng chưa có frozen -> tính LIVE.
+  var CHART_FROZEN = DATA.chartMonths || {};
+  function curYm(){ var d=new Date(); return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2); }
   var PIE_COLORS = ['#4c9aff','#36b37e','#ffab00','#ff5630','#6554c0','#00b8d9','#ff7452','#57d9a3','#8777d9','#ff8b00','#2684ff','#172b4d'];
 
   // Data for cross metrics
@@ -3513,6 +3518,24 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var p = iso.split('-');
     return p.length>=2 ? p[1]+'/'+p[0] : '';
   }
+  // Tháng theo tên SHEET (Tn) -> 'MM/YYYY'. Chính sách mới 2026-07: bucket chart theo sheet
+  // tháng T (KHÔNG theo created date). 'Tn' bare lấy năm từ created; 'Tn<yyyy>' năm tường minh;
+  // sheet module/không phải Tn -> fallback created. PHẢI khớp _month_of() phía Python (bug_backlog.py).
+  function _sheetMY(mo, createdIso){
+    mo = (''+(mo||'')).trim();
+    var m = /^T(\d{1,2})(\d{4})$/.exec(mo);
+    if(m){ var a=+m[1]; if(a>=1&&a<=12) return (a<10?'0'+a:''+a)+'/'+m[2]; }
+    m = /^T(\d{1,2})$/.exec(mo);
+    if(m){ var b2=+m[1]; if(b2>=1&&b2<=12){ var cr=(''+(createdIso||'')); var yy=/^\d{4}/.test(cr)?cr.slice(0,4):(''+new Date().getFullYear()); return (b2<10?'0'+b2:''+b2)+'/'+yy; } }
+    return '';
+  }
+  function monthOf(b){ return _sheetMY(b.month, b.created) || getCreatedMonthYear(b.created); }
+  // Frozen chỉ dùng khi đúng version (_v===2 = sheet-based); snapshot cũ (created-based) -> null
+  // để tính LIVE lại sheet-based, tránh lệch trong lúc chờ scan rebuild.
+  function frozenFor(selYm){
+    var f = (selYm && selYm !== curYm()) ? (CHART_FROZEN[selYm]||null) : null;
+    return (f && f._v===2) ? f : null;
+  }
   // danh sách tháng/năm để fill dropdown (năm hiện tại + năm có trong data)
   var FULL_MONTH_YEARS = (function(){
     var years = {}; years[new Date().getFullYear()] = true;
@@ -3540,10 +3563,17 @@ window.__smSetCustom=function(t, key, val, onChanged){
   function renderValid(){
     if(!validMonthSel || !validBox) return;
     var m = validMonthSel.value;
-    var mBugs = BUGS.filter(function(b){ return getCreatedMonthYear(b.created) === m; });
-    var total = mBugs.length;
-    var reject = mBugs.filter(function(b){ return isReject(b.status); }).length;
-    var closed = mBugs.filter(function(b){ return isClosed(b.status); }).length;
+    // FROZEN cho tháng đã đóng (Decision #47); LIVE (dedup fp) cho tháng hiện tại/chưa freeze.
+    var selYm = toYm(m); var frozen = frozenFor(selYm);
+    var total, reject, closed;
+    if(frozen && frozen.valid){
+      total = frozen.valid.total||0; reject = frozen.valid.reject||0; closed = frozen.valid.closed||0;
+    } else {
+      var mBugs = dedupByFp(BUGS.filter(function(b){ return monthOf(b) === m; }));
+      total = mBugs.length;
+      reject = mBugs.filter(function(b){ return isReject(b.status); }).length;
+      closed = mBugs.filter(function(b){ return isClosed(b.status); }).length;
+    }
     var denom = total - reject;
     if(total === 0){
       validBox.innerHTML = '<div class="an-empty">Không có bug trong tháng này</div>';
@@ -3581,24 +3611,40 @@ window.__smSetCustom=function(t, key, val, onChanged){
     if(!metricMonthSel || !metricCharts) return;
     var selectedMonth = metricMonthSel.value;
     if(!selectedMonth){ metricCharts.innerHTML = '<div class="an-empty">Không có dữ liệu</div>'; return; }
-    var mBugs = BUGS.filter(function(b){ return getCreatedMonthYear(b.created) === selectedMonth; });
-    var devs = {}, projSet = {};
-    mBugs.forEach(function(b){
-      var devList = (b.dev||'Chưa gán').trim().split(/[,;+&\/]/).map(function(s){ return s.trim(); }).filter(Boolean);
-      if(!devList.length) devList = ['Chưa gán'];
-      var fraction = 1/devList.length, p = (b.project||'Khác').trim();
-      devList.forEach(function(d){
-        if(!devs[d]) devs[d] = { total:0, projs:{} };
-        devs[d].projs[p] = (devs[d].projs[p]||0) + fraction;
-        devs[d].total += fraction;
+    // Số liệu tháng: FROZEN cho tháng đã đóng (chốt cuối tháng, Decision #47 -> KHÔNG trôi khi
+    // team sửa/copy sheet tháng sau); LIVE (dedup fp) cho tháng hiện tại + tháng chưa có frozen.
+    var selYm = toYm(selectedMonth); var frozen = frozenFor(selYm);
+    var devs = {}, projSet = {}, grandTotal = 0, bc;
+    if(frozen){
+      Object.keys(frozen.devs||{}).forEach(function(d){
+        var projs = frozen.devs[d]||{}, total = 0;
+        Object.keys(projs).forEach(function(p){ total += projs[p]; projSet[p] = true; });
+        devs[d] = { total:total, projs:projs };
       });
-      projSet[p] = true;
-    });
+      grandTotal = frozen.grand||0;
+      var fb = frozen.bl||{};
+      bc = { hasSnapshot:!!fb.has, prev:fb.prev||'', newCount:fb.nc||0, total:fb.tot||0, stillOpen:fb.so||0, resolved:fb.res||0 };
+    } else {
+      var mBugs = dedupByFp(BUGS.filter(function(b){ return monthOf(b) === selectedMonth; }));
+      mBugs.forEach(function(b){
+        var dl = (b.dev||'Chưa gán').trim().split(/[,;+&\/]/).map(function(s){ return s.trim(); }).filter(Boolean);
+        if(!dl.length) dl = ['Chưa gán'];
+        var fraction = 1/dl.length, p = (b.project||'Khác').trim();
+        dl.forEach(function(d){
+          if(!devs[d]) devs[d] = { total:0, projs:{} };
+          devs[d].projs[p] = (devs[d].projs[p]||0) + fraction;
+          devs[d].total += fraction;
+        });
+        projSet[p] = true;
+      });
+      grandTotal = mBugs.length;
+      bc = computeBacklog(selYm);
+    }
     var devList = Object.keys(devs).sort(function(a,b){ return devs[b].total - devs[a].total; });
     var projList = Object.keys(projSet).sort();
     if(!devList.length){ metricCharts.innerHTML = '<div class="an-empty">Không có dữ liệu trong tháng này</div>'; return; }
     // tổng số bug theo từng dự án + tổng toàn tháng (bug đa-dev tính phân số nên tổng = số bug thật)
-    var projTotals = {}, grandTotal = mBugs.length;
+    var projTotals = {};
     projList.forEach(function(p){ projTotals[p] = 0; });
     devList.forEach(function(d){ var pj = devs[d].projs; Object.keys(pj).forEach(function(p){ projTotals[p] += pj[p]; }); });
     var maxTotal = 0; devList.forEach(function(d){ if(devs[d].total>maxTotal) maxTotal = devs[d].total; });
@@ -3634,8 +3680,9 @@ window.__smSetCustom=function(t, key, val, onChanged){
     });
     var totalHtml = '<div style="text-align:center; margin-bottom:14px; font-size:14px; color:var(--on-surface);">'
       + 'Tổng số bug: <strong style="font-size:16px;">'+grandTotal+'</strong></div>';
-    // Dải tồn đọng T-1 (nằm TRONG khối chart -> có trong ảnh report gửi CTO).
-    var bc = computeBacklog(toYm(selectedMonth)), stripHtml = '';
+    // Dải tồn đọng T-1 (nằm TRONG khối chart -> có trong ảnh report gửi CTO). bc đã tính ở
+    // trên (frozen hoặc live).
+    var stripHtml = '';
     if(bc.hasSnapshot){
       stripHtml = '<div style="width:100%; max-width:820px; margin:0 auto 20px; padding:14px 18px; border:1px solid var(--outline-variant); border-radius:8px;">'
         + '<div style="font-size:13.5px; color:var(--on-surface); margin-bottom:10px;">'
@@ -3659,7 +3706,15 @@ window.__smSetCustom=function(t, key, val, onChanged){
       reopenHead = $('anReopenHead'), reopenRows = $('anReopenRows');
   var reopenExpanded = {};
   function reopenPct(n, d){ if(d<=0) return null; var p = n/d*100; return (p%1===0 ? p.toFixed(0) : p.toFixed(1)); }
-  function fixOf(r){ return (r && r.fix!=null) ? (+r.fix||0) : ((+(r&&r.count)||0)+1); }
+  // Số lần fix = SUY từ count + trạng thái hiện tại (parity _reopen_table Python). KHÔNG đọc
+  // accumulator r.fix cũ (undercount vì team hay skip status 'Fixed' -> ca vô lý "2 reopen 1 fix").
+  // Mỗi reopen = 1 fix bị QA trả lại; +1 nếu bug đang ở trạng thái đã-giao-fix (Fixed/Closed).
+  // Bug rời file (b không có) -> giả định đã giao 1 lần cuối.
+  function fixDeliv(r, b){
+    var cnt = +(r&&r.count)||0;
+    if(b && b.status!=null) return cnt + ((b.status==='Fixed'||b.status==='Closed') ? 1 : 0);
+    return cnt + 1;
+  }
   function renderReopen(){
     if(!reopenMonthSel || !reopenHead || !reopenRows) return;
     var selectedMonth = reopenMonthSel.value;
@@ -3669,30 +3724,44 @@ window.__smSetCustom=function(t, key, val, onChanged){
       reopenRows.innerHTML = '<tr><td style="text-align:center;color:var(--on-surface-variant);padding:30px">Không có dữ liệu</td></tr>';
       return;
     }
-    var mBugs = BUGS.filter(function(b){ return getCreatedMonthYear(b.created) === selectedMonth; });
-    var bugsPerDev = {}, totalBugs = mBugs.length, bugByKey = {};
-    mBugs.forEach(function(b){
-      var devList = (b.dev||'Chưa gán').trim().split(/[,;+&\/]/).map(function(s){ return s.trim(); }).filter(Boolean);
-      if(!devList.length) devList = ['Chưa gán'];
-      var fraction = 1/devList.length;
-      devList.forEach(function(d){ bugsPerDev[d] = (bugsPerDev[d]||0) + fraction; });
-      if(b.key) bugByKey[b.key] = b;
-    });
-    var distinctPerDev = {}, fixPerDev = {}, detailPerDev = {}, distinctTotal = 0;
-    Object.keys(REOPEN).forEach(function(key){
-      var r = REOPEN[key]||{}, cnt = +r.count||0; if(cnt<=0) return;
-      var b = bugByKey[key];
-      if(!b){ var rm = r.month||'', p = rm.split('-'), fm = p.length>=2 ? (p[1]+'/'+p[0]) : rm; if(fm !== selectedMonth) return; }
-      var devStr = ((b ? b.dev : r.dev)||'Chưa gán').trim(), fx = fixOf(r);
-      var devList = devStr.split(/[,;+&\/]/).map(function(s){ return s.trim(); }).filter(Boolean);
-      if(!devList.length) devList = ['Chưa gán'];
-      var fraction = 1/devList.length; distinctTotal++;
-      devList.forEach(function(d){
-        distinctPerDev[d] = (distinctPerDev[d]||0) + fraction;
-        fixPerDev[d] = (fixPerDev[d]||0) + (fx*fraction);
-        (detailPerDev[d] = detailPerDev[d]||[]).push({ id: b?b.id:key, summary: b?b.summary:'', reopen: cnt*fraction, fix: fx*fraction });
+    // FROZEN cho tháng đã đóng (Decision #47) — giữ nguyên semantics live (RAW, không dedup),
+    // chỉ chặn trôi. Tháng hiện tại/chưa freeze -> tính LIVE từ BUGS + REOPEN.
+    var selYm = toYm(selectedMonth); var frozen = frozenFor(selYm);
+    var bugsPerDev = {}, totalBugs = 0, distinctPerDev = {}, fixPerDev = {}, detailPerDev = {}, distinctTotal = 0;
+    if(frozen && frozen.reopen){
+      var fr = frozen.reopen;
+      totalBugs = fr.totalBugs||0; distinctTotal = fr.distinctTotal||0;
+      Object.keys(fr.devs||{}).forEach(function(d){
+        var e = fr.devs[d]||{};
+        distinctPerDev[d] = e.nb||0; fixPerDev[d] = e.fx||0; bugsPerDev[d] = e.denom||0;
+        detailPerDev[d] = e.detail||[];
       });
-    });
+    } else {
+      var mBugs = BUGS.filter(function(b){ return monthOf(b) === selectedMonth; });
+      totalBugs = mBugs.length;
+      var bugByKey = {};
+      mBugs.forEach(function(b){
+        var devList = (b.dev||'Chưa gán').trim().split(/[,;+&\/]/).map(function(s){ return s.trim(); }).filter(Boolean);
+        if(!devList.length) devList = ['Chưa gán'];
+        var fraction = 1/devList.length;
+        devList.forEach(function(d){ bugsPerDev[d] = (bugsPerDev[d]||0) + fraction; });
+        if(b.key) bugByKey[b.key] = b;
+      });
+      Object.keys(REOPEN).forEach(function(key){
+        var r = REOPEN[key]||{}, cnt = +r.count||0; if(cnt<=0) return;
+        var b = bugByKey[key];
+        if(!b){ var fm = _sheetMY(r.month, '') || (r.month||''); if(fm !== selectedMonth) return; }
+        var devStr = ((b ? b.dev : r.dev)||'Chưa gán').trim(), fx = fixDeliv(r, b);
+        var devList = devStr.split(/[,;+&\/]/).map(function(s){ return s.trim(); }).filter(Boolean);
+        if(!devList.length) devList = ['Chưa gán'];
+        var fraction = 1/devList.length; distinctTotal++;
+        devList.forEach(function(d){
+          distinctPerDev[d] = (distinctPerDev[d]||0) + fraction;
+          fixPerDev[d] = (fixPerDev[d]||0) + (fx*fraction);
+          (detailPerDev[d] = detailPerDev[d]||[]).push({ id: b?b.id:key, summary: b?b.summary:'', reopen: cnt*fraction, fix: fx*fraction });
+        });
+      });
+    }
     if(reopenKpi){
       var hp = reopenPct(distinctTotal, totalBugs);
       reopenKpi.innerHTML = hp === null ? '<span class="rk-sub">Không có bug trong tháng này.</span>'
@@ -3733,46 +3802,48 @@ window.__smSetCustom=function(t, key, val, onChanged){
   });
 
   // ---------- Tồn đọng T-1 (dùng cho dải tóm tắt TRONG chart export) ----------
-  var BACKLOG_MONTHS = DATA.backlogMonths || {};
-  var CARRY_MONTHS = DATA.carryMonths || {};
   function isOpenBug(s){ return !isClosed(s) && !isReject(s); }
   function toYm(mmYYYY){ var p=(mmYYYY||'').split('/'); return p.length>=2 ? p[1]+'-'+p[0] : ''; }  // MM/YYYY -> YYYY-MM
   function prevYm(ym){ var y=+ym.slice(0,4), m=+ym.slice(5,7)-1; if(m===0){y--;m=12;} return y+'-'+(m<10?'0'+m:m); }
-  var LIVE_BY_KEY = (function(){ var o={}; BUGS.forEach(function(b){ if(b.key) o[b.key]=b; }); return o; })();
+  function curSheetOf(ym){ return 'T'+String(parseInt(ym.slice(5,7),10)); }  // 2026-07 -> 'T7'
   // Fingerprint nội dung — PHẢI khớp _norm/_fp phía Python (bug_backlog.py) để match 2 phía.
   function _bnorm(s){ return (s==null?'':(''+s)).toLowerCase().split(/\s+/).filter(Boolean).join(' '); }
   function _fpOf(b){ return _bnorm(b.project)+'|'+_bnorm(b.service)+'|'+_bnorm(b.feature)+'|'+_bnorm(b.summary); }
+  // Khử trùng theo fingerprint nội dung: cùng 1 bug thật bị copy sang nhiều sheet
+  // (Decision #36/#46) thành nhiều dòng cùng created-month -> chỉ giữ 1 bản đại diện
+  // (created mới nhất, "bản mới nhất thắng" Decision #37). Dùng cho count/chart để KHÔNG
+  // double-count (khớp newCount của computeBacklog).
+  function dedupByFp(list){
+    var by = {};
+    list.forEach(function(b){ var f=_fpOf(b), p=by[f]; if(!p || (b.created||'') >= (p.created||'')) by[f]=b; });
+    return Object.keys(by).map(function(f){ return by[f]; });
+  }
 
-  // Tính tồn đọng T-1 cho tháng report 'YYYY-MM'. Dùng chung cho card + dải trên chart.
-  // 2 nhóm: còn (vẫn mở) vs đã xử lý (đã đóng HOẶC không còn trong file) -> luôn khớp total.
+  // Tính tồn đọng T-1 cho tháng report 'YYYY-MM' — TRỰC TIẾP từ bug live (Decision #46,
+  // PHẢI khớp prev_month_backlog phía Python). Gom bug TẠO trong T-1 theo fingerprint
+  // (khử trùng bản copy T6↔T7), mỗi bug thật xét 1 lần:
+  //   - còn treo (still_open): KHÔNG bản nào Closed/Reject.
+  //   - đã xử lý (resolved): có bản đóng VÀ có bản ở sheet 'T<tháng report>' (đã bê sang rồi đóng).
+  //   - đóng gọn trong T-1 (đóng nhưng không bê sang) -> KHÔNG phải tồn đọng.
   function computeBacklog(reportYm){
-    var prev = prevYm(reportYm);
-    var newCount = BUGS.filter(function(b){ return (b.created||'').slice(0,7) === reportYm; }).length;
-    var total=0, stillOpen=0, resolved=0;
-    var carry = CARRY_MONTHS[prev];
-    if(carry){
-      // Cách MỚI (chính xác): carry[T-1] = bug MỞ cuối T-1, đối chiếu theo fingerprint nội dung.
-      var liveFp = {};
-      BUGS.forEach(function(b){ var f=_fpOf(b); (liveFp[f]=liveFp[f]||[]).push(b); });
-      Object.keys(carry).forEach(function(fp){
-        if(!isOpenBug(carry[fp].s)) return;            // phòng hờ (carry vốn chỉ chứa bug mở)
-        total++;
-        var matches = liveFp[fp] || [];
-        if(matches.some(function(m){ return isOpenBug(m.status); })) stillOpen++; else resolved++;
-      });
-      return { hasSnapshot:true, prev:prev, newCount:newCount, total:total,
-               stillOpen:stillOpen, resolved:resolved };
-    }
-    // Fallback (tháng chưa có carry, vd 2026-06/07): theo tháng-tạo + key sheet.
-    var snap = BACKLOG_MONTHS[prev];
-    if(!snap) return { hasSnapshot:false, prev:prev, newCount:newCount, total:0, stillOpen:0, resolved:0 };
-    Object.keys(snap).forEach(function(key){
-      if(!isOpenBug(snap[key].s)) return;              // cuối T-1 đã đóng -> không phải tồn đọng
-      total++;
-      var b = LIVE_BY_KEY[key];
-      if(b && isOpenBug(b.status)) stillOpen++; else resolved++;   // không còn (b==null) -> gộp đã xử lý
+    var prev = prevYm(reportYm), curSheet = curSheetOf(reportYm);
+    // mới phát sinh = số bug thật (unique fingerprint) tạo trong tháng report.
+    var newFps = {}; BUGS.forEach(function(b){ if((b.created||'').slice(0,7)===reportYm) newFps[_fpOf(b)]=1; });
+    var newCount = Object.keys(newFps).length;
+    // gom bug tạo T-1 theo fingerprint
+    var groups = {};
+    BUGS.forEach(function(b){ if((b.created||'').slice(0,7)===prev){ var f=_fpOf(b); (groups[f]=groups[f]||[]).push(b); } });
+    var total=0, stillOpen=0, resolved=0, hasAny=false;
+    Object.keys(groups).forEach(function(f){
+      hasAny=true;
+      var g=groups[f];
+      var anyClosed = g.some(function(x){ return !isOpenBug(x.status); });
+      var carried   = g.some(function(x){ return (x.month||'')===curSheet; });
+      if(!anyClosed){ total++; stillOpen++; }
+      else if(carried){ total++; resolved++; }
+      // else: đóng gọn trong T-1, không bê sang -> bỏ
     });
-    return { hasSnapshot:true, prev:prev, newCount:newCount, total:total,
+    return { hasSnapshot:hasAny, prev:prev, newCount:newCount, total:total,
              stillOpen:stillOpen, resolved:resolved };
   }
 

@@ -667,7 +667,7 @@ def scan():
         # Tầng-1 skip) để tháng hiện tại luôn = trạng thái live mới nhất.
         try:
             from bug_backlog import archive as _archive_backlog
-            _archive_backlog(all_cur_bugs)
+            _archive_backlog(all_cur_bugs, reopen)
         except Exception as e:   # noqa: BLE001 — archive KHÔNG được làm sập lượt scan
             _log('backlog archive warn: ' + _safe(e))
 
