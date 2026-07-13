@@ -233,11 +233,14 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
 
         out, seen = [], set()
         for bk, fp in linked:
-            cands = []
-            if bk in by_key:
-                cands.append(by_key[bk])
+            # Đã có fingerprint -> resolve THUẦN theo nội dung bug user đã link (Decision #50).
+            # KHÔNG trộn occupant STT hiện tại (by_key): STT không ổn định — chèn/xoá/sắp lại dòng
+            # trong sheet làm key trỏ sang bug KHÁC; nếu bug đó created mới hơn sẽ thắng max(created)
+            # và hiển thị nhầm bug không liên quan. Chỉ entry legacy CHƯA có fp mới fallback theo key.
             if fp:
-                cands += by_fp.get(fp, [])
+                cands = by_fp.get(fp, [])
+            else:
+                cands = [by_key[bk]] if bk in by_key else []
             if not cands:
                 continue
             b = _newest(cands)
