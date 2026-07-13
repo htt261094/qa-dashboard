@@ -18,7 +18,7 @@ from render.base import load_css_v2, load_js_v2, _json_script
 # ===================================================================
 _FONTS_V2 = (
     '<link rel="preconnect" href="https://fonts.googleapis.com">'
-    '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700'
+    '<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400..700'
     '&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">'
     '<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>'
     '<link href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.1/src/light/style.css" rel="stylesheet">'

@@ -57,7 +57,7 @@ html[data-theme="dark"]{
   vertical-align:middle;font-size:20px;-webkit-font-smoothing:antialiased}
 .mi-sm{font-size:18px}.mi-xs{font-size:16px}.mi-lg{font-size:26px}
 html,body{height:100%}
-body{font-family:Inter,"Segoe UI",system-ui,-apple-system,sans-serif;background:var(--canvas);color:var(--on-surface);
+body{font-family:"Hanken Grotesk","Segoe UI",system-ui,-apple-system,sans-serif;background:var(--canvas);color:var(--on-surface);
      font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;transition:background var(--dur-2),color var(--dur-2);overflow:hidden}
 /* Số không nhảy khi re-render */
 .kpi .value,.kpi-value,.due,.pager,.cell-date,.bm-card-num,.tc-metric .val,.pill-badge,.tcount,.cmt-count{font-variant-numeric:tabular-nums}
