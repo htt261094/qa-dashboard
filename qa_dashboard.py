@@ -65,7 +65,7 @@ _DEV_GET_ALLOWED = frozenset({
 _DEV_POST_ALLOWED = frozenset({
     '/dismiss', '/save-pat', '/delete-pat',
     '/jira-transitions', '/do-transition', '/add-comment',
-    '/duedate-perm', '/set-duedate', '/export-bug-log',
+    '/duedate-perm', '/set-duedate', '/edit-perms', '/update-issue', '/export-bug-log',
 })
 
 
@@ -902,7 +902,7 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             self._post_set_custom_status()
             return
         if path in ('/jira-transitions', '/do-transition', '/add-comment',
-                         '/duedate-perm', '/set-duedate'):
+                         '/duedate-perm', '/set-duedate', '/edit-perms', '/update-issue'):
             self._handle_jira_write()
             return
         if path == '/create-subtask':

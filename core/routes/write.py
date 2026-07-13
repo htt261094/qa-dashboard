@@ -20,7 +20,7 @@ from config import JIRA_URL
 from pat_store import load_user_pat
 from custom_status import set_custom_status, is_valid
 from jira_write import (get_transitions, do_transition, add_comment, create_subtask,
-                        can_edit_duedate, set_duedate)
+                        can_edit_duedate, set_duedate, get_editmeta_fields, update_issue)
 
 
 class WriteMixin:
@@ -63,6 +63,41 @@ class WriteMixin:
                     self._reply_json(False, {'ok': False, 'msg': 'Hạn không hợp lệ.'})
                     return
                 ok, msg = set_duedate(key, due or '', pat)
+                self._reply_json(ok, {'ok': ok, 'msg': msg})
+            elif self.path == '/edit-perms':
+                # UI gate cho form Sửa task: field nào (title/assignee/due) user được sửa.
+                ok, res = get_editmeta_fields(key, pat)
+                if not ok:
+                    self._reply_json(False, {'ok': False, 'msg': res})
+                else:
+                    self._reply_json(True, {'ok': True, 'fields': {
+                        'summary': 'summary' in res,
+                        'assignee': 'assignee' in res,
+                        'duedate': 'duedate' in res}})
+            elif self.path == '/update-issue':
+                # Sửa title/assignee/due bằng PAT cá nhân. Chỉ gửi field client thực sự đổi.
+                fields = {}
+                summary = payload.get('summary')
+                if isinstance(summary, str):
+                    s = summary.strip()
+                    if not s:
+                        self._reply_json(False, {'ok': False, 'msg': 'Tiêu đề không được rỗng.'})
+                        return
+                    fields['summary'] = s[:250]
+                assignee = payload.get('assignee')
+                if isinstance(assignee, str) and assignee.strip():
+                    fields['assignee'] = {'name': assignee.strip()}
+                due = payload.get('duedate')
+                if isinstance(due, str):
+                    d = due.strip()
+                    if d and not re.match(r'^\d{4}-\d{2}-\d{2}$', d):
+                        self._reply_json(False, {'ok': False, 'msg': 'Ngày phải đúng định dạng YYYY-MM-DD.'})
+                        return
+                    fields['duedate'] = d or None
+                if not fields:
+                    self._reply_json(False, {'ok': False, 'msg': 'Không có thay đổi nào.'})
+                    return
+                ok, msg = update_issue(key, fields, pat)
                 self._reply_json(ok, {'ok': ok, 'msg': msg})
             else:  # /add-comment
                 body = payload.get('body')

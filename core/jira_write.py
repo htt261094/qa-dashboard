@@ -194,6 +194,45 @@ def set_duedate(key, duedate, pat):
         return False, _redact(f'Lỗi mạng: {e}', pat)
 
 
+def get_editmeta_fields(key, pat):
+    """Tập field mà CHÍNH user (theo PAT cá nhân) được sửa trên issue này (theo /editmeta —
+    đã tính Edit Issues permission + field/workflow config). Trả (True, set(field_ids))
+    hoặc (False, msg). Gate cho UI form sửa; enforce thật vẫn ở update_issue."""
+    try:
+        r = requests.get(f"{JIRA_URL}/rest/api/2/issue/{key}/editmeta",
+                         headers=_headers(pat), timeout=_TIMEOUT)
+        if r.status_code != 200:
+            return False, _err_for(r.status_code, pat)
+        fields = (r.json() or {}).get('fields') or {}
+        return True, set(fields.keys())
+    except requests.RequestException as e:
+        return False, _redact(f'Lỗi mạng: {e}', pat)
+
+
+def update_issue(key, fields, pat):
+    """PUT cập nhật field issue bằng PAT cá nhân -> Jira tự enforce quyền (không đủ = 403/400).
+    `fields` = dict field-id -> value đã build sẵn (summary/assignee/duedate...). Trả (ok, msg)."""
+    if not fields:
+        return False, 'Không có gì để cập nhật.'
+    try:
+        r = requests.put(f"{JIRA_URL}/rest/api/2/issue/{key}",
+                         headers=_headers(pat), json={'fields': fields}, timeout=_TIMEOUT)
+        if r.status_code in (200, 204):
+            return True, 'Đã cập nhật task trên Jira.'
+        if r.status_code == 400:
+            try:
+                err = r.json()
+                msgs = list((err.get('errors') or {}).values()) + (err.get('errorMessages') or [])
+                if msgs:
+                    return False, _redact('; '.join(str(m) for m in msgs), pat)
+            except ValueError:
+                pass
+            return False, 'Jira từ chối cập nhật (400).'
+        return False, _err_for(r.status_code, pat)
+    except requests.RequestException as e:
+        return False, _redact(f'Lỗi mạng: {e}', pat)
+
+
 def add_comment(key, body, pat):
     """Thêm comment THẬT (ghi tên chủ PAT). Trả (ok, msg)."""
     body = (body or '').strip()

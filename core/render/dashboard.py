@@ -260,6 +260,7 @@ def render_admin_v2(data, activities, cmap, user, bug_log_data=None,
         '<th style="width:140px">Task ID</th><th>Title</th>'
         '<th style="width:180px">Member</th><th style="width:170px">Status</th>'
         '<th style="width:120px">Due Date</th><th style="width:120px">Ngày tạo</th><th style="width:120px">Updated</th>'
+        '<th style="width:70px">Thao tác</th>'
         '</tr></thead><tbody id="rows"></tbody></table></div>'
         '<div class="pager" id="pager"></div></div>'
         # KPI cards
