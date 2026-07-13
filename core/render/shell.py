@@ -7,7 +7,7 @@ the full document. Assets inline per-render via render.base. See issue #104 / #8
 import json
 from datetime import datetime
 
-from config import JIRA_URL, USERS, display_name, username_from_email
+from config import JIRA_URL, USERS, DEV_EMAILS, display_name, username_from_email
 from custom_status import CUSTOM_STATUSES
 from issues import esc
 
@@ -65,20 +65,27 @@ def render_sidebar_v2(active, user):
         ph = _ph_nav.get(icon, icon)
         return (f'<a{cls} href="{href}"><span class="material-symbols-rounded ph-{wt} ph-{ph}"></span> {label}</a>')
 
-    nav = lnk('/', 'dashboard', 'space_dashboard', 'Dashboard')
-    if is_admin:
-        nav += lnk('/my-work', 'mywork', 'person', 'Việc của tôi')
-        nav += lnk('/leader-eval', 'leadereval', 'star', 'Đánh giá')
-    nav += lnk('/roadmap', 'roadmap', 'map', 'Roadmap')
-    nav += lnk('/bug-log', 'buglog', 'bug_report', 'Bugs')
-    nav += lnk('/test-cases', 'testcases', 'checklist', 'Test Case')
-    nav += lnk('/analytics', 'analytics', 'monitoring', 'Analytics')
-    nav += lnk('/docs', 'docs', 'description', 'Tài liệu')
+    is_dev = bool(email) and email in DEV_EMAILS and not is_admin
+    if is_dev:
+        # Role dev (tạm thời): chỉ 2 tab. Trang chính = "Việc của tôi".
+        nav = lnk('/my-work', 'mywork', 'person', 'Việc của tôi')
+        nav += lnk('/bug-log', 'buglog', 'bug_report', 'Bugs')
+    else:
+        nav = lnk('/', 'dashboard', 'space_dashboard', 'Dashboard')
+        if is_admin:
+            nav += lnk('/my-work', 'mywork', 'person', 'Việc của tôi')
+            nav += lnk('/leader-eval', 'leadereval', 'star', 'Đánh giá')
+        nav += lnk('/roadmap', 'roadmap', 'map', 'Roadmap')
+        nav += lnk('/bug-log', 'buglog', 'bug_report', 'Bugs')
+        nav += lnk('/test-cases', 'testcases', 'checklist', 'Test Case')
+        nav += lnk('/analytics', 'analytics', 'monitoring', 'Analytics')
+        nav += lnk('/docs', 'docs', 'description', 'Tài liệu')
 
     uname = username_from_email(email) if (email and '@' in email) else None
     short = display_name(uname) if uname else (email.split('@')[0] if '@' in email else 'Local')
     init = (short[:2] or 'ME').upper()
     role = ('<span class="role-chip admin">Admin</span>' if is_admin
+            else '<span class="role-chip">Dev</span>' if is_dev
             else '<span class="role-chip">Chỉ xem</span>')
     sub = esc(email) if email else 'Local dev'
     logout = ('<div class="sep"></div>'

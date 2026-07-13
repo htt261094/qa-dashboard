@@ -20,7 +20,7 @@ from urllib.parse import urlparse, parse_qs
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'core'))
 
 from config import (JIRA_URL, USERS, PORT, ADMIN_EMAIL, ADMIN_EMAILS, ALLOWED_DOMAIN,
-                    AUTH_ENABLED, SELF_USER, PUBLIC_BASE_URL,
+                    AUTH_ENABLED, SELF_USER, PUBLIC_BASE_URL, DEV_EMAILS,
                     display_name, username_from_email)
 from auth import (SESSION_COOKIE, SESSION_TTL, email_from_session,
                   session_status, make_session_token)
@@ -33,7 +33,7 @@ from task_link import load_links, set_task_links, tasks_of, fp_of
 from bug_backlog import fingerprint as bug_fingerprint
 from testcase_link import (load_links as tc_load_links, set_folder_links as tc_set_folder_links,
                            folders_for_task as tc_folders_for_task)
-from jira_api import (fetch_all_shared, scope_data, fetch_activity_feed, load_dismissed,
+from jira_api import (fetch_all, fetch_all_shared, scope_data, fetch_activity_feed, load_dismissed,
                       dismiss_activities, run_parallel, fetch_issue_detail,
                       search_parent_ptsp, search_people, search_qa_tasks, global_search)
 from docs import load_docs, save_docs, valid_tree
@@ -53,6 +53,20 @@ from routes.write import WriteMixin
 from routes.uploads import UploadsMixin
 
 ACTIVITY_DAYS = 7  # cửa sổ activity feed kéo từ Jira changelog
+
+# Role "dev" (tạm thời) chỉ được chạm các path này. GET khác -> redirect /my-work; POST
+# khác -> 403. Gồm 2 trang chính + endpoint phụ trợ để 2 trang đó hoạt động (chuông poll,
+# drawer detail, tìm task/bug cho palette, quản lý PAT cá nhân của chính họ).
+_DEV_GET_ALLOWED = frozenset({
+    '/my-work', '/my-work.html', '/bug-log', '/bug-log.html',
+    '/settings', '/settings.html', '/has-pat', '/has-drive',
+    '/activity-feed', '/issue-comments', '/global-search', '/search-bugs',
+})
+_DEV_POST_ALLOWED = frozenset({
+    '/dismiss', '/save-pat', '/delete-pat',
+    '/jira-transitions', '/do-transition', '/add-comment',
+    '/duedate-perm', '/set-duedate', '/export-bug-log',
+})
 
 
 def _drop_own_activities(merged, email):
@@ -161,6 +175,20 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             # AUTH tắt -> admin chỉ khi loopback; AUTH bật mà chưa login -> KHÔNG phải admin.
             return (not AUTH_ENABLED) and self._is_loopback()
         return email in ADMIN_EMAILS
+
+    def _is_dev(self):
+        """Role "dev" (tạm thời): email trong DEV_EMAILS. Không phải QA/admin — chỉ được
+        xem "Việc của tôi" (task của chính họ) + Bug Log (read-only)."""
+        email = self._user_email()
+        return bool(email) and email in DEV_EMAILS and not self._is_admin()
+
+    def _activity_scope(self):
+        """Username để scope feed/overlay cho người đang xem. None = admin (cả team).
+        QA -> username_from_email; dev (không trong USERS) -> local-part email."""
+        if self._is_admin():
+            return None
+        email = self._user_email()
+        return username_from_email(email) or (email.split('@')[0] if self._is_dev() else None)
 
     def _user_ctx(self):
         """(email, is_admin) cho nav chip; None khi chưa login (local dev)."""
@@ -282,7 +310,7 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         vá status + nhãn nội bộ real-time qua poll (Decision #24), KHÔNG reload. status lấy
         từ chính feed (issue đổi trong window), customs từ overlay -> gần như zero extra call."""
         email = self._user_email()
-        scope = None if self._is_admin() else username_from_email(email)
+        scope = self._activity_scope()
         try:
             res = run_parallel({
                 # block=False (#160): chuông best-effort — cache quá cũ thì feed rỗng + refresh
@@ -368,6 +396,10 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             self._forbidden()
             return
         self._maybe_refresh_session()   # sliding session (#161): gia hạn cookie khi đang dùng
+        # ----- Role dev (tạm thời): chỉ /my-work + /bug-log + endpoint phụ trợ. Path khác -> /my-work -----
+        if self._is_dev() and path not in _DEV_GET_ALLOWED:
+            self._redirect('/my-work')
+            return
         # ----- Drive connect (admin-only) — sau gate authed/domain -----
         if path == '/drive/connect':
             self._do_drive_connect()
@@ -442,21 +474,35 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
     # _get_uploads -> routes/uploads.py (UploadsMixin, B3/#115)
 
     def _get_my_work(self):
-        # Việc của tôi = lens cá nhân của admin (task của chính mình). QA thường KHÔNG
-        # cần (dashboard `/` của họ đã auto-scope về chính họ) -> đá về dashboard.
-        if not self._is_admin():
+        # Việc của tôi = lens cá nhân của admin (task của chính mình) HOẶC của dev (role
+        # tạm thời — đây là trang chính của họ). QA thường KHÔNG cần (dashboard `/` của họ
+        # đã auto-scope về chính họ) -> đá về dashboard.
+        is_dev = self._is_dev()
+        if not (self._is_admin() or is_dev):
             self._redirect('/')
             return
-        scope = self._self_username()
         fresh = self._wants_fresh()   # F5 -> ép data tươi; click chuyển tab -> SWR nhanh
-        # data full team qua snapshot chéo máy rồi scope về chính admin (xem Decision offline-snapshot).
-        try:
-            full, stale = fetch_all_shared(fetched_by=self._user_email(), force=fresh)
-        except RuntimeError:
-            self._html(render_shell_error('mywork', self._user_ctx(),
-                                          title='Việc của tôi — QA Workspace'))
-            return
-        data = scope_data(full, scope)
+        if is_dev:
+            # Dev không nằm trong USERS -> snapshot team không có task họ. Fetch riêng theo
+            # username (JQL assignee = <dev>, lọc server-side nên không lộ task người khác).
+            scope = self._user_email().split('@')[0]
+            try:
+                data = fetch_all(scope_user=scope, force=fresh)
+            except RuntimeError:
+                self._html(render_shell_error('mywork', self._user_ctx(),
+                                              title='Việc của tôi — QA Workspace'))
+                return
+            stale = False
+        else:
+            scope = self._self_username()
+            # data full team qua snapshot chéo máy rồi scope về chính admin (xem Decision offline-snapshot).
+            try:
+                full, stale = fetch_all_shared(fetched_by=self._user_email(), force=fresh)
+            except RuntimeError:
+                self._html(render_shell_error('mywork', self._user_ctx(),
+                                              title='Việc của tôi — QA Workspace'))
+                return
+            data = scope_data(full, scope)
         # overlay nhãn custom qua KV -> sống offline; chuông notif qua Jira -> có thể fail.
         try:
             overlay, _cust_act = load_bundle(scope, ACTIVITY_DAYS)
@@ -564,7 +610,7 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
                 except Exception:   # noqa: BLE001 — popup là phụ trợ, lỗi -> bỏ qua
                     pending = None
             self._html(render_bug_log_v2(res['bug'], res['links'],
-                                         editable=True,
+                                         editable=not self._is_dev(),
                                          user=self._user_ctx(), activities=res['bell'],
                                          sources=res['sources'], pending=pending))
         except RuntimeError as e:
@@ -818,6 +864,10 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             self._json(403, b'{"ok":false,"err":"forbidden"}')
             return
         path = urlparse(self.path).path
+        # Role dev (tạm thời): chỉ được POST các thao tác của chính họ (PAT + task riêng).
+        if self._is_dev() and path not in _DEV_POST_ALLOWED:
+            self._json(403, b'{"ok":false,"err":"forbidden"}')
+            return
         if path == '/dismiss':
             self._post_dismiss()
             return
@@ -835,6 +885,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             return
         if path == '/save-bug-log-sources':
             self._post_save_bug_log_sources()
+            return
+        if path == '/export-bug-log':
+            self._post_export_bug_log()
             return
         if path == '/seen-bug-log-changes':
             self._post_seen_bug_log_changes()
@@ -939,6 +992,45 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         except (RuntimeError, OSError):
             ok = False
         self._json(200 if ok else 400, b'{"ok":true}' if ok else b'{"ok":false}')
+
+    def _post_export_bug_log(self):
+        """Nhận rows đã lọc từ client (đúng bảng đang xem) -> trả file .xlsx tải về.
+        Header cột cố định server-side (7 cột, KHÔNG có liên kết task). Cho MỌI người
+        authed (mục đích: dev-lead export). Rows chỉ là chuỗi hiển thị -> KHÔNG chạm
+        Jira/Drive/PAT nên an toàn mở cho cả role dev."""
+        import re
+        from urllib.parse import quote
+        from xlsx_export import build_xlsx
+        HEADERS = ['ID', 'Module', 'Mô tả bug', 'Ngày', 'Trạng thái', 'Tester', 'Dev in charge']
+        try:
+            length = int(self.headers.get('Content-Length', 0))
+            if not (0 < length <= 5_000_000):
+                self._json(400, b'{"ok":false,"msg":"payload"}')
+                return
+            payload = json.loads(self.rfile.read(length).decode('utf-8'))
+            raw = payload.get('rows') if isinstance(payload, dict) else None
+            if not isinstance(raw, list):
+                self._json(400, b'{"ok":false,"msg":"rows"}')
+                return
+            rows = []
+            for r in raw[:20000]:
+                if isinstance(r, list):
+                    rows.append([('' if c is None else str(c)) for c in r[:len(HEADERS)]])
+            fname = re.sub(r'[^\w.\-]+', '_',
+                           str((payload.get('filename') if isinstance(payload, dict) else '') or 'bug-log'))[:80]
+            fname = fname or 'bug-log'
+            if not fname.lower().endswith('.xlsx'):
+                fname += '.xlsx'
+            data = build_xlsx(HEADERS, rows, sheet_name='Bug Log')
+        except (ValueError, json.JSONDecodeError, OSError, UnicodeDecodeError):
+            self._json(400, b'{"ok":false,"msg":"loi export"}')
+            return
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        self.send_header('Content-Disposition', f"attachment; filename*=UTF-8''{quote(fname)}")
+        self.send_header('Content-Length', str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def _post_sync_bug_log(self):
         # Trigger thủ công: chạy scan() bug log ngay (admin-only).

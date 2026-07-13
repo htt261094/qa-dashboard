@@ -153,6 +153,11 @@ ADMIN_EMAIL = list(ADMIN_EMAILS)[0] if ADMIN_EMAILS else ''
 # Username Jira của chính admin (cho tab "My work" — task của riêng mình). Local dev (chưa
 # login) fallback về đây. Default = thanhht1 (acting manager). Override qua .env nếu cần.
 SELF_USER = CFG.get('JIRA_SELF_USER', 'thanhht1').strip()
+# Email role "dev" (KHÔNG phải QA trong USERS, KHÔNG phải admin): CHỈ thấy tab "Việc của tôi"
+# (task assignee = chính họ) + Bug Log (read-only). Comma-sep trong .env JIRA_DEV_EMAIL.
+# DEV_USERS = local-part tương ứng -> cho phép scope fetch_all/feed theo username của dev.
+DEV_EMAILS = {e.strip() for e in CFG.get('JIRA_DEV_EMAIL', '').lower().split(',')} - {''}
+DEV_USERS = {e.split('@')[0] for e in DEV_EMAILS}
 # Domain được phép vào (vd 'baokim.vn'). Rỗng = không chặn domain ở app (để Cloudflare lo).
 ALLOWED_DOMAIN = CFG.get('JIRA_ALLOWED_DOMAIN', '').strip().lstrip('@').lower()
 
