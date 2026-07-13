@@ -10,7 +10,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
-from config import (JIRA_URL, PAT, USERS, TASK_PTSP_TYPE_ID, actor_name,
+from config import (JIRA_URL, PAT, USERS, DEV_USERS, TASK_PTSP_TYPE_ID, actor_name,
                     LEADER_EVAL_NUM_FIELD, LEADER_EVAL_TEXT_FIELD, OFFLINE,
                     SNAPSHOT_CACHE_FILE, atomic_write, JIRA_MAX_CONCURRENT)
 from issues import parse_date, i_assignee, i_reporter
@@ -364,7 +364,7 @@ def fetch_activity_feed(days=7, cap=300, max_issues=120, scope_user=None, with_s
     # Cache độc lập với with_status (luôn lưu tuple (acts, statuses)) -> bell embed (no patch)
     # và poll (patch) DÙNG CHUNG 1 lần fetch changelog (call nặng nhất), không gọi đôi.
     # SWR: stale -> trả ngay + refresh nền (chuyển tab KHÔNG block trên call này).
-    if scope_user is not None and scope_user not in USERS:
+    if scope_user is not None and scope_user not in USERS and scope_user not in DEV_USERS:
         raise ValueError('unknown scope_user')
     cache_key = f'activity:{days}:{scope_user}'
     result = _cached_swr(
@@ -825,7 +825,7 @@ def fetch_all(scope_user=None, force=False):
     Cache SWR: fresh trong 2 phút; stale -> trả ngay + refresh nền (chuyển tab/F5 KHÔNG
     block trên 5 call Jira), data tươi lại ở lần load kế tiếp.
     """
-    if scope_user is not None and scope_user not in USERS:
+    if scope_user is not None and scope_user not in USERS and scope_user not in DEV_USERS:
         raise ValueError('unknown scope_user')
     return _cached_swr(f'fetch_all:{scope_user}', lambda: _compute_fetch_all(scope_user),
                        force=force)

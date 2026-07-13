@@ -2707,6 +2707,8 @@ window.__smSetCustom=function(t, key, val, onChanged){
     'Rejected':['st-rejected','Bị từ chối'], 'Closed':['st-closed','Đã đóng'] };
   function stCell(s){ var m=ST[s]||['st-default', s||'—'];
     return '<span class="st-badge '+m[0]+'">'+esc(m[1])+'</span>'; }
+  // nhãn trạng thái dạng text (giống badge trên bảng) -> dùng cho export Excel
+  function statusLabel(s){ var m=ST[s]; return m?m[1]:(s||''); }
 
   function taskCell(b){
     var tasks = b.tasks || [];
@@ -2725,6 +2727,8 @@ window.__smSetCustom=function(t, key, val, onChanged){
   function fileBugs(){ return activeFid ? BUGS.filter(function(b){ return b.fid===activeFid; }) : BUGS; }
   // tháng có mặt trong file đang xem (giữ thứ tự MONTHS)
   function availMonths(){ var fb=fileBugs(); return MONTHS.filter(function(m){ return fb.some(function(b){ return b.month===m; }); }); }
+  // bug của ĐÚNG tháng đang chọn (không kèm filter tester/dev/link) -> nguồn cho dropdown lọc
+  function monthScopeBugs(){ return fileBugs().filter(function(b){ return b.month===curMonth; }); }
   function monthBugs(){ return fileBugs().filter(function(b){
     if(b.month!==curMonth) return false;
     if(testerFilter && (b.qa||'')!==testerFilter) return false;
@@ -2742,7 +2746,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
   function populateTesters(){
     var sel0=$('blTesterFilter'); if(!sel0) return;
     var seen={}, list=[];
-    fileBugs().forEach(function(b){ var q=(b.qa||'').trim();
+    monthScopeBugs().forEach(function(b){ var q=(b.qa||'').trim();
       if(q && !seen[q]){ seen[q]=true; list.push(q); } });
     list.sort(function(a,b){ return a.localeCompare(b); });
     if(testerFilter && list.indexOf(testerFilter)<0) testerFilter='';   // tester biến mất khi đổi file
@@ -2754,7 +2758,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
   function populateDevs(){
     var sel0=$('blDevFilter'); if(!sel0) return;
     var seen={}, list=[], hasNone=false;
-    fileBugs().forEach(function(b){ var d=(b.dev||'').trim();
+    monthScopeBugs().forEach(function(b){ var d=(b.dev||'').trim();
       if(d){ if(!seen[d]){ seen[d]=true; list.push(d); } } else hasNone=true; });
     list.sort(function(a,b){ return a.localeCompare(b); });
     // dev đang chọn biến mất khi đổi file -> reset (giữ '__none__' nếu file vẫn có bug chưa gán)
@@ -2796,10 +2800,10 @@ window.__smSetCustom=function(t, key, val, onChanged){
   }
 
   function renderTabs(){
-    populateTesters();
     var av = availMonths();
-    if(!av.length){ tabs.innerHTML='<span class="bl-count">Chưa có dữ liệu cho file này.</span>'; return; }
+    if(!av.length){ populateTesters(); tabs.innerHTML='<span class="bl-count">Chưa có dữ liệu cho file này.</span>'; return; }
     if(av.indexOf(curMonth)<0) curMonth=av[0];
+    populateTesters();   // sau khi chốt curMonth -> dropdown chỉ liệt kê dev/tester của đúng tháng
     tabs.innerHTML = av.map(function(m){
       var n = fileBugs().filter(function(b){return b.month===m;}).length;
       return '<button class="bl-tab'+(m===curMonth?' active':'')+'" data-m="'+esc(m)+'">'
@@ -2865,6 +2869,31 @@ window.__smSetCustom=function(t, key, val, onChanged){
   // ----- events: lọc theo trạng thái liên kết task -----
   (function(){ var lf=$('blLinkFilter'); if(!lf) return;
     lf.addEventListener('change', function(){ linkFilter=lf.value||''; page=1; render(); }); })();
+  // ----- export bảng ĐANG XEM ra .xlsx (đúng file + tháng + filter hiện tại) -----
+  function exportExcel(){
+    var list=monthBugs();   // đã áp file + tháng + tester/dev/link
+    if(!list.length){ toast('Không có bug nào để export', false); return; }
+    var rows=list.map(function(b){
+      return [ b.id||'', b.module||'', b.summary||'', formatCreated(b.created),
+               statusLabel(b.status), b.qa||'', b.dev||'' ]; });
+    var lbl=(activeLabel()||'tat-ca').replace(/[^\w]+/g,'-').replace(/^-+|-+$/g,'');
+    var mon=(curMonth||'').replace(/[\/]/g,'-');
+    var fname='bug-log_'+lbl+(mon?'_'+mon:'')+'.xlsx';
+    var btn=$('blExportBtn'); if(btn){ btn.disabled=true; }
+    fetch('/export-bug-log',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({rows:rows,filename:fname})})
+      .then(function(r){ if(!r.ok) throw 0; return r.blob(); })
+      .then(function(blob){
+        var url=URL.createObjectURL(blob), a=document.createElement('a');
+        a.href=url; a.download=fname; document.body.appendChild(a); a.click();
+        setTimeout(function(){ URL.revokeObjectURL(url); a.remove(); },1000);
+        toast('Đã export '+list.length+' bug', true);
+      })
+      .catch(function(){ toast('Export lỗi, thử lại', false); })
+      .then(function(){ if(btn){ btn.disabled=false; } });
+  }
+  (function(){ var eb=$('blExportBtn'); if(!eb) return;
+    eb.addEventListener('click', exportExcel); })();
   // ----- events: tick + unlink (delegate trên tbody) -----
   rows.addEventListener('click', function(e){
     var u=e.target.closest('[data-unlink]');

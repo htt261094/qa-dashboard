@@ -87,27 +87,29 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
     edit_link_btn = ('<button class="bl-src-edit material-symbols-rounded ph-light ph-folder-open" id="blEditLinkBtn" '
                      'title="Chọn file bug để xem"></button>') if editable else ''
 
-    # link-to-task bar (chỉ khi editable: cho tick + tạo link)
-    linkbar = ''
+    # Filter lọc-xem (tester/dev/link) — hiện cho MỌI người (kể cả non-admin/dev-lead):
+    # chỉ lọc bảng, không sửa gì. Widget liên kết task (tick + tạo link) mới gate `editable`.
+    filters_html = (
+        '<div class="bl-filter" id="blTesterWrap">'
+        '<span class="material-symbols-rounded ph-light ph-user-focus mi-sm"></span>'
+        '<select id="blTesterFilter"><option value="">Tất cả tester</option></select>'
+        '</div>'
+        '<div class="bl-filter" id="blDevWrap">'
+        '<span class="material-symbols-rounded ph-light ph-wrench mi-sm"></span>'
+        '<select id="blDevFilter"><option value="">Tất cả dev</option></select>'
+        '</div>'
+        '<div class="bl-filter" id="blLinkWrap">'
+        '<span class="material-symbols-rounded ph-light ph-link mi-sm"></span>'
+        '<select id="blLinkFilter">'
+        '<option value="">Liên kết: tất cả</option>'
+        '<option value="linked">Đã liên kết</option>'
+        '<option value="unlinked">Chưa liên kết</option>'
+        '</select>'
+        '</div>'
+    )
+    link_widget = ''
     if editable:
-        linkbar = (
-            '<div class="bl-linkbar">'
-            '<div class="bl-filter" id="blTesterWrap">'
-            '<span class="material-symbols-rounded ph-light ph-user-focus mi-sm"></span>'
-            '<select id="blTesterFilter"><option value="">Tất cả tester</option></select>'
-            '</div>'
-            '<div class="bl-filter" id="blDevWrap">'
-            '<span class="material-symbols-rounded ph-light ph-wrench mi-sm"></span>'
-            '<select id="blDevFilter"><option value="">Tất cả dev</option></select>'
-            '</div>'
-            '<div class="bl-filter" id="blLinkWrap">'
-            '<span class="material-symbols-rounded ph-light ph-link mi-sm"></span>'
-            '<select id="blLinkFilter">'
-            '<option value="">Liên kết: tất cả</option>'
-            '<option value="linked">Đã liên kết</option>'
-            '<option value="unlinked">Chưa liên kết</option>'
-            '</select>'
-            '</div>'
+        link_widget = (
             '<div class="bl-ta" id="blTaskTA">'
             '<span class="material-symbols-rounded ph-light ph-link-simple mi-sm"></span>'
             '<div class="bl-ta-field" id="blTaskChips">'
@@ -117,8 +119,13 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
             '<button class="bl-linkbtn" id="blLinkBtn" disabled>'
             '<span class="material-symbols-rounded ph-light ph-link mi-sm"></span> Liên kết với Task '
             '<span id="blSelCount"></span></button>'
-            '</div>'
         )
+    linkbar = '<div class="bl-linkbar">' + filters_html + link_widget + '</div>'
+    # Export bảng đang xem ra .xlsx (ID/Module/Mô tả/Ngày/Trạng thái/Tester/Dev) — cho MỌI
+    # người (mục đích: dev lead lấy thông tin). KHÔNG kèm liên kết task.
+    export_btn = ('<button class="btn btn-ghost" id="blExportBtn" title="Xuất bảng đang xem ra Excel">'
+                  '<span class="material-symbols-rounded ph-light ph-download-simple mi-sm"></span> '
+                  'Export Excel</button>')
 
     th_check = '<th style="width:40px"><input type="checkbox" class="bl-check" id="blCheckAll"></th>' if editable else ''
     content = (
@@ -129,7 +136,7 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
         f'<span class="material-symbols-rounded ph-light ph-arrows-clockwise mi-sm"></span> '
         f'Tự đồng bộ lại toàn bộ file mỗi {poll_min} phút</div>'
         '</div><div style="display:flex;gap:10px;align-items:center">'
-        f'{sync_btn}{drive_btn}</div></div>'
+        f'{export_btn}{sync_btn}{drive_btn}</div></div>'
         # source card (✎ = đổi link file bug, tự sync sau khi lưu)
         '<div class="card bl-source">'
         '<span class="ic material-symbols-rounded ph-light ph-table"></span>'
