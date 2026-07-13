@@ -517,12 +517,44 @@ function recomputeDue(t, val){          // đồng bộ dueDisp/dueCls/overdue s
   t.overdue = od; t.dueCls = od ? 'overdue' : '';
 }
 window.__recomputeDue = recomputeDue;
+// Vá field vào task obj sau khi sửa (title/assignee/due) — dùng bởi __applyFieldPatch mỗi controller.
+function applyTaskFields(t, patch){
+  if(patch.summary!=null) t.summary=patch.summary;
+  if(patch.assignee!=null){ var nm=patch.assignee.display||patch.assignee.name||'—';
+    t.assignee={ name:nm, init:initOf(nm), cls:avById(patch.assignee.name||nm) }; }
+  if(patch.due!=null) recomputeDue(t, patch.due);
+}
+window.__applyTaskFields = applyTaskFields;
+// Ghi hạn mới lên Jira (PAT cá nhân) rồi vá bảng/drawer. Tách ra để date-picker gọi trực tiếp.
+function saveDue(key, val, inDrawer){
+  postJSON('/set-duedate', { key:key, duedate:val }, 20000).then(function(j){
+    if(patToast(j)){ dueAfterChange(key, inDrawer); return; }
+    if(j.ok){ if(window.__applyDuePatch) window.__applyDuePatch(key, val);
+      toast(val?'Đã đổi hạn ✓':'Đã xoá hạn ✓', true); dueAfterChange(key, inDrawer); }
+    else { toast(j.msg||'Lỗi đổi hạn', false); dueAfterChange(key, inDrawer); }
+  }).catch(function(){ toast('Lỗi mạng', false); dueAfterChange(key, inDrawer); });
+}
+// Bấm ô Hạn -> hiện NGAY date picker (native calendar), tự lưu khi chọn xong; KHÔNG còn box Lưu/Huỷ.
+// showPicker() cần user-activation: click LẦN ĐẦU 1 task phải chờ round-trip check quyền nên activation
+// mất -> input vẫn focus (bấm để mở lịch); các lần sau quyền đã cache -> mở lịch tức thì.
 function dueEditor(cell, key, cur){
   cell.classList.add('editing');
-  cell.innerHTML='<input type="date" class="due-input" value="'+esc(cur)+'">'
-    +'<button class="lbtn primary due-btn" data-act="due-save" data-key="'+esc(key)+'">Lưu</button>'
-    +'<button class="lbtn due-btn" data-act="due-cancel" data-key="'+esc(key)+'">Huỷ</button>';
-  var inp=cell.querySelector('.due-input'); if(inp) inp.focus();
+  var inDrawer=!!cell.closest('#drawer');
+  cell.innerHTML='<input type="date" class="due-input" value="'+esc(cur)+'">';
+  var inp=cell.querySelector('.due-input'); if(!inp) return;
+  var done=false;
+  inp.addEventListener('change', function(){
+    if(done) return; done=true;
+    var val=(inp.value||'').trim();
+    if(val===(cur||'')){ dueAfterChange(key, inDrawer); return; }   // không đổi -> khôi phục
+    toast(key+': đang đổi hạn…', true); saveDue(key, val, inDrawer);
+  });
+  inp.addEventListener('keydown', function(e){
+    if(e.key==='Escape'){ e.preventDefault(); if(done) return; done=true; dueAfterChange(key, inDrawer); } });
+  inp.addEventListener('blur', function(){                          // bấm ra ngoài không chọn -> khôi phục
+    setTimeout(function(){ if(!done){ done=true; dueAfterChange(key, inDrawer); } }, 200); });
+  inp.focus();
+  try{ inp.showPicker(); }catch(e){}
 }
 // Khôi phục ô/bảng/drawer sau save (đã patch) hoặc cancel. inDrawer = ô nằm trong drawer.
 function dueAfterChange(key, inDrawer){
@@ -542,21 +574,110 @@ document.addEventListener('click', function(e){
       if(perm!==true){ toast('Bạn không có quyền đổi hạn task này trên Jira', false); dueAfterChange(key, !!cell.closest('#drawer')); return; }
       if(document.body.contains(cell)) dueEditor(cell, key, cur);
     });
-  } else if(act==='due-cancel'){
-    dueAfterChange(a.getAttribute('data-key'), !!a.closest('#drawer'));
-  } else if(act==='due-save'){
-    var k=a.getAttribute('data-key'), cell2=a.closest('.due-cell');
-    var inp2=cell2&&cell2.querySelector('.due-input');
-    var val=(inp2&&inp2.value||'').trim(); var inDrawer=!!a.closest('#drawer');
-    a.disabled=true;
-    postJSON('/set-duedate', { key:k, duedate:val }, 20000).then(function(j){
-      if(patToast(j)){ dueAfterChange(k, inDrawer); return; }
-      if(j.ok){ if(window.__applyDuePatch) window.__applyDuePatch(k, val);
-        toast(val?'Đã đổi hạn ✓':'Đã xoá hạn ✓', true); dueAfterChange(k, inDrawer); }
-      else { a.disabled=false; toast(j.msg||'Lỗi đổi hạn', false); }
-    }).catch(function(){ a.disabled=false; toast('Lỗi mạng', false); });
   }
 });
+
+// ---------- SỬA TASK trong drawer (title / assignee / due) — dùng chung mọi trang ----------
+// Bút ✎ ở drawer-head -> form sửa ngay đầu drawer-body. Quyền lấy LAZY qua /edit-perms (theo PAT
+// cá nhân); enforce thật ở /update-issue. Lưu xong vá tại chỗ qua window.__applyFieldPatch(key,patch).
+(function(){
+  function drawerKey(){ var k=document.querySelector('#drawer .key'); return k?k.textContent.trim():''; }
+  function curSummary(){ var h=document.querySelector('#drawer .drawer-body h2'); return h?(h.textContent||''):''; }
+  function curDue(){ var c=document.querySelector('#drawer .due-cell'); return c?(c.getAttribute('data-due')||''):''; }
+  function curAssignee(){ var a=document.querySelector('#drawer .dt-grid .assignee'); if(!a) return '';
+    var t=''; for(var i=0;i<a.childNodes.length;i++){ var n=a.childNodes[i];   // bỏ chữ cái avatar, chỉ lấy tên
+      if(n.nodeType===3) t+=n.textContent; } return t.trim(); }
+  function closeForm(){ var f=$('editForm'); if(f&&f.parentNode) f.parentNode.removeChild(f); }
+
+  function renderForm(perms){
+    closeForm();
+    var body=document.querySelector('#drawer .drawer-body'); if(!body) return;
+    var canS=perms.summary, canA=perms.assignee, canD=perms.duedate;
+    var h='<div class="edit-form" id="editForm"><div class="edit-title">Sửa task</div>'
+      +'<label class="edit-lbl">Tiêu đề</label>'
+      +(canS?'<input type="text" id="edTitle" class="edit-inp" value="'+esc(curSummary())+'">'
+            :'<div class="edit-ro">'+esc(curSummary())+' <em>— không có quyền sửa</em></div>')
+      +'<label class="edit-lbl">Người xử lý</label>';
+    if(canA) h+='<div class="edit-asg"><input type="text" id="edAsgInp" class="edit-inp" placeholder="'
+      +esc(curAssignee()||'Gõ tên để tìm...')+'" autocomplete="off">'
+      +'<input type="hidden" id="edAsgName"><div class="edit-asg-dd" id="edAsgDd"></div></div>'
+      +'<div class="edit-asg-cur">Hiện tại: <b>'+esc(curAssignee()||'—')+'</b></div>';
+    else h+='<div class="edit-ro">'+esc(curAssignee()||'—')+' <em>— không có quyền sửa</em></div>';
+    h+='<label class="edit-lbl">Hạn chót</label>'
+      +(canD?'<input type="date" id="edDue" class="edit-inp" value="'+esc(curDue())+'">'
+            :'<div class="edit-ro">'+(esc(curDue())||'Chưa đặt hạn')+' <em>— không có quyền sửa</em></div>')
+      +'<div class="edit-foot"><button type="button" class="btn btn-ghost" data-act="edit-cancel">Huỷ</button>'
+      +'<button type="button" class="btn btn-primary" data-act="edit-save">Lưu thay đổi</button></div></div>';
+    body.insertAdjacentHTML('afterbegin', h);
+    body.scrollTop=0;
+    var ti=$('edTitle'); if(ti) ti.focus();
+    bindAsg();
+  }
+  function bindAsg(){
+    var inp=$('edAsgInp'), dd=$('edAsgDd'), hid=$('edAsgName'); if(!inp||!dd||!hid) return;
+    var deb, seq=0;
+    inp.addEventListener('input', function(){
+      hid.value='';                       // gõ lại -> huỷ lựa chọn cũ (chỉ gửi khi có chọn)
+      var q=(inp.value||'').trim(); clearTimeout(deb);
+      if(q.length<2){ dd.style.display='none'; dd.innerHTML=''; return; }
+      var my=++seq;
+      deb=setTimeout(function(){
+        getJSON('/search-people?q='+encodeURIComponent(q), 15000).then(function(j){
+          if(my!==seq) return; var rs=(j&&j.ok&&j.results)||[];
+          dd.innerHTML = rs.length ? rs.map(function(u){
+            return '<div class="edit-asg-opt" data-name="'+esc(u.name)+'" data-disp="'+esc(u.display)+'">'
+              +esc(u.display)+' <small>'+esc(u.name)+'</small></div>'; }).join('')
+            : '<div class="edit-asg-empty">Không tìm thấy</div>';
+          dd.style.display='block';
+        }).catch(function(){ if(my!==seq) return; dd.style.display='none'; });
+      }, 300);
+    });
+    dd.addEventListener('mousedown', function(e){ var o=e.target.closest('.edit-asg-opt'); if(!o) return;
+      e.preventDefault(); hid.value=o.getAttribute('data-name'); inp.value=o.getAttribute('data-disp');
+      dd.style.display='none'; });
+  }
+
+  document.addEventListener('click', function(e){
+    var a=e.target.closest('[data-act]'); if(!a) return;
+    var act=a.getAttribute('data-act');
+    if(act==='edit-toggle'){
+      if($('editForm')){ closeForm(); return; }
+      var key=drawerKey(); if(!key) return;
+      a.disabled=true;
+      postJSON('/edit-perms', { key:key }, 15000).then(function(j){
+        a.disabled=false; if(patToast(j)) return;
+        if(!j.ok){ toast(j.msg||'Không lấy được quyền sửa', false); return; }
+        var p=j.fields||{};
+        if(!p.summary && !p.assignee && !p.duedate){ toast('Bạn không có quyền sửa task này trên Jira', false); return; }
+        renderForm(p);
+      }).catch(function(){ a.disabled=false; toast('Lỗi mạng', false); });
+    } else if(act==='edit-cancel'){ closeForm(); }
+    else if(act==='edit-save'){
+      var key=drawerKey(); if(!key) return;
+      var body={ key:key }, hasChange=false;
+      var ti=$('edTitle');
+      if(ti){ var s=(ti.value||'').trim(); if(!s){ toast('Tiêu đề không được rỗng', false); return; }
+        if(s!==curSummary()){ body.summary=s; hasChange=true; } }
+      var hid=$('edAsgName'); if(hid && hid.value){ body.assignee=hid.value; hasChange=true; }
+      var du=$('edDue'); if(du){ var dv=(du.value||'').trim(); if(dv!==curDue()){ body.duedate=dv; hasChange=true; } }
+      if(!hasChange){ toast('Chưa có thay đổi nào', false); return; }
+      a.disabled=true; toast(key+': đang lưu…', true);
+      postJSON('/update-issue', body, 20000).then(function(j){
+        a.disabled=false; if(patToast(j)) return;
+        if(j.ok){
+          var patch={};
+          if(body.summary!=null) patch.summary=body.summary;
+          if(body.assignee!=null){ var ai=$('edAsgInp'); patch.assignee={ name:body.assignee, display:(ai&&ai.value)||body.assignee }; }
+          if(body.duedate!=null) patch.due=body.duedate;
+          closeForm();
+          if(window.__applyFieldPatch) window.__applyFieldPatch(key, patch);
+          else if(window.__openDetail) window.__openDetail(key);
+          toast('Đã lưu thay đổi ✓', true);
+        } else toast(j.msg||'Lỗi lưu thay đổi', false);
+      }).catch(function(){ a.disabled=false; toast('Lỗi mạng khi lưu', false); });
+    }
+  });
+})();
 
 // ---------- status menu (.smenu) DÙNG CHUNG — đổi status Jira + gắn nhãn nội bộ ----------
 // #smenu giờ nằm ở shell (mọi trang v2). Controller gọi window.__openSmenu(caret, task, hooks);
@@ -877,7 +998,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
       $('tableTitleText').innerHTML='<span class="material-symbols-rounded ph-light ph-clipboard-text"></span><span>'+(label[curPill]||'Tasks')+'</span>';
 
       if(!total){
-        tbody.innerHTML='<tr><td colspan="7"><div class="empty-state">'
+        tbody.innerHTML='<tr><td colspan="8"><div class="empty-state">'
           +'<span class="es-ic"><span class="material-symbols-rounded ph-light ph-folder-minus"></span></span>'
           +'<div class="es-title">Không tìm thấy task nào</div>'
           +'<div class="es-hint">Thử đổi bộ lọc trạng thái hoặc thành viên.</div>'
@@ -895,10 +1016,12 @@ window.__smSetCustom=function(t, key, val, onChanged){
           +'<button class="caret material-symbols-rounded ph-light ph-caret-down mi-sm" data-act="smenu" data-key="'+esc(t.key)+'"></button></div>'+chipHTML(t)+'</td>'
           +'<td class="cell-date">'+dueValHTML(t)+'</td>'
           +'<td class="cell-date">'+esc(t.createdDisp)+'</td>'
-          +'<td class="cell-date">'+esc(t.updatedDisp)+'</td></tr>';
+          +'<td class="cell-date">'+esc(t.updatedDisp)+'</td>'
+          +'<td class="cell-act"><button class="row-edit" data-act="row-edit" data-key="'+esc(t.key)+'" title="Xem / sửa chi tiết">'
+          +'<span class="material-symbols-rounded ph-light ph-pencil-simple mi-sm"></span></button></td></tr>';
       }).join('');
       for(var k=slice.length;k<PER_PAGE;k++){
-        html+='<tr class="pager-filler"><td>&nbsp;</td><td><span class="cell-title">&nbsp;</span></td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>';
+        html+='<tr class="pager-filler"><td>&nbsp;</td><td><span class="cell-title">&nbsp;</span></td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>';
       }
       tbody.innerHTML=html;
       if(anim) animRows(tbody);
@@ -989,17 +1112,21 @@ window.__smSetCustom=function(t, key, val, onChanged){
       renderRows(true);
     });
 
-    // Row clicks -> drawer
+    // Row clicks -> drawer. Vùng mở drawer THU HẸP: chỉ 3 cột đầu (Task ID / Title / Member).
+    // Cột Status/Due/Ngày tạo/Updated không mở drawer; muốn mở detail bấm nút ✎ cột Thao tác.
     tbody.addEventListener('click', function(e){
       if(e.target.closest('.pager-filler')) return;
+      var edit=e.target.closest('[data-act="row-edit"]');
+      if(edit){ e.stopPropagation(); openDetail(edit.getAttribute('data-key')); return; }
       if(e.target.closest('.due-cell')) return;   // đổi hạn inline — đừng mở drawer
       var rm=e.target.closest('.rm[data-val]');
       if(rm){ e.stopPropagation(); adRmCust(rm.getAttribute('data-key'), rm.getAttribute('data-val')); return; }
       var caret=e.target.closest('[data-act="smenu"]');
       if(caret){ e.stopPropagation(); adOpenStatusMenu(caret); return; }
+      var td=e.target.closest('td');
+      if(td && td.cellIndex>2) return;            // chỉ Task ID(0)/Title(1)/Member(2) mở drawer
       var tr=e.target.closest('tr[data-key]'); if(!tr) return;
-      var key=tr.getAttribute('data-key');
-      openDetail(key);
+      openDetail(tr.getAttribute('data-key'));
     });
 
     // Detail drawer
@@ -1049,7 +1176,8 @@ window.__smSetCustom=function(t, key, val, onChanged){
       var desc=(DETAIL[t.key]&&DETAIL[t.key].description)?esc(DETAIL[t.key].description):esc(t.summary);
       $('drawer').innerHTML='<div class="drawer-head"><a class="key" href="'+esc(t.jiraUrl)+'" target="_blank">'+esc(t.key)+'</a>'
         +'<span class="badge '+badgeCls(t.jira)+'">'+esc(t.jira)+'</span>'
-        +'<button class="x material-symbols-rounded ph-light ph-x" data-act="drawer-close"></button></div>'
+        +'<button class="drawer-edit material-symbols-rounded ph-light ph-pencil-simple" data-act="edit-toggle" title="Sửa task (tiêu đề / người xử lý / hạn)"></button>'
+      +'<button class="x material-symbols-rounded ph-light ph-x" data-act="drawer-close"></button></div>'
         +'<div class="drawer-body"><h2>'+esc(t.summary)+'</h2>'
         +'<div class="dt-grid"><div class="lbl">Người xử lý</div><div class="val"><span class="assignee"><span class="av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span> '+esc(t.assignee.name)+'</span></div>'
         +'<div class="lbl">Ngày tạo</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].created)?esc(DETAIL[t.key].created):esc(t.createdDisp||'—'))+'</div>'
@@ -1110,6 +1238,17 @@ window.__smSetCustom=function(t, key, val, onChanged){
       var t=taskByKey(key); if(!t) return;
       recomputeDue(t, val);
       updateCounts(); renderRows(); updateKPIs();
+    };
+    // Vá title/assignee/due sau khi Sửa task (drawer) -> cập nhật bảng + drawer ngay, không reload.
+    window.__applyFieldPatch=function(key, patch){
+      var t=taskByKey(key); if(!t) return;
+      applyTaskFields(t, patch);
+      updateCounts(); renderRows(); updateKPIs();
+      var dEl=$('drawer');
+      if(dEl && dEl.classList.contains('open')){
+        var ka=dEl.querySelector('.key');
+        if(ka && ka.textContent===key) renderDrawer(t);
+      }
     };
     window.__rerenderRows=renderRows;
 
@@ -1310,6 +1449,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var desc=(DETAIL[t.key]&&DETAIL[t.key].description) ? esc(DETAIL[t.key].description) : esc(t.summary);
     $('drawer').innerHTML='<div class="drawer-head"><a class="key" href="'+esc(t.jiraUrl)+'" target="_blank">'+esc(t.key)+'</a>'
       +'<span class="badge '+jiraCls(t.jira)+'">'+esc(t.jira)+'</span>'
+      +'<button class="drawer-edit material-symbols-rounded ph-light ph-pencil-simple" data-act="edit-toggle" title="Sửa task (tiêu đề / người xử lý / hạn)"></button>'
       +'<button class="x material-symbols-rounded ph-light ph-x" data-act="drawer-close"></button></div>'
       +'<div class="drawer-body"><h2>'+esc(t.summary)+'</h2>'
       +'<div class="dt-grid"><div class="lbl">Người xử lý</div><div class="val"><span class="assignee"><span class="av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span> '+esc(t.assignee.name)+'</span></div>'
@@ -1378,6 +1518,15 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var t=taskByKey(key); if(!t) return;
     recomputeDue(t, val); renderRows();
   };
+  window.__applyFieldPatch=function(key, patch){
+    var t=taskByKey(key); if(!t) return;
+    applyTaskFields(t, patch); renderRows();
+    var dEl=$('drawer');
+    if(dEl && dEl.classList.contains('open')){
+      var ka=dEl.querySelector('.key');
+      if(ka && ka.textContent===key) renderDrawer(t);
+    }
+  };
   window.__rerenderRows=renderRows;
 
   setFilter('all');
@@ -1423,6 +1572,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var desc=(DETAIL[t.key]&&DETAIL[t.key].description)?esc(DETAIL[t.key].description):esc(t.summary);
     drawer.innerHTML='<div class="drawer-head"><a class="key" href="'+esc(t.jiraUrl)+'" target="_blank">'+esc(t.key)+'</a>'
       +'<span class="badge '+badgeCls(t.jira)+'">'+esc(t.jira)+'</span>'
+      +'<button class="drawer-edit material-symbols-rounded ph-light ph-pencil-simple" data-act="edit-toggle" title="Sửa task (tiêu đề / người xử lý / hạn)"></button>'
       +'<button class="x material-symbols-rounded ph-light ph-x" data-act="drawer-close"></button></div>'
       +'<div class="drawer-body"><h2>'+esc(t.summary)+'</h2>'
       +'<div class="dt-grid"><div class="lbl">Người xử lý</div><div class="val"><span class="assignee"><span class="av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span> '+esc(t.assignee.name)+'</span></div>'
@@ -1453,7 +1603,10 @@ window.__smSetCustom=function(t, key, val, onChanged){
     }
   }
   window.__openDetail=openDetail;
-  window.__applyDuePatch=function(key, val){ if(CUR[key]) recomputeDue(CUR[key], val); };
+  window.__applyDuePatch=function(key, val){ if(CUR[key]){ recomputeDue(CUR[key], val);
+    if(drawer.classList.contains('open')) renderDrawer(CUR[key]); } };
+  window.__applyFieldPatch=function(key, patch){ var t=CUR[key]; if(!t) return;
+    applyTaskFields(t, patch); if(drawer.classList.contains('open')) renderDrawer(t); };
   function closeDetail(){ ov.classList.remove('open'); drawer.classList.remove('open'); }
   if(ov) ov.addEventListener('click', closeDetail);
   document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeDetail(); });
