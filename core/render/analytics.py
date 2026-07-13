@@ -46,6 +46,7 @@ def render_analytics_v2(data, user=None, activities=None, testcases=None, links=
     backlog = backlog or {}
     backlog_months = backlog.get('months', {}) or {}
     carry_months = backlog.get('carry', {}) or {}
+    chart_months = backlog.get('chart', {}) or {}   # freeze chart tháng đã đóng (Decision #47)
     
     tc_data = testcases or {}
     tc_cases = tc_data.get('cases', [])
@@ -123,8 +124,8 @@ def render_analytics_v2(data, user=None, activities=None, testcases=None, links=
         '</div>'
         '<div class="bl-reopen-kpi" id="anReopenKpi"></div>'
         '<div style="overflow-x:auto"><table class="bl-table metric-table"><thead><tr id="anReopenHead"></tr></thead><tbody id="anReopenRows"></tbody></table></div>'
-        '<div class="bl-reopen-note">Bug đang ở Reopen được tính tối thiểu 1 lần; số dội trước khi bật theo dõi có thể thấp hơn thực tế. '
-        'Round-trip Fixed→Reopen→Fixed gọn trong 10 phút có thể bị sót.</div>'
+        '<div class="bl-reopen-note">Số lần fix = số lần reopen + 1 nếu bug đang ở trạng thái đã giao fix (Fixed/Closed) — mỗi lần reopen là 1 lần fix bị QA trả lại. '
+        'Số reopen dội trước khi bật theo dõi, hoặc round-trip gọn trong 1 nhịp quét, có thể bị sót.</div>'
         '</div>'
 
         '</div>'  # end metrics-row
@@ -136,6 +137,7 @@ def render_analytics_v2(data, user=None, activities=None, testcases=None, links=
             'bugLinks': links, 'tcLinks': tc_links,
             'backlogMonths': backlog_months,
             'carryMonths': carry_months,
+            'chartMonths': chart_months,
         })
     )
     return _document_v2(content, 'analytics', user, activities or [],

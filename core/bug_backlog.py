@@ -38,6 +38,7 @@ Layer: config -> {remote_store} -> (this); bug_log_store nạp LAZY (tránh cycl
 import module này để gọi archive()). Không cycle.
 """
 import json
+import re
 import threading
 from datetime import datetime
 
@@ -46,6 +47,8 @@ from remote_store import remote_get, remote_put
 
 BUG_MONTHLY_PROP = 'qa-dashboard-bug-monthly'
 _MONTHS_CAP = 24                 # giữ tối đa 24 tháng gần nhất
+_CHART_V = 2                     # version freeze chart: bump khi đổi cách bucket -> rebuild snapshot cũ
+                                 # (v2 = bucket theo SHEET tháng Tn thay vì created date, 2026-07)
 # 'đã đóng' = Closed / Rejected (Reject); còn lại (New/Fixing/Fixed/Reopen/'') = đang MỞ.
 _CLOSED = {'closed', 'rejected', 'reject'}
 _lock = threading.Lock()
@@ -102,6 +105,135 @@ def _fp(b):
     return fingerprint(b)
 
 
+# ===== Aggregate cho chart "Bug của Dev theo dự án" (freeze tháng đã đóng — Decision #47) =====
+_DEV_SPLIT = re.compile(r'[,;+&/]')
+_YM_RE = re.compile(r'^\d{4}-(0[1-9]|1[0-2])$')   # 'YYYY-MM' hợp lệ (loại created rác DD/MM/YYYY)
+
+# Tháng của bug theo tên SHEET (Tn) — chính sách mới 2026-07: team log bug theo đúng sheet
+# tháng T, KHÔNG theo created date. Map tên sheet -> 'YYYY-MM'. PHẢI khớp monthOf() phía JS.
+_T_SHEET_Y = re.compile(r'^T(\d{1,2})(\d{4})$')   # 'T12026' -> tháng 1 / năm 2026 (năm tường minh)
+_T_SHEET = re.compile(r'^T(\d{1,2})$')            # 'T7' -> tháng 7, năm lấy từ created
+
+
+def _month_of(b):
+    """Tháng của bug theo tên SHEET (Tn) -> 'YYYY-MM'. 'Tn' bare lấy năm từ created (T7 bug
+    created tháng 6 vẫn thuộc T7); 'Tn<yyyy>' có năm tường minh; sheet module/không phải Tn
+    -> fallback created date. PHẢI khớp monthOf() phía JS (app_v2.js)."""
+    mo = (b.get('month', '') or '').strip()
+    m = _T_SHEET_Y.match(mo)
+    if m:
+        mm = int(m.group(1))
+        if 1 <= mm <= 12:
+            return f"{int(m.group(2)):04d}-{mm:02d}"
+    m = _T_SHEET.match(mo)
+    if m:
+        mm = int(m.group(1))
+        if 1 <= mm <= 12:
+            cr = b.get('created', '') or ''
+            yy = cr[:4] if len(cr) >= 4 and cr[:4].isdigit() else datetime.now().strftime('%Y')
+            return f"{yy}-{mm:02d}"
+    cr = b.get('created', '') or ''
+    return cr[:7] if len(cr) >= 7 else ''
+
+
+def _dedup_by_fp(bugs):
+    """List bug -> giữ 1 bản đại diện / fingerprint (created MỚI NHẤT thắng — khớp
+    dedupByFp phía JS). Dùng để đếm bug THẬT của 1 tháng (khử bản copy sang sheet khác)."""
+    by = {}
+    for b in bugs:
+        f = _fp(b)
+        p = by.get(f)
+        if p is None or (b.get('created', '') or '') >= (p.get('created', '') or ''):
+            by[f] = b
+    return list(by.values())
+
+
+def _split_devs(s):
+    """'A,B' -> ['A','B']; rỗng -> ['Chưa gán'] (khớp split JS renderMetric/renderReopen)."""
+    dl = [x.strip() for x in _DEV_SPLIT.split((s or '').strip()) if x.strip()]
+    return dl or ['Chưa gán']
+
+
+def _chart_devs(bugs):
+    """{dev: {project: count}} — bug đa-dev chia phân số (1/n), khớp renderMetric phía JS."""
+    devs = {}
+    for b in bugs:
+        dl = _split_devs(b.get('dev_pic', ''))
+        frac = 1.0 / len(dl)
+        proj = (b.get('project', '') or '').strip() or 'Khác'
+        for d in dl:
+            devs.setdefault(d, {})
+            devs[d][proj] = devs[d].get(proj, 0) + frac
+    return devs
+
+
+def _bug_id(b):
+    """Id hiển thị = project-[service-]bug_no (khớp _flatten_bugs phía render/JS)."""
+    p, sv, n = (b.get('project', '') or '', b.get('service', '') or '',
+                b.get('bug_no', '') or '')
+    return f"{p}-{sv + '-' if sv else ''}{n}".strip('-')
+
+
+_RE_REJECT = re.compile(r'reject', re.I)          # khớp isReject JS: /reject/i
+_RE_CLOSED = re.compile(r'closed|đã đóng', re.I)  # khớp isClosed JS: /closed|đã đóng/i
+
+
+def _valid_counts(bugs):
+    """Valid Bug Rate counts trên tập ĐÃ dedup fp: {total, reject, closed}. Rate suy ở client."""
+    return {
+        'total': len(bugs),
+        'reject': sum(1 for b in bugs if _RE_REJECT.search(b.get('status', '') or '')),
+        'closed': sum(1 for b in bugs if _RE_CLOSED.search(b.get('status', '') or '')),
+    }
+
+
+def _reopen_table(reopen_map, kb, ym):
+    """Bảng Tỷ lệ Reopen cho tháng `ym` — replicate renderReopen phía JS (RAW, KHÔNG dedup:
+    giữ nguyên semantics live, freeze chỉ để chặn trôi). kb = [(key, bug)] bug tạo trong ym.
+    Trả {totalBugs, distinctTotal, devs:{dev:{nb,fx,denom,detail:[{id,summary,reopen,fix}]}}}."""
+    bugs_per_dev, bug_by_key = {}, {}
+    total_bugs = len(kb)
+    for key, b in kb:
+        dl = _split_devs(b.get('dev_pic', ''))
+        frac = 1.0 / len(dl)
+        for d in dl:
+            bugs_per_dev[d] = bugs_per_dev.get(d, 0) + frac
+        if key:
+            bug_by_key[key] = b
+    distinct_per_dev, fix_per_dev, detail_per_dev, distinct_total = {}, {}, {}, 0
+    for key, r in (reopen_map or {}).items():
+        cnt = float(r.get('count') or 0)
+        if cnt <= 0:
+            continue
+        b = bug_by_key.get(key)
+        if b is None and (r.get('month', '') or '') != ym:
+            continue                              # entry không thuộc tháng này (fallback theo r.month)
+        dev_str = (b.get('dev_pic', '') if b else r.get('dev', '')) or 'Chưa gán'
+        # Số lần fix = SUY từ count + trạng thái hiện tại, KHÔNG đọc accumulator `fix` cũ
+        # (accumulator đếm transition vào status literal 'Fixed' — team hay skip Fixing→Closed
+        # nên undercount, đẻ ra ca vô lý "2 reopen 1 fix"). Mỗi reopen = 1 fix bị QA trả lại;
+        # +1 nếu bug đang ở trạng thái đã-giao-fix. Bug rời file (b None) -> giả định đã giao 1 lần.
+        if b is not None:
+            fx = cnt + (1.0 if (b.get('status', '') or '') in ('Fixed', 'Closed') else 0.0)
+        else:
+            fx = cnt + 1.0
+        dl = _split_devs(dev_str)
+        frac = 1.0 / len(dl)
+        distinct_total += 1
+        for d in dl:
+            distinct_per_dev[d] = distinct_per_dev.get(d, 0) + frac
+            fix_per_dev[d] = fix_per_dev.get(d, 0) + fx * frac
+            detail_per_dev.setdefault(d, []).append({
+                'id': _bug_id(b) if b else key,
+                'summary': (b.get('summary', '') if b else ''),
+                'reopen': cnt * frac, 'fix': fx * frac,
+            })
+    devs = {d: {'nb': distinct_per_dev[d], 'fx': fix_per_dev.get(d, 0),
+                'denom': bugs_per_dev.get(d, 0), 'detail': detail_per_dev.get(d, [])}
+            for d in distinct_per_dev}
+    return {'totalBugs': total_bugs, 'distinctTotal': distinct_total, 'devs': devs}
+
+
 def _carry_rec(b):
     """Record cho carry snapshot (định danh theo fp; giữ field để hiển thị + id)."""
     return {
@@ -137,16 +269,18 @@ def _load():
     except RuntimeError:
         pass
     cached = _read_cache()
-    months, carry = {}, {}
+    months, carry, chart = {}, {}, {}
     if cached:
         months.update(cached.get('months', {}) or {})
         carry.update(cached.get('carry', {}) or {})
+        chart.update(cached.get('chart', {}) or {})
     if remote:
         months.update(remote.get('months', {}) or {})
         carry.update(remote.get('carry', {}) or {})
+        chart.update(remote.get('chart', {}) or {})
     updated = max((cached or {}).get('updated', '') or '',
                   (remote or {}).get('updated', '') or '')
-    return {'months': months, 'carry': carry, 'updated': updated}
+    return {'months': months, 'carry': carry, 'chart': chart, 'updated': updated}
 
 
 def load_backlog():
@@ -154,19 +288,25 @@ def load_backlog():
     return _load()
 
 
-def archive(cur_bugs):
+def archive(cur_bugs, reopen_map=None):
     """Chốt snapshot cho THÁNG HIỆN TẠI + bootstrap tháng quá khứ còn thiếu. Gọi từ scan().
 
-    cur_bugs = {key: bug} — TẤT CẢ bug đang quan sát (mọi tháng). Chỉ ghi khi có thay đổi
-    thật (dedup) để đỡ quota KV. Tháng đã đóng băng (< tháng hiện tại, đã có snapshot) KHÔNG
-    bị đụng. Soft-fail: remote lỗi -> giữ cache local, lần sau đẩy lại."""
+    cur_bugs = {key: bug} — TẤT CẢ bug đang quan sát (mọi tháng). reopen_map (optional) =
+    accumulator reopen (để freeze bảng Tỷ lệ Reopen theo tháng). Chỉ ghi khi có thay đổi thật
+    (dedup) để đỡ quota KV. Tháng đã đóng băng (< tháng hiện tại, đã có snapshot) KHÔNG bị
+    đụng. Soft-fail: remote lỗi -> giữ cache local, lần sau đẩy lại."""
     now_month = datetime.now().strftime('%Y-%m')
-    # Gom bug live theo THÁNG TẠO (created), bỏ bug thiếu created / created ở tương lai.
+    # `months` (dùng cho backlog T-1) vẫn theo THÁNG TẠO (created) — Decision #46 giữ nguyên.
+    # `chart` (Valid/dev/reopen) bucket theo SHEET tháng (Tn) — chính sách mới 2026-07.
     by_cm = {}
+    bugs_by_sheet = {}                               # {ym: [(key, bug)]} theo SHEET, cho chart snapshot
     for key, b in cur_bugs.items():
         cm = (b.get('created', '') or '')[:7]
         if len(cm) == 7 and cm <= now_month:
             by_cm.setdefault(cm, {})[key] = _rec(b)
+        sm = _month_of(b)                            # tháng theo sheet Tn
+        if _YM_RE.match(sm) and sm <= now_month:
+            bugs_by_sheet.setdefault(sm, []).append((key, b))
 
     # carry: TẤT CẢ bug đang MỞ hiện tại (bất kể tháng tạo), định danh theo fp -> nợ mang sang.
     # Overwrite carry[now_month] mỗi scan (hội tụ về trạng thái cuối tháng ở lần scan chót);
@@ -180,7 +320,9 @@ def archive(cur_bugs):
         data = _load()
         months = data.get('months', {}) or {}
         carry = data.get('carry', {}) or {}
-        before = json.dumps({'m': months, 'c': carry}, sort_keys=True, ensure_ascii=False)
+        chart = data.get('chart', {}) or {}
+        before = json.dumps({'m': months, 'c': carry, 'ch': chart},
+                            sort_keys=True, ensure_ascii=False)
 
         for cm, snap in by_cm.items():
             if cm == now_month:
@@ -191,17 +333,41 @@ def archive(cur_bugs):
 
         carry[now_month] = open_now                  # chỉ tháng hiện tại; quá khứ giữ nguyên
 
-        # prune: giữ _MONTHS_CAP tháng gần nhất (cả 2 kho)
-        for store in (months, carry):
+        # chart snapshot (per-dev/dự án + tổng + dải tồn đọng, đã khử trùng fp): tháng hiện
+        # tại cập nhật LIVE mỗi scan (đóng băng ở lần scan cuối tháng); tháng quá khứ thiếu ->
+        # bootstrap 1 lần từ data hiện tại; tháng quá khứ ĐÃ CÓ -> để yên (KHÔNG trôi khi team
+        # sửa/copy sheet tháng sau). Decision #47.
+        for cm, kb in bugs_by_sheet.items():
+            # tháng hiện tại: LIVE mỗi scan; tháng quá khứ thiếu -> bootstrap 1 lần; đã có nhưng
+            # version cũ (_v != _CHART_V, vd snapshot created-based cũ) -> rebuild 1 lần sheet-based.
+            if cm == now_month or cm not in chart or (chart.get(cm) or {}).get('_v') != _CHART_V:
+                bugs = [b for _, b in kb]
+                dd = _dedup_by_fp(bugs)
+                blr = prev_month_backlog(cm, live=cur_bugs)
+                chart[cm] = {
+                    '_v': _CHART_V,
+                    'grand': len(dd),
+                    'devs': _chart_devs(dd),
+                    'valid': _valid_counts(dd),
+                    'reopen': _reopen_table(reopen_map, kb, cm),
+                    'bl': {'nc': blr['new_count'], 'tot': blr['total'], 'res': blr['resolved'],
+                           'so': blr['still_open'], 'prev': blr['prev_month'],
+                           'has': blr['has_snapshot']},
+                }
+
+        # prune: giữ _MONTHS_CAP tháng gần nhất (cả 3 kho)
+        for store in (months, carry, chart):
             for m in sorted(store)[:-_MONTHS_CAP]:
                 del store[m]
 
-        after = json.dumps({'m': months, 'c': carry}, sort_keys=True, ensure_ascii=False)
+        after = json.dumps({'m': months, 'c': carry, 'ch': chart},
+                           sort_keys=True, ensure_ascii=False)
         if after == before:
             return False                             # không đổi -> khỏi ghi (dedup)
 
         data['months'] = months
         data['carry'] = carry
+        data['chart'] = chart
         data['updated'] = _now_iso()
         atomic_write(BUG_MONTHLY_FILE, json.dumps(data, ensure_ascii=False, indent=2))
         try:
@@ -225,85 +391,76 @@ def _live_bugs():
     return out
 
 
+def _cur_month_sheet(report_month):
+    """Tên sheet team đổ bug của THÁNG BÁO CÁO vào = 'T' + số tháng (2026-07 -> 'T7').
+    Dùng làm tín hiệu "bug T-1 đã bị BÊ SANG tháng T" (carried): team copy bug còn mở
+    cuối tháng trước sang sheet tháng này để theo dõi tiếp."""
+    return 'T' + str(int(report_month[5:7]))
+
+
 def prev_month_backlog(report_month=None, live=None):
     """Tồn đọng T-1 cho báo cáo tháng `report_month` ('YYYY-MM', None=tháng hiện tại).
 
+    Định nghĩa (user chốt 2026-07-10 — xem Decision #46), tính TRỰC TIẾP từ bug live
+    (KHÔNG dùng snapshot `months`/`carry` nữa — bản thân việc team copy bug sang sheet
+    tháng mới đã là "freeze" tự nhiên rồi). Gom bug TẠO trong T-1 theo FINGERPRINT nội
+    dung (khử trùng bản copy T6↔T7), mỗi bug thật xét 1 lần:
+      - CÒN TREO (still_open): KHÔNG bản nào Closed/Reject -> nợ chưa dọn.
+      - ĐÃ XỬ LÝ (resolved): có bản Closed/Reject VÀ có bản nằm ở sheet tháng T (đã bê
+        sang rồi đóng) -> tồn đọng đã giải quyết trong tháng T.
+      - đóng gọn NGAY trong T-1 (có bản đóng nhưng KHÔNG bê sang) -> KHÔNG phải tồn đọng.
+    total = still_open + resolved.
+
     Trả dict:
       {report_month, prev_month, has_snapshot,
-       total,          # số bug tồn đọng từ T-1 (mở cuối T-1)
-       resolved,       # nay ĐÃ rời trạng thái mở: đã đóng HOẶC không còn trong file (gộp)
-       still_open,     # nay VẪN mở
-       new_count,      # bug MỚI phát sinh trong report_month (theo created)
-       bugs: [ {id, project, dev, created, status_prev, status_now, state} ]  # state∈{open,resolved}
+       total, resolved, still_open,
+       new_count,      # bug MỚI phát sinh trong report_month (unique fingerprint)
+       bugs: [ {id, project, dev, created, status_now, state} ]  # state∈{open,resolved}
       }
-    2 nhóm (còn / đã xử lý) -> total = still_open + resolved LUÔN khớp; bug "không còn trong
-    file" gộp vào resolved (không dựng được là đóng hay xoá, nhưng đều = hết treo).
     `live` (optional) = {key:bug} truyền sẵn để tránh đọc lại; None -> tự lấy."""
     if not report_month:
         report_month = datetime.now().strftime('%Y-%m')
     prev = _prev_month(report_month)
-    data = _load()
-    carry_prev = data.get('carry', {}).get(prev)
-    snap_prev = data.get('months', {}).get(prev)
+    cur_sheet = _cur_month_sheet(report_month)
     live = live if live is not None else _live_bugs()
 
     def _id(p, sv, n):
         return f"{p}-{sv + '-' if sv else ''}{n}".strip('-')
 
+    # Gom bug tạo trong T-1 theo fingerprint (khử trùng bản copy sang sheet tháng mới).
+    groups = {}
+    for b in live.values():
+        if (b.get('created', '') or '')[:7] == prev:
+            groups.setdefault(_fp(b), []).append(b)
+
     bugs = []
     resolved = still_open = 0
-
-    if carry_prev is not None:
-        # ---- Cách MỚI (chính xác): carry[T-1] = bug MỞ cuối T-1, đối chiếu theo FINGERPRINT.
-        # Match bền qua copy sang sheet tháng mới (STT/sheet đổi, nội dung giữ).
-        live_by_fp = {}
-        for b in live.values():
-            live_by_fp.setdefault(_fp(b), []).append(b)
-        for fp, rec in carry_prev.items():
-            if not is_open(rec.get('s', '')):
-                continue                             # phòng hờ; carry vốn chỉ chứa bug mở
-            matches = live_by_fp.get(fp, [])
-            open_m = [m for m in matches if is_open(m.get('status', ''))]
-            if open_m:
-                state = 'open'; still_open += 1
-                status_now = open_m[0].get('status', '') or ''
-                dev = open_m[0].get('dev_pic', '') or rec.get('d', '')
-            else:                                    # đã đóng HOẶC không còn trong file -> đã xử lý
-                state = 'resolved'; resolved += 1
-                status_now = (matches[0].get('status', '') if matches else '') or ''
-                dev = (matches[0].get('dev_pic', '') if matches else rec.get('d', '')) or ''
-            bugs.append({
-                'id': _id(rec.get('p', ''), rec.get('sv', ''), rec.get('n', '')),
-                'project': rec.get('p', ''), 'dev': dev, 'created': rec.get('c', ''),
-                'status_prev': rec.get('s', ''), 'status_now': status_now, 'state': state,
-            })
-    else:
-        # ---- Fallback (tháng chưa có carry, vd 2026-06/07): theo tháng-tạo + key sheet.
-        for key, rec in (snap_prev or {}).items():
-            if not is_open(rec.get('s', '')):
-                continue                             # cuối T-1 đã đóng -> không phải tồn đọng
-            b = live.get(key)
-            if b is not None and is_open(b.get('status', '')):
-                state = 'open'; still_open += 1; status_now = b.get('status', '') or ''
-            else:                                    # đã đóng HOẶC không còn trong file -> đã xử lý
-                state = 'resolved'; resolved += 1; status_now = (b.get('status', '') if b else '') or ''
-            bugs.append({
-                'id': _id(rec.get('p', ''), rec.get('sv', ''), rec.get('n', '')),
-                'project': rec.get('p', ''),
-                'dev': (b.get('dev_pic', '') if b else rec.get('d', '')) or '',
-                'created': rec.get('c', ''),
-                'status_prev': rec.get('s', ''),
-                'status_now': status_now,
-                'state': state,
-            })
+    for group in groups.values():
+        any_closed = any(not is_open(x.get('status', '')) for x in group)
+        carried = any((x.get('month', '') or '') == cur_sheet for x in group)
+        if not any_closed:
+            state = 'open'; still_open += 1
+            rep = group[0]                            # bản đại diện (còn treo)
+        elif carried:
+            state = 'resolved'; resolved += 1
+            rep = next((x for x in group if not is_open(x.get('status', ''))), group[0])
+        else:
+            continue                                  # đóng gọn trong T-1, không bê sang
+        bugs.append({
+            'id': _id(rep.get('project', ''), rep.get('service', ''), rep.get('bug_no', '')),
+            'project': rep.get('project', ''), 'dev': rep.get('dev_pic', '') or '',
+            'created': (rep.get('created', '') or '')[:10],
+            'status_now': rep.get('status', '') or '', 'state': state,
+        })
     bugs.sort(key=lambda x: (x['state'] != 'open', x['project'], x['id']))
 
-    new_count = sum(1 for b in live.values()
-                    if (b.get('created', '') or '')[:7] == report_month)
+    # Mới phát sinh trong report_month = số bug thật (unique fingerprint) created trong tháng đó.
+    new_fps = {_fp(b) for b in live.values()
+               if (b.get('created', '') or '')[:7] == report_month}
 
     return {
         'report_month': report_month, 'prev_month': prev,
-        'has_snapshot': (carry_prev is not None) or (snap_prev is not None),
-        'total': len(bugs), 'resolved': resolved, 'still_open': still_open,
-        'new_count': new_count, 'bugs': bugs,
+        'has_snapshot': bool(groups),                 # có bug T-1 để tính hay không
+        'total': resolved + still_open, 'resolved': resolved, 'still_open': still_open,
+        'new_count': len(new_fps), 'bugs': bugs,
     }
