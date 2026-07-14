@@ -103,7 +103,8 @@ def _load_env():
               'JIRA_ADMIN_EMAIL', 'JIRA_ALLOWED_DOMAIN',
               'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'SESSION_SECRET',
               'PUBLIC_BASE_URL', 'BUG_LOG_POLL_SECONDS', 'JIRA_MAX_CONCURRENT',
-              'CF_ACCOUNT_ID', 'CF_KV_NAMESPACE_ID', 'CF_API_TOKEN'):
+              'CF_ACCOUNT_ID', 'CF_KV_NAMESPACE_ID', 'CF_API_TOKEN',
+              'APP_REDIRECT', 'APP_LINK_PACKAGE', 'APP_LINK_FINGERPRINT'):
         if os.environ.get(k):
             cfg[k] = os.environ[k]
     return cfg
@@ -176,6 +177,17 @@ PAT_SECRET = CFG.get('PAT_SECRET', '').strip()
 # (chống Host-header injection — issue #49). Bỏ trống => suy từ request (local dev).
 PUBLIC_BASE_URL = CFG.get('PUBLIC_BASE_URL', '').strip().rstrip('/')
 AUTH_ENABLED = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
+
+# ----- App Android (D2 hướng C: server-brokered token handoff) -----
+# APP_REDIRECT = URL App Link app đăng ký để nhận token sau OAuth (vd
+# 'https://baokim-qa.com/app/auth'). _do_callback redirect về đây kèm '#token=<jwt>' khi
+# state đánh dấu client=app. Bỏ trống => luồng mobile tắt (web hoạt động như cũ).
+# APP_LINK_PACKAGE = applicationId app (vd 'vn.baokim.qa') cho /.well-known/assetlinks.json.
+APP_REDIRECT = CFG.get('APP_REDIRECT', '').strip()
+APP_LINK_PACKAGE = CFG.get('APP_LINK_PACKAGE', '').strip()
+# SHA-256 cert fingerprint(s) của signing key app, phân tách dấu phẩy (debug + release +
+# Play App Signing nếu có). Phục vụ /.well-known/assetlinks.json để Google verify App Link.
+APP_LINK_FINGERPRINT = [f.strip() for f in CFG.get('APP_LINK_FINGERPRINT', '').split(',') if f.strip()]
 
 # ----- Cloudflare Workers KV = kho sync chéo máy KHÔNG cần VPN (thay Jira property) -----
 # Cả 3 giá trị có mặt => KV_ENABLED: remote_store dùng KV làm kho chung (reachable qua

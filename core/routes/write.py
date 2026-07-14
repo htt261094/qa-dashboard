@@ -20,7 +20,8 @@ from config import JIRA_URL
 from pat_store import load_user_pat
 from custom_status import set_custom_status, is_valid
 from jira_write import (get_transitions, do_transition, add_comment, create_subtask,
-                        can_edit_duedate, set_duedate, get_editmeta_fields, update_issue)
+                        create_subtasks, can_edit_duedate, set_duedate,
+                        get_editmeta_fields, update_issue)
 
 
 class WriteMixin:
@@ -143,6 +144,53 @@ class WriteMixin:
                     'url': f'{JIRA_URL}/browse/{res}', 'msg': f'Đã tạo {res} ✓'})
             else:
                 self._reply_json(False, {'ok': False, 'msg': res})
+        except (ValueError, json.JSONDecodeError, OSError):
+            self._reply_json(False, {'ok': False, 'msg': 'Lỗi xử lý yêu cầu.'})
+
+    def _handle_create_subtasks(self):
+        """Tạo NHIỀU Sub-task QA dưới CÙNG 1 Task-PTSP (verify cha 1 lần, tạo tuần tự).
+        Partial-failure: trả cả created lẫn failed để FE báo rõ."""
+        pat = load_user_pat(self._user_email())
+        if not pat:
+            self._reply_json(False, {'ok': False, 'code': 'no_pat',
+                'msg': 'Bạn chưa cấu hình PAT. Vào ⚙ Cài đặt để thêm, rồi thử lại.'})
+            return
+        try:
+            payload = self._read_json_body(50_000)
+            if not isinstance(payload, dict):
+                self._reply_json(False, {'ok': False, 'msg': 'Dữ liệu không hợp lệ.'})
+                return
+            parent = (payload.get('parent') or '').strip()
+            summaries = payload.get('summaries')
+            duedate = (payload.get('duedate') or '').strip()
+            start_date = (payload.get('startDate') or '').strip()
+            assignee = (payload.get('assignee') or '').strip() or None
+            leader = (payload.get('leader') or '').strip() or None
+            if not re.match(r'^[A-Za-z0-9]+-\d+$', parent):
+                self._reply_json(False, {'ok': False, 'msg': 'Task cha không hợp lệ.'})
+                return
+            if not isinstance(summaries, list) or not summaries:
+                self._reply_json(False, {'ok': False, 'msg': 'Thiếu tiêu đề sub-task.'})
+                return
+            # Cap 30 sub-task/lần để tránh loạt call nặng
+            summaries = [s for s in summaries if isinstance(s, str)][:30]
+            datep = r'^\d{4}-\d{2}-\d{2}$'
+            if not re.match(datep, duedate) or not re.match(datep, start_date):
+                self._reply_json(False, {'ok': False,
+                    'msg': 'Ngày phải đúng định dạng YYYY-MM-DD.'})
+                return
+            ok, res = create_subtasks(parent, summaries, duedate, start_date,
+                                      assignee, leader, pat)
+            if not ok and not isinstance(res.get('created'), list):
+                # Lỗi sớm (verify cha / thiếu field) -> chỉ có msg
+                self._reply_json(False, {'ok': False, 'msg': res.get('msg', 'Lỗi tạo sub-task.')})
+                return
+            created = res.get('created', [])
+            failed = res.get('failed', [])
+            for c in created:
+                c['url'] = f"{JIRA_URL}/browse/{c.get('key','')}"
+            self._reply_json(bool(created),
+                {'ok': bool(created), 'created': created, 'failed': failed})
         except (ValueError, json.JSONDecodeError, OSError):
             self._reply_json(False, {'ok': False, 'msg': 'Lỗi xử lý yêu cầu.'})
 

@@ -12,10 +12,10 @@ Layer rule: KHÔNG import qa_dashboard (tránh vòng import).
 """
 from urllib.parse import urlparse, parse_qs
 
-from config import AUTH_ENABLED, PUBLIC_BASE_URL, ALLOWED_DOMAIN
+from config import AUTH_ENABLED, PUBLIC_BASE_URL, ALLOWED_DOMAIN, APP_REDIRECT
 from auth import (SESSION_COOKIE, STATE_COOKIE, DRIVE_STATE_COOKIE, SESSION_TTL, STATE_TTL,
                   login_url, exchange_code, email_allowed,
-                  make_session_token, make_state_token, state_valid,
+                  make_session_token, make_state_token, state_valid, state_data,
                   drive_login_url, exchange_code_tokens)
 from drive_token import save_refresh_token
 from render import render_error_page, render_login_page
@@ -53,7 +53,10 @@ class OAuthMixin:
         if (q.get('go') or [''])[0] != '1':
             self._html(render_login_page())
             return
-        state = make_state_token()
+        # ?app=1 => client mobile (D2 hướng C): nhúng cờ vào state (ký HMAC) để callback
+        # giao token qua App Link thay vì Set-Cookie. redirect_uri Google KHÔNG đổi.
+        is_app = (q.get('app') or [''])[0] == '1'
+        state = make_state_token(app=is_app)
         secure = self._secure_cookie()
         url = login_url(self._base_url() + '/oauth/callback', state)
         self._redirect(url, [self._set_cookie(STATE_COOKIE, state, STATE_TTL, secure)])
@@ -84,6 +87,13 @@ class OAuthMixin:
                              bool(info.get('verified_email')),
                              str(info.get('email', '')).endswith('@' + (ALLOWED_DOMAIN or '')))
             self._forbidden()
+            return
+        # Client mobile (D2 hướng C): giao chính token HMAC self-contained qua App Link +
+        # fragment. Fragment (#) KHÔNG được gửi lên server -> token không vào access log của
+        # bên nhận. App bắt qua intent-filter App Links (đã verify assetlinks.json).
+        st = state_data(state)
+        if st and st.get('app') and APP_REDIRECT:
+            self._redirect(f'{APP_REDIRECT}#token={make_session_token(email)}')
             return
         secure = self._secure_cookie()
         self._redirect('/', [

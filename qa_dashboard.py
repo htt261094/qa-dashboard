@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cor
 
 from config import (JIRA_URL, USERS, PORT, ADMIN_EMAIL, ADMIN_EMAILS, ALLOWED_DOMAIN,
                     AUTH_ENABLED, SELF_USER, PUBLIC_BASE_URL, DEV_EMAILS,
+                    APP_LINK_PACKAGE, APP_LINK_FINGERPRINT,
                     display_name, username_from_email)
 from auth import (SESSION_COOKIE, SESSION_TTL, email_from_session,
                   session_status, make_session_token)
@@ -115,7 +116,14 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         return f'{proto}://{host}'
 
     def _user_email(self):
-        """Email người đăng nhập từ session cookie; fallback Cloudflare header. '' nếu chưa login."""
+        """Email người đăng nhập. Ưu tiên Bearer token (client mobile — D2 hướng C:
+        cùng token HMAC self-contained như cookie web, chỉ khác đường chở), rồi session
+        cookie (web), rồi fallback Cloudflare header. '' nếu chưa login."""
+        auth = self.headers.get('Authorization', '')
+        if auth.startswith('Bearer '):
+            email = email_from_session(auth[7:].strip())
+            if email:
+                return email
         email = email_from_session(self._cookie(SESSION_COOKIE))
         if email:
             return email
@@ -392,6 +400,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         if path == '/public/roadmap':
             self._get_public_roadmap()
             return
+        if path == '/.well-known/assetlinks.json':
+            self._get_assetlinks()   # public: Google verify App Link app (D2 hướng C)
+            return
         if not self._authed():
             self._redirect('/login')
             return
@@ -475,6 +486,22 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
 
     # ===== GET route handlers (trích từ do_GET — B0/#111) =====
     # _get_uploads -> routes/uploads.py (UploadsMixin, B3/#115)
+
+    def _get_assetlinks(self):
+        """Digital Asset Links cho App Links app Android (D2 hướng C). Google fetch công khai
+        URL này để xác thực app sở hữu domain -> app bắt được redirect token an toàn (scheme
+        không bị app khác cướp). Trả [] khi chưa cấu hình (App Links chỉ fail-đóng, web vẫn chạy)."""
+        links = []
+        if APP_LINK_PACKAGE and APP_LINK_FINGERPRINT:
+            links = [{
+                'relation': ['delegate_permission/common.handle_all_urls'],
+                'target': {
+                    'namespace': 'android_app',
+                    'package_name': APP_LINK_PACKAGE,
+                    'sha256_cert_fingerprints': APP_LINK_FINGERPRINT,
+                },
+            }]
+        self._json(200, json.dumps(links).encode('utf-8'))
 
     def _get_my_work(self):
         # Việc của tôi = lens cá nhân của admin (task của chính mình) HOẶC của dev (role
@@ -907,6 +934,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             return
         if path == '/create-subtask':
             self._handle_create_subtask()
+            return
+        if path == '/create-subtasks':
+            self._handle_create_subtasks()
             return
         if path == '/batch-eval':
             self._post_batch_eval()
