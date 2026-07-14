@@ -22,7 +22,7 @@ from render.misc import (render_403, _render_drive_card, render_settings_page,
 # Dashboard v2 (admin team-wide + QA personal lens + render_page dispatcher) tách
 # sang render.dashboard; re-export để chỗ gọi không phải đổi import. See issue #106 / #86.
 from render.dashboard import (render_page, _bug_metrics_payload,
-                              render_admin_v2, render_qa_v2)
+                              render_admin_v2, render_qa_v2, build_my_work_payload)
 # Tài liệu training (tab /docs) tách sang render.docs; re-export để chỗ gọi
 # (qa_dashboard.py) không phải đổi import. See issue #107 / #86.
 from render.docs import render_docs_page

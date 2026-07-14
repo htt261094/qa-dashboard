@@ -48,7 +48,7 @@ from custom_status import (load_bundle, values_of, clear_labels_for_done)
 from render import (render_page, render_qa_v2, render_docs_page,
                     render_roadmap_v2, render_public_roadmap_v2, render_bug_log_v2, render_analytics_v2,
                     render_testcase_v2, render_settings_page, render_error_page,
-                    render_403, render_shell_error)
+                    render_403, render_shell_error, build_my_work_payload)
 from routes.oauth import OAuthMixin
 from routes.write import WriteMixin
 from routes.uploads import UploadsMixin
@@ -59,7 +59,7 @@ ACTIVITY_DAYS = 7  # cửa sổ activity feed kéo từ Jira changelog
 # khác -> 403. Gồm 2 trang chính + endpoint phụ trợ để 2 trang đó hoạt động (chuông poll,
 # drawer detail, tìm task/bug cho palette, quản lý PAT cá nhân của chính họ).
 _DEV_GET_ALLOWED = frozenset({
-    '/my-work', '/my-work.html', '/bug-log', '/bug-log.html',
+    '/my-work', '/my-work.html', '/api/my-work', '/bug-log', '/bug-log.html',
     '/settings', '/settings.html', '/has-pat', '/has-drive',
     '/activity-feed', '/issue-comments', '/global-search', '/search-bugs',
 })
@@ -424,6 +424,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         if path.startswith('/uploads/'):
             self._get_uploads(path)
             return
+        if path == '/api/my-work':
+            self._get_api_my_work()   # JSON cho client mobile (E0.2, android #6)
+            return
         if path in ('/my-work', '/my-work.html'):
             self._get_my_work()
             return
@@ -507,31 +510,34 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         # Việc của tôi = lens cá nhân của admin (task của chính mình) HOẶC của dev (role
         # tạm thời — đây là trang chính của họ). QA thường KHÔNG cần (dashboard `/` của họ
         # đã auto-scope về chính họ) -> đá về dashboard.
-        is_dev = self._is_dev()
-        if not (self._is_admin() or is_dev):
+        if not (self._is_admin() or self._is_dev()):
             self._redirect('/')
             return
-        fresh = self._wants_fresh()   # F5 -> ép data tươi; click chuyển tab -> SWR nhanh
-        if is_dev:
+        try:
+            data, overlay, bell, stale = self._my_work_bundle(self._wants_fresh())
+        except RuntimeError:
+            self._html(render_shell_error('mywork', self._user_ctx(),
+                                          title='Việc của tôi — QA Workspace'))
+            return
+        # UI hệt QA member (render_qa_v2), chỉ highlight tab "Việc của tôi" ở sidebar
+        self._html(render_qa_v2(data, bell, overlay, self._user_ctx(),
+                                nav_active='mywork', stale=stale))
+
+    def _my_work_bundle(self, fresh):
+        """Fetch + scope snapshot cho lens "Việc của tôi" — dùng chung web (`/my-work`)
+        và mobile (`/api/my-work`). Trả `(data, overlay, bell, stale)`. Raise RuntimeError
+        khi Jira down (caller tự render lỗi phù hợp HTML/JSON). overlay/bell degrade mềm
+        (KV/chuông fail -> None/[]) như hành vi cũ."""
+        if self._is_dev():
             # Dev không nằm trong USERS -> snapshot team không có task họ. Fetch riêng theo
             # username (JQL assignee = <dev>, lọc server-side nên không lộ task người khác).
             scope = self._user_email().split('@')[0]
-            try:
-                data = fetch_all(scope_user=scope, force=fresh)
-            except RuntimeError:
-                self._html(render_shell_error('mywork', self._user_ctx(),
-                                              title='Việc của tôi — QA Workspace'))
-                return
+            data = fetch_all(scope_user=scope, force=fresh)   # RuntimeError -> caller
             stale = False
         else:
             scope = self._self_username()
-            # data full team qua snapshot chéo máy rồi scope về chính admin (xem Decision offline-snapshot).
-            try:
-                full, stale = fetch_all_shared(fetched_by=self._user_email(), force=fresh)
-            except RuntimeError:
-                self._html(render_shell_error('mywork', self._user_ctx(),
-                                              title='Việc của tôi — QA Workspace'))
-                return
+            # data full team qua snapshot chéo máy rồi scope về chính admin (Decision offline-snapshot).
+            full, stale = fetch_all_shared(fetched_by=self._user_email(), force=fresh)
             data = scope_data(full, scope)
         # overlay nhãn custom qua KV -> sống offline; chuông notif qua Jira -> có thể fail.
         try:
@@ -542,9 +548,30 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             bell = self._bell_activities(force=fresh)
         except RuntimeError:
             bell = []
-        # UI hệt QA member (render_qa_v2), chỉ highlight tab "Việc của tôi" ở sidebar
-        self._html(render_qa_v2(data, bell, overlay, self._user_ctx(),
-                                nav_active='mywork', stale=stale))
+        return data, overlay, bell, stale
+
+    def _get_api_my_work(self):
+        """JSON lens "Việc của tôi" cho client mobile (E0.2, android #6). Cùng data/scope/
+        overlay/bell như web `/my-work`, chỉ đổi output HTML -> json.dumps (D3: 1 nguồn chân
+        lý — payload thuần dựng bởi build_my_work_payload, buckets/pager do client). Auth
+        (Bearer) + gate role dev đã xử ở do_GET."""
+        if not (self._is_admin() or self._is_dev()):
+            self._json(403, b'{"ok":false,"error":"forbidden"}')
+            return
+        try:
+            data, overlay, bell, stale = self._my_work_bundle(self._wants_fresh())
+        except RuntimeError:
+            self._json(503, b'{"ok":false,"error":"jira_unavailable"}')
+            return
+        tasks, meta, n_linked, n_total = build_my_work_payload(data, overlay)
+        # sort theo hạn tăng dần; task chưa đặt hạn ('' ) xuống cuối (ISO date -> so sánh chuỗi ok).
+        tasks.sort(key=lambda t: (not t['due'], t['due']))
+        self._json(200, json.dumps({
+            'ok': True, 'stale': stale,
+            'tasks': tasks, 'meta': meta,
+            'tcLinked': {'linked': n_linked, 'total': n_total},
+            'activities': bell,
+        }, ensure_ascii=False).encode('utf-8'))
 
     def _get_leader_eval(self):
         if not self._is_admin():
