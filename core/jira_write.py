@@ -86,21 +86,9 @@ def transition_to_status(key, target_name, pat):
     return do_transition(key, match['id'], pat)
 
 
-def create_subtask(parent_key, summary, duedate, start_date,
-                   assignee=None, leader=None, pat=None):
-    """Tạo Sub-task QA dưới 1 Task-PTSP, NHÂN DANH chủ PAT (reporter = người đăng nhập).
-
-    Field bắt buộc (theo createmeta): summary, duedate, start_date (customfield_10208).
-    assignee/leader optional (user-picker -> {'name': username}).
-    Trả (True, '<KEY mới>') hoặc (False, '<thông báo lỗi tiếng Việt>')."""
-    summary = (summary or '').strip()
-    if not summary:
-        return False, 'Thiếu tiêu đề sub-task.'
-    if not duedate:
-        return False, 'Thiếu hạn chót (Due date).'
-    if not start_date:
-        return False, 'Thiếu ngày bắt đầu (Start date).'
-    # 1. Lấy project key từ parent + verify parent đúng là Task-PTSP (không tin client)
+def _verify_ptsp_parent(parent_key, pat):
+    """Lấy project key từ parent + verify parent đúng là Task-PTSP (không tin client).
+    Trả (True, '<PROJECT_KEY>') hoặc (False, '<thông báo lỗi>')."""
     try:
         r = requests.get(f"{JIRA_URL}/rest/api/2/issue/{parent_key}",
                          headers=_headers(pat), params={'fields': 'project,issuetype'},
@@ -116,7 +104,12 @@ def create_subtask(parent_key, summary, duedate, start_date,
         return False, 'Không xác định được dự án của task cha.'
     if str(ptype.get('id')) != str(TASK_PTSP_TYPE_ID):
         return False, f'Task cha phải là Task-PTSP (đang là {ptype.get("name") or "?"}).'
-    # 2. Build payload + tạo
+    return True, project_key
+
+
+def _create_one_subtask(project_key, parent_key, summary, duedate, start_date,
+                        assignee=None, leader=None, pat=None):
+    """POST tạo 1 sub-task (giả định parent đã verify). Trả (True, '<KEY>') / (False, '<lỗi>')."""
     fields = {
         'project': {'key': project_key},
         'parent': {'key': parent_key},
@@ -148,6 +141,56 @@ def create_subtask(parent_key, summary, duedate, start_date,
     except ValueError:
         pass
     return False, _err_for(r.status_code, pat)
+
+
+def create_subtask(parent_key, summary, duedate, start_date,
+                   assignee=None, leader=None, pat=None):
+    """Tạo Sub-task QA dưới 1 Task-PTSP, NHÂN DANH chủ PAT (reporter = người đăng nhập).
+
+    Field bắt buộc (theo createmeta): summary, duedate, start_date (customfield_10208).
+    assignee/leader optional (user-picker -> {'name': username}).
+    Trả (True, '<KEY mới>') hoặc (False, '<thông báo lỗi tiếng Việt>')."""
+    summary = (summary or '').strip()
+    if not summary:
+        return False, 'Thiếu tiêu đề sub-task.'
+    if not duedate:
+        return False, 'Thiếu hạn chót (Due date).'
+    if not start_date:
+        return False, 'Thiếu ngày bắt đầu (Start date).'
+    ok, res = _verify_ptsp_parent(parent_key, pat)
+    if not ok:
+        return False, res
+    return _create_one_subtask(res, parent_key, summary, duedate, start_date,
+                               assignee, leader, pat)
+
+
+def create_subtasks(parent_key, summaries, duedate, start_date,
+                    assignee=None, leader=None, pat=None):
+    """Tạo NHIỀU sub-task QA dưới CÙNG 1 Task-PTSP (verify cha 1 lần, tạo tuần tự).
+
+    `summaries` = list tiêu đề (mỗi phần tử 1 sub-task). Chung parent/due/start/assignee/leader.
+    Trả (overall_ok, {'created': [{'key','summary'}], 'failed': [{'summary','msg'}]}).
+    overall_ok = True nếu tạo được ÍT NHẤT 1 (partial). Verify cha fail -> (False, {'msg': ...})."""
+    titles = [s.strip() for s in (summaries or []) if isinstance(s, str) and s.strip()]
+    if not titles:
+        return False, {'msg': 'Thiếu tiêu đề sub-task.'}
+    if not duedate:
+        return False, {'msg': 'Thiếu hạn chót (Due date).'}
+    if not start_date:
+        return False, {'msg': 'Thiếu ngày bắt đầu (Start date).'}
+    ok, res = _verify_ptsp_parent(parent_key, pat)
+    if not ok:
+        return False, {'msg': res}
+    project_key = res
+    created, failed = [], []
+    for title in titles:
+        one_ok, one_res = _create_one_subtask(project_key, parent_key, title, duedate,
+                                              start_date, assignee, leader, pat)
+        if one_ok:
+            created.append({'key': one_res, 'summary': title})
+        else:
+            failed.append({'summary': title, 'msg': one_res})
+    return bool(created), {'created': created, 'failed': failed}
 
 
 def can_edit_duedate(key, pat):

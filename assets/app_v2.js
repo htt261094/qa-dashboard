@@ -59,7 +59,7 @@ function pagerHTML(page, pages, total, start, count, unit){
 }
 // Write cần Jira -> chặn khi đang xem snapshot OFFLINE (window.__stale). /set-custom-status
 // ghi Cloudflare KV nên VẪN cho (sống offline); /dismiss cũng KV -> không chặn.
-var JIRA_WRITE = { '/do-transition':1, '/create-subtask':1 };
+var JIRA_WRITE = { '/do-transition':1, '/create-subtask':1, '/create-subtasks':1 };
 function postJSON(url, body, ms){
   if (window.__stale && JIRA_WRITE[url]) {
     try { toast('Đang xem offline (mất kết nối Jira) — không đổi được task. Bật VPN rồi thử lại.'); } catch(e){}
@@ -2744,7 +2744,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
       // Auto-fill tiêu đề: [QA] <title Task-PTSP> (tránh nhân đôi [QA] nếu cha đã có)
       var s=$('subSummary');
       if(s){ var t=(parent.summary||'').trim();
-        s.value = !parent.key ? '' : (/^\[QA\]/i.test(t) ? t : ('[QA] '+t)); } });
+        s.value = !parent.key ? '' : (/^\[QA\]/i.test(t) ? t : ('[QA] '+t)); updateCount(); } });
   var leaderTA = wireTA('subLeaderInp','subLeaderRes','subLeaderChip','/search-people?q=',
     function(o){ return '<b>'+esc(o.display||o.name)+'</b><small>'+esc(o.name)+'</small>'; },
     function(o){ leader = o ? {name:o.name, display:o.display||o.name} : {name:'',display:''}; });
@@ -2755,7 +2755,20 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var s=$('subSummary'); if(s) s.value='';
     var d=$('subDue'); if(d) d.value='';
     var a=$('subAssignee'); if(a) a.value='';
+    updateCount();
   }
+
+  // Đếm số dòng (mỗi dòng không rỗng = 1 sub-task) + cập nhật nhãn nút Tạo
+  function titleLines(){
+    var s=$('subSummary'); if(!s) return [];
+    return (s.value||'').split(/\r?\n/).map(function(x){ return x.trim(); }).filter(Boolean);
+  }
+  function updateCount(){
+    var n=titleLines().length, c=$('subCount'), b=$('subCreate');
+    if(c) c.textContent = n>1 ? (n+' sub-task sẽ được tạo') : '';
+    if(b) b.textContent = n>1 ? ('Tạo '+n+' sub-task') : 'Tạo sub-task';
+  }
+  (function(){ var s=$('subSummary'); if(s) s.addEventListener('input', updateCount); })();
 
   // Chưa có PAT -> không mở form tạo, mở thẳng modal Cài đặt PAT (create cần PAT cá nhân).
   if(openBtn) openBtn.addEventListener('click', function(){
@@ -2774,22 +2787,38 @@ window.__smSetCustom=function(t, key, val, onChanged){
 
   var createBtn=$('subCreate');
   if(createBtn) createBtn.addEventListener('click', function(){
-    var summary=($('subSummary').value||'').trim();
+    var titles=titleLines();
     var start=($('subStart').value||'').trim();
     var due=($('subDue').value||'').trim();
     var assignee=($('subAssignee').value||'').trim();
     if(!parent.key){ toast('Chưa chọn Task-PTSP cha', false); return; }
-    if(!summary){ toast('Chưa nhập tiêu đề', false); return; }
+    if(!titles.length){ toast('Chưa nhập tiêu đề', false); return; }
     if(!start){ toast('Chưa chọn ngày bắt đầu', false); return; }
     if(!due){ toast('Chưa chọn hạn chót', false); return; }
     createBtn.disabled=true;
-    postJSON('/create-subtask', { parent:parent.key, summary:summary, startDate:start,
-        duedate:due, assignee:assignee, leader:leader.name })
+    // Nhiều tiêu đề -> endpoint gộp (verify cha 1 lần). Timeout dài hơn vì tạo tuần tự N issue.
+    postJSON('/create-subtasks', { parent:parent.key, summaries:titles, startDate:start,
+        duedate:due, assignee:assignee, leader:leader.name }, 60000)
       .then(function(j){
         createBtn.disabled=false;
-        if(j && j.ok){ toast(j.msg||'Đã tạo sub-task ✓', true); reset(); close();
-          setTimeout(function(){ location.reload(); }, 1100); }
-        else if(!patToast(j)){ toast((j&&j.msg)||'Lỗi tạo sub-task', false); }
+        if(!j){ toast('Lỗi tạo sub-task', false); return; }
+        if(j.code==='no_pat'){ patToast(j); return; }
+        var created=(j.created||[]), failed=(j.failed||[]);
+        if(!created.length){
+          // Tất cả fail -> báo lỗi cụ thể, GIỮ modal để sửa & thử lại
+          var m = failed.length ? ('Không tạo được: '+failed[0].msg) : (j.msg||'Lỗi tạo sub-task');
+          toast(m, false); return;
+        }
+        if(failed.length){
+          // Partial: báo cả hai, giữ lại các dòng lỗi trong textarea để retry
+          toast('Đã tạo '+created.length+', lỗi '+failed.length+' (giữ lại dòng lỗi)', false);
+          var s=$('subSummary'); if(s) s.value = failed.map(function(f){ return f.summary; }).join('\n');
+          updateCount();
+          setTimeout(function(){ location.reload(); }, 2200);
+        } else {
+          toast('Đã tạo '+created.length+' sub-task ✓', true); reset(); close();
+          setTimeout(function(){ location.reload(); }, 1100);
+        }
       })
       .catch(function(){ createBtn.disabled=false; toast('Lỗi mạng khi tạo sub-task', false); });
   });

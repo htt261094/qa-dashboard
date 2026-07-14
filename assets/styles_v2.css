@@ -555,6 +555,8 @@ tr.cmt-row:hover td{background:var(--surface-low)}
 .mfield input:focus,.mfield textarea:focus,.mfield select:focus{outline:none;border-color:var(--primary);background:var(--card)}
 .mfield input:disabled,.mfield select:disabled{opacity:.55;cursor:not-allowed}
 .mfield .hint{font-size:11px;color:var(--on-surface-variant)}
+.mfield label .mhint{font-weight:400;color:var(--on-surface-variant);letter-spacing:0}
+.mcount{font-size:11px;color:var(--primary);min-height:14px}
 .modal-foot{display:flex;gap:10px;justify-content:flex-end;padding:14px 20px;border-top:1px solid var(--divider)}
 .btn{padding:9px 16px;border-radius:var(--r-md);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;border:1px solid transparent}
 .btn-ghost{background:none;color:var(--on-surface-variant);border-color:var(--outline-variant)}

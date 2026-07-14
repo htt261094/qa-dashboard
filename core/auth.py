@@ -104,13 +104,22 @@ def session_status(token):
 
 
 # ----- OAuth state (CSRF) -----
-def make_state_token():
-    nonce = secrets.token_urlsafe(16)
-    return _make_token({'n': nonce, 'exp': time.time() + STATE_TTL})
+def make_state_token(app=False):
+    """State CSRF cho OAuth. app=True => nhúng cờ 'app' (ký HMAC, không giả được) để
+    _do_callback biết đây là luồng client mobile -> giao token qua App Link (D2 hướng C)."""
+    data = {'n': secrets.token_urlsafe(16), 'exp': time.time() + STATE_TTL}
+    if app:
+        data['app'] = True
+    return _make_token(data)
 
 
 def state_valid(token):
     return _read_token(token) is not None
+
+
+def state_data(token):
+    """dict state nếu chữ ký đúng & chưa hết hạn (đọc cờ 'app'), else None."""
+    return _read_token(token)
 
 
 # ----- OAuth flow -----
