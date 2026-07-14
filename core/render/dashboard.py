@@ -294,21 +294,18 @@ def render_admin_v2(data, activities, cmap, user, bug_log_data=None,
                         stale=stale, stale_note=_snap_note(data) if stale else '')
 
 
-# ===== Dashboard QA v2 (lens cá nhân — 1 bảng + tabs + KPI + drawer) =====
-# Dùng chung cho QA member (`/`, nav_active='dashboard') và admin xem việc mình
-# (`/my-work`, nav_active='mywork') — UI hệt nhau, chỉ khác tab sidebar được highlight.
-def render_qa_v2(data, activities, cmap, user, nav_active='dashboard',
-                 jira_error=False, stale=False):
-    # Lens cá nhân = 100% data Jira (không có block local nào) -> Jira down thì cả vùng
-    # nội dung báo lỗi, giữ skeleton sidebar/topbar.
-    if jira_error:
-        content = (
-            '<div class="page-head"><div class="page-title">Tổng quan — Việc của tôi</div></div>'
-            + _conn_error_card()
-        )
-        return _document_v2(content, nav_active, user, activities,
-                            title='QA Workspace — Việc của tôi')
+# ===== Lens cá nhân — payload (nguồn chân lý dùng chung web + mobile API) =====
+def build_my_work_payload(data, cmap):
+    """Dựng data thuần cho lens "Việc của tôi" từ snapshot Jira đã scope.
 
+    Nguồn chân lý DUY NHẤT cho cả `render_qa_v2` (HTML web) lẫn `/api/my-work` (JSON
+    mobile) — tránh parity Python↔Kotlin (D3). Chỉ tính toán, KHÔNG dựng markup.
+
+    Trả `(tasks, meta, n_linked, n_total)`:
+    - tasks: list task active + done_week, mỗi task là dict field UI-agnostic.
+    - meta : count KPI (active/overdue/stuck/dueweek/done + STUCK_DAYS).
+    - n_linked/n_total: số task đã link bộ test case / tổng (badge "🔗 x/y").
+    """
     active = data['active']
     linked_keys = _tc_linked_keys()
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -369,6 +366,27 @@ def render_qa_v2(data, activities, cmap, user, nav_active='dashboard',
     all_keys = {iss['key'] for iss in active} | {iss['key'] for iss in data['done_week']}
     n_linked = sum(1 for k in all_keys if k in linked_keys)
     n_total = len(all_keys)
+    return tasks, meta, n_linked, n_total
+
+
+# ===== Dashboard QA v2 (lens cá nhân — 1 bảng + tabs + KPI + drawer) =====
+# Dùng chung cho QA member (`/`, nav_active='dashboard') và admin xem việc mình
+# (`/my-work`, nav_active='mywork') — UI hệt nhau, chỉ khác tab sidebar được highlight.
+def render_qa_v2(data, activities, cmap, user, nav_active='dashboard',
+                 jira_error=False, stale=False):
+    # Lens cá nhân = 100% data Jira (không có block local nào) -> Jira down thì cả vùng
+    # nội dung báo lỗi, giữ skeleton sidebar/topbar.
+    if jira_error:
+        content = (
+            '<div class="page-head"><div class="page-title">Tổng quan — Việc của tôi</div></div>'
+            + _conn_error_card()
+        )
+        return _document_v2(content, nav_active, user, activities,
+                            title='QA Workspace — Việc của tôi')
+
+    # Nguồn chân lý dùng chung với /api/my-work (D3) — chỉ dựng markup từ payload thuần.
+    tasks, meta, n_linked, n_total = build_my_work_payload(data, cmap)
+    n_over, n_stuck, n_dueweek = meta['overdue'], meta['stuck'], meta['dueweek']
 
     tabs = (
         '<div class="tabs" id="tabs">'
