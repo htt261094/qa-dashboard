@@ -50,6 +50,7 @@ from render import (render_page, render_qa_v2, render_docs_page,
                     render_testcase_v2, render_settings_page, render_error_page,
                     render_403, render_shell_error, build_my_work_payload,
                     build_bug_log_payload, build_analytics_payload)
+                    build_dashboard_payload)
 from routes.oauth import OAuthMixin
 from routes.write import WriteMixin
 from routes.uploads import UploadsMixin
@@ -434,6 +435,8 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             return
         if path == '/api/analytics':
             self._get_api_analytics()  # JSON metric analytics cho client mobile (E0.4, android #12)
+        if path == '/api/dashboard':
+            self._get_api_dashboard()   # JSON dashboard team admin (E0.3, android #8)
             return
         if path in ('/my-work', '/my-work.html'):
             self._get_my_work()
@@ -624,6 +627,39 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
                                           backlog=res['backlog'])
         self._json(200, json.dumps({'ok': True, **payload},
                                    ensure_ascii=False).encode('utf-8'))
+    def _get_api_dashboard(self):
+        """JSON dashboard team admin cho client mobile (E0.3, android #8). Cùng data/scope/
+        overlay/bell như web `/` admin (render_admin_v2), chỉ đổi output HTML -> json.dumps
+        (D3: 1 nguồn chân lý — payload thuần dựng bởi build_dashboard_payload; pill/filter/pager
+        do client). Team-wide -> ADMIN only (D5, Dashboard = ADMIN). 403 nếu không phải admin,
+        503 khi Jira down + KV trống."""
+        if not self._is_admin():
+            self._json(403, b'{"ok":false,"error":"forbidden"}')
+            return
+        fresh = self._wants_fresh()
+        try:
+            # data full team qua snapshot chéo máy (Decision offline-snapshot). scope=None -> team-wide.
+            full, stale = fetch_all_shared(fetched_by=self._user_email(), force=fresh)
+        except RuntimeError:
+            self._json(503, b'{"ok":false,"error":"jira_unavailable"}')
+            return
+        data = scope_data(full, None)
+        # overlay nhãn custom qua KV -> sống offline; chuông notif qua Jira -> có thể fail (degrade mềm).
+        try:
+            overlay, _cust = load_bundle(None, ACTIVITY_DAYS)
+        except RuntimeError:
+            overlay = None
+        try:
+            bell = self._bell_activities(force=fresh)
+        except RuntimeError:
+            bell = []
+        tasks, meta, members, workload = build_dashboard_payload(data, overlay)
+        self._json(200, json.dumps({
+            'ok': True, 'stale': stale,
+            'tasks': tasks, 'meta': meta,
+            'members': members, 'workload': workload,
+            'activities': bell,
+        }, ensure_ascii=False).encode('utf-8'))
 
     def _get_leader_eval(self):
         if not self._is_admin():
