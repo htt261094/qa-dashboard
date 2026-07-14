@@ -107,26 +107,28 @@ def _snap_note(data):
     return f'dữ liệu lúc {when} (fetch bởi {by})'
 
 
-def render_admin_v2(data, activities, cmap, user, bug_log_data=None,
-                    jira_error=False, stale=False):
-    """Admin dashboard v2: team-wide view with status pills, member dropdown, paginated
-    5-column table, 3 KPI cards, and a task detail drawer. Data is embedded as JSON and
-    rendered entirely client-side by the admin controller in app_v2.js.
+def _workload_level(n):
+    """Ngưỡng workload/người (spec §2, KHÔNG tự đổi): ≥15 QUÁ TẢI / 5–14 OK / ≤4 NHẸ."""
+    if n >= 15:
+        return 'over'
+    if n >= 5:
+        return 'ok'
+    return 'light'
 
-    jira_error=True -> Jira không với tới được: chỉ vùng task (pills/bảng/KPI, nguồn Jira)
-    đổi sang card lỗi; KHÔNG drop #rows table thật -> dashboard controller bail (guard #rows).
-    Block Metric Bug (cache local) VẪN render + hoạt động bình thường."""
-    if jira_error:
-        content = (
-            '<div class="page-head"><div>'
-            '<h2 class="page-title">Task Management</h2></div></div>'
-            + _conn_error_card()
-            + _bug_metric_card_html()
-            + _json_script('bugMetrics', _bug_metrics_payload(bug_log_data))
-        )
-        return _document_v2(content, 'dashboard', user, activities,
-                            title='QA Workspace — Task Management')
 
+# ===== Dashboard team admin — payload (nguồn chân lý dùng chung web + mobile API) =====
+def build_dashboard_payload(data, cmap):
+    """Dựng data thuần cho dashboard team admin từ snapshot Jira full team.
+
+    Nguồn chân lý DUY NHẤT cho cả `render_admin_v2` (HTML web) lẫn `/api/dashboard` (JSON
+    mobile, E0.3/android #8) — tránh parity Python↔Kotlin (D3). Chỉ tính toán, KHÔNG dựng markup.
+
+    Trả `(tasks, meta, members, workload)`:
+    - tasks   : flat list task active + done_week, mỗi task là dict field UI-agnostic.
+    - meta    : count KPI (active/todo/progress/new/stuck/overdue/done + vào/ra tuần).
+    - members : list tên assignee unique (đổ vào dropdown filter web / picker app).
+    - workload: [{name,init,cls,count,level}] — số task ACTIVE/người + mức tải (spec §2).
+    """
     active = data['active']
     done = data['done_week']
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -204,10 +206,11 @@ def render_admin_v2(data, activities, cmap, user, bug_log_data=None,
     n_new = sum(1 for t in tasks if t['isNew'])
     n_stuck = sum(1 for t in tasks if t['stuck'])
     n_over = sum(1 for t in tasks if t['overdue'])
+    n_active = sum(1 for t in tasks if t['active'])
     # "Done" = TỔNG THẬT từ Jira (jira_count), KHÔNG phải len(done_week) vì bucket bị cắt 500.
     n_done = data.get('done_total', sum(1 for t in tasks if t['jira'].upper() == 'DONE'))
 
-    # Unique member names for dropdown
+    # Unique member names (dropdown filter web / picker app)
     members = []
     seen_m = set()
     for t in tasks:
@@ -215,17 +218,60 @@ def render_admin_v2(data, activities, cmap, user, bug_log_data=None,
         if nm not in seen_m:
             seen_m.add(nm)
             members.append(nm)
-    member_opts = '<div class="member-opt active" data-member="all">All Members</div>'
-    for m in sorted(members):
-        member_opts += f'<div class="member-opt" data-member="{esc(m)}">{esc(m)}</div>'
+
+    # Workload/người = số task ACTIVE (in-flight) / assignee + mức tải theo ngưỡng spec §2.
+    # Chỉ đếm active (done không phải tải hiện tại). Web admin_v2 chưa render block này nhưng
+    # app cần (E6.4) -> tính sẵn ở nguồn chân lý (D3), web bỏ qua field vô hại.
+    wl = {}
+    for t in tasks:
+        if not t['active']:
+            continue
+        a = t['assignee']
+        w = wl.setdefault(a['name'], {'name': a['name'], 'init': a['init'], 'cls': a['cls'], 'count': 0})
+        w['count'] += 1
+    workload = sorted(wl.values(), key=lambda w: (-w['count'], w['name'].lower()))
+    for w in workload:
+        w['level'] = _workload_level(w['count'])
 
     meta = {
         'isAdmin': True,
+        'active': n_active,
         'todo': n_todo, 'progress': n_prog, 'new': n_new,
         'stuck': n_stuck, 'overdue': n_over, 'done': n_done,
         'resolvedWeek': data.get('resolved_week', 0),
         'createdWeek': data.get('created_week', 0),
     }
+    return tasks, meta, members, workload
+
+
+def render_admin_v2(data, activities, cmap, user, bug_log_data=None,
+                    jira_error=False, stale=False):
+    """Admin dashboard v2: team-wide view with status pills, member dropdown, paginated
+    5-column table, 3 KPI cards, and a task detail drawer. Data is embedded as JSON and
+    rendered entirely client-side by the admin controller in app_v2.js.
+
+    jira_error=True -> Jira không với tới được: chỉ vùng task (pills/bảng/KPI, nguồn Jira)
+    đổi sang card lỗi; KHÔNG drop #rows table thật -> dashboard controller bail (guard #rows).
+    Block Metric Bug (cache local) VẪN render + hoạt động bình thường."""
+    if jira_error:
+        content = (
+            '<div class="page-head"><div>'
+            '<h2 class="page-title">Task Management</h2></div></div>'
+            + _conn_error_card()
+            + _bug_metric_card_html()
+            + _json_script('bugMetrics', _bug_metrics_payload(bug_log_data))
+        )
+        return _document_v2(content, 'dashboard', user, activities,
+                            title='QA Workspace — Task Management')
+
+    # Nguồn chân lý dùng chung với /api/dashboard (D3) — chỉ dựng markup từ payload thuần.
+    tasks, meta, members, _workload = build_dashboard_payload(data, cmap)
+    n_todo, n_prog, n_new = meta['todo'], meta['progress'], meta['new']
+    n_stuck, n_over, n_done = meta['stuck'], meta['overdue'], meta['done']
+
+    member_opts = '<div class="member-opt active" data-member="all">All Members</div>'
+    for m in sorted(members):
+        member_opts += f'<div class="member-opt" data-member="{esc(m)}">{esc(m)}</div>'
 
     content = (
         # Page header + member filter
