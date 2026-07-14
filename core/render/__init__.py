@@ -32,9 +32,11 @@ from render.docs import render_docs_page
 from render.roadmap import render_roadmap_v2, render_public_roadmap_v2
 # Bug Log v2 (tab /bug-log) tách sang render.bug_log; re-export để chỗ gọi
 # (qa_dashboard.py) không phải đổi import. See issue #109 / #86.
-from render.bug_log import render_bug_log_v2, _bug_log_source_modals
+from render.bug_log import (render_bug_log_v2, _bug_log_source_modals,
+                            build_bug_log_payload)
 # Analytics v2 (tab /analytics) — gom metric bug + Valid Bug Rate. See issue #158.
-from render.analytics import render_analytics_v2
+# build_analytics_payload = JSON metric đã tính sẵn cho /api/analytics (E0.4/#12, D3).
+from render.analytics import render_analytics_v2, build_analytics_payload
 # Test Case v2 (tab /test-cases) — khung UI quản lý test case. See issue #157 / epic #151.
 from render.testcase import render_testcase_v2
 # Đánh giá Task QA cho Leader (tab /leader-eval) tách sang render.leader_eval;

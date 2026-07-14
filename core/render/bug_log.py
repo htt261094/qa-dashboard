@@ -18,18 +18,27 @@ from render.shell import _document_v2
 
 
 # ===== Bug Log v2 (issue #55) — bug từ Excel/Drive + link ngược Jira task =====
-def render_bug_log_v2(data, links, editable=True, user=None, activities=None, sources=None, pending=None):
-    """Tab Bug Log: bảng bug/test-case (nguồn = cache bug_log_store), tab theo THÁNG
-    (mỗi sheet Excel = 1 tháng — Decision #54), cột "Liên kết Task" = link app-side
-    do user tự gán (task_link), KHÔNG từ Excel. Toàn bộ bảng render client-side bởi
-    controller `#bugLogData` trong app_v2.js (tab/tick/link/pager).
+def build_bug_log_payload(data, links, sources=None):
+    """Dựng data thuần bug-log từ cache Excel/Drive — KHÔNG dựng markup.
 
-    `data`  = bug_log_store.load_bug_log() = {files:{fid:{project,bugs:{key:bug},...}}, synced_at}
-    `links` = task_link.load_links()       = {bugKey: {task,by,at}}
+    Nguồn chân lý DUY NHẤT cho cả `render_bug_log_v2` (HTML web) lẫn `/api/bug-log`
+    (JSON mobile, E0.4/android #12) — tránh parity Python↔Kotlin (D3).
+
+    `data`    = bug_log_store.load_bug_log() = {files:{fid:{project,bugs:{key:bug},...}}, synced_at, reopen}
+    `links`   = task_link.load_links()       = {bugKey: {task/tasks,by,at,fp}}
+    `sources` = bug_log_source.load_sources() = [{id,label,service}] (optional)
+
+    Trả `(bugs, month_list, sources_shaped, src_files, synced_disp, synced, reopen)`:
+    - bugs          : flat list bug (mỗi dict UI-agnostic: id/module/severity/status/qa/dev/tasks…).
+    - month_list    : tên sheet-tháng unique, mới nhất trước (tab tháng client-side).
+    - sources_shaped: [{id,label,service,name}] cho picker nguồn Drive.
+    - src_files     : [{name,project,count}] file Drive đã scan (source card).
+    - synced_disp   : mốc đồng bộ đã format ('YYYY-MM-DD HH:MM' / 'chưa đồng bộ').
+    - synced        : mốc đồng bộ raw ISO.
+    - reopen        : accumulator reopen (khách embed nguyên, dùng cho analytics).
     """
     data = data or {}
     links = links or {}
-    is_admin = user[1] if (user and len(user) > 1) else True
     files = data.get('files', {}) or {}
     reopen = data.get('reopen', {}) or {}
 
@@ -76,6 +85,27 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
 
     synced = data.get('synced_at', '') or ''
     synced_disp = synced.replace('T', ' ')[:16] if synced else 'chưa đồng bộ'
+
+    sources_shaped = [{'id': s.get('id', ''), 'label': s.get('label', ''),
+                       'service': s.get('service', ''),
+                       'name': (files.get(s.get('id', ''), {}) or {}).get('name', '')}
+                      for s in (sources or []) if s.get('id')]
+    return bugs, month_list, sources_shaped, src_files, synced_disp, synced, reopen
+
+
+def render_bug_log_v2(data, links, editable=True, user=None, activities=None, sources=None, pending=None):
+    """Tab Bug Log: bảng bug/test-case (nguồn = cache bug_log_store), tab theo THÁNG
+    (mỗi sheet Excel = 1 tháng — Decision #54), cột "Liên kết Task" = link app-side
+    do user tự gán (task_link), KHÔNG từ Excel. Toàn bộ bảng render client-side bởi
+    controller `#bugLogData` trong app_v2.js (tab/tick/link/pager).
+
+    `data`  = bug_log_store.load_bug_log() = {files:{fid:{project,bugs:{key:bug},...}}, synced_at}
+    `links` = task_link.load_links()       = {bugKey: {task,by,at}}
+    """
+    is_admin = user[1] if (user and len(user) > 1) else True
+    # Nguồn chân lý dùng chung với /api/bug-log (D3) — chỉ dựng markup từ payload thuần.
+    (bugs, month_list, sources_shaped, src_files,
+     synced_disp, synced, reopen) = build_bug_log_payload(data, links, sources)
     poll_min = max(1, BUG_LOG_POLL_SECONDS // 60)
 
     # source card: gộp các file Drive nguồn
@@ -181,9 +211,7 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
         + _json_script('bugLogData', {
             'bugs': bugs, 'months': month_list, 'editable': bool(editable),
             'syncedAt': synced_disp, 'reopen': reopen,
-            'sources': [{'id': s.get('id', ''), 'label': s.get('label', ''), 'service': s.get('service', ''),
-                          'name': (files.get(s.get('id', ''), {}) or {}).get('name', '')}
-                        for s in (sources or []) if s.get('id')],
+            'sources': sources_shaped,
             # Thay đổi bug-log tích luỹ admin chưa xem (popup tự hiện lúc vào màn). [] khi
             # không có / non-admin -> controller bỏ qua. watermark gửi lại khi báo đã xem.
             'pendingChanges': (pending or {}).get('changes', []),
