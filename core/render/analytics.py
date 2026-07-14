@@ -8,8 +8,121 @@ Bảng/chart render client-side bởi controller `#analyticsData` trong app_v2.j
 Data nguồn = bug_log_store.load_bug_log() (cache local/property, KHÔNG gọi Jira).
 """
 from issues import esc
+from task_link import tasks_of
+from bug_backlog import (_month_of, _dedup_by_fp, _chart_devs, _valid_counts,
+                         _reopen_table, prev_month_backlog, _YM_RE)
 from render.base import _json_script
 from render.shell import _document_v2
+
+
+def _cross_metrics(links, tc_links, tc_cases):
+    """KPI chéo Task×TC×Bug (KHÔNG theo tháng) — port renderCrossMetrics phía JS (app_v2.js).
+
+    - Coverage = task-có-TC / tổng-task-có-hoạt-động (bug hoặc tc).
+    - Density  = tổng-bug-liên-kết / tổng-task-có-hoạt-động.
+    - Execution= (Pass+Fail)/Tổng-case · PassRate = Pass/(Pass+Fail).
+    Trả counts + pct đã suy sẵn (None khi mẫu số 0) → app chỉ hiển thị (D3)."""
+    linked, tc_set, bug_set = set(), set(), set()
+    total_bug_linked = 0
+    for v in (links or {}).values():
+        ts = tasks_of(v)
+        if ts:
+            total_bug_linked += 1
+        for t in ts:
+            linked.add(t)
+            bug_set.add(t)
+    for v in (tc_links or {}).values():
+        for t in tasks_of(v):
+            linked.add(t)
+            tc_set.add(t)
+    total_tasks = len(linked)
+    tasks_with_tc = len(tc_set)
+
+    p = f = norun = 0
+    for c in (tc_cases or []):
+        r = c.get('result') or 'norun'
+        if r == 'pass':
+            p += 1
+        elif r == 'fail':
+            f += 1
+        if r == 'norun':
+            norun += 1
+    total = len(tc_cases or [])
+    executed = total - norun
+    return {
+        'coverage': {'tasksWithTc': tasks_with_tc, 'totalTasks': total_tasks,
+                     'pct': (tasks_with_tc / total_tasks * 100) if total_tasks else None},
+        'density': {'totalBugs': total_bug_linked, 'totalTasks': total_tasks,
+                    'value': (total_bug_linked / total_tasks) if total_tasks else None},
+        'execution': {'total': total, 'executed': executed, 'norun': norun,
+                      'pass': p, 'fail': f,
+                      'execPct': (executed / total * 100) if total else None,
+                      'passRate': (p / executed * 100) if executed else None},
+    }
+
+
+def build_analytics_payload(data, testcases=None, links=None, tc_links=None, backlog=None):
+    """Dựng metric analytics ĐÃ TÍNH SẴN cho client mobile (E0.4/android #12) — KHÔNG markup.
+
+    Nguồn chân lý DUY NHẤT: đẩy toàn bộ math đang ở JS (`renderValid`/`renderReopen`/
+    `renderMetric`/`renderCrossMetrics`/`computeBacklog` + dedup fingerprint) về backend
+    (D3 — app Kotlin chỉ chọn tháng + hiển thị, KHÔNG re-derive). Tái dùng đúng các twin
+    parity-verified ở `bug_backlog.py` (đã "PHẢI khớp" bản JS).
+
+    KHÁC web (render_analytics_v2 vẫn embed data thô, JS tự tính client-side): API tính
+    LIVE mọi tháng từ cache hiện tại (freeze `chart` là tối ưu chống-trôi riêng của web;
+    API phản ánh state cache ngay lúc gọi). Bug đa-dev chia phân số như JS.
+
+    Trả dict: `{syncedAt, months, crossMetrics, metrics}` với
+      metrics[ym] = {grand, chart:{dev:{proj:count}}, valid:{total,reject,closed,validPct,rejectPct},
+                     reopen:{totalBugs,distinctTotal,devs}, backlog:{prev,total,resolved,stillOpen,newCount,hasSnapshot,bugs}}.
+    """
+    data = data or {}
+    reopen_map = data.get('reopen', {}) or {}
+    tc_data = testcases or {}
+
+    synced = data.get('synced_at', '') or ''
+    synced_disp = synced.replace('T', ' ')[:16] if synced else 'chưa đồng bộ'
+
+    # Bug thô {key: bug} (giữ field dev_pic/status/… cho các twin — KHÁC _flatten_bugs).
+    live = {}
+    for f in (data.get('files', {}) or {}).values():
+        for k, b in (f.get('bugs', {}) or {}).items():
+            live[k] = b
+
+    # Bucket theo SHEET-tháng 'YYYY-MM' (khớp archive()/monthOf JS); bỏ tháng rác không hợp lệ.
+    by_month = {}
+    for k, b in live.items():
+        ym = _month_of(b)
+        if _YM_RE.match(ym):
+            by_month.setdefault(ym, []).append((k, b))
+
+    metrics = {}
+    for ym, kb in by_month.items():
+        bugs = [b for _, b in kb]
+        dd = _dedup_by_fp(bugs)                       # bug THẬT của tháng (khử bản copy)
+        vc = _valid_counts(dd)
+        denom = vc['total'] - vc['reject']
+        blr = prev_month_backlog(ym, live=live)
+        metrics[ym] = {
+            'grand': len(dd),
+            'chart': _chart_devs(dd),
+            'valid': {**vc,
+                      'validPct': (vc['closed'] / denom * 100) if denom > 0 else None,
+                      'rejectPct': (vc['reject'] / vc['total'] * 100) if vc['total'] else None},
+            'reopen': _reopen_table(reopen_map, kb, ym),
+            'backlog': {'prev': blr['prev_month'], 'total': blr['total'],
+                        'resolved': blr['resolved'], 'stillOpen': blr['still_open'],
+                        'newCount': blr['new_count'], 'hasSnapshot': blr['has_snapshot'],
+                        'bugs': blr['bugs']},
+        }
+
+    return {
+        'syncedAt': synced_disp,
+        'months': sorted(by_month, reverse=True),     # mới nhất trước (picker tháng)
+        'crossMetrics': _cross_metrics(links, tc_links, tc_data.get('cases', [])),
+        'metrics': metrics,
+    }
 
 
 def _flatten_bugs(data):

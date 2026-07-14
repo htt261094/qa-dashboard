@@ -31,7 +31,7 @@ from bug_log_store import (scan as bug_log_scan, start_scheduler as start_bug_lo
                            mark_changes_seen as bug_log_mark_seen, search_bugs)
 from bug_log_source import load_sources, save_sources, extract_file_id, MAX_SOURCES
 from task_link import load_links, set_task_links, tasks_of, fp_of
-from bug_backlog import fingerprint as bug_fingerprint
+from bug_backlog import fingerprint as bug_fingerprint, load_backlog
 from testcase_link import (load_links as tc_load_links, set_folder_links as tc_set_folder_links,
                            folders_for_task as tc_folders_for_task)
 from jira_api import (fetch_all, fetch_all_shared, scope_data, fetch_activity_feed, load_dismissed,
@@ -48,7 +48,8 @@ from custom_status import (load_bundle, values_of, clear_labels_for_done)
 from render import (render_page, render_qa_v2, render_docs_page,
                     render_roadmap_v2, render_public_roadmap_v2, render_bug_log_v2, render_analytics_v2,
                     render_testcase_v2, render_settings_page, render_error_page,
-                    render_403, render_shell_error, build_my_work_payload)
+                    render_403, render_shell_error, build_my_work_payload,
+                    build_bug_log_payload, build_analytics_payload)
 from routes.oauth import OAuthMixin
 from routes.write import WriteMixin
 from routes.uploads import UploadsMixin
@@ -60,6 +61,7 @@ ACTIVITY_DAYS = 7  # cửa sổ activity feed kéo từ Jira changelog
 # drawer detail, tìm task/bug cho palette, quản lý PAT cá nhân của chính họ).
 _DEV_GET_ALLOWED = frozenset({
     '/my-work', '/my-work.html', '/api/my-work', '/bug-log', '/bug-log.html',
+    '/api/bug-log', '/api/analytics',
     '/settings', '/settings.html', '/has-pat', '/has-drive',
     '/activity-feed', '/issue-comments', '/global-search', '/search-bugs',
 })
@@ -427,6 +429,12 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         if path == '/api/my-work':
             self._get_api_my_work()   # JSON cho client mobile (E0.2, android #6)
             return
+        if path == '/api/bug-log':
+            self._get_api_bug_log()   # JSON bug log cho client mobile (E0.4, android #12)
+            return
+        if path == '/api/analytics':
+            self._get_api_analytics()  # JSON metric analytics cho client mobile (E0.4, android #12)
+            return
         if path in ('/my-work', '/my-work.html'):
             self._get_my_work()
             return
@@ -572,6 +580,50 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             'tcLinked': {'linked': n_linked, 'total': n_total},
             'activities': bell,
         }, ensure_ascii=False).encode('utf-8'))
+
+    def _get_api_bug_log(self):
+        """JSON bug log cho client mobile (E0.4, android #12). Cùng nguồn cache (Excel/Drive +
+        task_link) như web `/bug-log`, chỉ đổi output HTML -> json.dumps (D3: 1 nguồn chân lý —
+        payload thuần dựng bởi build_bug_log_payload). Đọc cache local/KV, KHÔNG gọi Jira.
+        Mở cho MỌI role đã authed; dev = read-only (editable=false, backend enforce ghi). Auth
+        (Bearer) + gate role dev đã xử ở do_GET."""
+        try:
+            res = run_parallel({'bug': load_bug_log, 'links': load_links,
+                                'sources': load_sources})
+        except RuntimeError:
+            self._json(503, b'{"ok":false,"error":"bug_log_unavailable"}')
+            return
+        (bugs, month_list, sources_shaped, _src_files,
+         synced_disp, _synced, reopen) = build_bug_log_payload(res['bug'], res['links'],
+                                                               res['sources'])
+        self._json(200, json.dumps({
+            'ok': True, 'editable': not self._is_dev(),
+            'bugs': bugs, 'months': month_list,
+            'sources': sources_shaped, 'reopen': reopen,
+            'syncedAt': synced_disp,
+        }, ensure_ascii=False).encode('utf-8'))
+
+    def _get_api_analytics(self):
+        """JSON metric analytics cho client mobile (E0.4, android #12). Đẩy toàn bộ math đang ở
+        JS (Valid Bug Rate/Reopen/chart dev/backlog T-1/cross-metric + dedup fingerprint) về
+        backend (D3 — app chỉ chọn tháng + hiển thị). Đọc cache local/KV, KHÔNG gọi Jira. KHÁC
+        bug-log: dev KHÔNG xem được analytics (khớp web — /analytics ngoài _DEV_GET_ALLOWED) ->
+        403. Auth (Bearer) đã xử ở do_GET."""
+        if self._is_dev():
+            self._json(403, b'{"ok":false,"error":"forbidden"}')
+            return
+        try:
+            res = run_parallel({'bug': load_bug_log, 'tc': load_testcases,
+                                'links': load_links, 'tc_links': tc_load_links,
+                                'backlog': load_backlog})
+        except RuntimeError:
+            self._json(503, b'{"ok":false,"error":"bug_log_unavailable"}')
+            return
+        payload = build_analytics_payload(res['bug'], testcases=res['tc'],
+                                          links=res['links'], tc_links=res['tc_links'],
+                                          backlog=res['backlog'])
+        self._json(200, json.dumps({'ok': True, **payload},
+                                   ensure_ascii=False).encode('utf-8'))
 
     def _get_leader_eval(self):
         if not self._is_admin():
