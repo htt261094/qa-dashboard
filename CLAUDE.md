@@ -554,6 +554,7 @@ Hiền THƯỜNG là reporter trong các task QA team được giao — vì cô 
 - **Đánh đổi**: mất lịch sử reopen của bug đã xoá thật khỏi file (ngược Decision #48) — user chốt "data clean nhất". Verify cache thật: 99 entry active − 83 đếm = đúng 16 orphan DA5 (đổi tên sheet "Bản sao của T6"/xoá dòng) bị loại.
 - **Giới hạn**: team SỬA nội dung cột Bug sai chính tả (vd "bugs") → bị loại (chỉ khớp đúng `bug`). Cần **restart app** + ≥1 scan để rebuild cache + freeze snapshot (JS/CSS hot-reload F5).
 - **Verify** (không mạng): `py_compile bug_log/bug_backlog/render.analytics` + `node --check app_v2.js` OK; smoke filter (có cột Bug giữ đúng 3/5, không cột Bug giữ hết); reopen logic mới trên cache thật loại đúng 16 orphan (parity Python).
+- **D — Reopen full attribution** (bổ sung 2026-07-15): bug do NHIỀU dev cùng fix trước chia phân số `1/n` → hiện "0.5 lần reopen", tổng lẻ (5.5/3.5) — user thấy "lạ", chốt **mỗi dev tính ĐỦ 1 bug** (số nguyên). Sửa `_reopen_table` + twin JS `renderReopen`: cả `bugs_per_dev` (mẫu số), `distinct_per_dev`/`fix_per_dev` (tử số), và detail (`reopen`/`fix`) đều `+1`/`+fx` full thay vì `*frac`. `distinct_total` + `total_bugs` (KPI tổng theo tháng) GIỮ đếm-1-lần (không đụng). Hệ quả có chủ đích: `sum(bugs_per_dev) > total_bugs` (bug chung đếm cho cả 2 dev); tỷ lệ reopen per-dev đổi theo. Bump `_CHART_V` 4→5 rebuild snapshot.
 
 ## Issue Tracking & Branch Workflow (QUAN TRỌNG cho Claude Code)
 

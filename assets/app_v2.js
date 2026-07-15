@@ -3925,8 +3925,9 @@ window.__smSetCustom=function(t, key, val, onChanged){
       mBugs.forEach(function(b){
         var devList = (b.dev||'Chưa gán').trim().split(/[,;+&\/]/).map(function(s){ return s.trim(); }).filter(Boolean);
         if(!devList.length) devList = ['Chưa gán'];
-        var fraction = 1/devList.length;
-        devList.forEach(function(d){ bugsPerDev[d] = (bugsPerDev[d]||0) + fraction; });
+        // Full attribution: bug nhiều dev -> mỗi dev tính đủ 1 (KHÔNG chia 1/n) -> số nguyên.
+        // Parity với _reopen_table (bug_backlog.py).
+        devList.forEach(function(d){ bugsPerDev[d] = (bugsPerDev[d]||0) + 1; });
         if(b.key) bugByKey[b.key] = b;
       });
       Object.keys(REOPEN).forEach(function(key){
@@ -3938,11 +3939,13 @@ window.__smSetCustom=function(t, key, val, onChanged){
         var devStr = (b.dev||'Chưa gán').trim(), fx = fixDeliv(r, b);
         var devList = devStr.split(/[,;+&\/]/).map(function(s){ return s.trim(); }).filter(Boolean);
         if(!devList.length) devList = ['Chưa gán'];
-        var fraction = 1/devList.length; distinctTotal++;
+        distinctTotal++;
+        // Full attribution: mỗi dev cùng fix bug này tính đủ số reopen/fix (KHÔNG chia 1/n)
+        // -> chi tiết số nguyên. Parity với _reopen_table (bug_backlog.py).
         devList.forEach(function(d){
-          distinctPerDev[d] = (distinctPerDev[d]||0) + fraction;
-          fixPerDev[d] = (fixPerDev[d]||0) + (fx*fraction);
-          (detailPerDev[d] = detailPerDev[d]||[]).push({ id: b.id, summary: b.summary, reopen: cnt*fraction, fix: fx*fraction });
+          distinctPerDev[d] = (distinctPerDev[d]||0) + 1;
+          fixPerDev[d] = (fixPerDev[d]||0) + fx;
+          (detailPerDev[d] = detailPerDev[d]||[]).push({ id: b.id, summary: b.summary, reopen: cnt, fix: fx });
         });
       });
     }
