@@ -3932,15 +3932,17 @@ window.__smSetCustom=function(t, key, val, onChanged){
       Object.keys(REOPEN).forEach(function(key){
         var r = REOPEN[key]||{}, cnt = +r.count||0; if(cnt<=0) return;
         var b = bugByKey[key];
-        if(!b){ var fm = _sheetMY(r.month, '') || (r.month||''); if(fm !== selectedMonth) return; }
-        var devStr = ((b ? b.dev : r.dev)||'Chưa gán').trim(), fx = fixDeliv(r, b);
+        // CHỈ đếm bug CÒN trong current bugs của tháng; entry orphan (bug rời file/bị filter) -> bỏ.
+        // Parity với _reopen_table (bug_backlog.py) — data clean, filter-consistent.
+        if(!b) return;
+        var devStr = (b.dev||'Chưa gán').trim(), fx = fixDeliv(r, b);
         var devList = devStr.split(/[,;+&\/]/).map(function(s){ return s.trim(); }).filter(Boolean);
         if(!devList.length) devList = ['Chưa gán'];
         var fraction = 1/devList.length; distinctTotal++;
         devList.forEach(function(d){
           distinctPerDev[d] = (distinctPerDev[d]||0) + fraction;
           fixPerDev[d] = (fixPerDev[d]||0) + (fx*fraction);
-          (detailPerDev[d] = detailPerDev[d]||[]).push({ id: b?b.id:key, summary: b?b.summary:'', reopen: cnt*fraction, fix: fx*fraction });
+          (detailPerDev[d] = detailPerDev[d]||[]).push({ id: b.id, summary: b.summary, reopen: cnt*fraction, fix: fx*fraction });
         });
       });
     }

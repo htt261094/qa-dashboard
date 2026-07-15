@@ -238,6 +238,7 @@ def render_analytics_v2(data, user=None, activities=None, testcases=None, links=
         '<div class="bl-reopen-kpi" id="anReopenKpi"></div>'
         '<div style="overflow-x:auto"><table class="bl-table metric-table"><thead><tr id="anReopenHead"></tr></thead><tbody id="anReopenRows"></tbody></table></div>'
         '<div class="bl-reopen-note">Số lần fix = số lần reopen + 1 nếu bug đang ở trạng thái đã giao fix (Fixed/Closed) — mỗi lần reopen là 1 lần fix bị QA trả lại. '
+        'Chỉ tính bug còn trong file (bug đã xoá/đổi sheet/không phải type Bug không được đếm). '
         'Số reopen dội trước khi bật theo dõi, hoặc round-trip gọn trong 1 nhịp quét, có thể bị sót.</div>'
         '</div>'
 
