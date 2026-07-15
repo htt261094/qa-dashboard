@@ -47,8 +47,9 @@ from remote_store import remote_get, remote_put
 
 BUG_MONTHLY_PROP = 'qa-dashboard-bug-monthly'
 _MONTHS_CAP = 24                 # giữ tối đa 24 tháng gần nhất
-_CHART_V = 2                     # version freeze chart: bump khi đổi cách bucket -> rebuild snapshot cũ
+_CHART_V = 3                     # version freeze chart: bump khi đổi cách bucket -> rebuild snapshot cũ
                                  # (v2 = bucket theo SHEET tháng Tn thay vì created date, 2026-07)
+                                 # (v3 = áp filter cột "Bug" = Bug/bug ở tầng parse -> rebuild tháng cũ, 2026-07)
 # 'đã đóng' = Closed / Rejected (Reject); còn lại (New/Fixing/Fixed/Reopen/'') = đang MỞ.
 _CLOSED = {'closed', 'rejected', 'reject'}
 _lock = threading.Lock()
