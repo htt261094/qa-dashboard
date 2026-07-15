@@ -473,6 +473,12 @@ def normalize(rows, project='', service=''):
         month = str(rec.get('_sheet', '')).strip()
         nrec = {_norm_header(k): v for k, v in rec.items() if k != '_sheet'}
 
+        # Lọc theo cột "Bug": CHỈ giữ dòng loại = 'Bug'/'bug'. Ô trống hoặc giá trị khác
+        # (Improvement, Task, ...) -> BỎ. Sheet KHÔNG có cột "Bug" -> 'bug' vắng khỏi nrec
+        # -> giữ nguyên như cũ (backward-compat file/sheet cũ).
+        if 'bug' in nrec and str(nrec.get('bug', '')).strip().lower() != 'bug':
+            continue
+
         bug = {'month': month, 'project': project}
         for nh, field in _FIELD_MAP.items():
             val = nrec.get(nh, [] if field == 'screenshot_urls' else '')
