@@ -47,9 +47,10 @@ from remote_store import remote_get, remote_put
 
 BUG_MONTHLY_PROP = 'qa-dashboard-bug-monthly'
 _MONTHS_CAP = 24                 # giữ tối đa 24 tháng gần nhất
-_CHART_V = 3                     # version freeze chart: bump khi đổi cách bucket -> rebuild snapshot cũ
+_CHART_V = 4                     # version freeze chart: bump khi đổi cách bucket -> rebuild snapshot cũ
                                  # (v2 = bucket theo SHEET tháng Tn thay vì created date, 2026-07)
                                  # (v3 = áp filter cột "Bug" = Bug/bug ở tầng parse -> rebuild tháng cũ, 2026-07)
+                                 # (v4 = reopen bỏ đếm orphan b-None -> rebuild reopen snapshot, 2026-07)
 # 'đã đóng' = Closed / Rejected (Reject); còn lại (New/Fixing/Fixed/Reopen/'') = đang MỞ.
 _CLOSED = {'closed', 'rejected', 'reject'}
 _lock = threading.Lock()
@@ -207,17 +208,19 @@ def _reopen_table(reopen_map, kb, ym):
         if cnt <= 0:
             continue
         b = bug_by_key.get(key)
-        if b is None and (r.get('month', '') or '') != ym:
-            continue                              # entry không thuộc tháng này (fallback theo r.month)
-        dev_str = (b.get('dev_pic', '') if b else r.get('dev', '')) or 'Chưa gán'
+        # CHỈ đếm bug CÒN trong current bugs của tháng. Entry orphan (bug đã rời file: bị
+        # xoá, đổi tên sheet, HOẶC bị filter cột "Bug") -> BỎ, để tử số/mẫu số cùng trên
+        # một tập bug thật (data clean, filter-consistent). Bỏ nhánh fallback b-None cũ
+        # (Decision #48/#30) -> reopen_map monotonic vẫn giữ lịch sử nhưng KHÔNG hiển thị
+        # cho bug không còn hiện diện.
+        if b is None:
+            continue
+        dev_str = (b.get('dev_pic', '') or '') or 'Chưa gán'
         # Số lần fix = SUY từ count + trạng thái hiện tại, KHÔNG đọc accumulator `fix` cũ
         # (accumulator đếm transition vào status literal 'Fixed' — team hay skip Fixing→Closed
         # nên undercount, đẻ ra ca vô lý "2 reopen 1 fix"). Mỗi reopen = 1 fix bị QA trả lại;
-        # +1 nếu bug đang ở trạng thái đã-giao-fix. Bug rời file (b None) -> giả định đã giao 1 lần.
-        if b is not None:
-            fx = cnt + (1.0 if (b.get('status', '') or '') in ('Fixed', 'Closed') else 0.0)
-        else:
-            fx = cnt + 1.0
+        # +1 nếu bug đang ở trạng thái đã-giao-fix.
+        fx = cnt + (1.0 if (b.get('status', '') or '') in ('Fixed', 'Closed') else 0.0)
         dl = _split_devs(dev_str)
         frac = 1.0 / len(dl)
         distinct_total += 1
@@ -225,8 +228,8 @@ def _reopen_table(reopen_map, kb, ym):
             distinct_per_dev[d] = distinct_per_dev.get(d, 0) + frac
             fix_per_dev[d] = fix_per_dev.get(d, 0) + fx * frac
             detail_per_dev.setdefault(d, []).append({
-                'id': _bug_id(b) if b else key,
-                'summary': (b.get('summary', '') if b else ''),
+                'id': _bug_id(b),
+                'summary': b.get('summary', ''),
                 'reopen': cnt * frac, 'fix': fx * frac,
             })
     devs = {d: {'nb': distinct_per_dev[d], 'fx': fix_per_dev.get(d, 0),
