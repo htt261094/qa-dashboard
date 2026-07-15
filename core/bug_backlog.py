@@ -47,10 +47,11 @@ from remote_store import remote_get, remote_put
 
 BUG_MONTHLY_PROP = 'qa-dashboard-bug-monthly'
 _MONTHS_CAP = 24                 # giữ tối đa 24 tháng gần nhất
-_CHART_V = 4                     # version freeze chart: bump khi đổi cách bucket -> rebuild snapshot cũ
+_CHART_V = 5                     # version freeze chart: bump khi đổi cách bucket -> rebuild snapshot cũ
                                  # (v2 = bucket theo SHEET tháng Tn thay vì created date, 2026-07)
                                  # (v3 = áp filter cột "Bug" = Bug/bug ở tầng parse -> rebuild tháng cũ, 2026-07)
                                  # (v4 = reopen bỏ đếm orphan b-None -> rebuild reopen snapshot, 2026-07)
+                                 # (v5 = reopen full attribution: bug nhiều dev tính đủ 1/dev, không chia 1/n, 2026-07)
 # 'đã đóng' = Closed / Rejected (Reject); còn lại (New/Fixing/Fixed/Reopen/'') = đang MỞ.
 _CLOSED = {'closed', 'rejected', 'reject'}
 _lock = threading.Lock()
@@ -196,10 +197,11 @@ def _reopen_table(reopen_map, kb, ym):
     bugs_per_dev, bug_by_key = {}, {}
     total_bugs = len(kb)
     for key, b in kb:
-        dl = _split_devs(b.get('dev_pic', ''))
-        frac = 1.0 / len(dl)
-        for d in dl:
-            bugs_per_dev[d] = bugs_per_dev.get(d, 0) + frac
+        # Full attribution: bug do NHIỀU dev cùng fix -> mỗi dev tính ĐỦ 1 (KHÔNG chia phân
+        # số 1/n) -> số nguyên, dễ đọc (user chốt 2026-07-15: "để thẳng là 6 bug"). Hệ quả:
+        # sum(bugs_per_dev) có thể > total_bugs (bug chung đếm cho cả 2) — chấp nhận.
+        for d in _split_devs(b.get('dev_pic', '')):
+            bugs_per_dev[d] = bugs_per_dev.get(d, 0) + 1
         if key:
             bug_by_key[key] = b
     distinct_per_dev, fix_per_dev, detail_per_dev, distinct_total = {}, {}, {}, 0
@@ -221,16 +223,16 @@ def _reopen_table(reopen_map, kb, ym):
         # nên undercount, đẻ ra ca vô lý "2 reopen 1 fix"). Mỗi reopen = 1 fix bị QA trả lại;
         # +1 nếu bug đang ở trạng thái đã-giao-fix.
         fx = cnt + (1.0 if (b.get('status', '') or '') in ('Fixed', 'Closed') else 0.0)
-        dl = _split_devs(dev_str)
-        frac = 1.0 / len(dl)
         distinct_total += 1
-        for d in dl:
-            distinct_per_dev[d] = distinct_per_dev.get(d, 0) + frac
-            fix_per_dev[d] = fix_per_dev.get(d, 0) + fx * frac
+        # Full attribution (như mẫu số): mỗi dev cùng fix bug này tính ĐỦ số reopen/fix,
+        # KHÔNG chia phân số -> chi tiết hiện số nguyên "N lần reopen · M lần fix".
+        for d in _split_devs(dev_str):
+            distinct_per_dev[d] = distinct_per_dev.get(d, 0) + 1
+            fix_per_dev[d] = fix_per_dev.get(d, 0) + fx
             detail_per_dev.setdefault(d, []).append({
                 'id': _bug_id(b),
                 'summary': b.get('summary', ''),
-                'reopen': cnt * frac, 'fix': fx * frac,
+                'reopen': cnt, 'fix': fx,
             })
     devs = {d: {'nb': distinct_per_dev[d], 'fx': fix_per_dev.get(d, 0),
                 'denom': bugs_per_dev.get(d, 0), 'detail': detail_per_dev.get(d, [])}
