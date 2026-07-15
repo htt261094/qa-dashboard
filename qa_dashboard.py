@@ -49,7 +49,7 @@ from render import (render_page, render_qa_v2, render_docs_page,
                     render_roadmap_v2, render_public_roadmap_v2, render_bug_log_v2, render_analytics_v2,
                     render_testcase_v2, render_settings_page, render_error_page,
                     render_403, render_shell_error, build_my_work_payload,
-                    build_bug_log_payload, build_analytics_payload)
+                    build_bug_log_payload, build_analytics_payload,
                     build_dashboard_payload)
 from routes.oauth import OAuthMixin
 from routes.write import WriteMixin
