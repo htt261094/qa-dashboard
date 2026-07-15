@@ -435,6 +435,7 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             return
         if path == '/api/analytics':
             self._get_api_analytics()  # JSON metric analytics cho client mobile (E0.4, android #12)
+            return
         if path == '/api/dashboard':
             self._get_api_dashboard()   # JSON dashboard team admin (E0.3, android #8)
             return
