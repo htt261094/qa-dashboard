@@ -486,6 +486,7 @@ def _count_reopens(reopen_map, prev_bugs, cur_bugs):
       sau khi bị dội). Bug chưa từng reopen không tính (không nằm trong bảng reopen).
     - Chỉ xét key có ở CẢ prev và cur (key mới đã ở Reopen/Fixed = trước khi bật tracking →
       bỏ, không quan sát được transition). Trả số hit để caller set dirty."""
+    from bug_backlog import fingerprint   # lazy (tránh cycle): stamp fp -> carry reopen qua sheet
     hits = 0
     for key, cur in cur_bugs.items():
         prev = prev_bugs.get(key)
@@ -499,6 +500,7 @@ def _count_reopens(reopen_map, prev_bugs, cur_bugs):
             ent['dev'] = cur.get('dev_pic', '') or ''
             ent['project'] = cur.get('project', '') or ''
             ent['month'] = cur.get('month', '') or ''
+            ent['fp'] = fingerprint(cur)   # stamp fp -> carry lifetime reopen sang sheet tháng mới
 
         if ps != 'Reopen' and cs == 'Reopen':
             ent = reopen_map.get(key)
@@ -517,27 +519,58 @@ def _count_reopens(reopen_map, prev_bugs, cur_bugs):
 
 
 def _seed_current_reopens(reopen_map, cur_bugs):
-    """Hướng A (#146): bug ĐANG ở status 'Reopen' mà chưa có entry -> seed count=1, fix=1.
+    """Hướng A (#146): bug ĐANG ở status 'Reopen' mà chưa có entry -> seed count, fix=1.
 
     Lý do: bug ở trạng thái Reopen tất phải đã Fixed >=1 lần rồi bị QA dội -> đếm tối thiểu 1.
     Bù cho transition bị lỡ TRƯỚC khi bật theo dõi / sau khi accumulator bị reset (mà
     _count_reopens transition-based không bắt được). Chạy MỖI scan trên TẤT CẢ bug hiện tại
     (kể cả file Tầng-1 skip) -> tự chữa ngay, không cần file đổi.
 
-    Idempotent + KHÔNG double với transition: chỉ seed khi `key not in reopen_map` -> entry
-    do transition (count chính xác) hoặc seed trước đó đều không bị đè. Lower-bound: KHÔNG
-    tái tạo được số dội thật trước khi theo dõi (bug dội 3 lần -> hiện 1). Trả số entry seed."""
-    hits = 0
+    CARRY qua sheet tháng (user chốt 2026-07-15, case 2): bug tồn đọng được QA copy sang sheet
+    tháng mới (key = {project}#{service}#{sheet}#{STT} đổi vì sheet+STT đổi) mà đang Reopen ->
+    seed count = SỐ REOPEN LIFETIME của chính bug đó (định danh theo FINGERPRINT nội dung) lấy
+    từ entry sheet tháng trước, thay vì =1. Sau đó _count_reopens cộng tiếp reopen mới ở tháng
+    T lên key mới này -> "reopen T-1 (chốt cuối T-1) + reopen mới ở T". Vì carry chỉ đổi GIÁ TRỊ
+    count của seed (không đổi việc có/không entry) nên distinctTotal + tỷ lệ reopen KHÔNG đổi;
+    chỉ số "N lần reopen"/"số lần fix" chi tiết thành đúng lifetime.
+
+    Backfill fp cho entry cũ (ghi trước bản này) khi dòng bug gốc còn trong file -> carry chạy
+    được cả cho reopen ghi nhận trước khi bật fp. Dòng gốc đã xoá khỏi file + entry chưa stamp
+    fp -> không suy được fp -> seed 1 như cũ (caveat: chuẩn tuyệt đối từ chu kỳ tháng sau).
+
+    Idempotent + KHÔNG double với transition: chỉ seed khi `key not in reopen_map`. Trả số
+    thay đổi (seed + backfill) để caller set dirty."""
+    from bug_backlog import fingerprint   # lazy: tránh cycle với bug_backlog
+    changed = 0
+    # 1) Backfill fp cho entry cũ có dòng gốc còn trong file (để làm nguồn carry ngay lượt này).
+    for key, b in cur_bugs.items():
+        e = reopen_map.get(key)
+        if e is not None and not e.get('fp'):
+            e['fp'] = fingerprint(b)
+            changed += 1
+    # 2) fp -> reopen lifetime lớn nhất trong các entry đã biết (nguồn carry). Lấy MAX vì entry
+    #    tháng sau đã được seed cộng dồn từ tháng trước -> max = lifetime mới nhất.
+    fp_max = {}
+    for e in reopen_map.values():
+        f = e.get('fp')
+        if f:
+            c = int(e.get('count') or 0)
+            if c > fp_max.get(f, 0):
+                fp_max[f] = c
+    # 3) Seed bug đang Reopen chưa có entry: carry lifetime (else 1 như cũ).
     for key, b in cur_bugs.items():
         if (b.get('status') or '') == 'Reopen' and key not in reopen_map:
+            f = fingerprint(b)
+            carried = fp_max.get(f, 0)
             reopen_map[key] = {
-                'count': 1, 'fix': 1, 'last': _now_iso(),
+                'count': carried if carried > 0 else 1, 'fix': 1, 'last': _now_iso(),
                 'dev': b.get('dev_pic', '') or '',
                 'project': b.get('project', '') or '',
                 'month': b.get('month', '') or '',
+                'fp': f,
             }
-            hits += 1
-    return hits
+            changed += 1
+    return changed
 
 
 def _prune_activity(activity):
