@@ -92,7 +92,7 @@ def render_sidebar_v2(active, user):
               '<a class="danger" href="/logout"><span class="material-symbols-rounded ph-light ph-sign-out mi-sm"></span> Đăng xuất</a>'
               ) if email else ''
     return (
-        '<aside class="sidebar">'
+        '<aside class="sidebar" id="sidebar">'
         '<div class="brand"><h1>QA Workspace</h1></div>'
         f'<nav class="nav">{nav}</nav>'
         '<div class="nav-foot">'
@@ -110,6 +110,8 @@ def render_sidebar_v2(active, user):
 def render_topbar_v2():
     return (
         '<div class="topbar">'
+        '<button class="iconbtn hamb" id="navToggle" title="Menu" aria-label="Mở menu">'
+        '<span class="material-symbols-rounded ph-light ph-list mi-lg"></span></button>'
         '<div class="search"><span class="si material-symbols-rounded ph-light ph-magnifying-glass mi-sm"></span>'
         '<input type="text" id="searchInp" placeholder="Tìm task, kế hoạch...  (Ctrl+K mở bảng lệnh)"></div>'
         '<div class="top-right">'
@@ -277,7 +279,7 @@ def _document_v2(content_inner, active, user, activities, title='QA Suite',
 <script>(function(){{try{{var t=localStorage.getItem('qa-theme');if(t)document.documentElement.setAttribute('data-theme',t);}}catch(e){{}}}})();</script>
 <style>{load_css_v2()}</style></head>
 <body>
-<div class="app">{render_sidebar_v2(active, user)}
+<div class="app"><div class="nav-scrim" id="navScrim"></div>{render_sidebar_v2(active, user)}
 <div class="main">{render_topbar_v2()}
 <div class="content">{banner}{content_inner}</div></div></div>
 {_settings_modal_v2(user)}

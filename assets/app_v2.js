@@ -4839,3 +4839,19 @@ window.__smSetCustom=function(t, key, val, onChanged){
 })();
 
 })();   // ===== đóng IIFE ngoài cùng (shared scope) — bug-metrics block nằm TRONG để dùng $/esc/readJSON
+
+/* ===== Mobile sidebar off-canvas toggle (#navToggle / #navScrim) ===== */
+(function(){
+  var app=document.querySelector('.app'); if(!app) return;
+  var btn=document.getElementById('navToggle'), scrim=document.getElementById('navScrim'),
+      sb=document.getElementById('sidebar');
+  function close(){ app.classList.remove('nav-open'); }
+  function toggle(){ app.classList.toggle('nav-open'); }
+  if(btn) btn.addEventListener('click', function(e){ e.stopPropagation(); toggle(); });
+  if(scrim) scrim.addEventListener('click', close);
+  // Bấm 1 link điều hướng trong sidebar -> đóng (trước khi trang mới load)
+  if(sb) sb.querySelectorAll('.nav a').forEach(function(a){ a.addEventListener('click', close); });
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape') close(); });
+  // Về desktop thì luôn reset trạng thái off-canvas
+  window.addEventListener('resize', function(){ if(window.innerWidth>820) close(); });
+})();
