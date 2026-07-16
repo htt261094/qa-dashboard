@@ -101,22 +101,26 @@ def _live_bug_index():
 
 
 def backfill_fingerprints(cur_bugs):
-    """Stamp `fp` (fingerprint nội dung) lên các link entry đang thiếu, lấy từ bug hiện tại.
+    """(Re)stamp `fp` (fingerprint nội dung) lên các link entry, lấy từ bug hiện tại.
 
     Gọi từ bug_log_store.scan(cur_bugs={key:bug}). Vì một khi dòng bug tháng cũ bị xoá khỏi
-    file thì KHÔNG suy lại được fp từ key (key không chứa summary/feature), phải chốt fp trong
-    khi dòng gốc còn trong file. Idempotent: chỉ stamp entry chưa có fp và có bug khớp key.
-    Soft-fail: lỗi -> bỏ qua (không kéo sập scan)."""
+    file thì KHÔNG suy lại được fp từ key (key không chứa summary), phải chốt fp trong khi dòng
+    gốc còn trong file. RE-STAMP khi công thức fingerprint đổi (Decision #54 bỏ feature): entry
+    có key khớp bug live mà fp lệch công thức mới -> cập nhật -> link tự migrate sang fp mới sau
+    1 lần scan. Entry key không còn bug live -> giữ fp cũ (không suy lại được). Idempotent (fp
+    trùng -> không ghi). Soft-fail: lỗi -> bỏ qua (không kéo sập scan)."""
     try:
         data = _load_data()
         links = data.get('links', {}) or {}
         changed = False
         for k, v in links.items():
-            if isinstance(v, dict) and not v.get('fp'):
+            if isinstance(v, dict):
                 b = cur_bugs.get(k)
                 if b:
-                    v['fp'] = fingerprint(b)
-                    changed = True
+                    nf = fingerprint(b)
+                    if v.get('fp') != nf:
+                        v['fp'] = nf
+                        changed = True
         if changed:
             synced_save(LINK_PROP, data, _write_cache, _valid_data)
         return changed

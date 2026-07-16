@@ -21,7 +21,7 @@ của tháng đó. Bootstrap 1 lần: tháng quá khứ chưa có snapshot → s
 
 Tồn đọng T-1 CHÍNH XÁC (từ 2026-08 trở đi) dùng `carry` thay cho `months`: mỗi tháng chốt
 1 snapshot TẤT CẢ bug đang MỞ (bất kể tạo tháng nào) = nợ mang sang tháng sau, mỗi bug định
-danh bằng FINGERPRINT nội dung (project|service|feature|summary) thay cho key sheet — nên khi
+danh bằng FINGERPRINT nội dung (project|service|summary — Decision #54) thay cho key sheet — nên khi
 team copy bug tồn sang sheet tháng mới (STT + tên sheet đổi) vẫn match được. Report tháng M
 dùng carry[M-1], đối chiếu fp với bug live: còn khớp + mở -> "còn treo"; đã đóng / không tìm
 thấy -> "đã xử lý". `months` (theo tháng-tạo, khoá theo key sheet) GIỮ làm fallback cho các
@@ -32,7 +32,7 @@ Lưu trữ (`.bug_monthly.json` local = cache + KV/property = sync chéo máy qu
     "carry":  { "YYYY-MM": { fp:   {s,c,p,sv,n,d}   } },   # bug MỞ cuối tháng đó (id theo fp)
     "updated": iso }
   s=status(lifecycle) · c=created(YYYY-MM-DD) · p=project · n=bug_no · d=dev_pic · sv=service
-  fp = project|service|feature|summary đã _norm (lower/gộp-space/trim).
+  fp = project|service|summary đã _norm (lower/gộp-space/trim). Bỏ feature — Decision #54.
 
 Layer: config -> {remote_store} -> (this); bug_log_store nạp LAZY (tránh cycle: bug_log_store
 import module này để gọi archive()). Không cycle.
@@ -89,19 +89,24 @@ def _rec(b):
 
 # ===== Fingerprint theo NỘI DUNG (định danh bền qua việc copy sang sheet tháng mới) =====
 # key sheet cũ = {project}#{service}#{sheet}#{STT} -> đổi khi copy sang tháng mới (sheet + STT
-# đổi). Fingerprint = project|service|feature|summary (thứ KHÔNG đổi khi copy nguyên nội dung).
-# _norm PHẢI khớp y hệt bản JS trong app_v2.js (_bnorm) để match 2 phía: lower + gộp khoảng
-# trắng + trim; KHÔNG bỏ dấu (để Python == JS tuyệt đối, tránh lệch NFKD).
+# đổi). Fingerprint = project|service|summary (thứ KHÔNG đổi khi copy nguyên nội dung).
+# CỐ Ý BỎ `feature` (Decision #54, 2026-07-16): team hay đổi tên cột "Chức năng" khi bê bug
+# tồn sang sheet tháng mới (vd 'Nhập file'->'Lọc kỳ tháng', 'Danh sách đối chiếu công nợ ngày'
+# ->'BBĐS ngày') -> fp đứt -> bug đã Closed ở T7 vẫn bị đếm là tồn đọng oan. summary là tín
+# hiệu mạnh + ổn định nhất; feature volatile nên loại. _norm PHẢI khớp y hệt bản JS trong
+# app_v2.js (_bnorm) để match 2 phía: lower + gộp khoảng trắng + trim; KHÔNG bỏ dấu (để Python
+# == JS tuyệt đối, tránh lệch NFKD).
 def _norm(s):
     return ' '.join((s or '').strip().lower().split())
 
 
 def fingerprint(b):
-    """Fingerprint nội dung của 1 bug = project|service|feature|summary (đã _norm).
+    """Fingerprint nội dung của 1 bug = project|service|summary (đã _norm). CỐ Ý KHÔNG gồm
+    `feature` (Decision #54) vì cột "Chức năng" hay bị đổi lúc copy sang sheet tháng mới.
     Định danh bền qua việc copy sang sheet tháng mới (STT + tên sheet đổi, key đổi).
     Public: dùng chung cho task_link (link ngược task theo nội dung, không theo key sheet)."""
     return '|'.join((_norm(b.get('project', '')), _norm(b.get('service', '')),
-                     _norm(b.get('feature', '')), _norm(b.get('summary', ''))))
+                     _norm(b.get('summary', ''))))
 
 
 def _fp(b):
