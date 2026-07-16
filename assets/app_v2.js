@@ -3993,9 +3993,10 @@ window.__smSetCustom=function(t, key, val, onChanged){
   function toYm(mmYYYY){ var p=(mmYYYY||'').split('/'); return p.length>=2 ? p[1]+'-'+p[0] : ''; }  // MM/YYYY -> YYYY-MM
   function prevYm(ym){ var y=+ym.slice(0,4), m=+ym.slice(5,7)-1; if(m===0){y--;m=12;} return y+'-'+(m<10?'0'+m:m); }
   function curSheetOf(ym){ return 'T'+String(parseInt(ym.slice(5,7),10)); }  // 2026-07 -> 'T7'
-  // Fingerprint nội dung — PHẢI khớp _norm/_fp phía Python (bug_backlog.py) để match 2 phía.
+  // Fingerprint nội dung — PHẢI khớp _norm/fingerprint phía Python (bug_backlog.py) để match 2 phía.
+  // CỐ Ý BỎ feature (Decision #54): cột "Chức năng" hay bị đổi lúc copy sang sheet tháng mới -> fp đứt.
   function _bnorm(s){ return (s==null?'':(''+s)).toLowerCase().split(/\s+/).filter(Boolean).join(' '); }
-  function _fpOf(b){ return _bnorm(b.project)+'|'+_bnorm(b.service)+'|'+_bnorm(b.feature)+'|'+_bnorm(b.summary); }
+  function _fpOf(b){ return _bnorm(b.project)+'|'+_bnorm(b.service)+'|'+_bnorm(b.summary); }
   // Khử trùng theo fingerprint nội dung: cùng 1 bug thật bị copy sang nhiều sheet
   // (Decision #36/#46) thành nhiều dòng cùng created-month -> chỉ giữ 1 bản đại diện
   // (created mới nhất, "bản mới nhất thắng" Decision #37). Dùng cho count/chart để KHÔNG
