@@ -115,7 +115,7 @@ def render_topbar_v2():
         '<div class="search"><span class="si material-symbols-rounded ph-light ph-magnifying-glass mi-sm"></span>'
         '<input type="text" id="searchInp" placeholder="Tìm task, kế hoạch...  (Ctrl+K mở bảng lệnh)"></div>'
         '<div class="top-right">'
-        '<button class="topcreate" id="createSubBtn" title="Tạo sub-task QA dưới 1 Task-PTSP">'
+        '<button class="topcreate" id="createSubBtn" title="Tạo sub-task QA dưới 1 task">'
         '<span class="material-symbols-rounded ph-light ph-plus mi-sm"></span> Tạo Sub-task</button>'
         '<button class="iconbtn" id="bellBtn" title="Thông báo">'
         '<span class="material-symbols-rounded ph-light ph-bell mi-lg"></span>'
@@ -188,9 +188,9 @@ def _subtask_modal_v2():
         '<h3>Tạo Sub-task</h3>'
         '<button type="button" class="x material-symbols-rounded ph-light ph-x" id="subClose"></button></div>'
         '<div class="modal-body">'
-        '<div class="mfield"><label>Task cha — Task-PTSP *</label>'
+        '<div class="mfield"><label>Task cha *</label>'
         '<div class="typeahead" id="subParentTA">'
-        '<input type="text" id="subParentInp" placeholder="Gõ key hoặc tên Task-PTSP…" autocomplete="off" spellcheck="false">'
+        '<input type="text" id="subParentInp" placeholder="Gõ key hoặc tên task…" autocomplete="off" spellcheck="false">'
         '<div class="ta-results" id="subParentRes"></div></div>'
         '<div class="ta-chip" id="subParentChip" style="display:none"></div></div>'
         '<div class="mfield"><label>Tiêu đề * <small class="mhint">(mỗi dòng = 1 sub-task)</small></label>'
@@ -288,7 +288,7 @@ def _document_v2(content_inner, active, user, activities, title='QA Suite',
 <div class="drawer-ov" id="drawerOv"></div><aside class="drawer" id="drawer"></aside>
 <div class="smenu" id="smenu"></div>
 {_json_script('qaNotif', activities)}
-<script>window.__jiraBase={json.dumps(JIRA_URL)};window.__stale={json.dumps(bool(stale))};window.__isAdmin={json.dumps(bool(user[1]) if isinstance(user, (tuple, list)) and len(user) > 1 else True)};window.QA_CUSTOM_STATUSES={json.dumps(CUSTOM_STATUSES, ensure_ascii=False)};</script>
+<script>window.__jiraBase={json.dumps(JIRA_URL)};window.__stale={json.dumps(bool(stale))};window.__isAdmin={json.dumps(bool(user[1]) if isinstance(user, (tuple, list)) and len(user) > 1 else True)};window.QA_CUSTOM_STATUSES={json.dumps(CUSTOM_STATUSES, ensure_ascii=False)};window.__mentionUsers={json.dumps([{'name': u, 'display': display_name(u)} for u in USERS], ensure_ascii=False)};</script>
 <script>{load_js_v2()}</script>
 </body></html>"""
 

@@ -161,6 +161,12 @@ def render_testcase_v2(data=None, editable=True, links=None, user=None, activiti
       <aside class="tc-repo">
         <div class="tc-repo-head"><h3>Repository</h3>{repo_add}</div>
         {ro_note}
+        <div class="tc-repo-search">
+          <span class="material-symbols-rounded ph-light ph-magnifying-glass"></span>
+          <input type="text" id="tcRepoSearch" placeholder="Tìm dự án…" autocomplete="off">
+          <button type="button" id="tcRepoSearchClear" title="Xoá tìm kiếm"
+                  class="material-symbols-rounded ph-light ph-x" style="display:none"></button>
+        </div>
         <div class="tc-tree" id="tcTree"><!-- JS render --></div>
       </aside>
 
@@ -250,13 +256,10 @@ def render_testcase_v2(data=None, editable=True, links=None, user=None, activiti
         </div>
         <div class="modal-body">
           <div id="tcSyncMsg" style="margin-bottom:14px"></div>
-          <label style="display:flex;gap:9px;align-items:flex-start;cursor:pointer;line-height:1.45">
-            <input type="checkbox" id="tcSyncOverwrite" style="margin-top:3px;flex:0 0 auto">
-            <span>Ghi đè cả <b>kết quả đã chấm</b> — ô <b>Result</b> để trống trong sheet sẽ đưa
-            test case về <b>“Chưa chạy”</b>.<br>
-            <span style="color:var(--on-surface-variant);font-size:.9em">Bỏ chọn (mặc định) =
-            giữ nguyên kết quả bạn đã chấm tay khi ô Result trống.</span></span>
-          </label>
+          <div style="color:var(--on-surface-variant);font-size:.9em;line-height:1.45">
+            Kết quả trên hệ thống sẽ được <b>ghi đè theo file</b> — kể cả case đã có kết quả.
+            Ô <b>Result</b> để trống trong sheet đưa test case về <b>“Chưa chạy”</b>.
+          </div>
         </div>
         <div class="modal-foot">
           <button type="button" class="btn btn-ghost" onclick="tcCloseSync()">Hủy</button>

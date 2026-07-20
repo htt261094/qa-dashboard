@@ -361,6 +361,18 @@ tr.cmt-row:hover td{background:var(--surface-low)}
 .cmt-foot .lbtn.primary{background:var(--primary);color:var(--on-primary)}
 .cmt-foot .lbtn.primary:hover{background:var(--primary-strong)}
 
+/* @-mention dropdown (ô bình luận) — position:fixed do JS đặt toạ độ theo textarea */
+.mention-dd{position:fixed;z-index:130;display:none;max-height:240px;overflow-y:auto;
+  background:var(--card);border:1px solid var(--outline-variant);border-radius:var(--r-md);
+  box-shadow:var(--e3,0 6px 18px rgba(9,30,66,.18))}
+.mention-opt{display:flex;align-items:baseline;gap:8px;padding:8px 11px;cursor:pointer;
+  font-size:13px;border-bottom:1px solid var(--divider)}
+.mention-opt:last-child{border-bottom:0}
+.mention-opt:hover,.mention-opt.active{background:var(--surface-low)}
+.mention-name{font-weight:600;color:inherit}
+.mention-user{margin-left:auto;color:var(--on-surface-variant);font-family:'JetBrains Mono',monospace;font-size:12px}
+.mention-empty{padding:8px 11px;font-size:13px;color:var(--on-surface-variant)}
+
 /* ===== Task detail drawer ===== */
 .drawer-ov{position:fixed;inset:0;background:rgba(9,30,66,.45);z-index:55;opacity:0;pointer-events:none;transition:opacity .2s}
 .drawer-ov.open{opacity:1;pointer-events:auto}
@@ -1344,13 +1356,38 @@ html[data-theme="dark"] .rk-bug-n { color: #ff7b72; }
 .tc-repo-add:hover{background:var(--primary-tint)}
 .tc-repo-ro{margin:0 12px 10px;font-size:12px;color:var(--on-surface-variant)}
 .tc-tree{padding:0 8px 14px;display:flex;flex-direction:column;gap:2px}
-.tc-node{display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:var(--r-md);cursor:pointer;
+.tc-node{display:flex;flex-direction:column;gap:5px;padding:8px 10px;border-radius:var(--r-md);cursor:pointer;
          font-size:14px;color:var(--on-surface);border-left:3px solid transparent}
+.tc-node-row{display:flex;align-items:center;gap:8px}
+.tc-node-name{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tc-node:hover{background:var(--surface-low)}
 .tc-node.active{background:var(--primary-tint);color:var(--primary-strong);font-weight:600;border-left-color:var(--primary)}
-.tc-node .material-symbols-rounded{font-size:18px;color:var(--warning)}
-.tc-node.active .material-symbols-rounded{color:var(--primary)}
-.tc-node .tc-node-count{margin-left:auto;font-size:11px;color:var(--on-surface-variant)}
+.tc-node-row>.material-symbols-rounded{font-size:18px;color:var(--warning);flex:0 0 auto}
+.tc-node.active .tc-node-row>.material-symbols-rounded{color:var(--primary)}
+.tc-node .tc-node-count{margin-left:auto;font-size:11px;color:var(--on-surface-variant);font-variant-numeric:tabular-nums}
+/* Dải tiến độ pass/fail/chưa-chạy + % pass dưới mỗi dự án */
+.tc-node-meta{display:flex;align-items:center;gap:7px;padding-left:26px}
+.tc-node-meta.muted{font-size:11px;color:var(--on-surface-variant);opacity:.7}
+.tc-bar{flex:1;height:6px;border-radius:999px;overflow:hidden;display:flex;background:var(--surface-highest)}
+.tc-bar>i{display:block;height:100%}
+.tc-bar>i.s-pass{background:var(--success,#22a06b)}
+.tc-bar>i.s-fail{background:var(--error,#d64545)}
+.tc-bar>i.s-rest{background:var(--outline-variant)}
+.tc-pr{flex:0 0 auto;font-size:10.5px;font-weight:600;color:var(--on-surface-variant);
+       display:inline-flex;align-items:center;gap:2px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tc-pr.low{color:var(--error,#d64545)}
+.tc-pr.low .material-symbols-rounded{font-size:13px;color:var(--error,#d64545)}
+/* Ô tìm dự án */
+.tc-repo-search{display:flex;align-items:center;gap:6px;margin:0 12px 10px;padding:7px 10px;
+    background:var(--surface-low);border:1px solid var(--outline-variant);border-radius:var(--r-md)}
+.tc-repo-search .material-symbols-rounded{font-size:16px;color:var(--on-surface-variant);flex:0 0 auto}
+.tc-repo-search input{flex:1;min-width:0;border:none;background:none;outline:none;
+    font-size:13px;color:var(--on-surface)}
+.tc-repo-search input::placeholder{color:var(--on-surface-variant)}
+#tcRepoSearchClear{border:none;background:none;cursor:pointer;padding:0;font-size:14px;
+    color:var(--on-surface-variant);align-items:center;justify-content:center}
+#tcRepoSearchClear:hover{color:var(--on-surface)}
+.tc-repo-empty{padding:14px 12px;font-size:12px;color:var(--on-surface-variant);text-align:center}
 .tc-main{flex:1;min-width:0}
 
 /* Liên kết bộ ↔ task Jira (#155) */

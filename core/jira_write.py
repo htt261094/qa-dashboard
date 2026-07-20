@@ -10,7 +10,7 @@ import re
 
 import requests
 
-from config import (JIRA_URL, SUBTASK_TYPE_ID, TASK_PTSP_TYPE_ID,
+from config import (JIRA_URL, SUBTASK_TYPE_ID,
                     START_DATE_FIELD, LEADER_FIELD,
                     DEPARTMENT_FIELD, BK_TEAM_FIELD,
                     SUBTASK_DEPARTMENT_ID, SUBTASK_BK_TEAM_ID,
@@ -86,9 +86,10 @@ def transition_to_status(key, target_name, pat):
     return do_transition(key, match['id'], pat)
 
 
-def _verify_ptsp_parent(parent_key, pat):
-    """Lấy project key từ parent + verify parent đúng là Task-PTSP (không tin client).
-    Trả (True, '<PROJECT_KEY>') hoặc (False, '<thông báo lỗi>')."""
+def _resolve_parent(parent_key, pat):
+    """Lấy project key từ parent + verify parent hợp lệ để gắn sub-task (chấp nhận BẤT KỲ
+    task, KHÔNG giới hạn Task-PTSP nữa — chỉ chặn khi cha chính là sub-task vì Jira không
+    cho lồng sub-task dưới sub-task). Trả (True, '<PROJECT_KEY>') hoặc (False, '<lỗi>')."""
     try:
         r = requests.get(f"{JIRA_URL}/rest/api/2/issue/{parent_key}",
                          headers=_headers(pat), params={'fields': 'project,issuetype'},
@@ -102,8 +103,8 @@ def _verify_ptsp_parent(parent_key, pat):
     ptype = pf.get('issuetype') or {}
     if not project_key:
         return False, 'Không xác định được dự án của task cha.'
-    if str(ptype.get('id')) != str(TASK_PTSP_TYPE_ID):
-        return False, f'Task cha phải là Task-PTSP (đang là {ptype.get("name") or "?"}).'
+    if ptype.get('subtask'):
+        return False, f'Task cha không được là sub-task (đang là {ptype.get("name") or "?"}).'
     return True, project_key
 
 
@@ -157,7 +158,7 @@ def create_subtask(parent_key, summary, duedate, start_date,
         return False, 'Thiếu hạn chót (Due date).'
     if not start_date:
         return False, 'Thiếu ngày bắt đầu (Start date).'
-    ok, res = _verify_ptsp_parent(parent_key, pat)
+    ok, res = _resolve_parent(parent_key, pat)
     if not ok:
         return False, res
     return _create_one_subtask(res, parent_key, summary, duedate, start_date,
@@ -178,7 +179,7 @@ def create_subtasks(parent_key, summaries, duedate, start_date,
         return False, {'msg': 'Thiếu hạn chót (Due date).'}
     if not start_date:
         return False, {'msg': 'Thiếu ngày bắt đầu (Start date).'}
-    ok, res = _verify_ptsp_parent(parent_key, pat)
+    ok, res = _resolve_parent(parent_key, pat)
     if not ok:
         return False, {'msg': res}
     project_key = res

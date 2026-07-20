@@ -137,6 +137,94 @@ function toast(msg, ok){
     setTimeout(function(){ if(el.parentNode) el.parentNode.removeChild(el); }, 250); }, 2600);
 }
 
+// ---------- @-mention trong ô bình luận (drawer + inline QA), dùng chung mọi trang ----------
+// Gõ "@" trong textarea comment -> dropdown user; chọn -> chèn markup Jira [~username].
+// Backend (jira_api._comment_snippet / fetch_activity_feed) parse [~username] thành "được nhắc"
+// + Jira notify đúng người (Decision #20/#24). QA team hiện ngay (window.__mentionUsers);
+// gõ >=2 ký tự augment thêm bằng Jira user search (/search-people, PAT chung read-only).
+(function mentionAutocomplete(){
+  var LOCAL = (window.__mentionUsers || []);   // [{name,display}]
+  function fold(s){ return (s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/đ/g,'d'); }
+  function isCmtTa(el){ return el && el.tagName==='TEXTAREA' && /^(dtTa|cmtTa)-/.test(el.id||''); }
+
+  var dd=null, cur=null, at=-1, items=[], sel=0, seq=0, deb=null;
+  function ddEl(){ if(!dd){ dd=document.createElement('div'); dd.className='mention-dd'; dd.style.display='none'; document.body.appendChild(dd); } return dd; }
+  function open(){ return dd && dd.style.display!=='none'; }
+  function close(){ if(dd) dd.style.display='none'; cur=null; at=-1; items=[]; sel=0; clearTimeout(deb); }
+
+  // Query = chuỗi ngay sau '@' cuối cùng (không khoảng trắng), tính tới caret. '@' phải đứng đầu
+  // hoặc sau khoảng trắng/'(' để không dính vào email hay giữa từ.
+  function trigger(ta){
+    var pos=ta.selectionStart||0, before=ta.value.slice(0,pos);
+    var m=/(^|[\s(\[])@([^\s@]{0,30})$/.exec(before);
+    if(!m) return null;
+    return { q:m[2], at:pos-m[2].length-1 };   // vị trí ký tự '@'
+  }
+  function render(hint){
+    var el=ddEl(), h='';
+    if(items.length) h=items.map(function(u,i){
+      return '<div class="mention-opt'+(i===sel?' active':'')+'" data-i="'+i+'">'
+        +'<span class="mention-name">'+esc(u.display||u.name)+'</span>'
+        +'<span class="mention-user">@'+esc(u.name)+'</span></div>'; }).join('');
+    if(hint) h+=hint;                                   // dòng "Đang tìm trên Jira…"
+    else if(!items.length) h='<div class="mention-empty">Không tìm thấy</div>';
+    el.innerHTML=h; el.style.display='block';
+  }
+  function place(ta){
+    var r=ta.getBoundingClientRect(), el=ddEl();
+    el.style.left=Math.max(8, r.left)+'px';
+    el.style.width=Math.max(220, Math.min(r.width, 360))+'px';
+    if(r.top < 260){ el.style.top=(r.bottom+2)+'px'; el.style.transform='none'; }        // dưới
+    else { el.style.top=(r.top-2)+'px'; el.style.transform='translateY(-100%)'; }        // trên (né nút Gửi)
+  }
+  function pick(u){
+    if(!cur || at<0 || !u) return;
+    var ta=cur, pos=ta.selectionStart||0, val=ta.value, ins='[~'+u.name+'] ';
+    ta.value=val.slice(0,at)+ins+val.slice(pos);
+    var np=at+ins.length; ta.selectionStart=ta.selectionEnd=np; ta.focus();
+    close();
+  }
+  function search(ta, info){
+    cur=ta; at=info.at;
+    var q=info.q, fq=fold(q), my=++seq;
+    var loc=LOCAL.filter(function(u){ return !fq || fold(u.name).indexOf(fq)>=0 || fold(u.display).indexOf(fq)>=0; });
+    // Roster QA hiện ngay; gõ >=1 ký tự -> tìm TOÀN BỘ user Jira (/search-people) rồi merge vào.
+    items=loc.slice(0,10); sel=0; render(q.length>=1 && '<div class="mention-empty">Đang tìm user trên Jira…</div>'); place(ta);
+    clearTimeout(deb);
+    if(q.length>=1){
+      deb=setTimeout(function(){
+        getJSON('/search-people?q='+encodeURIComponent(q), 12000).then(function(j){
+          if(my!==seq || cur!==ta) return;
+          var rs=(j&&j.ok&&j.results)||[], seen={}, merged=[];
+          loc.concat(rs).forEach(function(u){ if(u&&u.name&&!seen[u.name]){ seen[u.name]=1; merged.push(u); } });
+          items=merged.slice(0,10); if(sel>=items.length) sel=0; render(); place(ta);
+        }).catch(function(){ if(my===seq && cur===ta) render(); });   // lỗi -> bỏ dòng "đang tìm"
+      }, 220);
+    }
+  }
+
+  document.addEventListener('input', function(e){
+    if(!isCmtTa(e.target)) return;
+    var info=trigger(e.target);
+    if(info) search(e.target, info); else close();
+  });
+  // Capture để chặn Enter/Esc/mũi tên TRƯỚC handler drawer (Esc vốn đóng drawer) khi dropdown mở.
+  document.addEventListener('keydown', function(e){
+    if(!open() || !cur) return;
+    if(e.key==='ArrowDown'){ e.preventDefault(); sel=(sel+1)%Math.max(1,items.length); render(); }
+    else if(e.key==='ArrowUp'){ e.preventDefault(); sel=(sel-1+Math.max(1,items.length))%Math.max(1,items.length); render(); }
+    else if(e.key==='Enter' || e.key==='Tab'){ if(items.length){ e.preventDefault(); e.stopPropagation(); pick(items[sel]); } else close(); }
+    else if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); close(); }
+  }, true);
+  document.addEventListener('mousedown', function(e){
+    if(!dd) return;
+    var o=e.target.closest ? e.target.closest('.mention-opt') : null;
+    if(o){ e.preventDefault(); pick(items[+o.getAttribute('data-i')]); return; }
+    if(!e.target.closest('.mention-dd') && !isCmtTa(e.target)) close();
+  });
+  window.addEventListener('scroll', function(){ if(open() && cur) place(cur); }, true);
+})();
+
 // ---------- confirm modal (thay confirm() native — Promise<bool>, dùng chung mọi trang) ----------
 // confirmModal({title, message, confirmText, cancelText, danger}) -> Promise resolve true/false.
 // danger mặc định TRUE (phần lớn dùng cho thao tác xoá/phá huỷ). Enter = đồng ý, Esc = huỷ.
@@ -1191,7 +1279,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
         +testcaseSectionHtml(DETAIL[t.key])
         +'<div class="dt-cmts"><div class="dt-sec-title">Bình luận ('+(list&&list.length||0)+')</div>'
         +'<div class="cmt-panel"><div class="cmt-history">'+hist+'</div>'
-        +'<div class="cmt-box"><textarea id="dtTa-'+esc(t.key)+'" placeholder="Viết bình luận..."></textarea>'
+        +'<div class="cmt-box"><textarea id="dtTa-'+esc(t.key)+'" placeholder="Viết bình luận... (gõ @ để nhắc người)"></textarea>'
         +'<div class="cmt-foot"><button class="lbtn primary" data-act="dt-send" data-key="'+esc(t.key)+'">Gửi</button></div></div></div></div></div>';
     }
     document.addEventListener('click', function(e){
@@ -1341,7 +1429,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
       +'<div class="cmt-text">'+esc(c.body)+'</div></div></div>'; }).join('');
     return '<tr class="cmt-row"><td colspan="7"><div class="cmt-panel">'
       +'<div class="cmt-history">'+hist+'</div>'
-      +'<div class="cmt-box"><textarea id="cmtTa-'+esc(key)+'" placeholder="Viết bình luận của bạn..."></textarea>'
+      +'<div class="cmt-box"><textarea id="cmtTa-'+esc(key)+'" placeholder="Viết bình luận của bạn... (gõ @ để nhắc người)"></textarea>'
       +'<div class="cmt-foot">'
       +'<button class="lbtn close" data-act="cmt-close" data-key="'+esc(key)+'"><span class="material-symbols-rounded ph-light ph-caret-up mi-xs"></span>Đóng</button>'
       +'<button class="lbtn primary" data-act="cmt-send" data-key="'+esc(key)+'">Gửi</button>'
@@ -1464,7 +1552,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
       +testcaseSectionHtml(DETAIL[t.key])
       +'<div class="dt-cmts"><div class="dt-sec-title">Bình luận ('+(list&&list.length||0)+')</div>'
       +'<div class="cmt-panel"><div class="cmt-history">'+hist+'</div>'
-      +'<div class="cmt-box"><textarea id="dtTa-'+esc(t.key)+'" placeholder="Viết bình luận..."></textarea>'
+      +'<div class="cmt-box"><textarea id="dtTa-'+esc(t.key)+'" placeholder="Viết bình luận... (gõ @ để nhắc người)"></textarea>'
       +'<div class="cmt-foot"><button class="lbtn primary" data-act="dt-send" data-key="'+esc(t.key)+'">Gửi</button></div></div></div></div></div>';
   }
   document.addEventListener('click', function(e){
@@ -1587,7 +1675,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
       +testcaseSectionHtml(DETAIL[t.key])
       +'<div class="dt-cmts"><div class="dt-sec-title">Bình luận ('+(list&&list.length||0)+')</div>'
       +'<div class="cmt-panel"><div class="cmt-history">'+hist+'</div>'
-      +'<div class="cmt-box"><textarea id="dtTa-'+esc(t.key)+'" placeholder="Viết bình luận..."></textarea>'
+      +'<div class="cmt-box"><textarea id="dtTa-'+esc(t.key)+'" placeholder="Viết bình luận... (gõ @ để nhắc người)"></textarea>'
       +'<div class="cmt-foot"><button class="lbtn primary" data-act="dt-send" data-key="'+esc(t.key)+'">Gửi</button></div></div></div></div></div>';
   }
   function openDetail(key){
@@ -2684,9 +2772,15 @@ window.__smSetCustom=function(t, key, val, onChanged){
   var parent = { key:'', summary:'' };   // Task-PTSP đã chọn
   var leader = { name:'', display:'' };  // user đã chọn (optional)
 
+  // Ngày cuối tháng hiện tại (YYYY-MM-DD) — default cho Hạn chót
+  function endOfMonth(){
+    var d=new Date(), e=new Date(d.getFullYear(), d.getMonth()+1, 0);
+    var mm=('0'+(e.getMonth()+1)).slice(-2), dd=('0'+e.getDate()).slice(-2);
+    return e.getFullYear()+'-'+mm+'-'+dd;
+  }
   function open(){ ov.classList.add('open');
-    // Auto-fill Leader mặc định = Hiền (hiennt19) nếu chưa chọn
-    if(!leader.name){ leaderTA.set({name:'hiennt19', display:'Hiền'}); }
+    // Auto-fill Hạn chót = cuối tháng hiện tại (nếu chưa nhập)
+    var due=$('subDue'); if(due && !due.value){ due.value=endOfMonth(); }
     var p=$('subParentInp'); if(p) setTimeout(function(){ p.focus(); }, 60); }
   function close(){ ov.classList.remove('open'); }
   function debounce(fn, ms){ var t; return function(){ var a=arguments, self=this;
@@ -2741,10 +2835,15 @@ window.__smSetCustom=function(t, key, val, onChanged){
   var parentTA = wireTA('subParentInp','subParentRes','subParentChip','/search-parents?q=',
     function(o){ return '<b>'+esc(o.key)+'</b>'+esc(o.summary||''); },
     function(o){ parent = o ? {key:o.key, summary:o.summary||''} : {key:'',summary:''};
-      // Auto-fill tiêu đề: [QA] <title Task-PTSP> (tránh nhân đôi [QA] nếu cha đã có)
+      // Auto-gen 2 sub-task: "[QA] Viết testcase <cha>" + "[QA] Test <cha>"
+      // (bỏ tiền tố [QA] của cha nếu có để tránh lồng nhau)
       var s=$('subSummary');
-      if(s){ var t=(parent.summary||'').trim();
-        s.value = !parent.key ? '' : (/^\[QA\]/i.test(t) ? t : ('[QA] '+t)); updateCount(); } });
+      if(s){
+        if(!parent.key){ s.value=''; }
+        else { var t=(parent.summary||'').trim().replace(/^\[QA\]\s*/i,'');
+          s.value = '[QA] Viết testcase '+t+'\n[QA] Test '+t; }
+        updateCount();
+      } });
   var leaderTA = wireTA('subLeaderInp','subLeaderRes','subLeaderChip','/search-people?q=',
     function(o){ return '<b>'+esc(o.display||o.name)+'</b><small>'+esc(o.name)+'</small>'; },
     function(o){ leader = o ? {name:o.name, display:o.display||o.name} : {name:'',display:''}; });
@@ -4362,7 +4461,8 @@ window.__smSetCustom=function(t, key, val, onChanged){
   };
   function doTcSync(fid, overwrite){
     if(!editable) return;
-    toast(overwrite ? 'Đang đồng bộ (ghi đè cả kết quả)...' : 'Đang đồng bộ từ Google Sheets...', true);
+    if(overwrite===undefined) overwrite=true;   // luôn ghi đè kết quả theo file
+    toast('Đang đồng bộ (ghi đè cả kết quả)...', true);
     postJSON('/tc-sync', { folder: fid, overwrite_results: !!overwrite }, 180000).then(function(res){
       if(res && res.ok){
         window.tcShowSuccess(res.msg || 'Đồng bộ thành công.', 'Đồng bộ thành công');
@@ -4414,10 +4514,11 @@ window.__smSetCustom=function(t, key, val, onChanged){
     if(urlIn) urlIn.focus(); });
   function doTcSyncAll(overwrite){
     if(!editable) return;
+    if(overwrite===undefined) overwrite=true;   // luôn ghi đè kết quả theo file
     var btn=$('tcSyncAllBtn'); var orig='';
     if(btn){ if(btn.disabled) return; orig=btn.innerHTML; btn.disabled=true;
       btn.innerHTML='<span class="material-symbols-rounded ph-light ph-circle-notch mi-sm" style="animation:spin 1s linear infinite"></span> Đang đồng bộ…'; }
-    toast(overwrite ? 'Đang đồng bộ toàn bộ (ghi đè cả kết quả)...' : 'Đang đồng bộ toàn bộ test case từ Google Sheets...', true);
+    toast('Đang đồng bộ toàn bộ (ghi đè cả kết quả)...', true);
     postJSON('/tc-sync-all', { overwrite_results: !!overwrite }, 180000).then(function(res){
       if(btn){ btn.disabled=false; btn.innerHTML=orig; }
       if(res && res.ok){
@@ -4438,12 +4539,11 @@ window.__smSetCustom=function(t, key, val, onChanged){
   function openSyncModal(mode, fid){
     if(!editable) return;
     if(!syncOv){   // fallback nếu template chưa có modal (chưa restart app): giữ hành vi cũ
-      if(mode==='all') doTcSyncAll(false); else doTcSync(fid, false);
+      if(mode==='all') doTcSyncAll(true); else doTcSync(fid, true);
       return;
     }
     syncPending={ mode: mode, fid: fid };
-    var msg=$('tcSyncMsg'), cb=$('tcSyncOverwrite');
-    if(cb) cb.checked=false;
+    var msg=$('tcSyncMsg');
     if(msg) msg.textContent = (mode==='all')
       ? 'Đồng bộ lại TẤT CẢ bộ test case đã import từ Google Sheet, cập nhật nội dung theo file mới nhất.'
       : 'Đồng bộ lại bộ này từ Google Sheet, cập nhật nội dung theo file mới nhất.';
@@ -4451,9 +4551,9 @@ window.__smSetCustom=function(t, key, val, onChanged){
   }
   if($('tcSyncGo')) $('tcSyncGo').addEventListener('click', function(){
     if(!syncPending) return;
-    var cb=$('tcSyncOverwrite'); var ow=!!(cb && cb.checked);
+    // Luôn ghi đè kết quả theo file (kể cả case đã có kết quả).
     var p=syncPending; window.tcCloseSync();
-    if(p.mode==='all') doTcSyncAll(ow); else doTcSync(p.fid, ow);
+    if(p.mode==='all') doTcSyncAll(true); else doTcSync(p.fid, true);
   });
   if(syncOv) syncOv.addEventListener('click', function(e){ if(e.target===syncOv) window.tcCloseSync(); });
   if($('tcSyncAllBtn')) $('tcSyncAllBtn').addEventListener('click', function(){ openSyncModal('all'); });
@@ -4623,15 +4723,41 @@ window.__smSetCustom=function(t, key, val, onChanged){
     }).catch(function(){ toast('Lỗi mạng khi xoá', false); }); });
   }
 
+  // Fold không dấu để lọc tên dự án (parity cách palette làm: NFD + đ→d).
+  function _tcFold(s){ return (s||'').toString().toLowerCase().normalize('NFD')
+    .replace(/[̀-ͯ]/g,'').replace(/đ/g,'d'); }
+  var repoQuery='';
+  // Thống kê pass/fail/chưa-chạy cho 1 folder (impact + chưa chạy gộp vào "còn lại").
+  function folderStats(fid){
+    var list = fid==='' ? cases : casesIn(fid);
+    var pass=0,fail=0,total=list.length;
+    list.forEach(function(c){ var r=c.result||'norun';
+      if(r==='pass')pass++; else if(r==='fail')fail++; });
+    var rest=total-pass-fail;
+    return {total:total,pass:pass,fail:fail,rest:rest};
+  }
+  // Dải tiến độ + % pass (pass/total). ⚠ khi fail ≥ 10% tổng.
+  function progressHTML(st){
+    if(!st.total) return '<div class="tc-node-meta muted">Chưa có test case</div>';
+    var pw=(st.pass/st.total*100), fw=(st.fail/st.total*100), rw=100-pw-fw;
+    var pr=Math.round(pw);
+    var low=st.fail>0 && (st.fail/st.total)>=0.10;
+    return '<div class="tc-node-meta">'+
+      '<span class="tc-bar" title="'+st.pass+' pass · '+st.fail+' fail · '+st.rest+' chưa chạy">'+
+        (pw>0?'<i class="s-pass" style="width:'+pw+'%"></i>':'')+
+        (fw>0?'<i class="s-fail" style="width:'+fw+'%"></i>':'')+
+        (rw>0?'<i class="s-rest" style="width:'+rw+'%"></i>':'')+
+      '</span>'+
+      '<span class="tc-pr'+(low?' low':'')+'">'+pr+'% pass'+
+        (low?' <span class="material-symbols-rounded ph-light ph-warning mi-xs"></span>':'')+
+      '</span></div>';
+  }
+
   var _origRenderTree = renderTree;
   renderTree = function(){
     var tree=$('tcTree'); if(!tree) return;
-    var html = '<div class="tc-node'+(curFolder===''?' active':'')+'" data-folder="">'+
-               '<span class="tc-twisty spacer"></span>'+
-               '<span class="material-symbols-rounded ph-light ph-folder-open"></span> Tất cả dự án'+
-               '<span class="tc-node-count">'+cases.length+'</span></div>';
-    
-    var tops = folders.filter(function(f){ return !f.parent_id; });
+    var q=_tcFold(repoQuery.trim());
+
     var subsByParent = {};
     folders.forEach(function(f){
       if(f.parent_id) {
@@ -4639,8 +4765,30 @@ window.__smSetCustom=function(t, key, val, onChanged){
         subsByParent[f.parent_id].push(f);
       }
     });
+    // Khi lọc: folder hiện nếu tên nó khớp HOẶC có con cháu khớp.
+    function selfMatch(f){ return !q || _tcFold(f.name||f.id).indexOf(q)>=0; }
+    function visible(f){
+      if(selfMatch(f)) return true;
+      var kids=subsByParent[f.id]||[];
+      for(var i=0;i<kids.length;i++){ if(visible(kids[i])) return true; }
+      return false;
+    }
+
+    var html='';
+    // "Tất cả dự án" chỉ hiện khi không lọc.
+    if(!q){
+      var allSt=folderStats('');
+      html += '<div class="tc-node'+(curFolder===''?' active':'')+'" data-folder="">'+
+              '<div class="tc-node-row">'+
+                '<span class="tc-twisty spacer"></span>'+
+                '<span class="material-symbols-rounded ph-light ph-folder-open"></span>'+
+                '<span class="tc-node-name">Tất cả dự án</span>'+
+                '<span class="tc-node-count">'+cases.length+'</span>'+
+              '</div>'+ progressHTML(allSt) +'</div>';
+    }
 
     function renderNode(f, depth){
+      if(!visible(f)) return;
       var actions = '';
       if(editable){
         var renBtn = depth === 0 ? '<button class="tc-fa-btn" data-action="rename" data-fid="'+esc(f.id)+'" title="Đổi tên"><span class="material-symbols-rounded ph-light ph-pencil-simple mi-xs"></span></button>' : '';
@@ -4653,25 +4801,28 @@ window.__smSetCustom=function(t, key, val, onChanged){
       }
       var children = subsByParent[f.id] || [];
       var hasKids = children.length > 0;
-      var isCol = !!collapsed[f.id];
-      // Nút thu gọn/mở (chỉ folder có con); folder không con -> spacer giữ thẳng hàng.
+      // Khi lọc: luôn mở để thấy con khớp; ngược lại theo trạng thái thu gọn.
+      var isCol = !q && !!collapsed[f.id];
       var twisty = hasKids
         ? '<button class="tc-twisty" data-twisty="'+esc(f.id)+'" title="'+(isCol?'Mở':'Thu gọn')+'">'
           + phIcon(isCol?'chevron_right':'expand_more','mi-sm')+'</button>'
         : '<span class="tc-twisty spacer"></span>';
       var ml = 14 + (depth * 16);
       var ic = depth > 0 ? 'subdirectory_arrow_right' : 'folder';
+      var st = folderStats(f.id);
       html += '<div class="tc-node'+(curFolder===f.id?' active':'')+'" data-folder="'+esc(f.id)+'" style="margin-left:'+ml+'px">'+
-              twisty+
-              phIcon(ic)+' '+
-              '<span style="flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="'+esc(f.name||f.id)+'">'+esc(f.name||f.id)+'</span>'+
-              '<span class="tc-node-count">'+casesIn(f.id).length+'</span>'+
-              actions+'</div>';
+              '<div class="tc-node-row">'+
+                twisty+ phIcon(ic)+
+                '<span class="tc-node-name" title="'+esc(f.name||f.id)+'">'+esc(f.name||f.id)+'</span>'+
+                '<span class="tc-node-count">'+st.total+'</span>'+
+                actions+
+              '</div>'+ progressHTML(st) +'</div>';
 
       if(isCol) return;   // thu gọn -> ẩn cây con
       children.forEach(function(c){ renderNode(c, depth + 1); });
     }
 
+    var tops = folders.filter(function(f){ return !f.parent_id; });
     tops.forEach(function(f){ renderNode(f, 0); });
 
     // Các folder con mồ côi (nếu lỡ bị lỗi data)
@@ -4683,6 +4834,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
       }
     });
 
+    if(!html) html='<div class="tc-repo-empty">Không có dự án khớp "'+esc(repoQuery)+'"</div>';
     tree.innerHTML = html;
     tree.querySelectorAll('.tc-node').forEach(function(n){
       n.addEventListener('click', function(e){
@@ -4708,6 +4860,17 @@ window.__smSetCustom=function(t, key, val, onChanged){
       });
     });
   };
+
+  // Ô tìm dự án trong Repository (lọc live, không đụng server).
+  (function(){
+    var inp=$('tcRepoSearch'), clr=$('tcRepoSearchClear');
+    if(!inp) return;
+    function apply(){ repoQuery=inp.value||'';
+      if(clr) clr.style.display = repoQuery ? 'flex' : 'none';
+      renderTree(); }
+    inp.addEventListener('input', apply);
+    if(clr) clr.addEventListener('click', function(){ inp.value=''; repoQuery=''; clr.style.display='none'; renderTree(); inp.focus(); });
+  })();
 
   // ---- Liên kết bộ ↔ task Jira (#155): link bar + modal type-ahead ----
   function isSubFolder(fid){
