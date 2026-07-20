@@ -499,6 +499,52 @@ def search_parent_ptsp(query, limit=20):
     return out
 
 
+def search_parent_tasks(query, limit=20):
+    """Tìm BẤT KỲ task làm parent cho sub-task QA (form tạo sub-task) — KHÔNG giới hạn
+    Task-PTSP nữa. Dùng Jira issue picker (search toàn instance như thanh search Jira),
+    loại sub-task (sub-task không làm parent được). Read-only PAT chung.
+    Trả [{key, summary, project, type}] theo thứ tự match tốt nhất trước."""
+    q = (query or '').strip()
+    if len(q) < 2:
+        return []
+    keys = []
+    try:
+        r = _SESSION.get(f"{JIRA_URL}/rest/api/2/issue/picker", headers=_auth_headers(),
+                         params={'query': q, 'currentJQL': '', 'showSubTasks': 'false',
+                                 'showSubTaskParent': 'false'}, timeout=15)
+        r.raise_for_status()
+        import re
+        q_lower = q.lower()
+        for sec in (r.json().get('sections') or []):
+            for it in (sec.get('issues') or []):
+                k = it.get('key')
+                if not k or k in keys:
+                    continue
+                summary = it.get('summary') or it.get('summaryText') or ''
+                summary_clean = re.sub(r'<[^>]+>', '', summary).lower()
+                if q_lower in k.lower() or q_lower in summary_clean:
+                    keys.append(k)
+    except requests.RequestException as e:
+        raise RuntimeError(f"Network error: {str(e).replace(PAT, '<REDACTED>')}")
+    if not keys:
+        return []
+    keys = keys[:limit]
+    order = {k: n for n, k in enumerate(keys)}
+    issues = _jira_request(f"key in ({','.join(keys)})", limit,
+                           fields='summary,project,issuetype').get('issues', [])
+    out = []
+    for i in issues:
+        f = i.get('fields', {}) or {}
+        # loại sub-task phòng picker vẫn lọt (parent phải là task thường)
+        if (f.get('issuetype') or {}).get('subtask'):
+            continue
+        out.append({'key': i['key'], 'summary': f.get('summary') or '',
+                    'project': (f.get('project') or {}).get('key') or '',
+                    'type': (f.get('issuetype') or {}).get('name') or ''})
+    out.sort(key=lambda row: order.get(row['key'], 999))
+    return out
+
+
 def _qa_task_index():
     """Toàn bộ task assignee là QA team (key+summary+project+assignee+status), cache TTL 2 phút.
     Cho ô tìm task ở Bug Log: QA muốn link bug tới CHÍNH task QA đang làm (KHÔNG phải Task-PTSP
@@ -535,11 +581,12 @@ def search_qa_tasks(query, limit=20):
     return out
 
 
-def search_people(query, limit=15):
-    """Tìm user Jira theo username/tên hiển thị (dropdown Leader). Read-only, PAT chung.
-    Trả [{name, display}] (chỉ user active)."""
+def search_people(query, limit=30):
+    """Tìm user Jira theo username/tên hiển thị (dropdown Leader + @-mention comment).
+    Read-only, PAT chung. Trả [{name, display}] (chỉ user active). Cho phép query 1 ký tự
+    (dùng cho @-mention: gõ 1 chữ đã tìm toàn bộ user Jira)."""
     q = (query or '').strip()
-    if len(q) < 2:
+    if len(q) < 1:
         return []
     try:
         r = _SESSION.get(f"{JIRA_URL}/rest/api/2/user/search", headers=_auth_headers(),

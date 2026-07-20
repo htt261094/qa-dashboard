@@ -36,7 +36,7 @@ from testcase_link import (load_links as tc_load_links, set_folder_links as tc_s
                            folders_for_task as tc_folders_for_task)
 from jira_api import (fetch_all, fetch_all_shared, scope_data, fetch_activity_feed, load_dismissed,
                       dismiss_activities, run_parallel, fetch_issue_detail,
-                      search_parent_ptsp, search_people, search_qa_tasks, global_search)
+                      search_parent_tasks, search_people, search_qa_tasks, global_search)
 from docs import load_docs, save_docs, valid_tree
 from roadmap import load_roadmap, save_roadmap, valid_roadmap
 from testcase_store import (load_testcases, fetch_sheets as tc_fetch_sheets,
@@ -844,11 +844,12 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             self._json(200, b'{"ok":false}')
 
     def _get_search_parents(self):
-        # type-ahead Task-PTSP cho form tạo sub-task. Read-only PAT chung.
+        # type-ahead task cha (bất kỳ task, không giới hạn Task-PTSP) cho form tạo sub-task.
+        # Read-only PAT chung.
         q = (parse_qs(urlparse(self.path).query).get('q') or [''])[0]
         try:
             self._json(200, json.dumps(
-                {'ok': True, 'results': search_parent_ptsp(q)}).encode('utf-8'))
+                {'ok': True, 'results': search_parent_tasks(q)}).encode('utf-8'))
         except RuntimeError:
             self._json(400, b'{"ok":false}')
 
