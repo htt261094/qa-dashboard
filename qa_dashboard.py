@@ -36,7 +36,8 @@ from testcase_link import (load_links as tc_load_links, set_folder_links as tc_s
                            folders_for_task as tc_folders_for_task)
 from jira_api import (fetch_all, fetch_all_shared, scope_data, fetch_activity_feed, load_dismissed,
                       dismiss_activities, run_parallel, fetch_issue_detail,
-                      search_parent_tasks, search_people, search_qa_tasks, global_search)
+                      search_parent_tasks, search_people, search_qa_tasks, global_search,
+                      fetch_subtasks)
 from docs import load_docs, save_docs, valid_tree
 from roadmap import load_roadmap, save_roadmap, valid_roadmap
 from testcase_store import (load_testcases, fetch_sheets as tc_fetch_sheets,
@@ -476,6 +477,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         if path == '/search-parents':
             self._get_search_parents()
             return
+        if path == '/parent-subtasks':
+            self._get_parent_subtasks()
+            return
         if path == '/search-tasks':
             self._get_search_tasks()
             return
@@ -855,6 +859,16 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         try:
             self._json(200, json.dumps(
                 {'ok': True, 'results': search_parent_tasks(q)}).encode('utf-8'))
+        except RuntimeError:
+            self._json(400, b'{"ok":false}')
+
+    def _get_parent_subtasks(self):
+        # Sub-task hiện có của 1 task cha (popup 'sub-task đang có' ở form tạo sub-task).
+        # Read-only PAT chung.
+        key = (parse_qs(urlparse(self.path).query).get('key') or [''])[0]
+        try:
+            self._json(200, json.dumps(
+                {'ok': True, 'results': fetch_subtasks(key)}).encode('utf-8'))
         except RuntimeError:
             self._json(400, b'{"ok":false}')
 

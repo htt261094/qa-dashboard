@@ -676,6 +676,29 @@ def _devs_in_charge(parent_key):
     return devs
 
 
+def fetch_subtasks(parent_key, limit=50):
+    """Sub-task hiện có dưới 1 task cha (cho popup 'sub-task đang có' ở form tạo sub-task).
+    Trả [{key, summary, status, assignee, url}] theo created cũ->mới. 1 call read-only PAT
+    chung. Lỗi -> [] (đừng làm hỏng form). Chặn parent_key rác để khỏi vỡ JQL."""
+    import re as _re
+    if not parent_key or not _re.match(r'^[A-Za-z][A-Za-z0-9_]*-\d+$', parent_key):
+        return []
+    try:
+        subs = _jira_request(f'parent = {parent_key} ORDER BY created ASC', limit,
+                             fields='summary,status,assignee').get('issues', [])
+    except RuntimeError:
+        return []
+    out = []
+    for it in subs:
+        f = it.get('fields') or {}
+        asg = f.get('assignee') or {}
+        out.append({'key': it['key'], 'summary': f.get('summary') or '',
+                    'status': (f.get('status') or {}).get('name') or '',
+                    'assignee': asg.get('displayName') or asg.get('name') or '',
+                    'url': f"{JIRA_URL}/browse/{it['key']}"})
+    return out
+
+
 def fetch_issue_detail(key):
     """Chi tiết 1 issue cho drawer/comment panel:
     {key, summary, description, status, assignee, duedate, updated, devs, comments:[...]}.

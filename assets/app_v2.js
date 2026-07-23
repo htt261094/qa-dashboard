@@ -2783,7 +2783,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var due=$('subDue'); if(due && !due.value){ due.value=endOfMonth(); }
     ensureRow(); updateCount();
     var p=$('subParentInp'); if(p) setTimeout(function(){ p.focus(); }, 60); }
-  function close(){ ov.classList.remove('open'); }
+  function close(){ ov.classList.remove('open'); if(subPop) subPop.classList.remove('open'); }
   function debounce(fn, ms){ var t; return function(){ var a=arguments, self=this;
     clearTimeout(t); t=setTimeout(function(){ fn.apply(self, a); }, ms||260); }; }
 
@@ -2844,10 +2844,71 @@ window.__smSetCustom=function(t, key, val, onChanged){
         addRow('[QA] Viết testcase '+t, ''); addRow('[QA] Test '+t, '');
       } else { ensureRow(); }
       updateCount();
+      var hint=$('subParentHint'); if(hint) hint.style.display = parent.key ? 'flex' : 'none';
+      if(parent.key) preloadSubtasks(parent.key);   // warm cache cho popup hover
     });
   var leaderTA = wireTA('subLeaderInp','subLeaderRes','subLeaderChip','/search-people?q=',
     function(o){ return '<b>'+esc(o.display||o.name)+'</b><small>'+esc(o.name)+'</small>'; },
     function(o){ leader = o ? {name:o.name, display:o.display||o.name} : {name:'',display:''}; });
+
+  // --- popup "sub-task đang có" của task cha: hover chip -> list zoom-in, bấm 1 mục -> thêm dòng QA ---
+  var subCache={}, subPop=null, subPopTimer=null, chipEl=$('subParentChip');
+  function preloadSubtasks(key){
+    if(!key || subCache[key]) return;
+    getJSON('/parent-subtasks?key='+encodeURIComponent(key))
+      .then(function(j){ subCache[key]=(j&&j.results)||[]; })
+      .catch(function(){});
+  }
+  function buildPop(){
+    if(subPop) return subPop;
+    subPop=document.createElement('div'); subPop.className='st-pop';
+    document.body.appendChild(subPop);
+    subPop.addEventListener('mouseenter', function(){ clearTimeout(subPopTimer); });
+    subPop.addEventListener('mouseleave', hidePop);
+    subPop.addEventListener('click', function(e){
+      var it=e.target.closest('.stp-item'); if(!it) return;
+      // Bấm 1 sub-task -> sinh 2 dòng QA: "Viết testcase" + "Test" (như chọn cha)
+      var s=(it.getAttribute('data-sum')||'').replace(/^\[QA\]\s*/i,'');
+      addRow('[QA] Viết testcase '+s, ''); addRow('[QA] Test '+s, ''); updateCount();
+      it.classList.add('added'); toast('Đã thêm 2 dòng QA cho: '+s, true);
+    });
+    return subPop;
+  }
+  function placePop(){
+    if(!subPop || !chipEl) return;
+    var r=chipEl.getBoundingClientRect();
+    subPop.style.top=(r.bottom+6)+'px'; subPop.style.left=r.left+'px';
+    subPop.style.width=Math.max(r.width, 320)+'px';
+  }
+  function renderPop(list){
+    var p=buildPop();
+    if(!list.length){ p.innerHTML='<div class="stp-empty">Task cha chưa có sub-task nào</div>'; return; }
+    p.innerHTML='<div class="stp-head">'+list.length+' sub-task đang có <small>· bấm để thêm dòng QA</small></div>'+
+      list.map(function(s){
+        var cls=/done|cancel/i.test(s.status||'')?'done':'';
+        return '<div class="stp-item '+cls+'" data-sum="'+esc(s.summary||'')+'" title="'+esc(s.summary||'')+'">'+
+          '<span class="stp-key">'+esc(s.key)+'</span>'+
+          '<span class="stp-sum">'+esc(s.summary||'')+'</span>'+
+          '<span class="stp-st">'+esc(s.status||'')+'</span>'+
+          '<span class="stp-add material-symbols-rounded ph-light ph-plus mi-sm"></span></div>';
+      }).join('');
+  }
+  function showPop(){
+    if(!parent.key || !chipEl) return;
+    var p=buildPop(); p.classList.add('open');
+    if(subCache[parent.key]){ renderPop(subCache[parent.key]); placePop(); return; }
+    p.innerHTML='<div class="stp-loading">Đang tải sub-task…</div>'; placePop();
+    var want=parent.key;
+    getJSON('/parent-subtasks?key='+encodeURIComponent(want)).then(function(j){
+      var list=(j&&j.results)||[]; subCache[want]=list;
+      if(p.classList.contains('open') && parent.key===want){ renderPop(list); placePop(); }
+    }).catch(function(){ if(p.classList.contains('open')) p.innerHTML='<div class="stp-empty">Lỗi tải sub-task</div>'; });
+  }
+  function hidePop(){ subPopTimer=setTimeout(function(){ if(subPop) subPop.classList.remove('open'); }, 180); }
+  if(chipEl){
+    chipEl.addEventListener('mouseenter', function(){ clearTimeout(subPopTimer); showPop(); });
+    chipEl.addEventListener('mouseleave', hidePop);
+  }
 
   // --- danh sách sub-task: mỗi dòng 1 tiêu đề + 1 dropdown QA riêng ---
   var listEl = $('subList'), rowTpl = $('subRowTpl');
@@ -2891,6 +2952,8 @@ window.__smSetCustom=function(t, key, val, onChanged){
     parentTA.reset(); leaderTA.reset();
     clearRows(); ensureRow();
     var d=$('subDue'); if(d) d.value='';
+    var hint=$('subParentHint'); if(hint) hint.style.display='none';
+    if(subPop) subPop.classList.remove('open');
     updateCount();
   }
   // Delegation: xoá dòng, đổi tiêu đề/QA -> cập nhật đếm + trạng thái "unset"
