@@ -569,6 +569,27 @@ tr.cmt-row:hover td{background:var(--surface-low)}
 .mfield .hint{font-size:11px;color:var(--on-surface-variant)}
 .mfield label .mhint{font-weight:400;color:var(--on-surface-variant);letter-spacing:0}
 .mcount{font-size:11px;color:var(--primary);min-height:14px}
+/* ===== Modal tạo Sub-task: danh sách dòng, mỗi dòng 1 assignee ===== */
+#subOverlay .modal{width:540px}
+.st-head,.st-row{display:grid;grid-template-columns:22px 1fr 148px 30px;gap:8px;align-items:center}
+.st-head{padding:0 0 2px}
+.st-head span{font-size:11px;font-weight:600;color:var(--on-surface-variant);letter-spacing:.02em;text-transform:uppercase}
+.st-head .h-idx{text-align:center}
+.st-list{display:flex;flex-direction:column;gap:8px}
+.st-idx{font-size:12px;font-weight:700;color:var(--outline);text-align:center;font-variant-numeric:tabular-nums}
+.st-row .st-title,.st-row .st-assignee{width:100%;padding:8px 10px;border:1px solid var(--outline-variant);
+  border-radius:var(--r-lg);background:var(--surface-low);color:var(--on-surface);font-size:13px;font-family:inherit}
+.st-row .st-assignee{padding:8px 8px;cursor:pointer}
+.st-row .st-assignee.unset{color:var(--outline)}
+.st-row .st-title:focus,.st-row .st-assignee:focus{outline:none;border-color:var(--primary);background:var(--card)}
+.st-del{cursor:pointer;background:none;border:none;color:var(--outline);font-size:18px;height:30px;
+  border-radius:8px;display:inline-flex;align-items:center;justify-content:center}
+.st-del:hover{color:var(--error);background:var(--surface-low)}
+.st-add{align-self:flex-start;cursor:pointer;background:none;border:1px dashed var(--outline-variant);
+  color:var(--primary);border-radius:var(--r-lg);padding:7px 12px;font-size:12.5px;font-weight:600;
+  font-family:inherit;display:inline-flex;align-items:center;gap:6px;margin-top:2px}
+.st-add:hover{border-color:var(--primary);background:var(--primary-tint)}
+.st-summary{margin-top:2px}
 .modal-foot{display:flex;gap:10px;justify-content:flex-end;padding:14px 20px;border-top:1px solid var(--divider)}
 .btn{padding:9px 16px;border-radius:var(--r-md);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;border:1px solid transparent}
 .btn-ghost{background:none;color:var(--on-surface-variant);border-color:var(--outline-variant)}

@@ -165,15 +165,27 @@ def create_subtask(parent_key, summary, duedate, start_date,
                                assignee, leader, pat)
 
 
-def create_subtasks(parent_key, summaries, duedate, start_date,
-                    assignee=None, leader=None, pat=None):
-    """Tạo NHIỀU sub-task QA dưới CÙNG 1 Task-PTSP (verify cha 1 lần, tạo tuần tự).
+def create_subtasks(parent_key, items, duedate, start_date, leader=None, pat=None):
+    """Tạo NHIỀU sub-task QA dưới CÙNG 1 task cha (verify cha 1 lần, tạo tuần tự).
 
-    `summaries` = list tiêu đề (mỗi phần tử 1 sub-task). Chung parent/due/start/assignee/leader.
-    Trả (overall_ok, {'created': [{'key','summary'}], 'failed': [{'summary','msg'}]}).
+    `items` = list; mỗi phần tử là dict {'summary', 'assignee'} (assignee optional -> gán QA
+    RIÊNG từng dòng) hoặc str (chỉ tiêu đề, không assignee — tương thích ngược). Chung
+    parent/due/start/leader.
+    Trả (overall_ok, {'created': [{'key','summary'}],
+                      'failed': [{'summary','assignee','msg'}]}).
     overall_ok = True nếu tạo được ÍT NHẤT 1 (partial). Verify cha fail -> (False, {'msg': ...})."""
-    titles = [s.strip() for s in (summaries or []) if isinstance(s, str) and s.strip()]
-    if not titles:
+    norm = []   # [(summary, assignee|None)]
+    for it in (items or []):
+        if isinstance(it, dict):
+            s = (it.get('summary') or '').strip()
+            a = (it.get('assignee') or '').strip() or None
+        elif isinstance(it, str):
+            s, a = it.strip(), None
+        else:
+            continue
+        if s:
+            norm.append((s, a))
+    if not norm:
         return False, {'msg': 'Thiếu tiêu đề sub-task.'}
     if not duedate:
         return False, {'msg': 'Thiếu hạn chót (Due date).'}
@@ -184,13 +196,13 @@ def create_subtasks(parent_key, summaries, duedate, start_date,
         return False, {'msg': res}
     project_key = res
     created, failed = [], []
-    for title in titles:
+    for title, assignee in norm:
         one_ok, one_res = _create_one_subtask(project_key, parent_key, title, duedate,
                                               start_date, assignee, leader, pat)
         if one_ok:
             created.append({'key': one_res, 'summary': title})
         else:
-            failed.append({'summary': title, 'msg': one_res})
+            failed.append({'summary': title, 'assignee': assignee or '', 'msg': one_res})
     return bool(created), {'created': created, 'failed': failed}
 
 

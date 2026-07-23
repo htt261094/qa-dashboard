@@ -161,26 +161,39 @@ class WriteMixin:
                 self._reply_json(False, {'ok': False, 'msg': 'Dữ liệu không hợp lệ.'})
                 return
             parent = (payload.get('parent') or '').strip()
-            summaries = payload.get('summaries')
+            # items = [{summary, assignee}] (assignee RIÊNG mỗi dòng). Tương thích ngược:
+            # payload cũ gửi `summaries` (list str) + `assignee` chung.
+            raw = payload.get('items')
+            if not isinstance(raw, list):
+                summaries = payload.get('summaries')
+                shared_a = (payload.get('assignee') or '').strip()
+                raw = ([{'summary': s, 'assignee': shared_a} for s in summaries
+                        if isinstance(s, str)] if isinstance(summaries, list) else [])
             duedate = (payload.get('duedate') or '').strip()
             start_date = (payload.get('startDate') or '').strip()
-            assignee = (payload.get('assignee') or '').strip() or None
             leader = (payload.get('leader') or '').strip() or None
             if not re.match(r'^[A-Za-z0-9]+-\d+$', parent):
                 self._reply_json(False, {'ok': False, 'msg': 'Task cha không hợp lệ.'})
                 return
-            if not isinstance(summaries, list) or not summaries:
+            # Chuẩn hoá + cap 30 sub-task/lần để tránh loạt call nặng
+            items = []
+            for it in raw:
+                if isinstance(it, dict) and isinstance(it.get('summary'), str) and it['summary'].strip():
+                    a = it.get('assignee')
+                    items.append({'summary': it['summary'],
+                                  'assignee': a if isinstance(a, str) else ''})
+                elif isinstance(it, str) and it.strip():
+                    items.append({'summary': it, 'assignee': ''})
+            items = items[:30]
+            if not items:
                 self._reply_json(False, {'ok': False, 'msg': 'Thiếu tiêu đề sub-task.'})
                 return
-            # Cap 30 sub-task/lần để tránh loạt call nặng
-            summaries = [s for s in summaries if isinstance(s, str)][:30]
             datep = r'^\d{4}-\d{2}-\d{2}$'
             if not re.match(datep, duedate) or not re.match(datep, start_date):
                 self._reply_json(False, {'ok': False,
                     'msg': 'Ngày phải đúng định dạng YYYY-MM-DD.'})
                 return
-            ok, res = create_subtasks(parent, summaries, duedate, start_date,
-                                      assignee, leader, pat)
+            ok, res = create_subtasks(parent, items, duedate, start_date, leader, pat)
             if not ok and not isinstance(res.get('created'), list):
                 # Lỗi sớm (verify cha / thiếu field) -> chỉ có msg
                 self._reply_json(False, {'ok': False, 'msg': res.get('msg', 'Lỗi tạo sub-task.')})

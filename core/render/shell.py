@@ -175,11 +175,12 @@ def _settings_modal_v2(user=None):
 
 
 def _subtask_modal_v2():
-    """Modal tạo Sub-task QA dưới 1 Task-PTSP (dùng chung mọi trang v2).
-    Parent + Leader = type-ahead (gọi /search-parents, /search-people); assignee =
-    dropdown 5 QA; start date default hôm nay. JS điều khiển trong app_v2.js."""
+    """Modal tạo Sub-task QA dưới 1 task cha (dùng chung mọi trang v2).
+    Parent + Leader = type-ahead (gọi /search-parents, /search-people). Mỗi sub-task 1 DÒNG
+    trong danh sách: ô tiêu đề + dropdown QA RIÊNG (gán người khác nhau cho từng dòng).
+    Start date default hôm nay. JS điều khiển + clone #subRowTpl trong app_v2.js."""
     today = datetime.now().strftime('%Y-%m-%d')
-    opts = '<option value="">— Không gán —</option>'
+    opts = '<option value="">— Chưa gán —</option>'
     for u in USERS:
         opts += f'<option value="{esc(u)}">{esc(display_name(u))}</option>'
     return (
@@ -193,15 +194,17 @@ def _subtask_modal_v2():
         '<input type="text" id="subParentInp" placeholder="Gõ key hoặc tên task…" autocomplete="off" spellcheck="false">'
         '<div class="ta-results" id="subParentRes"></div></div>'
         '<div class="ta-chip" id="subParentChip" style="display:none"></div></div>'
-        '<div class="mfield"><label>Tiêu đề * <small class="mhint">(mỗi dòng = 1 sub-task)</small></label>'
-        '<textarea id="subSummary" rows="4" placeholder="Nội dung sub-task…&#10;Mỗi dòng tạo 1 sub-task riêng" autocomplete="off" spellcheck="false"></textarea>'
-        '<div class="mcount" id="subCount"></div></div>'
+        '<div class="mfield"><label>Sub-task * <small class="mhint">(mỗi dòng 1 sub-task — gán QA riêng)</small></label>'
+        '<div class="st-head"><span class="h-idx">#</span><span>Tiêu đề</span><span>QA xử lý</span><span></span></div>'
+        '<div class="st-list" id="subList"></div>'
+        '<button type="button" class="st-add" id="subAddRow">'
+        '<span class="material-symbols-rounded ph-light ph-plus mi-sm"></span>Thêm sub-task</button>'
+        '<div class="st-summary mcount" id="subCount"></div></div>'
         '<div class="mfield row2">'
         f'<div><label>Ngày bắt đầu *</label><input type="date" id="subStart" value="{today}"></div>'
         '<div><label>Hạn chót *</label><input type="date" id="subDue"></div>'
         '</div>'
-        f'<div class="mfield"><label>Người xử lý</label><select id="subAssignee">{opts}</select></div>'
-        '<div class="mfield"><label>Leader</label>'
+        '<div class="mfield"><label>Leader <small class="mhint">(dùng chung)</small></label>'
         '<div class="typeahead" id="subLeaderTA">'
         '<input type="text" id="subLeaderInp" placeholder="Gõ tên leader…" autocomplete="off" spellcheck="false">'
         '<div class="ta-results" id="subLeaderRes"></div></div>'
@@ -211,6 +214,14 @@ def _subtask_modal_v2():
         '<button type="button" class="btn btn-ghost" id="subCancel">Huỷ</button>'
         '<button type="button" class="btn btn-primary" id="subCreate">Tạo sub-task</button>'
         '</div></div></div>'
+        # Template 1 dòng sub-task (JS clone): ô tiêu đề + dropdown QA + nút xoá
+        '<template id="subRowTpl">'
+        '<div class="st-row">'
+        '<span class="st-idx"></span>'
+        '<input type="text" class="st-title" placeholder="Tiêu đề sub-task…" autocomplete="off" spellcheck="false">'
+        f'<select class="st-assignee unset">{opts}</select>'
+        '<button type="button" class="st-del material-symbols-rounded ph-light ph-trash mi-sm" title="Xoá dòng"></button>'
+        '</div></template>'
     )
 
 

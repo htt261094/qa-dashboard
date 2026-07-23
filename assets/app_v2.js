@@ -2781,6 +2781,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
   function open(){ ov.classList.add('open');
     // Auto-fill Hạn chót = cuối tháng hiện tại (nếu chưa nhập)
     var due=$('subDue'); if(due && !due.value){ due.value=endOfMonth(); }
+    ensureRow(); updateCount();
     var p=$('subParentInp'); if(p) setTimeout(function(){ p.focus(); }, 60); }
   function close(){ ov.classList.remove('open'); }
   function debounce(fn, ms){ var t; return function(){ var a=arguments, self=this;
@@ -2835,39 +2836,82 @@ window.__smSetCustom=function(t, key, val, onChanged){
   var parentTA = wireTA('subParentInp','subParentRes','subParentChip','/search-parents?q=',
     function(o){ return '<b>'+esc(o.key)+'</b>'+esc(o.summary||''); },
     function(o){ parent = o ? {key:o.key, summary:o.summary||''} : {key:'',summary:''};
-      // Auto-gen 2 sub-task: "[QA] Viết testcase <cha>" + "[QA] Test <cha>"
-      // (bỏ tiền tố [QA] của cha nếu có để tránh lồng nhau)
-      var s=$('subSummary');
-      if(s){
-        if(!parent.key){ s.value=''; }
-        else { var t=(parent.summary||'').trim().replace(/^\[QA\]\s*/i,'');
-          s.value = '[QA] Viết testcase '+t+'\n[QA] Test '+t; }
-        updateCount();
-      } });
+      // Chọn cha -> auto-gen 2 dòng: "[QA] Viết testcase <cha>" + "[QA] Test <cha>"
+      // (bỏ tiền tố [QA] của cha nếu có để tránh lồng nhau; QA để "Chưa gán")
+      clearRows();
+      if(parent.key){
+        var t=(parent.summary||'').trim().replace(/^\[QA\]\s*/i,'');
+        addRow('[QA] Viết testcase '+t, ''); addRow('[QA] Test '+t, '');
+      } else { ensureRow(); }
+      updateCount();
+    });
   var leaderTA = wireTA('subLeaderInp','subLeaderRes','subLeaderChip','/search-people?q=',
     function(o){ return '<b>'+esc(o.display||o.name)+'</b><small>'+esc(o.name)+'</small>'; },
     function(o){ leader = o ? {name:o.name, display:o.display||o.name} : {name:'',display:''}; });
 
+  // --- danh sách sub-task: mỗi dòng 1 tiêu đề + 1 dropdown QA riêng ---
+  var listEl = $('subList'), rowTpl = $('subRowTpl');
+  function clearRows(){ if(listEl) listEl.innerHTML=''; }
+  function addRow(title, assignee){
+    if(!listEl || !rowTpl) return;
+    var node = rowTpl.content.firstElementChild.cloneNode(true);
+    var ti = node.querySelector('.st-title'), se = node.querySelector('.st-assignee');
+    if(ti) ti.value = title||'';
+    if(se){ se.value = assignee||''; se.classList.toggle('unset', !se.value); }
+    listEl.appendChild(node); renumber();
+  }
+  function ensureRow(){ if(listEl && !listEl.querySelector('.st-row')) addRow('', ''); }
+  function renumber(){
+    if(!listEl) return;
+    listEl.querySelectorAll('.st-row').forEach(function(r,i){
+      var idx=r.querySelector('.st-idx'); if(idx) idx.textContent=(i+1); });
+  }
+  function getRows(){
+    if(!listEl) return [];
+    var out=[];
+    listEl.querySelectorAll('.st-row').forEach(function(r){
+      var t=(r.querySelector('.st-title')||{}).value||'';
+      var a=(r.querySelector('.st-assignee')||{}).value||'';
+      t=t.trim(); if(t) out.push({summary:t, assignee:a});
+    });
+    return out;
+  }
+  function updateCount(){
+    var rows=getRows(), n=rows.length, assigned=rows.filter(function(x){return x.assignee;}).length;
+    var c=$('subCount'), b=$('subCreate');
+    if(c){
+      if(!n){ c.textContent=''; }
+      else { c.textContent = n+' sub-task · '+assigned+' QA được gán'
+        + (n-assigned>0 ? (' · '+(n-assigned)+' chưa gán') : ''); }
+    }
+    if(b) b.textContent = n>1 ? ('Tạo '+n+' sub-task') : 'Tạo sub-task';
+  }
   function reset(){
     parent={key:'',summary:''}; leader={name:'',display:''};
     parentTA.reset(); leaderTA.reset();
-    var s=$('subSummary'); if(s) s.value='';
+    clearRows(); ensureRow();
     var d=$('subDue'); if(d) d.value='';
-    var a=$('subAssignee'); if(a) a.value='';
     updateCount();
   }
-
-  // Đếm số dòng (mỗi dòng không rỗng = 1 sub-task) + cập nhật nhãn nút Tạo
-  function titleLines(){
-    var s=$('subSummary'); if(!s) return [];
-    return (s.value||'').split(/\r?\n/).map(function(x){ return x.trim(); }).filter(Boolean);
+  // Delegation: xoá dòng, đổi tiêu đề/QA -> cập nhật đếm + trạng thái "unset"
+  if(listEl){
+    listEl.addEventListener('click', function(e){
+      var del=e.target.closest('.st-del'); if(!del) return;
+      var row=del.closest('.st-row'); if(row) row.remove();
+      ensureRow(); renumber(); updateCount();
+    });
+    listEl.addEventListener('input', function(e){
+      if(e.target.classList.contains('st-title')) updateCount();
+    });
+    listEl.addEventListener('change', function(e){
+      if(e.target.classList.contains('st-assignee')){
+        e.target.classList.toggle('unset', !e.target.value); updateCount();
+      }
+    });
   }
-  function updateCount(){
-    var n=titleLines().length, c=$('subCount'), b=$('subCreate');
-    if(c) c.textContent = n>1 ? (n+' sub-task sẽ được tạo') : '';
-    if(b) b.textContent = n>1 ? ('Tạo '+n+' sub-task') : 'Tạo sub-task';
-  }
-  (function(){ var s=$('subSummary'); if(s) s.addEventListener('input', updateCount); })();
+  var addBtn=$('subAddRow');
+  if(addBtn) addBtn.addEventListener('click', function(){ addRow('',''); updateCount();
+    var last=listEl && listEl.querySelector('.st-row:last-child .st-title'); if(last) last.focus(); });
 
   // Chưa có PAT -> không mở form tạo, mở thẳng modal Cài đặt PAT (create cần PAT cá nhân).
   if(openBtn) openBtn.addEventListener('click', function(){
@@ -2886,18 +2930,17 @@ window.__smSetCustom=function(t, key, val, onChanged){
 
   var createBtn=$('subCreate');
   if(createBtn) createBtn.addEventListener('click', function(){
-    var titles=titleLines();
+    var items=getRows();
     var start=($('subStart').value||'').trim();
     var due=($('subDue').value||'').trim();
-    var assignee=($('subAssignee').value||'').trim();
-    if(!parent.key){ toast('Chưa chọn Task-PTSP cha', false); return; }
-    if(!titles.length){ toast('Chưa nhập tiêu đề', false); return; }
+    if(!parent.key){ toast('Chưa chọn task cha', false); return; }
+    if(!items.length){ toast('Chưa nhập tiêu đề', false); return; }
     if(!start){ toast('Chưa chọn ngày bắt đầu', false); return; }
     if(!due){ toast('Chưa chọn hạn chót', false); return; }
     createBtn.disabled=true;
-    // Nhiều tiêu đề -> endpoint gộp (verify cha 1 lần). Timeout dài hơn vì tạo tuần tự N issue.
-    postJSON('/create-subtasks', { parent:parent.key, summaries:titles, startDate:start,
-        duedate:due, assignee:assignee, leader:leader.name }, 60000)
+    // Mỗi dòng 1 assignee -> endpoint gộp (verify cha 1 lần). Timeout dài vì tạo tuần tự N issue.
+    postJSON('/create-subtasks', { parent:parent.key, items:items, startDate:start,
+        duedate:due, leader:leader.name }, 60000)
       .then(function(j){
         createBtn.disabled=false;
         if(!j){ toast('Lỗi tạo sub-task', false); return; }
@@ -2909,10 +2952,11 @@ window.__smSetCustom=function(t, key, val, onChanged){
           toast(m, false); return;
         }
         if(failed.length){
-          // Partial: báo cả hai, giữ lại các dòng lỗi trong textarea để retry
+          // Partial: báo cả hai, giữ lại các dòng lỗi (kèm QA đã gán) trong danh sách để retry
           toast('Đã tạo '+created.length+', lỗi '+failed.length+' (giữ lại dòng lỗi)', false);
-          var s=$('subSummary'); if(s) s.value = failed.map(function(f){ return f.summary; }).join('\n');
-          updateCount();
+          clearRows();
+          failed.forEach(function(f){ addRow(f.summary||'', f.assignee||''); });
+          ensureRow(); updateCount();
           setTimeout(function(){ location.reload(); }, 2200);
         } else {
           toast('Đã tạo '+created.length+' sub-task ✓', true); reset(); close();
