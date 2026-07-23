@@ -44,7 +44,8 @@ from testcase_store import (load_testcases, fetch_sheets as tc_fetch_sheets,
                             delete_folder as tc_delete_folder, rename_folder as tc_rename_folder,
                             update_import_url as tc_update_import_url)
 from pat_store import save_user_pat, has_pat, delete_user_pat, load_user_pat
-from custom_status import (load_bundle, values_of, clear_labels_for_done)
+from custom_status import (load_bundle, load_overlay, values_of,
+                           clear_labels_for_done)
 from render import (render_page, render_qa_v2, render_docs_page,
                     render_roadmap_v2, render_public_roadmap_v2, render_bug_log_v2, render_analytics_v2,
                     render_testcase_v2, render_settings_page, render_error_page,
@@ -802,10 +803,14 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             # Jira detail + bug đã link tới task (chiều ngược task_link) song song.
             res = run_parallel({'detail': lambda: fetch_issue_detail(key),
                                 'bugs': lambda: self._bugs_for_task(key),
-                                'testcases': lambda: self._testcases_for_task(key)})
+                                'testcases': lambda: self._testcases_for_task(key),
+                                'overlay': lambda: load_overlay()})
             detail = res['detail']
             detail['bugs'] = res['bugs']
             detail['testcases'] = res['testcases']
+            # Nhãn nội bộ (custom status overlay) — để drawer mở từ noti (task ngoài
+            # bucket TASKS) vẫn hiện nhãn thay vì '—' (đồng nhất với click từ bảng).
+            detail['customs'] = values_of((res['overlay'] or {}).get(key))
             self._json(200, json.dumps({'ok': True, 'detail': detail}).encode('utf-8'))
         except RuntimeError:
             self._json(400, b'{"ok":false,"msg":"loi"}')

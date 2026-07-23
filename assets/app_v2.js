@@ -1222,7 +1222,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     function taskByKey(k){ return TASKS.filter(function(x){ return x.key===k; })[0] || EXTRA[k]; }
     function synthTask(key, d){
       return { key:key, summary:d.summary||key, jira:d.status||'',
-        customs:[], canCustom:(d.status==='TO DO'||d.status==='In Progress'),
+        customs:d.customs||[], canCustom:(d.status==='TO DO'||d.status==='In Progress'),
         assignee:{ name:d.assignee||'—', init:initOf(d.assignee||'?'), cls:avById(d.assignee||'?') },
         due:d.duedate||'', dueDisp:d.duedate||'Chưa đặt hạn', dueCls:'',
         created:d.created||'', createdDisp:d.created||'—',
@@ -1377,7 +1377,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
   function taskByKey(k){ return TASKS.filter(function(t){ return t.key===k; })[0] || EXTRA[k]; }
   function synthTask(key, d){
     return { key:key, summary:d.summary||key, jira:d.status||'',
-      customs:[], canCustom:(d.status==='TO DO'||d.status==='In Progress'),
+      customs:d.customs||[], canCustom:(d.status==='TO DO'||d.status==='In Progress'),
       assignee:{ name:d.assignee||'—', init:initOf(d.assignee||'?'), cls:avById(d.assignee||'?') },
       due:d.duedate||'', dueDisp:d.duedate||'Chưa đặt hạn', dueCls:'',
       created:d.created||'', createdDisp:d.created||'—',
@@ -1636,7 +1636,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     if(v==='TO DO') return 'b-todo'; return 'b-todo'; }
   function synth(key, d){
     return { key:key, summary:d.summary||key, jira:d.status||'',
-      customs:[], canCustom:(d.status==='TO DO'||d.status==='In Progress'),
+      customs:d.customs||[], canCustom:(d.status==='TO DO'||d.status==='In Progress'),
       assignee:{ name:d.assignee||'—', init:initOf(d.assignee||'?'), cls:avById(d.assignee||'?') },
       due:d.duedate||'', dueDisp:d.duedate||'Chưa đặt hạn', dueCls:'',
       created:d.created||'', createdDisp:d.created||'—',
