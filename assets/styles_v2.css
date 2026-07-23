@@ -590,6 +590,30 @@ tr.cmt-row:hover td{background:var(--surface-low)}
   font-family:inherit;display:inline-flex;align-items:center;gap:6px;margin-top:2px}
 .st-add:hover{border-color:var(--primary);background:var(--primary-tint)}
 .st-summary{margin-top:2px}
+/* Popup "sub-task đang có" của task cha (hover chip -> zoom-in) */
+.st-parent-hint{display:none;margin-top:7px;font-size:11.5px;color:var(--on-surface-variant);
+  align-items:center;gap:5px}
+.st-parent-hint .mi-sm{font-size:15px;color:var(--primary)}
+.st-pop{position:fixed;z-index:1300;background:var(--card);border:1px solid var(--outline-variant);
+  border-radius:var(--r-lg);box-shadow:var(--e3);padding:6px;max-height:320px;overflow-y:auto;
+  opacity:0;transform:scale(.8);transform-origin:top left;pointer-events:none;
+  transition:opacity var(--dur-2) var(--ease-emphasized),transform var(--dur-2) var(--ease-emphasized)}
+.st-pop.open{opacity:1;transform:scale(1);pointer-events:auto}
+.stp-head{font-size:11px;color:var(--on-surface-variant);padding:5px 8px 7px;font-weight:700;
+  letter-spacing:.02em;text-transform:uppercase}
+.stp-head small{font-weight:400;text-transform:none;letter-spacing:0}
+.stp-loading,.stp-empty{padding:14px 12px;font-size:12.5px;color:var(--on-surface-variant);text-align:center}
+.stp-item{display:grid;grid-template-columns:auto 1fr auto auto;gap:9px;align-items:center;
+  padding:7px 8px;border-radius:8px;cursor:pointer;font-size:12.5px}
+.stp-item:hover{background:var(--primary-tint)}
+.stp-key{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--primary);white-space:nowrap;font-weight:600}
+.stp-sum{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--on-surface)}
+.stp-st{font-size:10.5px;color:var(--on-surface-variant);white-space:nowrap}
+.stp-add{color:var(--primary);opacity:.55}
+.stp-item:hover .stp-add{opacity:1}
+.stp-item.added{opacity:.45}
+.stp-item.done .stp-sum{text-decoration:line-through;color:var(--on-surface-variant)}
+@media (prefers-reduced-motion:reduce){.st-pop{transition:opacity var(--dur-1) linear;transform:none}.st-pop.open{transform:none}}
 .modal-foot{display:flex;gap:10px;justify-content:flex-end;padding:14px 20px;border-top:1px solid var(--divider)}
 .btn{padding:9px 16px;border-radius:var(--r-md);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;border:1px solid transparent}
 .btn-ghost{background:none;color:var(--on-surface-variant);border-color:var(--outline-variant)}
