@@ -13,7 +13,10 @@ from googleapiclient.http import MediaFileUpload, MediaIoBaseUpload
 
 # Xử lý tham số dòng lệnh
 parser = argparse.ArgumentParser()
-parser.add_argument('--cron', action='store_true', help='Chỉ chạy nếu hôm nay là ngày cuối tháng')
+parser.add_argument('--cron', action='store_true', help='Chỉ chạy nếu hôm nay là ngày cuối tháng (ngụ ý --real: gửi vào space CTO thật)')
+parser.add_argument('--real', action='store_true',
+                    help='Gửi vào space báo cáo THẬT (REAL_GOOGLECHAT_REPORT_SPACE / space CTO). '
+                         'Mặc định (không có flag) = gửi vào space TEST (TEST_GOOGLECHAT_SPACE).')
 parser.add_argument('--month', type=int, default=None,
                     help='Tháng muốn gửi report (1-12). Năm tự lấy năm hiện tại. '
                          'VD: 6 -> 06/2026, 8 -> 08/2026 (sang 2027 thì 6 -> 06/2027). '
@@ -41,7 +44,28 @@ load_dotenv()
 JIRA_PORT = os.environ.get('JIRA_PORT', '8080')
 URL = f"http://localhost:{JIRA_PORT}/analytics"
 
-SPACE_ID = os.environ.get('GOOGLE_CHAT_SPACE_ID')
+def _norm_space(v):
+    """Chuẩn hoá space id: chấp nhận cả 'AAQA...' lẫn 'spaces/AAQA...' -> luôn ra 'spaces/AAQA...'."""
+    v = (v or '').strip()
+    if not v:
+        return ''
+    return v if v.startswith('spaces/') else 'spaces/' + v
+
+# Hai space TÁCH BIỆT: TEST (thử trigger, an toàn) vs REAL (báo cáo CTO thật).
+# GOOGLE_CHAT_SPACE_ID cũ giữ làm fallback cho TEST (tương thích ngược .env cũ).
+TEST_SPACE = _norm_space(os.environ.get('TEST_GOOGLECHAT_SPACE')
+                         or os.environ.get('GOOGLE_CHAT_SPACE_ID'))
+REAL_SPACE = _norm_space(os.environ.get('REAL_GOOGLECHAT_REPORT_SPACE'))
+
+# Mặc định TEST; chỉ gửi vào REAL khi có --real HOẶC --cron (job lịch cuối tháng cho CTO).
+USE_REAL = args.real or args.cron
+SPACE_ID = REAL_SPACE if USE_REAL else TEST_SPACE
+_SPACE_LABEL = 'REAL (CTO)' if USE_REAL else 'TEST'
+if not SPACE_ID:
+    print(f"Thiếu cấu hình space {_SPACE_LABEL} trong .env "
+          f"({'REAL_GOOGLECHAT_REPORT_SPACE' if USE_REAL else 'TEST_GOOGLECHAT_SPACE'}). Dừng.")
+    sys.exit(1)
+print(f"Gửi vào space: {_SPACE_LABEL} = {SPACE_ID}")
 SERVICE_ACCOUNT_FILE = 'gcp-service-account.json'
 
 from auth import make_session_token
