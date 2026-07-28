@@ -4238,12 +4238,16 @@ window.__smSetCustom=function(t, key, val, onChanged){
     // gom bug tạo T-1 theo fingerprint
     var groups = {};
     BUGS.forEach(function(b){ if((b.created||'').slice(0,7)===prev){ var f=_fpOf(b); (groups[f]=groups[f]||[]).push(b); } });
+    // bản đã bê sang sheet tháng T (carried): cùng fp, month===curSheet, BẤT KỂ created
+    // (team hay đổi created bản copy sang tháng T). Chỉ nhặt bản ở đúng sheet T.
+    var carriedByFp = {};
+    BUGS.forEach(function(b){ if((b.month||'')===curSheet){ var f=_fpOf(b); (carriedByFp[f]=carriedByFp[f]||[]).push(b); } });
     var total=0, stillOpen=0, resolved=0, hasAny=false;
     Object.keys(groups).forEach(function(f){
       hasAny=true;
-      var g=groups[f];
-      var anyClosed = g.some(function(x){ return !isOpenBug(x.status); });
-      var carried   = g.some(function(x){ return (x.month||'')===curSheet; });
+      var members = groups[f].concat(carriedByFp[f]||[]);   // bản T-1 + bản đã bê sang sheet T
+      var anyClosed = members.some(function(x){ return !isOpenBug(x.status); });
+      var carried   = (carriedByFp[f]||[]).length>0;
       if(!anyClosed){ total++; stillOpen++; }
       else if(carried){ total++; resolved++; }
       // else: đóng gọn trong T-1, không bê sang -> bỏ

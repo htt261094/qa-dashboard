@@ -444,17 +444,27 @@ def prev_month_backlog(report_month=None, live=None):
         if (b.get('created', '') or '')[:7] == prev:
             groups.setdefault(_fp(b), []).append(b)
 
+    # Bản đã BÊ SANG sheet tháng T (carried) = cùng fingerprint, month == cur_sheet — BẤT KỂ
+    # ngày created (team hay đổi created của bản copy sang tháng T thay vì giữ ngày gốc T-1).
+    # Chỉ nhặt bản ở đúng sheet T (không phải mọi bug cùng fp) để không kéo nhầm bug cũ tháng
+    # khác có summary trùng vào diện "đã đóng".
+    carried_by_fp = {}
+    for b in live.values():
+        if (b.get('month', '') or '') == cur_sheet:
+            carried_by_fp.setdefault(_fp(b), []).append(b)
+
     bugs = []
     resolved = still_open = 0
-    for group in groups.values():
-        any_closed = any(not is_open(x.get('status', '')) for x in group)
-        carried = any((x.get('month', '') or '') == cur_sheet for x in group)
+    for fp, group in groups.items():
+        members = group + carried_by_fp.get(fp, [])   # bản T-1 + bản đã bê sang sheet T
+        any_closed = any(not is_open(x.get('status', '')) for x in members)
+        carried = bool(carried_by_fp.get(fp))
         if not any_closed:
             state = 'open'; still_open += 1
-            rep = group[0]                            # bản đại diện (còn treo)
+            rep = group[0]                            # bản đại diện (còn treo) — dùng bản T-1
         elif carried:
             state = 'resolved'; resolved += 1
-            rep = next((x for x in group if not is_open(x.get('status', ''))), group[0])
+            rep = next((x for x in members if not is_open(x.get('status', ''))), group[0])
         else:
             continue                                  # đóng gọn trong T-1, không bê sang
         bugs.append({
