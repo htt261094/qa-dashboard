@@ -102,7 +102,8 @@ def _load_env():
     for k in ('JIRA_URL', 'JIRA_PAT', 'JIRA_USERS', 'JIRA_PORT',
               'JIRA_ADMIN_EMAIL', 'JIRA_ALLOWED_DOMAIN',
               'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'SESSION_SECRET',
-              'PUBLIC_BASE_URL', 'BUG_LOG_POLL_SECONDS', 'JIRA_MAX_CONCURRENT',
+              'PUBLIC_BASE_URL', 'BUG_LOG_POLL_SECONDS', 'BUG_LOG_JIRA_ENABLED',
+              'JIRA_MAX_CONCURRENT',
               'CF_ACCOUNT_ID', 'CF_KV_NAMESPACE_ID', 'CF_API_TOKEN',
               'APP_REDIRECT', 'APP_LINK_PACKAGE', 'APP_LINK_FINGERPRINT'):
         if os.environ.get(k):
@@ -136,6 +137,13 @@ try:
     BUG_LOG_POLL_SECONDS = max(30, int(CFG.get('BUG_LOG_POLL_SECONDS', '600')))
 except ValueError:
     BUG_LOG_POLL_SECONDS = 600
+# ----- Bug Log: nguồn Jira (placeholder — chuyển từ Google Sheet sang Jira, Decision #61) -----
+# Sắp tới team log bug trực tiếp trên Jira thay vì Google Sheet. Toggle này bật lớp nguồn
+# `provider='jira'` trong bug_log_store._scan_one -> bug_source_jira. Default False = HOÀN TOÀN
+# inert (stub trả rỗng, KHÔNG gọi Jira) -> luồng Drive production không đổi. Bật khi model bug
+# Jira được công bố + bug_source_jira đã cắm fetch thật.
+BUG_LOG_JIRA_ENABLED = (CFG.get('BUG_LOG_JIRA_ENABLED') or '').strip().lower() in ('1', 'true', 'yes')
+
 # ----- Trần số call Jira REST đồng thời (Decision #129/#133) -----
 # ThreadingHTTPServer + ThreadPool lồng (/ outer + fetch_all 5 call + refresh nền + scheduler)
 # có thể nhân số call Jira đồng thời lên rất nhanh -> nguy cơ nện Jira DC / cạn socket.
@@ -145,6 +153,20 @@ try:
     JIRA_MAX_CONCURRENT = min(64, max(1, int(CFG.get('JIRA_MAX_CONCURRENT', '12'))))
 except ValueError:
     JIRA_MAX_CONCURRENT = 12
+# ----- Cổng QA gate: task cha ở READY PRODUCTION mà THIẾU sub-task QA (Decision #60) -----
+# Bối cảnh: QA có quyền chuyển task cha (dev) sang trạng thái chuẩn bị production. Sai quy
+# trình (ảnh hưởng tính story point) = chuyển trạng thái TRƯỚC, tạo sub-task QA SAU -> tại
+# thời điểm chuyển, list sub-task chưa có task QA nào. Cảnh báo vào chuông để nhắc.
+# Status ĐÚNG CASE Jira (cực nhạy hoa/thường + khoảng trắng, vd 'READY PRODUCTION' all-caps).
+READY_PROD_STATUS = CFG.get('READY_PROD_STATUS', 'READY PRODUCTION').strip()
+# Lọc theo project key (comma-sep). RỖNG = quét TOÀN instance (user chốt 2026-07-24).
+READY_PROD_PROJECTS = [p.strip() for p in CFG.get('READY_PROD_PROJECTS', '').split(',') if p.strip()]
+# Trần số task cha quét mỗi lần (chống flood chuông + giới hạn cost call changelog). Clamp [1,300].
+try:
+    READY_PROD_MAX = min(300, max(1, int(CFG.get('READY_PROD_MAX', '150'))))
+except ValueError:
+    READY_PROD_MAX = 150
+
 # ----- Auth (qua Cloudflare Access; identity = header Cf-Access-Authenticated-User-Email) -----
 # Email role ADMIN: được edit roadmap/tài liệu. Rỗng = không khoá (local dev).
 # Hỗ trợ NHIỀU admin (JIRA_ADMIN_EMAIL = danh sách email cách nhau dấu phẩy).

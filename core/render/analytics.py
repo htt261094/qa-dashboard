@@ -149,6 +149,52 @@ def _flatten_bugs(data):
     return bugs, sorted((m for m in months if m), reverse=True)
 
 
+# Metric mà quản lý bug trên Jira ĐO ĐƯỢC nhưng Google Sheet không (thời gian, changelog,
+# priority, component). Placeholder chờ chuyển nguồn (#61). Data-driven -> điền số thật sau chỉ
+# việc bơm vào `analyticsData.jiraMetrics[id]` + render trong controller JS.
+_JIRA_METRICS = [
+    ('resolution_time', 'schedule', 'Thời gian khắc phục bug',
+     'Trung bình / trung vị từ lúc tạo đến khi đóng (created → resolved)'),
+    ('open_age', 'hourglass_empty', 'Tuổi bug đang mở',
+     'Phân bố số ngày các bug chưa đóng đã tồn tại'),
+    ('by_priority', 'flag', 'Bug theo độ ưu tiên',
+     'Số lượng bug theo Priority / Severity của Jira'),
+    ('first_response', 'timer', 'Thời gian phản hồi đầu',
+     'Từ lúc tạo đến lần chuyển trạng thái đầu tiên'),
+    ('throughput', 'trending_up', 'Throughput theo tuần',
+     'Số bug tạo mới vs số bug đóng mỗi tuần'),
+    ('by_component', 'category', 'Bug theo component / module',
+     'Phân bố bug theo Component của Jira'),
+]
+
+
+def _jira_metrics_placeholder():
+    """Section 'Metric từ Jira (sắp có)' — các card empty-state chốt layout trước khi có data."""
+    cards = ''
+    for mid, icon, title, hint in _JIRA_METRICS:
+        cards += (
+            f'<div class="card metric-card jira-soon" data-jm="{esc(mid)}" '
+            'style="flex:1; min-width:280px; margin-top:0;">'
+            '<div class="metric-header"><div class="table-title">'
+            f'<span>{esc(title)}</span></div><span class="soon-badge">Sắp có</span></div>'
+            '<div class="empty-state jm-empty">'
+            f'<div class="es-ic"><span class="material-symbols-rounded">{esc(icon)}</span></div>'
+            '<div class="es-title">Chờ dữ liệu bug từ Jira</div>'
+            f'<div class="es-hint">{esc(hint)}</div>'
+            '</div></div>'
+        )
+    return (
+        '<div class="metric-section-head" style="margin-top:32px;">'
+        '<h3 class="table-title" style="font-size:18px;">Metric từ Jira '
+        '<span class="soon-badge">Sắp có</span></h3>'
+        '<div class="bl-reopen-note" style="margin-top:4px;">Sẽ hiển thị khi bug log chuyển từ '
+        'Google Sheet sang Jira — các chỉ số cần dữ liệu thời gian / changelog / trường Jira mà '
+        'Sheet không có.</div></div>'
+        '<div class="metrics-row" style="display:flex; gap:24px; align-items:stretch; '
+        'margin-top:16px; flex-wrap:wrap;">' + cards + '</div>'
+    )
+
+
 def render_analytics_v2(data, user=None, activities=None, testcases=None, links=None,
                         tc_links=None, backlog=None):
     """Trang Analytics: 3 khối metric (Valid Bug Rate · Bug theo dev/dự án · Tỷ lệ Reopen)
@@ -244,6 +290,9 @@ def render_analytics_v2(data, user=None, activities=None, testcases=None, links=
 
         '</div>'  # end metrics-row
 
+        # ----- Metric từ Jira (sắp có) — placeholder chờ chuyển nguồn bug sang Jira (#61) -----
+        + _jira_metrics_placeholder()
+
         + _json_script('analyticsData', {
             'bugs': bugs, 'months': month_list, 'reopen': reopen,
             'syncedAt': synced_disp,
@@ -252,6 +301,7 @@ def render_analytics_v2(data, user=None, activities=None, testcases=None, links=
             'backlogMonths': backlog_months,
             'carryMonths': carry_months,
             'chartMonths': chart_months,
+            'jiraMetrics': {},   # hook: JS đổ số thật khi bug log chuyển sang Jira
         })
     )
     return _document_v2(content, 'analytics', user, activities or [],

@@ -699,6 +699,114 @@ def fetch_subtasks(parent_key, limit=50):
     return out
 
 
+_RP_CACHE_KEY = 'ready_prod_gaps'
+
+
+def _is_qa_subtask(fields):
+    """Sub-task được coi là "task QA" khi: summary bắt đầu '[QA]' VÀ assignee ∈ team QA
+    (USERS) — user chốt 2026-07-24 CHỈ tính người làm là QA (assign cho dev/AI/người ngoài
+    team KHÔNG tính, để bắt đúng ca QA chưa tạo/giao task QA cho chính QA)."""
+    summ = (fields.get('summary') or '').strip()
+    if not summ.upper().startswith('[QA]'):
+        return False
+    asg = fields.get('assignee') or {}
+    return (asg.get('name') or '') in USERS
+
+
+def _last_transition_to(issue, status_name):
+    """(author_obj, when_iso) của lần GẦN NHẤT status đổi SANG `status_name` trong changelog.
+    (None, None) nếu không thấy (changelog rỗng / ngoài retention). Đi oldest->newest,
+    ghi đè để giữ lần cuối cùng."""
+    author_obj, when = None, None
+    for h in (issue.get('changelog', {}) or {}).get('histories', []):
+        for it in h.get('items', []):
+            fid = it.get('fieldId') or it.get('field') or ''
+            if fid == 'status' and (it.get('toString') or '') == status_name:
+                author_obj, when = (h.get('author') or {}), h.get('created')
+    return author_obj, when
+
+
+def _subtasks_of_parents(pkeys):
+    """{parent_key: [subtask_fields]} cho danh sách task cha. Dùng `parent in (...)` theo lô 50
+    (1-vài call thay vì N). Jira DC nào không hỗ trợ `parent in` -> fallback `parent =` từng cái."""
+    out = {}
+
+    def _absorb(issues):
+        for s in issues:
+            sf = s.get('fields', {}) or {}
+            pk = (sf.get('parent') or {}).get('key')
+            if pk:
+                out.setdefault(pk, []).append(sf)
+
+    for i in range(0, len(pkeys), 50):
+        batch = pkeys[i:i + 50]
+        try:
+            _absorb(_jira_request('parent in (%s)' % ','.join(batch), 800,
+                                  fields='summary,assignee,parent').get('issues', []))
+        except RuntimeError:
+            for pk in batch:                     # `parent in` không hỗ trợ -> quét từng cha
+                try:
+                    _absorb(_jira_request(f'parent = {pk}', 200,
+                                          fields='summary,assignee,parent').get('issues', []))
+                except RuntimeError:
+                    continue
+    return out
+
+
+def _compute_ready_prod_gaps():
+    """List task cha đang ở READY_PROD_STATUS mà THIẾU sub-task QA. Mỗi phần tử = activity dict
+    sẵn sàng trộn vào chuông: {id, kind='qa_missing', key, summary, author, author_user, when}.
+    author_user = username QA đã chuyển trạng thái (để scope cho đúng người), '' nếu không rõ."""
+    from config import READY_PROD_STATUS, READY_PROD_PROJECTS, READY_PROD_MAX
+    esc_status = READY_PROD_STATUS.replace('"', '\\"')
+    jql = f'status = "{esc_status}"'
+    if READY_PROD_PROJECTS:
+        jql += ' AND project in (%s)' % ','.join(READY_PROD_PROJECTS)
+    jql += ' ORDER BY updated DESC'
+    parents = _jira_request(jql, READY_PROD_MAX, fields='summary,updated,issuetype',
+                            expand='changelog').get('issues', [])
+    # Chỉ quan tâm TASK CHA: loại issue bản thân là sub-task (sub-task cũng có thể ở status này).
+    parents = [p for p in parents
+               if not ((p.get('fields', {}).get('issuetype') or {}).get('subtask'))]
+    if not parents:
+        return []
+    subs_by_parent = _subtasks_of_parents([p['key'] for p in parents])
+    out = []
+    for p in parents:
+        pk = p['key']
+        if any(_is_qa_subtask(sf) for sf in subs_by_parent.get(pk, [])):
+            continue                             # đã có sub-task QA -> OK, bỏ qua
+        f = p.get('fields', {})
+        author_obj, when = _last_transition_to(p, READY_PROD_STATUS)
+        author_obj = author_obj or {}
+        aname = author_obj.get('name') or ''
+        # CHỈ báo khi NGƯỜI CHUYỂN sang READY PRODUCTION cũng là QA (∈ USERS) — đúng kịch bản
+        # "QA chuyển trạng thái trước, tạo sub-task sau" (user chốt 2026-07-24). Dev/người ngoài
+        # team hoặc không rõ tác giả (ngoài cửa sổ changelog) -> KHÔNG phải ca này, bỏ qua.
+        if aname not in USERS:
+            continue
+        out.append({
+            'id': f'{pk}#qa-gate',               # ổn định -> dismiss được, không toast lại
+            'kind': 'qa_missing', 'key': pk,
+            'summary': f.get('summary') or '',
+            'author': actor_name(author_obj),
+            'author_user': aname,
+            'new': READY_PROD_STATUS,            # tên status -> client hiển thị không hardcode
+            'when': when or f.get('updated') or '',
+        })
+    return out
+
+
+def fetch_ready_prod_gaps(force=False):
+    """SWR-cached, BEST-EFFORT (block=False): không bao giờ treo chuông hay raise.
+    Miss/Jira lỗi -> [] (chuông vẫn chạy). Kết quả GIỐNG NHAU cho mọi người (quét toàn
+    instance, không scope) -> cache dùng chung; caller tự lọc theo người xem."""
+    if OFFLINE:
+        return []
+    res = _cached_swr(_RP_CACHE_KEY, _compute_ready_prod_gaps, block=False, force=force)
+    return [] if res is _SWR_NOT_READY else res
+
+
 def fetch_issue_detail(key):
     """Chi tiết 1 issue cho drawer/comment panel:
     {key, summary, description, status, assignee, duedate, updated, devs, comments:[...]}.

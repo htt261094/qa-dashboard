@@ -33,7 +33,7 @@ from jira_api import run_parallel
 # nguyên merge-before-write. KV value tới 25MB (Jira ~32KB) nên light-split ít khi cần nhưng giữ.
 from remote_store import remote_get as load_property, remote_put as save_property
 from bug_log import fetch_meta, fetch_content, normalize, project_from_filename, _redact
-from bug_log_source import load_sources
+from bug_log_source import load_sources, provider_of
 from drive_token import has_drive_token, load_refresh_token
 
 BUG_LOG_PROP = 'qa-dashboard-bug-log'
@@ -588,6 +588,25 @@ def _scan_one(src, prev):
     fid = src.get('id')
     if not fid:
         return None
+    # Nguồn Jira (placeholder #61): route sang bug_source_jira. Khi toggle tắt (mặc định) ->
+    # pending -> no-op (unchanged) -> KHÔNG đụng store. Khi bật + có bug -> dựng cur_bugs y
+    # nhánh Drive để merge/diff/reopen dùng lại toàn bộ. Lazy-import: chỉ trả giá khi thật dùng.
+    if provider_of(src) == 'jira':
+        import bug_source_jira
+        res = bug_source_jira.scan_source(src)
+        if res.get('error'):
+            return {'fid': fid, 'error': res['error']}
+        bugs = res.get('bugs') or []
+        if res.get('pending') or not bugs:
+            return {'fid': fid, 'unchanged': True, 'count': len(prev.get('bugs', {}))}
+        cur_bugs = {b['key']: b for b in bugs if b.get('key')}
+        project = src.get('label', '') or (res.get('meta') or {}).get('project', '')
+        meta = {'name': src.get('label', '') or fid,
+                'modifiedTime': (res.get('meta') or {}).get('modifiedTime', ''),
+                'md5Checksum': ''}
+        return {'fid': fid, 'meta': meta, 'project': project,
+                'norm': {'bugs': bugs, 'unmapped': res.get('unmapped') or []},
+                'cur_bugs': cur_bugs}
     try:
         meta = fetch_meta(fid)   # Tầng-1: rẻ, không tải binary
         unchanged = (prev.get('modifiedTime') == meta.get('modifiedTime')
