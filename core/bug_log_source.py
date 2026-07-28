@@ -19,6 +19,15 @@ MAX_SOURCES = 50
 _ID_RE = re.compile(r'^[A-Za-z0-9_-]{10,200}$')
 _LINK_ID_RE = re.compile(r'/d/([A-Za-z0-9_-]{10,200})')
 
+# Nguồn bug: 'drive' (Google Sheet trên Drive — hiện tại) hoặc 'jira' (placeholder, Decision #61).
+# Thiếu field 'provider' = 'drive' (backward-compat tuyệt đối với source cũ).
+PROVIDERS = ('drive', 'jira')
+
+
+def provider_of(src):
+    """Provider của 1 source; mặc định 'drive' để tương thích data cũ (không có field này)."""
+    return (src or {}).get('provider') or 'drive'
+
 
 def extract_file_id(s):
     """Rút Drive file id từ chuỗi: nhận id trần hoặc link /file/d/<id>/... hoặc ?id=<id>."""
@@ -35,18 +44,34 @@ def extract_file_id(s):
 
 
 def valid_sources(data):
-    """list[{id: str hợp lệ, label: str}] và <= MAX_SOURCES."""
+    """list[{id, label, service, provider?, query?}] và <= MAX_SOURCES.
+
+    - provider='drive' (mặc định): `id` phải là Drive file id (`_ID_RE`, 10+ ký tự alnum/-/_).
+    - provider='jira' (placeholder #61): model CHƯA chốt -> nới `id` = chuỗi non-empty <=500
+      (project key / JQL ngắn) + field optional `query` (JQL đầy đủ) <=2000. Không match Drive id.
+    """
     if not isinstance(data, list) or len(data) > MAX_SOURCES:
         return False
     for it in data:
         if not isinstance(it, dict):
             return False
-        if not isinstance(it.get('id'), str) or not _ID_RE.match(it['id']):
+        prov = it.get('provider', 'drive')
+        if not isinstance(prov, str) or prov not in PROVIDERS:
             return False
         if not isinstance(it.get('label', ''), str):
             return False
         if not isinstance(it.get('service', ''), str):
             return False
+        if prov == 'jira':
+            # Model chưa chốt -> ràng buộc lỏng, chỉ chặn rác/quá dài.
+            if not isinstance(it.get('id'), str) or not (0 < len(it['id']) <= 500):
+                return False
+            q = it.get('query', '')
+            if not isinstance(q, str) or len(q) > 2000:
+                return False
+        else:
+            if not isinstance(it.get('id'), str) or not _ID_RE.match(it['id']):
+                return False
     return True
 
 

@@ -116,6 +116,33 @@ def _workload_level(n):
     return 'light'
 
 
+_WL_LABEL = {'over': 'Quá tải', 'ok': 'OK', 'light': 'Nhẹ'}
+
+
+def _workload_strip_html(workload):
+    """Strip workload gọn (1 hàng, wrap) — mỗi QA 1 chip: avatar + tên + số task active,
+    viền/badge tô theo mức tải (over/ok/light, ngưỡng spec §2). Render server-side, tĩnh
+    (không lọc theo pill/member — luôn là bức tranh tải toàn team). `workload` từ
+    build_dashboard_payload (đã sort giảm dần theo count)."""
+    if not workload:
+        return ''
+    chips = ''
+    for w in workload:
+        lvl = w['level']
+        chips += (
+            f'<div class="wl-chip wl-{lvl}" title="{esc(w["name"])} — {w["count"]} task active ({_WL_LABEL[lvl]})">'
+            f'<span class="wl-av {w["cls"]}">{esc(w["init"])}</span>'
+            f'<span class="wl-name">{esc(w["name"])}</span>'
+            f'<span class="wl-count">{w["count"]}</span></div>'
+        )
+    return (
+        '<div class="workload-strip" id="workloadStrip">'
+        '<div class="wl-head"><span class="material-symbols-rounded ph-light ph-scales"></span>'
+        '<span>Workload</span></div>'
+        f'<div class="wl-chips">{chips}</div></div>'
+    )
+
+
 # ===== Dashboard team admin — payload (nguồn chân lý dùng chung web + mobile API) =====
 def build_dashboard_payload(data, cmap):
     """Dựng data thuần cho dashboard team admin từ snapshot Jira full team.
@@ -265,7 +292,7 @@ def render_admin_v2(data, activities, cmap, user, bug_log_data=None,
                             title='QA Workspace — Task Management')
 
     # Nguồn chân lý dùng chung với /api/dashboard (D3) — chỉ dựng markup từ payload thuần.
-    tasks, meta, members, _workload = build_dashboard_payload(data, cmap)
+    tasks, meta, members, workload = build_dashboard_payload(data, cmap)
     n_todo, n_prog, n_new = meta['todo'], meta['progress'], meta['new']
     n_stuck, n_over, n_done = meta['stuck'], meta['overdue'], meta['done']
 
@@ -295,6 +322,8 @@ def render_admin_v2(data, activities, cmap, user, bug_log_data=None,
         f'<button class="pill-btn" data-pill="overdue">Overdue <span class="pill-badge" id="count-overdue">{n_over}</span></button>'
         f'<button class="pill-btn" data-pill="done">Done <span class="pill-badge" id="count-done">{n_done}</span></button>'
         '</div>'
+        # Workload strip (gọn — tải active/người, tĩnh, không lọc theo pill/member)
+        + _workload_strip_html(workload) +
         # Table card
         '<div class="card">'
         '<div class="table-header">'

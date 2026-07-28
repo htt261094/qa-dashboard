@@ -152,6 +152,7 @@ a{color:inherit}
        border:2px solid var(--card);font-size:13px}
 .nkind.k-done{background:var(--success)}.nkind.k-due{background:var(--warning)}
 .nkind.k-mention{background:#6554c0}.nkind.k-status{background:var(--primary)}
+.nkind.k-warn{background:var(--error)}
 .ncontent{flex:1;min-width:0}
 .ncontent .nt{font-size:13px;line-height:18px;color:var(--on-surface)}
 .ncontent .nt b{font-weight:600}
@@ -162,6 +163,7 @@ a{color:inherit}
 .nrsn.mention{background:#efeafc;color:#6554c0}
 html[data-theme="dark"] .nrsn.mention{background:#2a2342;color:#b3a6f0}
 .nrsn.watch{background:var(--surface-container);color:var(--on-surface-variant)}
+.nrsn.warn{background:var(--warning-bg);color:var(--warning-on)}
 .ntime{font-size:11px;color:var(--on-surface-variant)}
 .notif-item.unread .ntime{color:var(--primary-strong);font-weight:600}
 .ndot{width:10px;height:10px;border-radius:50%;background:var(--primary);flex:0 0 10px;align-self:center}
@@ -741,6 +743,25 @@ select.set-input{cursor:pointer;background-image:url("data:image/svg+xml,%3Csvg 
 .pill-btn[data-pill="done"] .pill-badge{background:var(--success-bg);color:var(--success-on)}
 .pill-btn.active{background:var(--primary);border-color:var(--primary);color:var(--on-primary)}
 .pill-btn.active .pill-badge{background:rgba(255,255,255,.25)!important;color:var(--on-primary)!important}
+
+/* Workload strip (gọn — tải active/người) */
+.workload-strip{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:20px}
+.wl-head{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.04em;color:var(--on-surface-variant)}
+.wl-head .material-symbols-rounded{font-size:18px;color:var(--primary)}
+.wl-chips{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.wl-chip{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 8px 0 4px;
+  border:1px solid var(--outline-variant);border-radius:16px;background:var(--card);
+  box-shadow:0 1px 3px rgba(9,30,66,.12)}
+.wl-av{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;font-size:10px;font-weight:600;color:#fff;flex-shrink:0}
+.wl-name{font-size:13px;font-weight:600;color:var(--on-surface)}
+.wl-count{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:18px;
+  padding:0 5px;border-radius:9px;font-size:11px;font-weight:700}
+.wl-over{border-color:var(--error)}
+.wl-over .wl-count{background:var(--error-bg);color:var(--error-on)}
+.wl-ok .wl-count{background:var(--success-bg);color:var(--success-on)}
+.wl-light .wl-count{background:var(--surface-container);color:var(--primary-strong)}
 
 /* Table card */
 .table-header{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;
@@ -1667,6 +1688,16 @@ tr.row-flash{animation:rowFlash 2.2s var(--ease-out) 1}
 .empty-state .es-ic .material-symbols-rounded{font-size:32px;margin:0;display:block;color:inherit}
 .empty-state .es-title{font-size:14.5px;font-weight:700;color:var(--on-surface);margin-bottom:4px}
 .empty-state .es-hint{font-size:13px;color:var(--on-surface-variant)}
+
+/* Metric từ Jira (sắp có) — placeholder chờ chuyển nguồn bug sang Jira (#61) */
+.soon-badge{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.02em;
+  padding:2px 8px;border-radius:999px;background:var(--primary-tint);color:var(--primary);
+  vertical-align:middle;margin-left:6px}
+.metric-card.jira-soon{border-style:dashed;opacity:.92}
+.metric-card.jira-soon .jm-empty{padding:24px 16px}
+.metric-card.jira-soon .jm-empty .es-ic{width:48px;height:48px;margin-bottom:8px}
+.metric-card.jira-soon .jm-empty .es-ic .material-symbols-rounded{font-size:24px}
+.metric-section-head h3{margin:0;display:flex;align-items:center}
 
 /* ===================== RESPONSIVE / MOBILE ===================== */
 /* Hamburger ẩn trên desktop, hiện khi thu hẹp; sidebar off-canvas. */

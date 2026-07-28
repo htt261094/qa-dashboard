@@ -37,7 +37,7 @@ from testcase_link import (load_links as tc_load_links, set_folder_links as tc_s
 from jira_api import (fetch_all, fetch_all_shared, scope_data, fetch_activity_feed, load_dismissed,
                       dismiss_activities, run_parallel, fetch_issue_detail,
                       search_parent_tasks, search_people, search_qa_tasks, global_search,
-                      fetch_subtasks)
+                      fetch_subtasks, fetch_ready_prod_gaps)
 from docs import load_docs, save_docs, valid_tree
 from roadmap import load_roadmap, save_roadmap, valid_roadmap
 from testcase_store import (load_testcases, fetch_sheets as tc_fetch_sheets,
@@ -336,6 +336,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
                                                     force=force),
                 'dismissed': lambda: load_dismissed(email),
                 'custom': lambda: load_bundle(scope, ACTIVITY_DAYS),
+                # Cổng QA gate (Decision #60): task cha READY PRODUCTION thiếu sub-task QA.
+                # Best-effort (block=False bên trong) -> không bao giờ raise / treo chuông.
+                'gaps': lambda: fetch_ready_prod_gaps(force=force),
             })
         except RuntimeError:
             # Jira không với tới được -> chuông RỖNG, KHÔNG kéo sập cả trang. Các tab không
@@ -355,6 +358,14 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
                 overlay.pop(k, None)
         merged = sorted(feed + cust_act, key=lambda a: a.get('when') or '', reverse=True)
         merged = _drop_own_activities(merged, email)
+        # QA-gate alerts trộn SAU _drop_own_activities (chủ đích: KHÔNG lọc bỏ dù chính QA gây
+        # ra — đó chính là người cần được nhắc). Scope: admin thấy hết; QA/dev chỉ thấy cái do
+        # CHÍNH họ chuyển trạng thái (author_user == scope) để khỏi spam cả team.
+        gaps = res.get('gaps') or []
+        if scope is not None:
+            gaps = [g for g in gaps if g.get('author_user') == scope]
+        if gaps:
+            merged = sorted(merged + gaps, key=lambda a: a.get('when') or '', reverse=True)
         for a in merged:
             a['is_unread'] = a['id'] not in dismissed
         if not with_patch:
@@ -977,12 +988,18 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
                 'feed': lambda: fetch_activity_feed(days=ACTIVITY_DAYS, scope_user=scope,
                                                     block=False, force=fresh),
                 'dismissed': lambda: load_dismissed(email),
+                'gaps': lambda: fetch_ready_prod_gaps(force=fresh),   # QA-gate (Decision #60)
             })
-            feed, dismissed = res['feed'], res['dismissed']
+            feed, dismissed, gaps = res['feed'], res['dismissed'], res.get('gaps') or []
         except RuntimeError:
-            feed, dismissed = [], {}     # offline -> chuông rỗng, trang vẫn render
+            feed, dismissed, gaps = [], {}, []   # offline -> chuông rỗng, trang vẫn render
         merged = sorted(feed + cust_act, key=lambda a: a.get('when') or '', reverse=True)
         merged = _drop_own_activities(merged, email)
+        # QA-gate alerts: KHÔNG drop-own; QA/dev chỉ thấy cái do chính họ gây (xem _bell_activities).
+        if scope is not None:
+            gaps = [g for g in gaps if g.get('author_user') == scope]
+        if gaps:
+            merged = sorted(merged + gaps, key=lambda a: a.get('when') or '', reverse=True)
         for a in merged:
             a['is_unread'] = a['id'] not in dismissed
         self._html(render_page(data, merged, ACTIVITY_DAYS,
