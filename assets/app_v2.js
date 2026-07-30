@@ -2247,7 +2247,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
       var actCol = EDIT ? '<td class="action-col" onclick="event.stopPropagation()">' +
           '<button class="action-btn material-symbols-rounded ph-light ph-dots-three-vertical" onclick="openContextMenu(event, \'' + esc(d.id) + '\')"></button>' +
         '</td>' : '';
-      return '<tr class="doc-row" data-url="' + esc(d.url) + '">' +
+      return '<tr class="doc-row" data-id="' + esc(d.id) + '" data-url="' + esc(d.url) + '">' +
         '<td>' +
           '<div class="file-name-cell">' +
             '<span class="file-icon-wrapper ' + esc(fileData.cls) + '">' +
@@ -2266,14 +2266,109 @@ window.__smSetCustom=function(t, key, val, onChanged){
   // Chỉ mở link an toàn (chặn javascript:/data: kể cả khi lọt qua validate server)
   function safeDocUrl(u){ return /^(https?:\/\/|\/uploads\/)/i.test(u||'') ? u : null; }
 
-  // Mở link tài liệu qua delegated listener (KHÔNG inline onclick -> không chèn JS qua url)
+  // ===== Viewer: xem tài liệu NGAY trong app thay vì mở tab mới (Decision #63) =====
+  // - /uploads/*.pdf + ảnh  -> browser render thẳng (iframe/img)
+  // - docx/xlsx/pptx/text   -> GET /file-preview dựng HTML server-side (zero-dep)
+  // - link Google Drive     -> nhúng iframe bản /preview của Google
+  // - còn lại               -> báo không xem trước được, còn nút Tải xuống / Mở tab mới
+  var fpOv = $('fpOverlay'), fpBody = $('fpBody');
+
+  function fpExt(name, url) {
+    var s = String(name || '').replace(/\.url$/i, '');
+    if (s.indexOf('.') < 0) s = String(url || '').split('?')[0];
+    var m = /\.([a-z0-9]+)$/i.exec(s);
+    return m ? m[1].toLowerCase() : '';
+  }
+
+  // Link Google -> URL nhúng iframe được (/preview). null nếu không nhúng được (vd folder).
+  function fpDriveEmbed(u) {
+    var m = /^https:\/\/docs\.google\.com\/(document|spreadsheets|presentation)\/d\/([A-Za-z0-9_-]+)/.exec(u);
+    if (m) return 'https://docs.google.com/' + m[1] + '/d/' + m[2] + '/preview';
+    m = /^https:\/\/drive\.google\.com\/file\/d\/([A-Za-z0-9_-]+)/.exec(u);
+    if (m) return 'https://drive.google.com/file/d/' + m[1] + '/preview';
+    m = /^https:\/\/drive\.google\.com\/open\?id=([A-Za-z0-9_-]+)/.exec(u);
+    if (m) return 'https://drive.google.com/file/d/' + m[1] + '/preview';
+    return null;
+  }
+
+  function fpClose() {
+    if (!fpOv) return;
+    fpOv.classList.remove('open');
+    if (fpBody) fpBody.innerHTML = '';   // gỡ iframe -> dừng tải/phát nội dung
+  }
+
+  function fpFallback(url, msg) {
+    return '<div class="empty-state"><div class="es-ic">' + phIcon('visibility_off') + '</div>'
+      + '<div class="es-title">' + esc(msg || 'Không xem trước được định dạng này') + '</div>'
+      + '<div class="es-hint">Dùng nút “Tải xuống” hoặc “Mở tab mới” ở trên để mở bản gốc.</div></div>';
+  }
+
+  window.openDocPreview = function(doc) {
+    if (!doc) return;
+    var url = safeDocUrl(doc.url);
+    if (!url) { toast('Link tài liệu không hợp lệ', false); return; }
+    if (!fpOv || !fpBody) { window.open(url, '_blank'); return; }   // template cũ chưa có viewer
+
+    var name = String(doc.name || '').replace(/\.url$/i, '');
+    var ext = fpExt(doc.name, url);
+    var local = /^\/uploads\//i.test(url);
+    var icon = getFileIconClass(doc.name || '', doc.type, doc.url);
+
+    $('fpTitle').textContent = name || 'Tài liệu';
+    $('fpSub').textContent = local ? (ext ? ext.toUpperCase() + ' · lưu trên hệ thống' : 'Lưu trên hệ thống')
+                                   : 'Google Drive';
+    var ic = $('fpIcon');
+    if (ic) ic.className = 'material-symbols-rounded ph-light fp-head-ic ' + esc(icon.cls);
+    var dl = $('fpDownload'), nt = $('fpNewTab');
+    if (dl) { dl.href = url; dl.style.display = local ? '' : 'none'; }
+    if (nt) nt.href = url;
+    fpBody.innerHTML = '<div class="fp-loading"><div class="skel skel-line w60"></div>'
+      + '<div class="skel skel-line w80"></div><div class="skel skel-block"></div></div>';
+    fpOv.classList.add('open');
+
+    if (!local) {                                   // link Drive
+      var emb = fpDriveEmbed(url);
+      fpBody.innerHTML = emb
+        ? '<iframe class="fp-frame" src="' + esc(emb) + '" allow="autoplay"></iframe>'
+        : fpFallback(url, 'Link này Google không cho nhúng xem trước');
+      return;
+    }
+    if (ext === 'pdf') {
+      fpBody.innerHTML = '<iframe class="fp-frame" src="' + esc(url) + '#view=FitH"></iframe>';
+      return;
+    }
+    if (['png','jpg','jpeg','gif','webp','svg','bmp'].indexOf(ext) >= 0) {
+      fpBody.innerHTML = '<div class="fp-img-wrap"><img class="fp-img" src="' + esc(url) + '" alt="' + esc(name) + '"></div>';
+      return;
+    }
+    var fname = decodeURIComponent(url.replace(/^\/uploads\//i, ''));
+    getJSON('/file-preview?f=' + encodeURIComponent(fname), 30000).then(function(j) {
+      if (!fpOv.classList.contains('open')) return;        // user đã đóng trong lúc chờ
+      fpBody.innerHTML = (j && j.ok && j.html) ? j.html : fpFallback(url, (j && j.msg) || '');
+      fpBody.scrollTop = 0;
+    }).catch(function() {
+      if (fpOv.classList.contains('open')) fpBody.innerHTML = fpFallback(url, 'Lỗi tải nội dung xem trước');
+    });
+  };
+
+  if (fpOv) {
+    fpOv.addEventListener('click', function(e) { if (e.target === fpOv) fpClose(); });
+    var fpX = $('fpClose');
+    if (fpX) fpX.addEventListener('click', fpClose);
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape' && fpOv.classList.contains('open')) { e.stopPropagation(); fpClose(); }
+    }, true);
+  }
+
+  // Mở tài liệu qua delegated listener (KHÔNG inline onclick -> không chèn JS qua url)
   var docTbody = $('docTableBody');
   if (docTbody) {
     docTbody.addEventListener('click', function(e) {
       var row = e.target.closest('.doc-row');
       if (!row) return;
-      var u = safeDocUrl(row.getAttribute('data-url'));
-      if (u) window.open(u, '_blank');
+      var doc = findFileById(DOC_TREE, row.getAttribute('data-id'));
+      if (doc) openDocPreview(doc);
+      else { var u = safeDocUrl(row.getAttribute('data-url')); if (u) window.open(u, '_blank'); }
     });
   }
 
@@ -2405,6 +2500,11 @@ window.__smSetCustom=function(t, key, val, onChanged){
       saveDocs();
       showBottomToast('Cập nhật tài liệu thành công ✔');
     }
+  };
+
+  window.previewDoc = function() {
+    var doc = findFileById(DOC_TREE, contextMenuSelectedId);
+    if (doc) openDocPreview(doc);
   };
 
   window.openLink = function() {

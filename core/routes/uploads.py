@@ -3,9 +3,10 @@
 Tách từ qa_dashboard.py (issue #86 / B3). Zero behavior change: chỉ di chuyển định
 nghĩa method, không đổi logic/route/output.
 
-Gom 2 route file:
+Gom các route file:
 - `_get_uploads(path)` — serve file trong uploads/ (GET /uploads/<filename>)
 - `_post_upload_file` — nhận upload multipart, lưu vào uploads/ (POST /upload-file, admin-only)
+- `_get_file_preview` — JSON nội dung dựng sẵn để xem trước trong app (GET /file-preview)
 
 Mixin dùng các helper dùng chung định nghĩa ở Handler (resolve qua MRO):
 `self._is_admin()`, `self._json()`, `self.send_response()`, `self.send_header()`,
@@ -54,6 +55,36 @@ class UploadsMixin:
         except Exception:
             self.send_response(500)
             self.end_headers()
+
+    def _get_file_preview(self):
+        """GET /file-preview?f=<filename> -> {ok, kind, html, msg}.
+
+        Chỉ đọc file NẰM TRONG UPLOADS_DIR (basename + resolve check, chống traversal).
+        Dùng cho định dạng browser không tự render (docx/xlsx/pptx/text) — PDF/ảnh thì
+        client nhúng thẳng /uploads/... nên không gọi vào đây.
+        """
+        import os
+        from urllib.parse import urlparse, parse_qs, unquote
+
+        q = parse_qs(urlparse(self.path).query)
+        name = os.path.basename(unquote((q.get('f') or [''])[0]))
+        if not name:
+            self._json(400, b'{"ok":false,"msg":"thieu ten file"}')
+            return
+        target = (UPLOADS_DIR / name).resolve()
+        try:
+            inside = target.parent == UPLOADS_DIR.resolve()
+        except OSError:
+            inside = False
+        if not inside:
+            self._json(400, b'{"ok":false,"msg":"duong dan khong hop le"}')
+            return
+        from file_preview import preview_html
+        ok, kind, html = preview_html(target)
+        self._json(200, json.dumps({
+            'ok': ok, 'kind': kind,
+            'html': html if ok else '', 'msg': '' if ok else html,
+        }, ensure_ascii=False).encode('utf-8'))
 
     def _post_upload_file(self):
         if not self._is_admin():
