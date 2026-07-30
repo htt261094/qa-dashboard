@@ -11,22 +11,23 @@ Mixin dùng các helper dùng chung định nghĩa ở Handler (resolve qua MRO)
 `self._is_admin()`, `self._json()`, `self.send_response()`, `self.send_header()`,
 `self.end_headers()`, `self.wfile`, `self.rfile`, `self.headers`.
 
-⚠ Path uploads hardcode macOS (Decision #23 / issue #37) — giữ nguyên, không phải
-phạm vi B3.
+Thư mục lưu file = `config.UPLOADS_DIR` (mặc định `<root>/uploads`, override bằng
+env/.env `UPLOADS_DIR`) — trước hardcode path macOS nên upload chết trên host khác
+(issue #37 / Decision #23).
 
 Layer rule: KHÔNG import qa_dashboard (tránh vòng import).
 """
 import json
 
+from config import UPLOADS_DIR
+
 
 class UploadsMixin:
     def _get_uploads(self, path):
         import os
-        from pathlib import Path
-        from urllib.parse import quote
-        filename = os.path.basename(path)
-        uploads_dir = Path("/Users/thanhht/qa-dashboard/uploads")
-        file_path = uploads_dir / filename
+        from urllib.parse import quote, unquote
+        filename = os.path.basename(unquote(path))
+        file_path = UPLOADS_DIR / filename
         if not file_path.exists() or not file_path.is_file():
             self.send_response(404)
             self.end_headers()
@@ -110,11 +111,16 @@ class UploadsMixin:
                 self._json(400, b'{"ok":false,"msg":"Khong tim thay file trong request"}')
                 return
 
-            # Clean filename (prevent directory traversal)
-            filename = os.path.basename(filename)
+            # Clean filename (prevent directory traversal). basename() không đủ trên
+            # Windows nếu tên có ':' (ADS) hoặc separator lạ -> lọc thêm ký tự cấm.
+            filename = os.path.basename(filename.replace('\\', '/').split('/')[-1])
+            filename = re.sub(r'[<>:"|?*\x00-\x1f]', '_', filename).strip(' .')
+            if not filename:
+                self._json(400, b'{"ok":false,"msg":"Ten file khong hop le"}')
+                return
 
             # Target path setup
-            uploads_dir = Path("/Users/thanhht/qa-dashboard/uploads")
+            uploads_dir = UPLOADS_DIR
             uploads_dir.mkdir(parents=True, exist_ok=True)
 
             # Check collision, append timestamp if duplicate
@@ -130,10 +136,12 @@ class UploadsMixin:
             target_path.write_bytes(file_data)
 
             # Return success JSON
+            from urllib.parse import quote
             self._json(200, json.dumps({
                 "ok": True,
                 "filename": filename,
-                "url": f"/uploads/{filename}"
+                # quote để link sống được với tên có dấu/khoảng trắng; _get_uploads unquote lại
+                "url": f"/uploads/{quote(filename)}"
             }, ensure_ascii=False).encode('utf-8'))
 
         except Exception as e:

@@ -34,6 +34,7 @@ TESTCASE_FILE = SCRIPT_DIR / '.testcase_config.json'    # cache bộ test case i
 TESTCASE_TASK_LINK_FILE = SCRIPT_DIR / '.testcase_task_link.json'  # cache link bộ test case -> Jira task (#155)
 SNAPSHOT_CACHE_FILE = SCRIPT_DIR / '.snapshot_cache.json'  # L3 cache đĩa snapshot task (offline fallback, #137)
 TC_FILE = SCRIPT_DIR / '.tc_config.json'                   # test case folders + cases (persistence #152)
+UPLOADS_DIR = SCRIPT_DIR / 'uploads'   # file tài liệu upload (Decision #23) — ghi đè ở dưới nếu .env có UPLOADS_DIR
 
 def atomic_write(path, text, encoding='utf-8'):
     """Ghi text xuống `path` atomic: ghi `*.tmp` CÙNG THƯ MỤC rồi os.replace.
@@ -104,7 +105,7 @@ def _load_env():
               'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'SESSION_SECRET',
               'PUBLIC_BASE_URL', 'BUG_LOG_POLL_SECONDS', 'BUG_LOG_JIRA_ENABLED',
               'JIRA_MAX_CONCURRENT',
-              'CF_ACCOUNT_ID', 'CF_KV_NAMESPACE_ID', 'CF_API_TOKEN',
+              'CF_ACCOUNT_ID', 'CF_KV_NAMESPACE_ID', 'CF_API_TOKEN', 'UPLOADS_DIR',
               'APP_REDIRECT', 'APP_LINK_PACKAGE', 'APP_LINK_FINGERPRINT'):
         if os.environ.get(k):
             cfg[k] = os.environ[k]
@@ -116,6 +117,16 @@ CFG = _load_env()
 # Bật bằng env OFFLINE=1 -> KHÔNG bắt buộc JIRA creds + jira_api ngắt mọi call property
 # (fallback cache local tức thì). Đặt env này TRƯỚC khi import config (xem bug_log_offline.py).
 OFFLINE = (CFG.get('OFFLINE') or os.environ.get('OFFLINE') or '').strip().lower() in ('1', 'true', 'yes')
+
+# Thư mục lưu tài liệu upload (issue #37). Mặc định <root>/uploads — bám SCRIPT_DIR nên
+# chạy đúng mọi OS (trước hardcode path macOS -> upload chết trên host Windows).
+# Override bằng UPLOADS_DIR trong .env / env var nếu muốn để ổ khác.
+if CFG.get('UPLOADS_DIR'):
+    UPLOADS_DIR = Path(CFG['UPLOADS_DIR']).expanduser()
+try:
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+except OSError:
+    pass  # tạo lúc upload đầu tiên nếu ở đây fail (vd đường dẫn override chưa mount)
 
 if not CFG.get('JIRA_URL') or not CFG.get('JIRA_PAT'):
     if not OFFLINE:

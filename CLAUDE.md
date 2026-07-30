@@ -280,7 +280,8 @@ Hiền THƯỜNG là reporter trong các task QA team được giao — vì cô 
 ### 23. Tài liệu v2 — upload file thật + serve local (2026-06-08)
 - **Bối cảnh**: `/docs` cũ chỉ index link Google Drive (Decision #11). Thêm **upload file thật** lưu trên host.
 - **Routes**: POST `/upload-file` (lưu vào `uploads/`), GET `/uploads/<filename>` (serve). Node link trỏ `/uploads/...`. Edit actions vẫn gate `editable=_is_admin()`.
-- **⚠ Giới hạn**: thư mục uploads **hardcode path macOS** `/Users/thanhht/qa-dashboard/uploads` trong qa_dashboard.py (2 chỗ: serve + save) — chỉ chạy đúng trên Mac host. Chạy nơi khác phải sửa. File upload KHÔNG sync chéo máy (chỉ ở host), KHÔNG trong git (`uploads/` đã gitignore).
+- **✅ FIX (2026-07-30, issue #37)**: path uploads trước **hardcode macOS** `/Users/thanhht/qa-dashboard/uploads` (2 chỗ: serve + save trong `core/routes/uploads.py`) → upload chết trên host Windows hiện tại (ghi vào ổ không tồn tại / serve luôn 404). Giờ dùng **`config.UPLOADS_DIR`** = `SCRIPT_DIR / 'uploads'` (bám root project, chạy đúng mọi OS), tự `mkdir` lúc import config, **override** bằng `UPLOADS_DIR` trong `.env`/env var (đã thêm vào whitelist `_load_env`). Kèm 2 sửa nhỏ cùng lúc: (a) `_get_uploads` **unquote** path trước khi `basename` + POST trả `url` đã `quote` → tên file có dấu/khoảng trắng mở được (trước đứt); (b) sanitize tên file mạnh hơn cho Windows (strip `\`/`/`, thay `<>:"|?*` + ký tự control bằng `_`, chặn tên rỗng) — chống traversal + Alternate Data Stream.
+- **⚠ Giới hạn còn lại**: file upload KHÔNG sync chéo máy (chỉ nằm ở host), KHÔNG trong git (`uploads/` đã gitignore).
 
 ### 24. Notification real-time qua short-poll JSON (2026-06-09, issue #40)
 - **Bối cảnh / quyết định gốc**: notification cũ chỉ cập nhật khi reload trang (F5/auto-reload). User chốt hướng **short-poll JSON** thay vì SSE — vì SSE buộc chuyển `ThreadingHTTPServer` (giữ kết nối lâu sẽ block server single-thread) kéo theo phải xử lý race ghi `.last_seen.json` (Known Limitations + Decision #13). Short-poll giữ nguyên `TCPServer` single-thread, zero dep, không đụng kiến trúc nền. SUPERSEDES mô hình "chỉ cập nhật khi reload" cho riêng notification.
@@ -649,7 +650,7 @@ Hiền THƯỜNG là reporter trong các task QA team được giao — vì cô 
 
 | Issue | Nội dung | Branch |
 |---|---|---|
-| #37 (bug) | Path uploads hardcode macOS — chặn upload trên máy không phải Mac host (Decision #23) | `fix/uploads-hardcode-path-37` |
+| ~~#37 (bug)~~ ✅ | Path uploads hardcode macOS — chặn upload trên máy không phải Mac host → dùng `config.UPLOADS_DIR` (Decision #23, fix 2026-07-30) | `fix/uploads-hardcode-path-37` |
 | #38 (enh) | Pagination cap cứng (300/50/100) — mất task ngầm khi team mở rộng | `feat/pagination-cap-warning-38` |
 | ~~#39 (enh)~~ ✅ | Pills phân loại status động — pill In Progress bắt mọi status active ≠ TO DO (status mới không lọt) | `feat/workload-dynamic-status-39` |
 | #14 (feat) | Auto-launch browser khi chạy script | (chưa tạo branch) |
@@ -804,7 +805,7 @@ qa-dashboard/
 │   ── auto-generated / KHÔNG trong git (sinh ở ROOT, gitignore) ──
 ├── .env               ← PAT + config thật + GOOGLE_*/SESSION_SECRET
 ├── .docs_config.json / .roadmap_config.json / .custom_status.json / .crypto_key / ...
-└── uploads/           ← file upload từ /docs (hardcode path macOS — Decision #23)
+└── uploads/           ← file upload từ /docs (config.UPLOADS_DIR = <root>/uploads, override qua .env — Decision #23)
 ```
 
 ## Coding Conventions
