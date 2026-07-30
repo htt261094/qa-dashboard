@@ -440,6 +440,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         if path.startswith('/uploads/'):
             self._get_uploads(path)
             return
+        if path == '/file-preview':
+            self._get_file_preview()   # nội dung dựng sẵn để xem trước trong app (#63)
+            return
         if path == '/api/my-work':
             self._get_api_my_work()   # JSON cho client mobile (E0.2, android #6)
             return

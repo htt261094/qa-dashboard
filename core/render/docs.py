@@ -90,10 +90,32 @@ def render_docs_page(tree, editable=True, user=None, activities=None):
     <!-- ===== Floating Context Menu ===== -->
     <div class="context-menu" id="contextMenu">
       {"" if not editable else '<button onclick="editDoc()"><span class="material-symbols-rounded ph-light ph-pencil-simple mi-sm"></span>Sửa đổi</button>'}
-      <button onclick="openLink()"><span class="material-symbols-rounded ph-light ph-arrow-square-out mi-sm"></span>Mở link</button>
+      <button onclick="previewDoc()"><span class="material-symbols-rounded ph-light ph-eye mi-sm"></span>Xem trước</button>
+      <button onclick="openLink()"><span class="material-symbols-rounded ph-light ph-arrow-square-out mi-sm"></span>Mở tab mới</button>
       <button onclick="copyDocLink()"><span class="material-symbols-rounded ph-light ph-copy mi-sm"></span>Sao chép link</button>
       {"<div class='divider'></div>" if editable else ""}
       {"" if not editable else '<button class="danger" onclick="deleteDoc()"><span class="material-symbols-rounded ph-light ph-trash mi-sm"></span>Xoá tài liệu</button>'}
+    </div>
+
+    <!-- ===== VIEWER: xem tài liệu ngay trong app (Decision #63) ===== -->
+    <div class="fp-overlay" id="fpOverlay">
+      <div class="fp-modal" role="dialog" aria-modal="true" aria-labelledby="fpTitle">
+        <div class="fp-head">
+          <span class="material-symbols-rounded ph-light ph-file-text fp-head-ic" id="fpIcon"></span>
+          <div class="fp-titles">
+            <div class="fp-title" id="fpTitle">Tài liệu</div>
+            <div class="fp-sub" id="fpSub"></div>
+          </div>
+          <a class="btn-sec fp-act" id="fpDownload" download>
+            <span class="material-symbols-rounded ph-light ph-download-simple mi-sm"></span>Tải xuống
+          </a>
+          <a class="btn-sec fp-act" id="fpNewTab" target="_blank" rel="noopener">
+            <span class="material-symbols-rounded ph-light ph-arrow-square-out mi-sm"></span>Mở tab mới
+          </a>
+          <button class="x material-symbols-rounded ph-light ph-x" id="fpClose" title="Đóng (Esc)"></button>
+        </div>
+        <div class="fp-body" id="fpBody"></div>
+      </div>
     </div>
 
     <!-- ===== Processing Status Toast ===== -->
