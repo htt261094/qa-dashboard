@@ -34,7 +34,7 @@ var PHMAP={
  'fiber_new':'sparkle','chat_bubble':'chat-circle-dots','swap_horiz':'arrows-left-right','person_add':'user-plus',
  'bolt':'lightning','sell':'tag','remove_circle_outline':'minus-circle','subdirectory_arrow_right':'arrow-elbow-down-right',
  'library_books':'books','fact_check':'check-square','format_list_numbered':'list-numbers','task_alt':'check-circle',
- 'keyboard_arrow_down':'caret-down','keyboard_arrow_right':'caret-right'
+ 'keyboard_arrow_down':'caret-down','keyboard_arrow_right':'caret-right','code':'file-html'
 };
 function phIcon(name, extra, weight){
   var ph=PHMAP[name]||name;
@@ -2197,7 +2197,10 @@ window.__smSetCustom=function(t, key, val, onChanged){
     if (checkExt === 'pdf') return { icon: 'picture_as_pdf', cls: 'file-pdf' };
     if (checkExt === 'docx' || checkExt === 'doc') return { icon: 'description', cls: 'file-sop' };
     if (checkExt === 'pptx' || checkExt === 'ppt') return { icon: 'slideshow', cls: 'file-excel' };
-    
+    // Tên hiển thị có thể do người dùng đặt (không đuôi) -> lấy đuôi từ URL upload luôn
+    if (checkExt === 'html' || checkExt === 'htm'
+        || /^\/uploads\/.+\.html?($|\?)/i.test(url || '')) return { icon: 'code', cls: 'file-html' };
+
     if (type === 'link' || ext === 'url') return { icon: 'link', cls: 'file-link' };
     return { icon: 'article', cls: 'file-sop' };
   }
@@ -2268,6 +2271,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
 
   // ===== Viewer: xem tài liệu NGAY trong app thay vì mở tab mới (Decision #63) =====
   // - /uploads/*.pdf + ảnh  -> browser render thẳng (iframe/img)
+  // - /uploads/*.html/.htm  -> iframe /file-raw (sandbox, giữ nguyên CSS/layout) — #65
   // - docx/xlsx/pptx/text   -> GET /file-preview dựng HTML server-side (zero-dep)
   // - link Google Drive     -> nhúng iframe bản /preview của Google
   // - còn lại               -> báo không xem trước được, còn nút Tải xuống / Mở tab mới
@@ -2289,6 +2293,12 @@ window.__smSetCustom=function(t, key, val, onChanged){
     m = /^https:\/\/drive\.google\.com\/open\?id=([A-Za-z0-9_-]+)/.exec(u);
     if (m) return 'https://drive.google.com/file/d/' + m[1] + '/preview';
     return null;
+  }
+
+  // URL để MỞ TAB MỚI: html local phải qua /file-raw (vì /uploads/ serve attachment)
+  function fpOpenUrl(u) {
+    if (!/^\/uploads\/.+\.html?($|\?)/i.test(u || '')) return u;
+    return '/file-raw?f=' + encodeURIComponent(decodeURIComponent(u.replace(/^\/uploads\//i, '')));
   }
 
   function fpClose() {
@@ -2313,6 +2323,8 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var ext = fpExt(doc.name, url);
     var local = /^\/uploads\//i.test(url);
     var icon = getFileIconClass(doc.name || '', doc.type, doc.url);
+    var fname = local ? decodeURIComponent(url.replace(/^\/uploads\//i, '')) : '';
+    var rawUrl = fpOpenUrl(url);   // html local -> /file-raw (render được), còn lại giữ nguyên
 
     $('fpTitle').textContent = name || 'Tài liệu';
     $('fpSub').textContent = local ? (ext ? ext.toUpperCase() + ' · lưu trên hệ thống' : 'Lưu trên hệ thống')
@@ -2321,7 +2333,8 @@ window.__smSetCustom=function(t, key, val, onChanged){
     if (ic) ic.className = 'material-symbols-rounded ph-light fp-head-ic ' + esc(icon.cls);
     var dl = $('fpDownload'), nt = $('fpNewTab');
     if (dl) { dl.href = url; dl.style.display = local ? '' : 'none'; }
-    if (nt) nt.href = url;
+    // HTML: /uploads/... serve dạng attachment (tải về) -> tab mới phải trỏ /file-raw
+    if (nt) nt.href = rawUrl;
     fpBody.innerHTML = '<div class="fp-loading"><div class="skel skel-line w60"></div>'
       + '<div class="skel skel-line w80"></div><div class="skel skel-block"></div></div>';
     fpOv.classList.add('open');
@@ -2337,11 +2350,18 @@ window.__smSetCustom=function(t, key, val, onChanged){
       fpBody.innerHTML = '<iframe class="fp-frame" src="' + esc(url) + '#view=FitH"></iframe>';
       return;
     }
+    // HTML: render NGUYÊN BẢN (giữ CSS/layout) qua /file-raw. Sandbox KHÔNG có
+    // allow-same-origin -> origin mờ: script trong file không chạm session/DOM app.
+    if (ext === 'html' || ext === 'htm') {
+      fpBody.innerHTML = '<iframe class="fp-frame" src="' + esc(rawUrl) + '" '
+        + 'sandbox="allow-scripts allow-popups allow-forms allow-modals" '
+        + 'referrerpolicy="no-referrer"></iframe>';
+      return;
+    }
     if (['png','jpg','jpeg','gif','webp','svg','bmp'].indexOf(ext) >= 0) {
       fpBody.innerHTML = '<div class="fp-img-wrap"><img class="fp-img" src="' + esc(url) + '" alt="' + esc(name) + '"></div>';
       return;
     }
-    var fname = decodeURIComponent(url.replace(/^\/uploads\//i, ''));
     getJSON('/file-preview?f=' + encodeURIComponent(fname), 30000).then(function(j) {
       if (!fpOv.classList.contains('open')) return;        // user đã đóng trong lúc chờ
       fpBody.innerHTML = (j && j.ok && j.html) ? j.html : fpFallback(url, (j && j.msg) || '');
@@ -2510,7 +2530,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
   window.openLink = function() {
     var doc = findFileById(DOC_TREE, contextMenuSelectedId);
     var u = doc && safeDocUrl(doc.url);
-    if (u) window.open(u, '_blank');
+    if (u) window.open(fpOpenUrl(u), '_blank');
   };
 
   window.copyDocLink = function() {
@@ -4012,6 +4032,76 @@ window.__smSetCustom=function(t, key, val, onChanged){
     }
   }
 
+  // ---------- Automation Coverage (độ phủ automation, #test-case) ----------
+  // Cùng công thức với trang /test-cases: coverage = Y/(Y+N); N/A + chưa phân loại
+  // KHÔNG vào mẫu số. Scope = tất cả dự án / 1 dự án (khi đó bar tách theo bộ/sheet).
+  var TC_FOLDERS = TC_DATA.folders || [];
+  function anAutoStats(list){
+    var y=0,n=0,na=0,unset=0;
+    list.forEach(function(c){ var a=c.auto||'';
+      if(a==='y')y++; else if(a==='n')n++; else if(a==='na')na++; else unset++; });
+    return { y:y,n:n,na:na,unset:unset,denom:y+n,total:list.length,cov:(y+n)?y/(y+n):0 };
+  }
+  function anCasesIn(fid){
+    if(!fid) return TC_CASES;
+    var subs = TC_FOLDERS.filter(function(f){ return f.parent_id===fid; }).map(function(f){ return f.id; });
+    var allowed = [fid].concat(subs);
+    return TC_CASES.filter(function(c){ return allowed.indexOf(c.folder)>=0; });
+  }
+  function anPct(v){ var p=v*100; return (p%1===0? p.toFixed(0): p.toFixed(1))+'%'; }
+  function renderAutoCoverage(){
+    var box=$('anAutoCovBox'), rowsBox=$('anAutoCovRows'), sel=$('anAutoScope');
+    if(!box||!rowsBox) return;
+    var tops = TC_FOLDERS.filter(function(f){ return !f.parent_id; });
+    if(sel && !sel.dataset.filled){
+      sel.innerHTML = '<option value="">Tất cả dự án</option>'
+        + tops.map(function(f){ return '<option value="'+esc(f.id)+'">'+esc(f.name||f.id)+'</option>'; }).join('');
+      sel.dataset.filled='1';
+      sel.addEventListener('change', renderAutoCoverage);
+    }
+    var scope = sel ? sel.value : '';
+    var list = anCasesIn(scope);
+    if(!list.length){
+      box.innerHTML = '<div class="an-empty">Chưa có data test case.</div>';
+      rowsBox.innerHTML=''; return;
+    }
+    var st = anAutoStats(list);
+    box.innerHTML =
+      '<div class="an-valid-main"><span class="an-valid-pct an-info">'+(st.denom?anPct(st.cov):'—')+'</span>'
+      + '<span class="an-valid-cap">độ phủ automation</span></div>'
+      + '<div class="an-valid-break">'
+      +   '<div class="an-stat an-num-info"><span class="an-stat-n">'+st.y+'</span><span class="an-stat-l">Đã có script (Y)</span></div>'
+      +   '<div class="an-stat-op">/</div>'
+      +   '<div class="an-stat"><span class="an-stat-n">'+st.denom+'</span><span class="an-stat-l">Case auto được (Y+N)</span></div>'
+      +   '<div class="an-stat-op">·</div>'
+      +   '<div class="an-stat"><span class="an-stat-n">'+st.na+'</span><span class="an-stat-l">N/A (không thể auto)</span></div>'
+      +   '<div class="an-stat-op">·</div>'
+      +   '<div class="an-stat"><span class="an-stat-n">'+st.unset+'</span><span class="an-stat-l">Chưa phân loại</span></div>'
+      + '</div>';
+    // Bar: chưa chọn dự án -> so sánh giữa các dự án; chọn rồi -> tách theo bộ/sheet.
+    var src = scope ? TC_FOLDERS.filter(function(f){ return f.parent_id===scope; }) : tops;
+    var rows = src.map(function(f){ return { name:f.name||f.id, st:anAutoStats(anCasesIn(f.id)) }; })
+                  .filter(function(r){ return r.st.total; })
+                  .sort(function(a,b){ return b.st.cov-a.st.cov || b.st.denom-a.st.denom; });
+    if(!rows.length){ rowsBox.innerHTML=''; return; }
+    rowsBox.innerHTML = '<div class="tc-bars">' + rows.map(function(r){
+      var s=r.st, t=s.total||1;
+      var yw=s.y/t*100, nw=s.n/t*100, aw=s.na/t*100, uw=Math.max(0,100-yw-nw-aw);
+      return '<div class="tc-bar-row"><div class="tc-bar-name" title="'+esc(r.name)+'">'+esc(r.name)+'</div>'
+        + '<div class="tc-bar-track">'
+        + (yw?'<span class="tc-bar-seg a-y" style="width:'+yw+'%" title="Y: '+s.y+'"></span>':'')
+        + (nw?'<span class="tc-bar-seg a-n" style="width:'+nw+'%" title="N: '+s.n+'"></span>':'')
+        + (aw?'<span class="tc-bar-seg a-na" style="width:'+aw+'%" title="N/A: '+s.na+'"></span>':'')
+        + (uw?'<span class="tc-bar-seg a-un" style="width:'+uw+'%" title="Chưa phân loại: '+s.unset+'"></span>':'')
+        + '</div>'
+        + '<div class="tc-bar-n'+(s.denom?'':' muted')+'">'+(s.denom?anPct(s.cov):'—')+'</div></div>';
+    }).join('') + '</div>'
+      + '<div class="tc-auto-legend"><span><i class="a-y"></i>Y — đã có script</span>'
+      + '<span><i class="a-n"></i>N — chưa có script</span>'
+      + '<span><i class="a-na"></i>N/A — không thể auto</span>'
+      + '<span><i class="a-un"></i>Chưa phân loại</span></div>';
+  }
+
   function getCreatedMonthYear(iso){
     if(!iso) return '';
     var p = iso.split('-');
@@ -4437,7 +4527,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
   if(validMonthSel) validMonthSel.addEventListener('change', renderValid);
   if(metricMonthSel) metricMonthSel.addEventListener('change', renderMetric);
   if(reopenMonthSel) reopenMonthSel.addEventListener('change', renderReopen);
-  renderCrossMetrics();
+  renderCrossMetrics(); renderAutoCoverage();
   renderValid(); renderMetric(); renderReopen();
 })();
 
@@ -4460,10 +4550,31 @@ window.__smSetCustom=function(t, key, val, onChanged){
   var RES = { pass:['pass','check_circle','Pass'], fail:['fail','cancel','Fail'],
               impact:['impact','warning','Impact'],
               norun:['norun','remove_circle_outline','Not Run'] };
+  // Automated (cột "Automated" trong sheet): Y = đã có script · N = auto được nhưng chưa có
+  // script · N/A = không thể auto · '' = chưa phân loại (không tính vào mẫu số độ phủ).
+  var AUTO = { y:['auto-y','smart_toy','Y — đã có script'],
+               n:['auto-n','pending','N — chưa có script'],
+               na:['auto-na','block','N/A — không thể auto'] };
+  function autoHtml(a){ var d=AUTO[a];
+    return d ? '<span class="tc-auto '+d[0]+'" title="'+d[2]+'">'+phIcon(d[1])
+               +' '+(a==='na'?'N/A':a.toUpperCase())+'</span>'
+             : '<span class="tc-auto unset" title="Chưa phân loại">—</span>'; }
+  // Độ phủ automation: mẫu số = số case AUTO ĐƯỢC (Y + N); N/A và '' loại khỏi mẫu số.
+  function autoStats(list){
+    var y=0,n=0,na=0,unset=0;
+    list.forEach(function(c){ var a=c.auto||'';
+      if(a==='y')y++; else if(a==='n')n++; else if(a==='na')na++; else unset++; });
+    var denom=y+n;
+    return { y:y, n:n, na:na, unset:unset, denom:denom, total:list.length,
+             cov: denom ? y/denom : 0 };
+  }
   function priHtml(p){ var d=PRI[p]; return d ? '<span class="badge '+d[0]+'">'+d[1]+'</span>'
                                               : '<span class="badge b-todo">'+esc(p||'—')+'</span>'; }
   function resHtml(r){ var d=RES[r]||RES.norun;
     return '<span class="tc-result '+d[0]+'">'+phIcon(d[1])+' '+d[2]+'</span>'; }
+  // Kết quả chạy script auto: '' = chưa chạy script (khác "Not Run" của chấm tay).
+  function autoResHtml(r){ if(!r) return '<span class="tc-result norun">—</span>';
+    return resHtml(r); }
   function longCell(t){ t=t||''; var n=t.split('\n').length;
     var hint = n>3 ? '<span class="tc-more"><span class="material-symbols-rounded ph-light ph-arrows-down-up"></span>Xem thêm</span>' : '';
     return '<div class="tc-long">'+esc(t)+'</div>'+hint; }
@@ -4508,10 +4619,17 @@ window.__smSetCustom=function(t, key, val, onChanged){
     function card(cls,ic,lbl,val){ return '<div class="tc-metric '+cls+'"><div class="ic '+cls+'">'
       +phIcon(ic)+'</div>'
       +'<div><div class="lbl">'+lbl+'</div><div class="val">'+val+'</div></div></div>'; }
+    var au=autoStats(list);
+    var covVal = au.denom ? Math.round(au.cov*100)+'%' : '—';
+    var covSub = au.denom ? au.y+'/'+au.denom+' auto được'
+                          : 'chưa khai báo cột Automated';
     box.innerHTML = card('total','library_books','Tổng số TC',list.length)
       + card('pass','check_circle','Đã Pass',pass)
       + card('fail','cancel','Failed',fail)
-      + card('norun','remove_circle_outline','Not Run',norun);
+      + card('norun','remove_circle_outline','Not Run',norun)
+      + '<div class="tc-metric auto"><div class="ic auto">'+phIcon('smart_toy')+'</div>'
+        + '<div><div class="lbl">Độ phủ Automation</div><div class="val">'+covVal+'</div>'
+        + '<div class="sub">'+covSub+'</div></div></div>';
   }
 
   // ---- Biểu đồ (#153): donut theo trạng thái + bar theo bộ. Vanilla SVG, palette Atlassian-blue ----
@@ -4583,7 +4701,60 @@ window.__smSetCustom=function(t, key, val, onChanged){
       barCard = '<div class="tc-chart-card"><div class="tc-chart-title">Phân bố theo bộ</div>'
         + '<div class="tc-bars">'+bars+'</div></div>';
     }
-    box.innerHTML = donutCard + barCard;
+    box.innerHTML = donutCard + barCard + autoCoverageCard();
+  }
+
+  // Card độ phủ automation: chia theo dự án (khi xem tất cả) hoặc theo bộ/sheet trong dự án
+  // đang chọn. Mẫu số mỗi hàng = case auto được (Y+N); N/A không tính.
+  function autoCoverageCard(){
+    var scope = curFolder ? (folders.filter(function(f){ return f.parent_id===curFolder; })) : [];
+    var rows, title;
+    if(!curFolder){
+      title = 'Độ phủ automation theo dự án';
+      rows = folders.filter(function(f){ return !f.parent_id; })
+                    .map(function(f){ return { name:f.name||f.id, st:autoStats(casesIn(f.id)) }; });
+    } else if(scope.length){
+      title = 'Độ phủ automation theo bộ';
+      rows = scope.map(function(f){ return { name:f.name||f.id, st:autoStats(casesIn(f.id)) }; });
+    } else {
+      var cur = folders.filter(function(f){ return f.id===curFolder; })[0];
+      title = 'Độ phủ automation';
+      rows = [{ name:(cur&&(cur.name||cur.id))||'Bộ hiện tại', st:autoStats(casesIn(curFolder)) }];
+    }
+    rows = rows.filter(function(r){ return r.st.total; })
+               .sort(function(a,b){ return b.st.cov-a.st.cov || b.st.denom-a.st.denom; });
+    var all = autoStats(casesIn(curFolder));
+    var head = '<div class="tc-auto-sum">'
+      + '<span class="tc-auto-big">'+(all.denom?Math.round(all.cov*100)+'%':'—')+'</span>'
+      + '<span class="tc-auto-cap">'+(all.denom
+          ? '<b>'+all.y+'</b> đã có script / <b>'+all.denom+'</b> case auto được'
+            + (all.na?' · '+all.na+' N/A':'') + (all.unset?' · '+all.unset+' chưa phân loại':'')
+          : 'Chưa có case nào khai báo Y/N ở cột Automated')
+      + '</span></div>';
+    if(!rows.length){
+      return '<div class="tc-chart-card wide"><div class="tc-chart-title">'+title+'</div>'
+        + '<div class="tc-bar-empty">Chưa có dữ liệu automation.</div></div>';
+    }
+    var bars = rows.map(function(r){
+      var st=r.st, pct=st.denom?Math.round(st.cov*100):0;
+      var yw=st.total?st.y/st.total*100:0, nw=st.total?st.n/st.total*100:0,
+          aw=st.total?st.na/st.total*100:0, uw=Math.max(0,100-yw-nw-aw);
+      return '<div class="tc-bar-row"><div class="tc-bar-name" title="'+esc(r.name)+'">'+esc(r.name)+'</div>'
+        + '<div class="tc-bar-track">'
+          + (yw?'<span class="tc-bar-seg a-y" style="width:'+yw+'%" title="Y (đã có script): '+st.y+'"></span>':'')
+          + (nw?'<span class="tc-bar-seg a-n" style="width:'+nw+'%" title="N (chưa có script): '+st.n+'"></span>':'')
+          + (aw?'<span class="tc-bar-seg a-na" style="width:'+aw+'%" title="N/A (không thể auto): '+st.na+'"></span>':'')
+          + (uw?'<span class="tc-bar-seg a-un" style="width:'+uw+'%" title="Chưa phân loại: '+st.unset+'"></span>':'')
+        + '</div>'
+        + '<div class="tc-bar-n'+(st.denom?'':' muted')+'">'+(st.denom?pct+'%':'—')+'</div></div>';
+    }).join('');
+    var legend = '<div class="tc-auto-legend">'
+      + '<span><i class="a-y"></i>Y — đã có script</span>'
+      + '<span><i class="a-n"></i>N — chưa có script</span>'
+      + '<span><i class="a-na"></i>N/A — không thể auto</span>'
+      + '<span><i class="a-un"></i>Chưa phân loại</span></div>';
+    return '<div class="tc-chart-card wide"><div class="tc-chart-title">'+title+'</div>'
+      + head + '<div class="tc-bars">'+bars+'</div>' + legend + '</div>';
   }
 
   // ---- Bảng + pagination 10/trang ----
@@ -4594,7 +4765,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     renderLinkBar();
     var list=casesIn(curFolder);
     if(!list.length){
-      body.innerHTML = '<tr><td colspan="7"><div class="tc-empty">'
+      body.innerHTML = '<tr><td colspan="9"><div class="tc-empty">'
         + '<span class="material-symbols-rounded ph-light ph-list-checks"></span>'
         + (editable ? 'Chưa có test case. Bấm <b>Import</b> để nhập từ Google Sheet.'
                     : 'Chưa có test case nào trong bộ này.')
@@ -4612,11 +4783,14 @@ window.__smSetCustom=function(t, key, val, onChanged){
         + '<td>'+longCell(c.step)+'</td>'
         + '<td>'+longCell(c.exp)+'</td>'
         + '<td>'+priHtml(c.priority)+'</td>'
-        + '<td>'+resHtml(c.result)+'</td></tr>';
+        + '<td>'+resHtml(c.result)+'</td>'
+        + '<td>'+autoHtml(c.auto)+'</td>'
+        + '<td>'+autoResHtml(c.auto_result)+'</td></tr>';
     }).join('');
     // filler rows giữ chiều cao bảng cố định khi trang cuối thiếu dòng
     var fillerHtml='<tr class="tc-filler"><td class="tc-id">&nbsp;</td><td class="tc-item">&nbsp;</td>'
-      + '<td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>';
+      + '<td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>'
+      + '<td>&nbsp;</td><td>&nbsp;</td></tr>';
     var filler=''; for(var f=slice.length; f<PER; f++) filler+=fillerHtml;
     body.insertAdjacentHTML('beforeend', filler);
     animRows(body);
@@ -4637,7 +4811,9 @@ window.__smSetCustom=function(t, key, val, onChanged){
   function openDrawer(c){
     $('tcdKey').textContent=c.id||'';
     $('tcdBody').innerHTML = '<h2>'+esc(c.item||'')+'</h2>'
-      + '<div class="tc-d-meta">'+priHtml(c.priority)+' '+resHtml(c.result)+'</div>'
+      + '<div class="tc-d-meta">'+priHtml(c.priority)+' '+resHtml(c.result)+' '+autoHtml(c.auto)
+        + (c.auto_result ? ' <span class="tc-d-autores">Auto: '+resHtml(c.auto_result)+'</span>' : '')
+        + '</div>'
       + field('fact_check','Pre-Condition',c.pre,true)
       + field('format_list_numbered','Step',c.step)
       + field('task_alt','Expected Output',c.exp);
@@ -4956,7 +5132,16 @@ window.__smSetCustom=function(t, key, val, onChanged){
     list.forEach(function(c){ var r=c.result||'norun';
       if(r==='pass')pass++; else if(r==='fail')fail++; });
     var rest=total-pass-fail;
-    return {total:total,pass:pass,fail:fail,rest:rest};
+    return {total:total,pass:pass,fail:fail,rest:rest,auto:autoStats(list)};
+  }
+  // Dòng độ phủ automation trong cây repo (mỗi bộ + mỗi dự án). Ẩn khi bộ chưa khai báo Y/N.
+  function autoLineHTML(st){
+    var a=st.auto; if(!a || !a.denom) return '';
+    var cov=Math.round(a.cov*100);
+    return '<div class="tc-node-auto" title="'+a.y+' đã có script / '+a.denom+' case auto được'
+      + (a.na?' · '+a.na+' N/A':'')+'">'
+      + '<span class="tc-abar"><i style="width:'+(a.cov*100)+'%"></i></span>'
+      + '<span class="tc-acov">'+cov+'% auto</span></div>';
   }
   // Dải tiến độ + % pass (pass/total). ⚠ khi fail ≥ 10% tổng.
   function progressHTML(st){
@@ -5006,7 +5191,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
                 '<span class="material-symbols-rounded ph-light ph-folder-open"></span>'+
                 '<span class="tc-node-name">Tất cả dự án</span>'+
                 '<span class="tc-node-count">'+cases.length+'</span>'+
-              '</div>'+ progressHTML(allSt) +'</div>';
+              '</div>'+ progressHTML(allSt) + autoLineHTML(allSt) +'</div>';
     }
 
     function renderNode(f, depth){
@@ -5038,7 +5223,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
                 '<span class="tc-node-name" title="'+esc(f.name||f.id)+'">'+esc(f.name||f.id)+'</span>'+
                 '<span class="tc-node-count">'+st.total+'</span>'+
                 actions+
-              '</div>'+ progressHTML(st) +'</div>';
+              '</div>'+ progressHTML(st) + autoLineHTML(st) +'</div>';
 
       if(isCol) return;   // thu gọn -> ẩn cây con
       children.forEach(function(c){ renderNode(c, depth + 1); });

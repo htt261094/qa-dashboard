@@ -1016,6 +1016,7 @@ tbody tr:not(.pager-filler):hover{background:var(--surface-low)}
 .file-pdf { background: #fce8e6; color: #c5221f; }
 .file-link { background: #e8f0fe; color: #1a73e8; }
 .file-sop { background: #efeafc; color: #6554c0; }
+.file-html { background: #fff4e5; color: #b95000; }   /* trang HTML (#65) */
 .file-name { font-size: 14px; font-weight: 600; color: var(--on-surface); }
 
 .action-col { position: relative; width: 50px; text-align: center; }
@@ -1500,7 +1501,8 @@ html[data-theme="dark"] .rk-bug-n { color: #ff7b72; }
 .tc-link-chips{display:flex;flex-wrap:wrap;gap:6px;min-height:28px}
 
 /* Metric cards */
-.tc-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:22px}
+.tc-metrics{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin-bottom:22px}
+@media (max-width:1400px){.tc-metrics{grid-template-columns:repeat(3,1fr)}}
 .tc-metric{background:var(--card);border:1px solid var(--outline-variant);border-radius:var(--r-lg);
            padding:16px 18px;display:flex;align-items:center;gap:14px;box-shadow:0 1px 3px rgba(9,30,66,.10)}
 .tc-metric .ic{width:44px;height:44px;border-radius:var(--r-md);display:flex;align-items:center;
@@ -1512,6 +1514,9 @@ html[data-theme="dark"] .rk-bug-n { color: #ff7b72; }
 .tc-metric .lbl{font-size:13px;color:var(--on-surface-variant);line-height:18px}
 .tc-metric .val{font-size:28px;font-weight:700;letter-spacing:-.02em;line-height:1.1}
 .tc-metric.pass .val{color:var(--success)}.tc-metric.fail .val{color:var(--error)}
+.tc-metric .ic.auto{background:rgba(101,84,192,.10);color:#6554c0}
+.tc-metric.auto .val{color:#6554c0}
+.tc-metric .sub{font-size:11.5px;color:var(--on-surface-variant);line-height:15px;margin-top:2px}
 
 /* Biểu đồ số liệu test case (#153): donut theo trạng thái + bar ngang theo bộ */
 .tc-charts{display:grid;grid-template-columns:minmax(280px,1fr) minmax(320px,1.4fr);gap:16px;margin-bottom:22px}
@@ -1537,10 +1542,54 @@ html[data-theme="dark"] .rk-bug-n { color: #ff7b72; }
 .tc-bar-n{flex:0 0 auto;font-weight:700;color:var(--on-surface);min-width:28px;text-align:right}
 .tc-bar-empty{padding:24px;text-align:center;color:var(--on-surface-variant);font-size:13px}
 
+/* Độ phủ automation (cột Automated): card full-width dưới 2 chart trên */
+.tc-chart-card.wide{grid-column:1/-1}
+.tc-bar-n.muted{color:var(--on-surface-variant);font-weight:600}
+.tc-bar-seg.a-y{background:#6554c0}
+.tc-bar-seg.a-n{background:#ffab00}
+.tc-bar-seg.a-na{background:var(--outline-variant)}
+.tc-bar-seg.a-un{background:repeating-linear-gradient(45deg,var(--surface-highest) 0 4px,var(--outline-variant) 4px 8px)}
+.tc-auto-sum{display:flex;align-items:baseline;gap:12px;margin:-4px 0 16px;flex-wrap:wrap}
+.tc-auto-big{font-size:30px;font-weight:700;letter-spacing:-.02em;color:#6554c0;
+             font-variant-numeric:tabular-nums}
+.tc-auto-cap{font-size:12.5px;color:var(--on-surface-variant)}
+.tc-auto-cap b{color:var(--on-surface)}
+.tc-auto-legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:14px;font-size:12px;
+                color:var(--on-surface-variant)}
+.tc-auto-legend span{display:inline-flex;align-items:center;gap:6px}
+.tc-auto-legend i{width:11px;height:11px;border-radius:3px;display:block}
+.tc-auto-legend i.a-y{background:#6554c0}
+.tc-auto-legend i.a-n{background:#ffab00}
+.tc-auto-legend i.a-na{background:var(--outline-variant)}
+.tc-auto-legend i.a-un{background:repeating-linear-gradient(45deg,var(--surface-highest) 0 4px,var(--outline-variant) 4px 8px)}
+
+/* Badge Automated trong bảng / drawer */
+.tc-auto{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;
+         white-space:nowrap;padding:2px 7px;border-radius:999px}
+.tc-auto .material-symbols-rounded{font-size:15px}
+.tc-auto.auto-y{background:rgba(101,84,192,.12);color:#6554c0}
+.tc-auto.auto-n{background:var(--warning-bg,rgba(255,171,0,.14));color:#b06d00}
+.tc-auto.auto-na{background:var(--surface-container);color:var(--on-surface-variant);font-weight:500}
+.tc-auto.unset{color:var(--on-surface-variant);font-weight:500;padding:0}
+.tc-d-autores{display:inline-flex;align-items:center;gap:5px;font-size:12px;
+              color:var(--on-surface-variant)}
+
+/* Dòng độ phủ automation trong cây repository */
+.tc-node-auto{display:flex;align-items:center;gap:7px;padding-left:26px;margin-top:3px}
+.tc-abar{flex:1;height:4px;border-radius:999px;overflow:hidden;background:var(--surface-highest)}
+.tc-abar>i{display:block;height:100%;background:#6554c0}
+.tc-acov{flex:0 0 auto;font-size:10.5px;font-weight:600;color:#6554c0;
+         font-variant-numeric:tabular-nums}
+
 /* Bảng test case: text dài clamp 3 dòng + drawer xem full */
-.tc-table{table-layout:fixed}
-.tc-table thead th{font-size:12px;padding:12px 14px}
+.tc-table-wrap{overflow-x:auto}
+.tc-table{table-layout:fixed;min-width:1240px}
+.tc-table thead th{font-size:12px;padding:12px 14px;letter-spacing:.02em}
 .tc-table tbody td{padding:13px 14px;vertical-align:top;line-height:18px;height:104px;overflow:hidden}
+/* 4 cột cuối (Priority/Result/Automated/Auto Result) hẹp -> giảm padding + cho header xuống dòng gọn */
+.tc-table thead th:nth-child(n+6),.tc-table tbody td:nth-child(n+6){padding-left:9px;padding-right:9px}
+.tc-table thead th:nth-child(n+6){line-height:15px}
+.tc-table .badge{white-space:nowrap}
 .tc-table .tc-id{font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--primary);font-weight:600;word-break:break-word}
 .tc-table .tc-item{font-weight:600;color:var(--on-surface)}
 .tc-id>div,.tc-item>div{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}

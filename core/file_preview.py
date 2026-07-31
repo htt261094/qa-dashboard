@@ -32,6 +32,9 @@ TEXT_EXTS = {'.txt', '.md', '.markdown', '.csv', '.tsv', '.json', '.log',
              '.yml', '.yaml', '.xml', '.ini', '.cfg', '.sql'}
 # Client tự nhúng, server không cần parse
 NATIVE_EXTS = {'.pdf', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp'}
+# Trình duyệt render được nhưng phải qua route `/file-raw` (sandbox) — Decision #65.
+# KHÔNG dựng lại HTML ở đây: mất CSS/layout thì preview vô nghĩa.
+RAW_EXTS = {'.html', '.htm'}
 
 
 def _truncated(html, note):
@@ -206,13 +209,16 @@ def _text_html(data, ext):
 def preview_html(path):
     """Path file trong uploads -> (ok, kind, html_or_msg).
 
-    kind: 'html' (nội dung đã dựng) | 'native' (client tự nhúng) | 'unsupported'.
+    kind: 'html' (nội dung đã dựng) | 'native' (client tự nhúng) |
+          'raw' (client nhúng qua /file-raw, sandbox) | 'unsupported'.
     KHÔNG raise: lỗi parse trả về ok=False + thông báo tiếng Việt cho UI.
     """
     path = Path(path)
     ext = path.suffix.lower()
     if ext in NATIVE_EXTS:
         return True, 'native', ''
+    if ext in RAW_EXTS:
+        return True, 'raw', ''
     if not path.exists() or not path.is_file():
         return False, 'unsupported', 'Không tìm thấy file.'
     size = path.stat().st_size

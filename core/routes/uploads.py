@@ -86,6 +86,60 @@ class UploadsMixin:
             'html': html if ok else '', 'msg': '' if ok else html,
         }, ensure_ascii=False).encode('utf-8'))
 
+    def _get_file_raw(self):
+        """GET /file-raw?f=<filename> -> nội dung HTML THÔ để nhúng iframe (Decision #65).
+
+        Chỉ nhận `.html/.htm`. `/uploads/...` cố ý serve HTML dạng
+        `application/octet-stream; attachment` (không render) nên phải có route riêng
+        này để xem trước ngay trong app.
+
+        Cách ly bằng `Content-Security-Policy: sandbox` — browser đặt file vào
+        **origin mờ (opaque)**: script trong file KHÔNG đọc được cookie/session/DOM của
+        app, request về app tính là cross-origin (cookie SameSite=Lax không gửi kèm).
+        Vẫn cho `allow-scripts` để report HTML có chart/JS xem được. Client còn bọc
+        thêm thuộc tính `sandbox` trên iframe (phòng thủ 2 lớp).
+        """
+        import os
+        from urllib.parse import urlparse, parse_qs, unquote, quote
+
+        q = parse_qs(urlparse(self.path).query)
+        name = os.path.basename(unquote((q.get('f') or [''])[0]))
+        ext = os.path.splitext(name)[1].lower()
+        if not name or ext not in ('.html', '.htm'):
+            self.send_response(400)
+            self.end_headers()
+            return
+        target = (UPLOADS_DIR / name).resolve()
+        try:
+            inside = target.parent == UPLOADS_DIR.resolve()
+        except OSError:
+            inside = False
+        if not inside or not target.exists() or not target.is_file():
+            self.send_response(404)
+            self.end_headers()
+            return
+        try:
+            from file_preview import MAX_BYTES
+            if target.stat().st_size > MAX_BYTES:
+                self.send_response(413)
+                self.end_headers()
+                return
+            data = target.read_bytes()
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.send_header('Content-Security-Policy',
+                             'sandbox allow-scripts allow-popups allow-forms allow-modals')
+            self.send_header('X-Content-Type-Options', 'nosniff')
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('Content-Disposition',
+                             f"inline; filename*=UTF-8''{quote(name)}")
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        except Exception:
+            self.send_response(500)
+            self.end_headers()
+
     def _post_upload_file(self):
         if not self._is_admin():
             self._json(403, b'{"ok":false,"err":"forbidden"}')
