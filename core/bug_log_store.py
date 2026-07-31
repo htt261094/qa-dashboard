@@ -579,12 +579,17 @@ def _prune_activity(activity):
 
 
 # ===== scan() — tầng-1 metadata check -> tầng-2 fetch+diff =====
-def _scan_one(src, prev):
+def _scan_one(src, prev, force=False):
     """Xử lý 1 file Drive — PHẦN THUẦN (không ghi state chung) để chạy song song an toàn.
 
     Tầng-1: chỉ lấy metadata; nếu (modifiedTime, md5) y lần trước -> 'unchanged', KHÔNG tải.
     Tầng-2 (chỉ khi đổi): tải binary + parse + normalize. Trả dict cho merge tuần tự ở scan().
-    Bắt MỌI lỗi vào 'error' (không raise) -> 1 file hỏng không kéo sập cả lượt scan."""
+    Bắt MỌI lỗi vào 'error' (không raise) -> 1 file hỏng không kéo sập cả lượt scan.
+
+    force=True (đồng bộ THỦ CÔNG từ UI): BỎ QUA Tầng-1 -> luôn tải + parse lại từ Drive, kể cả
+    khi metadata y hệt lần trước. Lý do: metadata Drive có thể trễ/không đổi (native Sheet không
+    có md5, modifiedTime lan truyền chậm) nên "sync ngay" mà tin metadata thì user sửa file xong
+    bấm sync vẫn thấy số cũ. Poll nền vẫn force=False để giữ lợi ích Tầng-1 (đỡ tải)."""
     fid = src.get('id')
     if not fid:
         return None
@@ -609,7 +614,8 @@ def _scan_one(src, prev):
                 'cur_bugs': cur_bugs}
     try:
         meta = fetch_meta(fid)   # Tầng-1: rẻ, không tải binary
-        unchanged = (prev.get('modifiedTime') == meta.get('modifiedTime')
+        unchanged = (not force
+                     and prev.get('modifiedTime') == meta.get('modifiedTime')
                      and prev.get('md5Checksum') == meta.get('md5Checksum')
                      and 'bugs' in prev
                      and prev.get('_version') == 4)
@@ -628,9 +634,12 @@ def _scan_one(src, prev):
         return {'fid': fid, 'error': _safe(e)}
 
 
-def scan():
+def scan(force=False):
     """Quét tất cả nguồn Drive 1 lượt. Trả dict tổng kết:
        {ok, synced_at, count, changed, unmapped, errors}.
+
+    force=True (POST /sync-bug-log — user bấm "Đồng bộ ngay"): bỏ qua Tầng-1, đọc lại từ
+    source cho MỌI file dù metadata chưa đổi. Poll nền gọi force=False.
 
     Tầng-1: nếu file (modifiedTime,md5) y lần trước -> bỏ qua tải. Tầng-2: tải+parse+
     normalize -> diff -> gom event. Ghi cache + sync property 1 lần ở cuối.
@@ -666,7 +675,7 @@ def scan():
 
         # PHẦN THUẦN — fetch + parse song song (I/O mạng Drive). Key = index để KHÔNG gộp
         # nhầm khi 2 nguồn trùng id; _scan_one tự bắt lỗi nên run_parallel không re-raise.
-        jobs = {str(i): (lambda s=src, p=files.get(src.get('id'), {}): _scan_one(s, p))
+        jobs = {str(i): (lambda s=src, p=files.get(src.get('id'), {}): _scan_one(s, p, force))
                 for i, src in enumerate(sources)}
         parallel = run_parallel(jobs) if jobs else {}
 
