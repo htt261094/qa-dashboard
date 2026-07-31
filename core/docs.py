@@ -8,10 +8,22 @@ Edit thật diễn ra ở Google (click link mở tab mới); workspace chỉ gi
 import json
 import re
 
-from config import DOCS_FILE, atomic_write
+from config import DOCS_FILE, UPLOADS_DIR, atomic_write
 from remote_store import synced_load, synced_save
 
 DOCS_PROP = 'qa-dashboard-docs'  # Jira user property = kho sync chéo máy
+
+# ===== Folder "Quy Trình" — chế độ TAB, chỉ nhận file HTML (Decision #66) =====
+# Folder mang `kind: 'process'` được render khác hẳn: không phải bảng tài liệu mà là
+# thanh tab, mỗi file HTML = 1 tab xem nội dung ngay trong app (iframe /file-raw).
+PROCESS_KIND = 'process'
+PROCESS_FOLDER_NAME = 'Quy Trình'
+
+# Seed lần đầu: chỉ thêm node nếu file thật đã có trong uploads/ (tránh tab chết)
+_PROCESS_SEED = [
+    ('Quy trình Automation với AI', 'quy-trinh-automation-ai-flow.html'),
+    ('Workflow Git cho QA', 'git-workflow-qa.html'),
+]
 
 MAX_NODES = 2000  # chặn payload quá lớn / cây lồng vô hạn
 
@@ -51,6 +63,43 @@ def _valid_node(node, budget):
 def valid_tree(data):
     """Validate shape trước khi lưu (chống payload rác / quá sâu)."""
     return isinstance(data, list) and all(_valid_node(n, [MAX_NODES]) for n in data)
+
+
+def _has_process_folder(tree):
+    return any(isinstance(n, dict) and n.get('type') == 'folder'
+               and (n.get('kind') == PROCESS_KIND or n.get('name') == PROCESS_FOLDER_NAME)
+               for n in tree)
+
+
+def ensure_process_folder(tree):
+    """Đảm bảo cây có folder "Quy Trình" (kind=process) ở gốc. Trả (tree, changed).
+
+    Folder đã tồn tại theo TÊN (tạo tay từ UI trước đó) thì chỉ gắn thêm `kind` —
+    không tạo folder trùng tên, không đụng children.
+    """
+    if not isinstance(tree, list):
+        return tree, False
+    changed = False
+    for n in tree:
+        if (isinstance(n, dict) and n.get('type') == 'folder'
+                and n.get('name') == PROCESS_FOLDER_NAME and n.get('kind') != PROCESS_KIND):
+            n['kind'] = PROCESS_KIND
+            changed = True
+    if _has_process_folder(tree):
+        return tree, changed
+
+    children = []
+    for title, fname in _PROCESS_SEED:
+        try:
+            exists = (UPLOADS_DIR / fname).exists()
+        except OSError:
+            exists = False
+        if exists:
+            children.append({'id': 'd_proc_' + fname.replace('.', '_'), 'type': 'link',
+                             'name': title, 'ts': None, 'url': '/uploads/' + fname})
+    tree.append({'id': 'f_proc', 'type': 'folder', 'name': PROCESS_FOLDER_NAME,
+                 'kind': PROCESS_KIND, 'color': 'purple', 'children': children})
+    return tree, True
 
 
 def _read_cache():

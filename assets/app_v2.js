@@ -1996,6 +1996,8 @@ window.__smSetCustom=function(t, key, val, onChanged){
   var DOC_TREE = readJSON('docsData') || [];
   var currentPath = []; // Mảng lưu trữ đường dẫn thư mục hiện tại từ root
   var contextMenuSelectedId = null;
+  var viewerDocId = null;   // tài liệu đang mở trong viewer (đồng bộ ?doc= trên URL)
+  var urlSuppress = false;  // đang dựng lại từ URL -> không ghi URL (tránh vòng lặp)
 
   // Normalise DOC_TREE nodes (ensure they have ids and map title to name for backward compatibility)
   function normaliseNodes(nodes) {
@@ -2113,6 +2115,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     updateBreadcrumbs();
     renderFolders();
     renderTable();
+    writeUrl(true);
   };
 
   window.navigateBackToRoot = function() {
@@ -2120,6 +2123,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     updateBreadcrumbs();
     renderFolders();
     renderTable();
+    writeUrl(true);
   };
 
   function updateBreadcrumbs() {
@@ -2154,31 +2158,35 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var currentNode = getCurrentNode();
     var subfolders = (currentNode.children || []).filter(function(n) { return n.type === 'folder'; });
     var section = $('foldersSection');
-    
+
     section.style.display = 'block';
-    
+
+    // Kiểu Drive: không có thư mục con thì bỏ luôn mục "Thư mục" (kể cả ở gốc) —
+    // thông báo trống để bảng tài liệu lo, tránh 2 khối rỗng cùng lúc.
     if (subfolders.length === 0) {
-      if (currentPath.length > 0) {
-        grid.innerHTML = '';
-        section.style.display = 'none';
-      } else {
-        grid.innerHTML = '<div style="grid-column:1/-1; padding:20px; text-align:center; color:var(--on-surface-variant); font-style:italic">Chưa có thư mục nào</div>';
-      }
+      grid.innerHTML = '';
+      section.style.display = 'none';
+      applyProcMode();
       return;
     }
-    
+
     grid.innerHTML = subfolders.map(function(f) {
-      var count = getFolderCount(f);
+      var proc = isProcFolder(f);
+      var count = proc ? procFiles(f).length : getFolderCount(f);
+      var act = EDIT ? '<button class="action-btn folder-act material-symbols-rounded ph-light'
+          + ' ph-dots-three-vertical" data-fid="' + esc(f.id) + '" title="Tuỳ chọn thư mục"></button>' : '';
       return '<div class="folder-card" onclick="navigateToFolder(\'' + esc(f.id) + '\')">' +
         '<div class="folder-icon-box folder-' + esc(f.color || 'blue') + '">' +
-          '<span class="material-symbols-rounded ph-light ph-folder"></span>' +
+          '<span class="material-symbols-rounded ph-light ' + (proc ? 'ph-flow-arrow' : 'ph-folder') + '"></span>' +
         '</div>' +
         '<div class="folder-info">' +
           '<div class="folder-name">' + esc(f.name) + '</div>' +
-          '<div class="folder-count">' + count + ' tài liệu</div>' +
+          '<div class="folder-count">' + count + (proc ? ' quy trình' : ' tài liệu') + '</div>' +
         '</div>' +
+        act +
       '</div>';
     }).join('');
+    applyProcMode();
   }
 
   function getFileIconClass(name, type, url) {
@@ -2222,7 +2230,153 @@ window.__smSetCustom=function(t, key, val, onChanged){
     return p(dt.getDate()) + '/' + p(dt.getMonth() + 1) + '/' + dt.getFullYear();
   }
 
+  // ===== Folder "Quy Trình": chế độ TAB, mỗi file HTML = 1 tab xem ngay trong app (#66) =====
+  // Folder được đánh dấu bằng `kind:'process'` (server tự đảm bảo có, xem docs.py).
+  function isProcFolder(node) {
+    return !!node && node.type === 'folder'
+      && (node.kind === 'process' || node.name === 'Quy Trình');
+  }
+  function isHtmlDoc(d) {
+    return d && d.type === 'link' && /\.html?($|\?)/i.test(String(d.url || ''));
+  }
+  function procFiles(folder) {
+    return ((folder && folder.children) || []).filter(isHtmlDoc);
+  }
+  function curProcFolder() {
+    var f = currentPath.length ? currentPath[currentPath.length - 1] : null;
+    return isProcFolder(f) ? f : null;
+  }
+
+  var procActiveId = null;   // tab đang xem
+  var procShownId = null;    // tab đã nạp iframe (tránh reload lại khi chỉ vẽ lại thanh tab)
+
+  // Bật/tắt chế độ tab. Gọi ở cuối renderFolders + đầu renderTable nên mọi
+  // điều hướng/thao tác đều đi qua đây.
+  function applyProcMode() {
+    var sec = $('procSection'), list = $('docsListSection'), fsec = $('foldersSection');
+    if (!sec) return;                                  // template cũ chưa có viewer tab
+    var folder = curProcFolder();
+    if (!folder) {
+      sec.style.display = 'none';
+      if (list) list.style.display = '';
+      procActiveId = procShownId = null;
+      var b = $('procBody'); if (b) b.innerHTML = '';   // gỡ iframe -> dừng tải
+      return;
+    }
+    sec.style.display = 'block';
+    if (list) list.style.display = 'none';
+    if (fsec) fsec.style.display = 'none';
+    renderProcess(folder);
+  }
+
+  function renderProcess(folder) {
+    var tabsEl = $('procTabs'), body = $('procBody');
+    if (!tabsEl || !body) return;
+    var files = procFiles(folder);
+    var others = ((folder.children || []).length - files.length);
+
+    if (!files.length) {
+      tabsEl.innerHTML = others
+        ? '<div class="proc-note">' + others + ' tệp không phải HTML bị ẩn — thư mục này chỉ hiển thị file HTML.</div>'
+        : '';
+      body.innerHTML = '<div class="empty-state"><div class="es-ic">' + phIcon('code') + '</div>'
+        + '<div class="es-title">Chưa có quy trình nào</div>'
+        + '<div class="es-hint">' + (EDIT ? 'Tải lên file HTML để tạo tab mới.'
+            : 'Quản lý cần tải lên file HTML để hiển thị ở đây.') + '</div></div>';
+      procActiveId = procShownId = null;
+      return;
+    }
+
+    // tab đang chọn còn tồn tại? nếu không -> về tab đầu
+    if (!files.some(function(f) { return f.id === procActiveId; })) {
+      procActiveId = files[0].id;
+      writeUrl(false);                   // ?doc= khớp tab thực tế (replace, không dồn history)
+    }
+
+    tabsEl.innerHTML = files.map(function(f) {
+      var on = f.id === procActiveId;
+      return '<button class="proc-tab' + (on ? ' active' : '') + '" data-id="' + esc(f.id) + '"'
+        + ' title="' + esc(f.name) + '">'
+        + phIcon('code', 'mi-sm')
+        + '<span class="pt-name">' + esc(String(f.name).replace(/\.html?$/i, '')) + '</span>'
+        + (EDIT ? '<span class="pt-x material-symbols-rounded ph-light ph-x" data-del="' + esc(f.id) + '"'
+                  + ' title="Xoá quy trình này"></span>' : '')
+        + '</button>';
+    }).join('')
+      + (others ? '<div class="proc-note">' + others + ' tệp không phải HTML bị ẩn</div>' : '');
+
+    if (procActiveId !== procShownId) {
+      var doc = files.filter(function(f) { return f.id === procActiveId; })[0];
+      var raw = fpOpenUrl(safeDocUrl(doc.url) || '');
+      // sandbox KHÔNG có allow-same-origin -> origin mờ, script trong file không
+      // chạm session/DOM của app (giống viewer overlay, Decision #65).
+      // fit=1: file tự báo chiều cao qua postMessage -> iframe cao bằng nội dung,
+      // xem hết trong trang thay vì cuộn trong khung.
+      body.innerHTML = raw
+        ? '<iframe class="proc-frame" id="procFrame" src="' + esc(raw)
+          + (raw.indexOf('/file-raw?') === 0 ? '&fit=1' : '') + '" '
+          + 'sandbox="allow-scripts allow-popups allow-forms allow-modals" '
+          + 'referrerpolicy="no-referrer" title="' + esc(doc.name) + '"></iframe>'
+        : '<div class="empty-state"><div class="es-title">Link tài liệu không hợp lệ</div></div>';
+      procShownId = procActiveId;
+    }
+  }
+
+  // Chiều cao do chính file báo lên (origin mờ nên không đọc được từ ngoài).
+  // Chỉ nhận message đến TỪ iframe đang hiện (e.source), bỏ qua mọi nguồn khác.
+  window.addEventListener('message', function(e) {
+    var fr = $('procFrame');
+    if (!fr || !e.source || e.source !== fr.contentWindow) return;
+    var h = e.data && e.data.__fitHeight;
+    if (typeof h !== 'number' || !isFinite(h)) return;
+    // KHÔNG cộng bù (dù 1px): mỗi lần set height sinh 'resize' trong iframe -> báo lại,
+    // cộng bù sẽ phình dần mỗi vòng. Đặt đúng số đo.
+    var v = Math.max(320, Math.min(Math.round(h), 40000));
+    if (Math.abs(parseFloat(fr.style.height) - v) < 2) return;
+    fr.style.height = v + 'px';
+  });
+
+  var procTabsEl = $('procTabs');
+  if (procTabsEl) {
+    procTabsEl.addEventListener('click', function(e) {
+      var del = e.target.closest('.pt-x');
+      if (del) {
+        e.stopPropagation();
+        procDelete(del.getAttribute('data-del'));
+        return;
+      }
+      var tab = e.target.closest('.proc-tab');
+      if (!tab) return;
+      procActiveId = tab.getAttribute('data-id');
+      applyProcMode();
+      writeUrl(true);                    // ?doc=<tab> -> share/F5/Back giữ đúng tab
+    });
+  }
+
+  function procDelete(id) {
+    if (!EDIT) return;
+    var doc = findFileById(DOC_TREE, id);
+    if (!doc) return;
+    confirmModal({ title: 'Xoá quy trình', message: 'Xoá "' + doc.name + '" khỏi thư mục Quy Trình?',
+                   confirmText: 'Xoá' }).then(function(ok) {
+      if (!ok) return;
+      var info = findFileParentAndIndex(DOC_TREE, id);
+      if (!info) return;
+      info.parentList.splice(info.index, 1);
+      if (procActiveId === id) procActiveId = null;
+      procShownId = null;
+      renderFolders();
+      renderTable();
+      saveDocs();
+      showBottomToast('Đã xoá quy trình: ' + doc.name);
+    });
+  }
+
+  var procUp = $('procUpBtn');
+  if (procUp) procUp.addEventListener('click', function() { openModal('uploadModal'); });
+
   function renderTable() {
+    applyProcMode();
     var tbody = $('docTableBody');
     if (!tbody) return;
     var query = (($('searchInp') || {}).value || '').toLowerCase().trim();
@@ -2238,13 +2392,37 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var filtered = files.filter(function(d) {
       return !query || d.name.toLowerCase().indexOf(query) >= 0;
     });
-    
+
+    // Kiểu Google Drive: thư mục chỉ chứa thư mục con -> KHÔNG hiện bảng rỗng, chỉ hiện
+    // lưới thư mục. Bảng chỉ xuất hiện khi thật sự có tài liệu (hoặc đang tìm kiếm).
+    var hasSub = (currentNode.children || []).some(function(n) { return n.type === 'folder'; });
+    var list = $('docsListSection');
+    if (list && !curProcFolder()) {
+      list.style.display = (!files.length && hasSub && !query) ? 'none' : '';
+      if (list.style.display === 'none') return;
+    }
+
     if (filtered.length === 0) {
       var cols = EDIT ? 3 : 2;
-      tbody.innerHTML = '<tr><td colspan="' + cols + '"><div style="padding:40px; text-align:center; color:var(--on-surface-variant)">Chưa có tài liệu nào</div></td></tr>';
+      var ic, title, hint;
+      if (query) {
+        ic = 'search_off'; title = 'Không tìm thấy tài liệu khớp';
+        hint = 'Thử từ khoá khác hoặc xoá ô tìm kiếm.';
+      } else if (currentPath.length) {
+        ic = 'folder_open'; title = 'Thư mục này đang trống';
+        hint = EDIT ? 'Tải lên tài liệu hoặc thêm link Drive để bắt đầu.' : '';
+      } else {
+        ic = 'folder_off'; title = 'Chưa có tài liệu nào';
+        hint = EDIT ? 'Tạo thư mục rồi tải tài liệu lên.' : '';
+      }
+      tbody.innerHTML = '<tr><td colspan="' + cols + '">'
+        + '<div class="empty-state"><div class="es-ic">' + phIcon(ic) + '</div>'
+        + '<div class="es-title">' + title + '</div>'
+        + (hint ? '<div class="es-hint">' + hint + '</div>' : '')
+        + '</div></td></tr>';
       return;
     }
-    
+
     tbody.innerHTML = filtered.map(function(d) {
       var fileData = getFileIconClass(d.name, d.type, d.url);
       var actCol = EDIT ? '<td class="action-col" onclick="event.stopPropagation()">' +
@@ -2303,8 +2481,11 @@ window.__smSetCustom=function(t, key, val, onChanged){
 
   function fpClose() {
     if (!fpOv) return;
+    var wasOpen = fpOv.classList.contains('open');
     fpOv.classList.remove('open');
     if (fpBody) fpBody.innerHTML = '';   // gỡ iframe -> dừng tải/phát nội dung
+    viewerDocId = null;
+    if (wasOpen) writeUrl(true);         // bỏ ?doc= -> Back quay lại tài liệu vừa xem
   }
 
   function fpFallback(url, msg) {
@@ -2338,6 +2519,8 @@ window.__smSetCustom=function(t, key, val, onChanged){
     fpBody.innerHTML = '<div class="fp-loading"><div class="skel skel-line w60"></div>'
       + '<div class="skel skel-line w80"></div><div class="skel skel-block"></div></div>';
     fpOv.classList.add('open');
+    viewerDocId = doc.id;
+    writeUrl(true);                      // ?doc=<id> -> share được đúng tài liệu đang xem
 
     if (!local) {                                   // link Drive
       var emb = fpDriveEmbed(url);
@@ -2535,11 +2718,19 @@ window.__smSetCustom=function(t, key, val, onChanged){
 
   window.copyDocLink = function() {
     var doc = findFileById(DOC_TREE, contextMenuSelectedId);
-    if (doc) {
-      navigator.clipboard.writeText(doc.url).then(function() {
-        toast('Đã sao chép link tài liệu vào Clipboard', true);
-      });
+    if (!doc) return;
+    // File trên hệ thống: `/uploads/...` là đường dẫn TƯƠNG ĐỐI, dán ra ngoài vô dụng ->
+    // copy deep-link tuyệt đối của workspace. Link Drive thì giữ nguyên URL Google.
+    var link = doc.url;
+    if (/^\/uploads\//i.test(doc.url || '')) {
+      var pid = findParentFolderOfFile(DOC_TREE, doc.id, null);
+      link = location.origin + '/docs?'
+        + (pid && pid !== 'root' ? 'folder=' + encodeURIComponent(pid) + '&' : '')
+        + 'doc=' + encodeURIComponent(doc.id);
     }
+    navigator.clipboard.writeText(link).then(function() {
+      toast('Đã sao chép link tài liệu vào Clipboard', true);
+    });
   };
 
   window.deleteDoc = function() {
@@ -2549,10 +2740,102 @@ window.__smSetCustom=function(t, key, val, onChanged){
       if(!ok) return;
       var docName = indexInfo.parentList[indexInfo.index].name;
       indexInfo.parentList.splice(indexInfo.index, 1);
+      if (viewerDocId === contextMenuSelectedId) { viewerDocId = null; fpClose(); }
       renderFolders();
       renderTable();
+      writeUrl(false);                   // URL trỏ tài liệu vừa xoá -> sửa lại tại chỗ
       saveDocs();
       showBottomToast('Đã xoá tài liệu: ' + docName);
+    });
+  };
+
+  // ===== Thao tác THƯ MỤC (đổi tên / xoá) — trước đây chỉ tài liệu có context menu =====
+  var folderMenuId = null;
+
+  // capture=true: card có inline onclick="navigateToFolder(...)" (bubble) nên phải chặn
+  // TRƯỚC nó, không thì bấm "…" vừa mở menu vừa nhảy vào thư mục.
+  grid.addEventListener('click', function(e) {
+    var btn = e.target.closest('.folder-act');
+    if (!btn) return;
+    e.stopPropagation();
+    e.preventDefault();
+    folderMenuId = btn.getAttribute('data-fid');
+    var menu = $('folderMenu');
+    if (!menu) return;
+    var cm = $('contextMenu'); if (cm) cm.classList.remove('open');
+    menu.style.top = (e.clientY + window.scrollY) + 'px';
+    menu.style.left = (e.clientX - 160 + window.scrollX) + 'px';
+    menu.classList.add('open');
+  }, true);
+
+  // Dùng lại modal "Tạo thư mục" ở chế độ sửa (ẩn ô thư mục cha)
+  window.renameFolderPrompt = function() {
+    var f = findFolderById(DOC_TREE, folderMenuId);
+    if (!f) return;
+    openModal('folderModal');
+    var inp = $('folderNameInp');
+    if (inp) inp.value = f.name;
+    var pf = $('folderParentField');
+    if (pf) pf.style.display = 'none';
+    document.querySelectorAll('#folderColorPicker .color-opt').forEach(function(o) {
+      o.classList.toggle('selected', o.getAttribute('data-color') === (f.color || 'blue'));
+    });
+    var head = document.querySelector('#folderModal .modal-head h3');
+    if (head) head.textContent = 'Sửa thư mục';
+    var btn = document.querySelector('#folderModal .modal-foot .btn-primary');
+    if (btn) {
+      btn.textContent = 'Lưu thay đổi';
+      btn.setAttribute('onclick', 'applyFolderEdit(\'' + esc(f.id) + '\')');
+    }
+  };
+
+  window.applyFolderEdit = function(id) {
+    var f = findFolderById(DOC_TREE, id);
+    if (!f) return;
+    var name = (($('folderNameInp') || {}).value || '').trim();
+    if (!name) { toast('Vui lòng nhập tên thư mục', false); return; }
+    var sel = document.querySelector('#folderColorPicker .color-opt.selected');
+    f.name = name;
+    f.color = sel ? sel.getAttribute('data-color') : (f.color || 'blue');
+    closeModal('folderModal');
+    updateBreadcrumbs();
+    renderFolders();
+    renderTable();
+    saveDocs();
+    showBottomToast('Đã cập nhật thư mục "' + name + '"');
+  };
+
+  window.deleteFolder = function() {
+    var f = findFolderById(DOC_TREE, folderMenuId);
+    if (!f) return;
+    if (isProcFolder(f)) {
+      toast('Thư mục "Quy Trình" là mặc định của hệ thống, không xoá được', false);
+      return;
+    }
+    var files = getAllFilesRecursive(f).length;
+    var subs = (f.children || []).filter(function(n) { return n.type === 'folder'; }).length;
+    var extra = (files || subs)
+      ? ' Bên trong còn ' + files + ' tài liệu' + (subs ? ' và ' + subs + ' thư mục con' : '') + '.'
+      : '';
+    confirmModal({ title: 'Xoá thư mục',
+                   message: 'Xoá thư mục "' + f.name + '"?' + extra
+                     + ' Tài liệu đã tải lên vẫn còn trên máy chủ nhưng sẽ mất khỏi danh sách.',
+                   confirmText: 'Xoá' }).then(function(ok) {
+      if (!ok) return;
+      var info = findFileParentAndIndex(DOC_TREE, f.id);   // tìm theo id, dùng cho cả folder
+      if (!info) return;
+      info.parentList.splice(info.index, 1);
+      // đang đứng trong (hoặc dưới) thư mục vừa xoá -> lùi ra ngoài
+      if (currentPath.some(function(n) { return n.id === f.id; })) {
+        var idx = currentPath.findIndex(function(n) { return n.id === f.id; });
+        currentPath = currentPath.slice(0, idx);
+      }
+      updateBreadcrumbs();
+      renderFolders();
+      renderTable();
+      writeUrl(false);                   // URL trỏ thư mục vừa xoá -> sửa lại tại chỗ
+      saveDocs();
+      showBottomToast('Đã xoá thư mục: ' + f.name);
     });
   };
 
@@ -2608,6 +2891,15 @@ window.__smSetCustom=function(t, key, val, onChanged){
       var inp = $('folderNameInp');
       if (inp) inp.value = '';
       updateModalDropdowns();
+      // trả modal về chế độ TẠO (renameFolderPrompt sẽ đổi lại sau khi gọi openModal)
+      var pf0 = $('folderParentField'); if (pf0) pf0.style.display = '';
+      var h0 = document.querySelector('#folderModal .modal-head h3');
+      if (h0) h0.textContent = 'Tạo thư mục mới';
+      var b0 = document.querySelector('#folderModal .modal-foot .btn-primary');
+      if (b0) { b0.textContent = 'Tạo thư mục'; b0.setAttribute('onclick', 'createFolder()'); }
+      document.querySelectorAll('#folderColorPicker .color-opt').forEach(function(o, i) {
+        o.classList.toggle('selected', i === 0);
+      });
     } else if (id === 'linkModal') {
       var titleInp = $('linkTitleInp');
       var urlInp = $('linkUrlInp');
@@ -2636,6 +2928,17 @@ window.__smSetCustom=function(t, key, val, onChanged){
       if (dropzone) dropzone.style.display = 'block';
       if (foot) foot.style.display = 'flex';
       updateModalDropdowns();
+
+      // Trong thư mục "Quy Trình" chỉ nhận HTML (mỗi file = 1 tab)
+      var proc = !!curProcFolder();
+      selectFileObj = null;
+      if (fileInput) fileInput.accept = proc ? '.html,.htm' : '';
+      var hint = dropzone ? dropzone.querySelector('.hint') : null;
+      if (hint) hint.textContent = proc
+        ? 'Chỉ nhận file .html / .htm — mỗi file sẽ thành 1 tab quy trình (tối đa 20MB)'
+        : 'Hỗ trợ .pdf, .xlsx, .docx, .png (tối đa 20MB)';
+      var mh = document.querySelector('#uploadModal .modal-head h3');
+      if (mh) mh.textContent = proc ? 'Tải lên file HTML quy trình' : 'Tải lên tài liệu';
     }
   };
 
@@ -2747,6 +3050,11 @@ window.__smSetCustom=function(t, key, val, onChanged){
   };
 
   function handleFiles(file) {
+    // Thư mục Quy Trình = tab HTML -> chặn định dạng khác ngay ở client
+    if (curProcFolder() && !/\.html?$/i.test(file.name || '')) {
+      toast('Thư mục Quy Trình chỉ nhận file .html / .htm', false);
+      return;
+    }
     selectFileObj = file;
     var dropzone = $('dropzone');
     var uploadForm = $('uploadForm');
@@ -2833,7 +3141,10 @@ window.__smSetCustom=function(t, key, val, onChanged){
             } else {
               DOC_TREE.unshift(newDoc);
             }
-            
+
+            // Vừa tải lên trong thư mục Quy Trình -> mở luôn tab mới
+            if (curProcFolder() && isHtmlDoc(newDoc)) procActiveId = newDoc.id;
+
             closeModal('uploadModal');
             renderFolders();
             renderTable();
@@ -2868,23 +3179,76 @@ window.__smSetCustom=function(t, key, val, onChanged){
 
   // Close context menu on click outside
   document.addEventListener('click', function(e) {
-    var menu = $('contextMenu');
-    if (menu && !e.target.closest('.action-btn')) {
-      menu.classList.remove('open');
-    }
+    if (e.target.closest('.action-btn')) return;    // chính nút vừa mở menu
+    ['contextMenu', 'folderMenu'].forEach(function(id) {
+      var menu = $(id); if (menu) menu.classList.remove('open');
+    });
   });
 
   // Đóng modal/context-menu docs bằng phím Esc
   document.addEventListener('keydown', function(e) {
     if (e.key !== 'Escape') return;
-    ['folderModal', 'linkModal', 'uploadModal', 'contextMenu'].forEach(function(id) {
+    ['folderModal', 'linkModal', 'uploadModal', 'contextMenu', 'folderMenu'].forEach(function(id) {
       var m = $(id); if (m) m.classList.remove('open');
     });
   });
 
-  // Initial renders
-  renderFolders();
-  renderTable();
+  // ===== Deep-link URL: ?folder=<id> · ?doc=<id> (tab Quy Trình cũng dùng ?doc=) =====
+  // Trước đây /docs là 1 route duy nhất, mọi điều hướng chỉ nằm trong JS -> không share
+  // được link, F5 về gốc, Back rời trang. Giờ URL phản ánh vị trí; pushState + popstate
+  // cho Back/Forward đi trong cây. Pattern giống /bug-log?bug= và /test-cases?folder=.
+  function writeUrl(push) {
+    if (urlSuppress || !window.history || !history.pushState) return;
+    var q;
+    try { q = new URLSearchParams(location.search); } catch (e) { return; }
+    var fid = currentPath.length ? currentPath[currentPath.length - 1].id : '';
+    if (fid) q.set('folder', fid); else q.delete('folder');
+    // trong thư mục Quy Trình: ?doc = tab đang xem; nơi khác: tài liệu đang mở viewer
+    var did = curProcFolder() ? (procActiveId || '') : (viewerDocId || '');
+    if (did) q.set('doc', did); else q.delete('doc');
+    var qs = q.toString();
+    var url = location.pathname + (qs ? '?' + qs : '');
+    if (url === location.pathname + location.search) return;   // không đổi -> khỏi ghi
+    history[push ? 'pushState' : 'replaceState']({ docs: 1 }, '', url);
+  }
+
+  // Đọc URL -> dựng lại vị trí (dùng cho lần load đầu + popstate)
+  function applyUrlState() {
+    var q;
+    try { q = new URLSearchParams(location.search); } catch (e) { q = null; }
+    var wantFolder = q ? (q.get('folder') || '') : '';
+    var wantDoc = q ? (q.get('doc') || '') : '';
+
+    // chỉ có ?doc= -> tự suy thư mục cha để mở đúng chỗ
+    if (!wantFolder && wantDoc) {
+      var pid = findParentFolderOfFile(DOC_TREE, wantDoc, null);
+      if (pid && pid !== 'root') wantFolder = pid;
+    }
+
+    urlSuppress = true;                       // dựng lại thì đừng ghi URL vòng lại
+    currentPath = [];
+    if (wantFolder && findFolderById(DOC_TREE, wantFolder)) {
+      buildPathToFolder(DOC_TREE, wantFolder, currentPath);
+    }
+    var proc = curProcFolder();
+    if (proc) {
+      procActiveId = (wantDoc && findFileById(DOC_TREE, wantDoc)) ? wantDoc : null;
+      procShownId = null;                     // buộc nạp lại iframe theo tab của URL
+    }
+    updateBreadcrumbs();
+    renderFolders();
+    renderTable();
+
+    var wantView = (!proc && wantDoc) ? findFileById(DOC_TREE, wantDoc) : null;
+    if (wantView) openDocPreview(wantView);
+    else fpClose();
+    urlSuppress = false;
+  }
+
+  window.addEventListener('popstate', applyUrlState);
+
+  // Initial render = theo URL (link share / F5 giữ đúng chỗ). URL rác -> về gốc.
+  applyUrlState();
 })();
 
 // ---------- Tạo Sub-task (modal type-ahead, dùng chung mọi trang v2) ----------

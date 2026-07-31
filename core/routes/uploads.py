@@ -22,6 +22,52 @@ import json
 
 from config import UPLOADS_DIR
 
+# Chèn khi `/file-raw?fit=1` (tab "Quy Trình"): file nằm trong origin mờ nên parent KHÔNG
+# đọc được scrollHeight -> file tự báo chiều cao lên parent qua postMessage để iframe cao
+# bằng nội dung (xem hết trong 1 trang, không cuộn trong khung). Chỉ gửi 1 con số.
+_FIT_SNIPPET = """
+<script>(function(){
+  // Đo ĐÁY NỘI DUNG THẬT, KHÔNG dùng documentElement.scrollHeight: khi iframe đã cao
+  // hơn nội dung thì trị số đó = chiều cao KHUNG -> parent set cao thêm -> resize ->
+  // báo cao hơn nữa -> phình vô hạn (ratchet). Đáy các con của body không phụ thuộc
+  // chiều cao viewport nên vòng lặp tự dừng.
+  function h(){
+    var d=document.documentElement, b=document.body; if(!b) return 0;
+    // Ẩn scrollbar TRONG LÚC ĐO: khi khung còn thấp, nội dung tràn -> có scrollbar dọc ->
+    // bề rộng hẹp hơn ~15px -> phần tử scale theo bề rộng (SVG/ảnh) cho số đo thiếu so với
+    // trạng thái cuối (không scrollbar). Đo xong trả lại nguyên trạng.
+    var prev=d.style.overflowY;
+    d.style.overflowY='hidden';
+    var sy=window.pageYOffset||0, bottom=0, kids=b.children, i, r;
+    for(i=0;i<kids.length;i++){
+      r=kids[i].getBoundingClientRect();
+      if(r.height||r.width) bottom=Math.max(bottom, r.bottom+sy);
+    }
+    var cs=getComputedStyle(b);
+    var pad=(parseFloat(cs.paddingBottom)||0)+(parseFloat(cs.marginBottom)||0);
+    var sh=b.scrollHeight;
+    d.style.overflowY=prev;
+    if(!bottom) return sh;                           // body rỗng/chỉ có text node
+    return Math.ceil(bottom+pad);
+  }
+  var last=0;
+  function send(){
+    var v=h();
+    if(!v||Math.abs(v-last)<2) return;
+    last=v;
+    try{ parent.postMessage({__fitHeight:v},'*'); }catch(e){}
+  }
+  addEventListener('load',send); addEventListener('resize',send);
+  if(window.ResizeObserver&&document.body) new ResizeObserver(send).observe(document.body);
+  send(); setTimeout(send,120); setTimeout(send,600); setTimeout(send,1600);
+  // Chốt an toàn: ResizeObserver/resize có thể KHÔNG được giao (tab ẩn, rAF bị hãm) ->
+  // nội dung đổi chiều cao mà khung không đổi theo (thừa/thiếu chỗ trống). Nhịp rẻ, tự
+  // dừng khi tab ẩn; `send` chỉ postMessage khi số đo thực sự khác.
+  setInterval(function(){ if(!document.hidden) send(); },1500);
+  addEventListener('visibilitychange',function(){ if(!document.hidden) send(); });
+})();</script>
+""".encode('utf-8')
+
 
 class UploadsMixin:
     def _get_uploads(self, path):
@@ -125,6 +171,8 @@ class UploadsMixin:
                 self.end_headers()
                 return
             data = target.read_bytes()
+            if (q.get('fit') or [''])[0] == '1':
+                data += _FIT_SNIPPET
             self.send_response(200)
             self.send_header('Content-Type', 'text/html; charset=utf-8')
             self.send_header('Content-Security-Policy',

@@ -63,8 +63,17 @@ def render_docs_page(tree, editable=True, user=None, activities=None):
         <div class="folder-grid" id="folderGrid"></div>
       </div>
 
+      <!-- ===== Chế độ TAB cho folder "Quy Trình": mỗi file HTML = 1 tab (Decision #66) ===== -->
+      <div id="procSection" style="display:none">
+        <div class="proc-bar">
+          <div class="proc-tabs" id="procTabs"></div>
+          {'<button class="btn-sec proc-up" id="procUpBtn"><span class="material-symbols-rounded ph-light ph-upload-simple mi-sm"></span>Tải lên file HTML</button>' if editable else ''}
+        </div>
+        <div class="proc-body" id="procBody"></div>
+      </div>
+
       <!-- Documents List Section -->
-      <div>
+      <div id="docsListSection">
         <div class="section-title-row">
           <h3 id="tableTitle">Tài liệu gần đây</h3>
           <a class="view-all-link" id="viewAllDocs" onclick="navigateBackToRoot()">Xem tất cả <span class="material-symbols-rounded ph-light ph-caret-right"></span></a>
@@ -96,6 +105,15 @@ def render_docs_page(tree, editable=True, user=None, activities=None):
       {"<div class='divider'></div>" if editable else ""}
       {"" if not editable else '<button class="danger" onclick="deleteDoc()"><span class="material-symbols-rounded ph-light ph-trash mi-sm"></span>Xoá tài liệu</button>'}
     </div>
+
+    {"" if not editable else '''
+    <!-- ===== Context menu cho THƯ MỤC (đổi tên / xoá) ===== -->
+    <div class="context-menu" id="folderMenu">
+      <button onclick="renameFolderPrompt()"><span class="material-symbols-rounded ph-light ph-pencil-simple mi-sm"></span>Đổi tên</button>
+      <div class="divider"></div>
+      <button class="danger" onclick="deleteFolder()"><span class="material-symbols-rounded ph-light ph-trash mi-sm"></span>Xoá thư mục</button>
+    </div>
+    '''}
 
     <!-- ===== VIEWER: xem tài liệu ngay trong app (Decision #63) ===== -->
     <div class="fp-overlay" id="fpOverlay">
