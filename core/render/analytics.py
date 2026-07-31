@@ -248,6 +248,20 @@ def render_analytics_v2(data, user=None, activities=None, testcases=None, links=
         
         '</div>' # end metrics-row
 
+        # ----- Automation Coverage (độ phủ automation theo dự án / bộ) -----
+        '<div class="card metric-card" style="margin-top:24px;">'
+        '<div class="metric-header">'
+        '<div class="table-title"><span>Automation Coverage (Độ phủ Automation)</span></div>'
+        '<div class="metric-filter"><span class="material-symbols-rounded ph-light ph-folder mi-sm"></span> '
+        '<select id="anAutoScope"></select></div>'
+        '</div>'
+        '<div class="an-valid" id="anAutoCovBox"></div>'
+        '<div id="anAutoCovRows" style="padding:0 20px 18px"></div>'
+        '<div class="bl-reopen-note">Độ phủ = Y / (Y + N) — cột <b>Automated</b> trong sheet test case: '
+        'Y = đã có script auto · N = auto được nhưng chưa có script · N/A = không thể auto (loại khỏi mẫu số). '
+        'Case chưa điền cột Automated cũng không tính vào mẫu số.</div>'
+        '</div>'
+
         # ----- KPI Valid Bug Rate -----
         '<div class="card metric-card" style="margin-top:24px;">'
         '<div class="metric-header">'

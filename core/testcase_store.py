@@ -4,9 +4,13 @@ Tầng NỀN cho mảng quản lý test case (B–E phụ thuộc store + schema
 
 Mô hình:
   - **Repository** = list folder phẳng `{id, name}`. Mỗi folder = 1 "bộ" test case.
-  - **cases** = list `{id, item, pre, step, exp, priority, result, folder}`.
+  - **cases** = list `{id, item, pre, step, exp, priority, result, auto, auto_result, folder}`.
       result ∈ TC_RESULTS (mặc định 'norun'); sheet KHÔNG có cột Result -> trạng thái
       chạy chấm tay sau (#155/#156). Import lại GIỮ result cũ theo case id (xem import_cases).
+      auto ∈ TC_AUTO ('y' đã có script · 'n' auto được nhưng chưa có script · 'na' không thể
+      auto · '' chưa phân loại) — nguồn cột "Automated"; auto_result = kết quả chạy script
+      (cột "Automation Result", ∈ TC_RESULTS hoặc '' khi chưa chạy). Cả 2 LUÔN lấy theo file
+      mỗi lần import/sync (không chấm tay trên dashboard).
   - **imports** = metadata mỗi lần import theo folder `{folder_id: {url, fileId, sheet, at, by, count}}`.
 
 Drive: TÁI DÙNG bug_log.{fetch_meta, download_file, list_sheet_names, read_sheet_rows}
@@ -39,6 +43,7 @@ TC_PROP = 'qa-dashboard-testcases'  # khoá KV / Jira property = kho sync chéo 
 MAX_FOLDERS = 100
 MAX_CASES = 50000           # chặn payload quá lớn (KV có hỗ trợ GZIP tự động nên mức 50k là an toàn)
 TC_RESULTS = ('pass', 'fail', 'impact', 'norun')
+TC_AUTO = ('y', 'n', 'na')   # Automated: đã có script / auto được nhưng chưa có / không thể auto
 _PRIORITIES = ('critical', 'high', 'medium', 'low')
 
 TC_DEFAULT = {'folders': [], 'cases': [], 'imports': {}}
@@ -56,7 +61,10 @@ def _valid_case(c):
             and isinstance(c.get('id', ''), str)
             and all(isinstance(c.get(k, ''), str) for k in ('item', 'pre', 'step', 'exp', 'folder'))
             and isinstance(c.get('priority', ''), str)
-            and isinstance(c.get('result', ''), str))
+            and isinstance(c.get('result', ''), str)
+            # auto/auto_result là field MỚI (độ phủ automation) — optional để data cũ vẫn hợp lệ
+            and isinstance(c.get('auto', ''), str)
+            and isinstance(c.get('auto_result', ''), str))
 
 
 def valid_store(data):
@@ -204,6 +212,13 @@ _HEADER_SYNONYMS = {
     'priority': ('priority', 'mức độ', 'muc do', 'độ ưu tiên', 'do uu tien',
                  'ưu tiên', 'uu tien', 'severity'),
     'result': ('result', 'kết quả thực tế', 'ket qua thuc te', 'kết quả', 'ket qua', 'status', 'trạng thái', 'trang thai', 'actual result', 'actual'),
+    # Automation (#độ phủ auto): 'auto' = có script auto hay không (Y/N/N/A);
+    # 'auto_result' = kết quả lần chạy script auto gần nhất.
+    'auto': ('automated', 'automation', 'auto', 'automate', 'is automated',
+             'tự động', 'tu dong', 'tự động hoá', 'tu dong hoa'),
+    'auto_result': ('automation result', 'auto result', 'automated result',
+                    'automation status', 'kết quả automation', 'ket qua automation',
+                    'kết quả auto', 'ket qua auto', 'kết quả tự động', 'ket qua tu dong'),
 }
 _REQUIRED_FOR_HEADER = ('id', 'item')  # 1 hàng được coi là header khi có >=2 trong các cột chính
 
@@ -225,6 +240,18 @@ _RESULT_MAP = {
 }
 
 
+# Automated: chỉ 3 giá trị hợp lệ (user chốt) —
+# 'y' = đã có script auto · 'n' = auto được nhưng chưa có script · 'na' = không thể auto.
+# Ô trống / giá trị lạ -> '' (chưa phân loại) => KHÔNG tính vào mẫu số độ phủ.
+_AUTO_MAP = {
+    'y': 'y', 'yes': 'y', 'đã có': 'y', 'da co': 'y', 'done': 'y', 'true': 'y', 'x': 'y', '1': 'y',
+    'n': 'n', 'no': 'n', 'chưa': 'n', 'chua': 'n', 'chưa có': 'n', 'chua co': 'n', 'false': 'n', '0': 'n',
+    'n/a': 'na', 'na': 'na', 'n.a': 'na', 'n/a.': 'na', 'not applicable': 'na',
+    'không thể': 'na', 'khong the': 'na', 'không thể auto': 'na', 'khong the auto': 'na',
+    'không auto được': 'na', 'khong auto duoc': 'na', '-': 'na',
+}
+
+
 def _norm(s):
     # Bỏ khoảng trắng quanh gạch nối để "Pre - Condition"/"Pre-Condition"/"Pre -Condition"
     # đều chuẩn hoá về "pre-condition" -> khớp synonym (defensive với cách gõ header khác nhau).
@@ -238,6 +265,17 @@ def _norm_priority(v):
 
 def _norm_result(v):
     return _RESULT_MAP.get(_norm(v), 'norun')
+
+
+def _norm_auto(v):
+    """Ô Automated -> 'y'/'n'/'na'; trống hoặc giá trị lạ -> '' (chưa phân loại)."""
+    return _AUTO_MAP.get(_norm(v), '')
+
+
+def _norm_auto_result(v):
+    """Ô Automation Result -> pass/fail/impact/norun; trống -> '' (chưa chạy script)."""
+    s = _norm(v)
+    return _RESULT_MAP.get(s, 'norun') if s else ''
 
 
 def _find_header(rows):
@@ -374,7 +412,14 @@ def parse_testcase_rows(rows):
                 r_val = cell(row, 'result')
                 if r_val:
                     cases[-1]['result'] = _norm_result(r_val)
-                    
+
+                a_val = cell(row, 'auto')
+                if a_val:
+                    cases[-1]['auto'] = _norm_auto(a_val)
+                ar_val = cell(row, 'auto_result')
+                if ar_val:
+                    cases[-1]['auto_result'] = _norm_auto_result(ar_val)
+
                 p_val = cell(row, 'priority')
                 if p_val:
                     cases[-1]['priority'] = _norm_priority(p_val)
@@ -399,6 +444,8 @@ def parse_testcase_rows(rows):
             'exp': exp_val,
             'priority': _norm_priority(cell(row, 'priority')),
             'result': _norm_result(r_val) if r_val else '',
+            'auto': _norm_auto(cell(row, 'auto')),
+            'auto_result': _norm_auto_result(cell(row, 'auto_result')),
         })
 
     # Đánh lại số thứ tự ID cho liền mạch (fix lỗi nhảy số do có dòng note của QA)

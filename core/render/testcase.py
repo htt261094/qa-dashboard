@@ -53,7 +53,7 @@ def _import_modal():
           </div>
           <div class="tc-infobox">
             <span class="material-symbols-rounded ph-light ph-info"></span>
-            <span><b>Định dạng cột bắt buộc</b>Sheet cần có các tiêu đề: ID, Test Item, Pre-Condition, Step, Expected Output, Priority. Để trống ô "Chọn Sheet" sẽ import toàn bộ file (bỏ qua các sheet template: Cover, Guide, Result, Function 1).</span>
+            <span><b>Định dạng cột bắt buộc</b>Sheet cần có các tiêu đề: ID, Test Item, Pre-Condition, Step, Expected Output, Priority. Tuỳ chọn: <b>Automated</b> (Y / N / N/A) và <b>Automation Result</b> — dùng để tính độ phủ automation. Để trống ô "Chọn Sheet" sẽ import toàn bộ file (bỏ qua các sheet template: Cover, Guide, Result, Function 1).</span>
           </div>
         </div>
         <div class="modal-foot">
@@ -188,17 +188,24 @@ def render_testcase_v2(data=None, editable=True, links=None, user=None, activiti
 
         <!-- Bảng duyệt (#155/#156) -->
         <div class="card">
+         <!-- 9 cột: các cột badge cần bề ngang cố định (không bóp được), nên bảng có
+              min-width + wrapper cuộn ngang thay vì để cột tràn ra ngoài viền card. -->
+         <div class="tc-table-wrap">
           <table class="tc-table">
             <colgroup>
-              <col style="width:104px"><col style="width:16%"><col style="width:19%">
-              <col style="width:22%"><col style="width:22%"><col style="width:136px"><col style="width:96px">
+              <col style="width:96px"><col style="width:13%"><col style="width:14%">
+              <col style="width:16%"><col style="width:16%"><col style="width:114px"><col style="width:96px">
+              <col style="width:92px"><col style="width:104px">
             </colgroup>
             <thead><tr>
               <th>ID</th><th>Test Item</th><th>Pre-Condition</th><th>Step</th>
               <th>Expected Output</th><th>Priority</th><th>Result</th>
+              <th title="Y = đã có script auto · N = auto được nhưng chưa có script · N/A = không thể auto">Automated</th>
+              <th title="Kết quả lần chạy script automation">Auto Result</th>
             </tr></thead>
             <tbody id="tcBody"><!-- JS render --></tbody>
           </table>
+         </div>
           <div class="pager" id="tcPager" style="display:none"></div>
         </div>
       </div>
