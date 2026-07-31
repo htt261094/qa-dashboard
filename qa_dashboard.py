@@ -38,7 +38,7 @@ from jira_api import (fetch_all, fetch_all_shared, scope_data, fetch_activity_fe
                       dismiss_activities, run_parallel, fetch_issue_detail,
                       search_parent_tasks, search_people, search_qa_tasks, global_search,
                       fetch_subtasks, fetch_ready_prod_gaps)
-from docs import load_docs, save_docs, valid_tree
+from docs import load_docs, save_docs, valid_tree, ensure_process_folder
 from roadmap import load_roadmap, save_roadmap, valid_roadmap
 from testcase_store import (load_testcases, fetch_sheets as tc_fetch_sheets,
                             import_cases as tc_import_cases, add_folder as tc_add_folder,
@@ -726,7 +726,11 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         # tài liệu training: load song song tài liệu và chuông notif (đồng nhất mọi tab)
         try:
             res = run_parallel({'docs': load_docs, 'bell': self._bell_activities})
-            self._html(render_docs_page(res['docs'], editable=self._is_admin(),
+            # Folder "Quy Trình" (tab HTML) luôn có sẵn; chỉ admin mới persist được
+            tree, changed = ensure_process_folder(res['docs'])
+            if changed and self._is_admin():
+                save_docs(tree)
+            self._html(render_docs_page(tree, editable=self._is_admin(),
                                         user=self._user_ctx(), activities=res['bell']))
         except RuntimeError as e:
             self._html(render_error_page(str(e)))
