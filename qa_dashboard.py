@@ -1230,11 +1230,13 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
 
     def _post_sync_bug_log(self):
         # Trigger thủ công: chạy scan() bug log ngay (admin-only).
+        # force=True -> bỏ qua Tầng-1 metadata, ĐỌC LẠI từ Drive cho mọi file dù vừa scan 1 phút
+        # trước (user bấm "Đồng bộ ngay" nghĩa là muốn số mới nhất từ source, không phải cache).
         if not self._is_admin():
             self._json(403, b'{"ok":false,"err":"forbidden"}')
             return
         try:
-            res = bug_log_scan()
+            res = bug_log_scan(force=True)
         except Exception:   # noqa: BLE001 — scan đã redact token; chặn mọi lỗi lạ
             res = {'ok': False, 'errors': ['Lỗi không xác định khi scan.']}
         # Admin đang xem popup inline (res['changes']) -> đánh dấu đã xem tới giờ này để
