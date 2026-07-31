@@ -9,9 +9,18 @@
 # Google Chat cho CTO -> tat server. Scheduled Task goi script nay HANG NGAY; guard cuoi
 # thang tu bo qua cac ngay khac (giong cron Mac). KHONG gui email.
 #
+# -Test: chay THU - bo guard cuoi thang + bo --cron => reporter gui vao space TEST
+# (TEST_GOOGLECHAT_SPACE) chu KHONG phai space CTO. Dung de verify trigger bat ky luc nao.
+#
 # Log: script tu append reports\cron.log.
 
+param([switch]$Test)
+
 $ErrorActionPreference = 'Continue'
+
+# PowerShell decode stdout cua native command theo [Console]::OutputEncoding (mac dinh OEM
+# cp437/850) trong khi Python xuat UTF-8 -> log ra mojibake (Gß╗¡i...). Ep UTF-8 de doc duoc.
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 # --- Cau hinh (sua neu doi may) ---
 $ROOT = 'C:\Users\tuant\Desktop\Work\qa-dashboard'
@@ -21,6 +30,12 @@ $PORT = if ($env:REPORT_PORT) { $env:REPORT_PORT } else { '8077' }  # port rieng
 Set-Location $ROOT
 New-Item -ItemType Directory -Force -Path "$ROOT\reports" | Out-Null
 
+# Bat buoc UTF-8 cho stdout/stderr cua Python. Khi Task Scheduler pipe output, Python lay
+# codepage ANSI (cp1252) -> print tieng Viet raise UnicodeEncodeError va job chet TRUOC khi
+# gui report (da dinh 2026-07-31, rc=1). Dat o day de ap cho ca server offline lan reporter.
+$env:PYTHONUTF8       = '1'
+$env:PYTHONIOENCODING = 'utf-8'
+
 # Moi output -> reports\cron.log (Scheduled Task khong tu redirect nhu crontab).
 $LOG = "$ROOT\reports\cron.log"
 function Log($msg) {
@@ -29,10 +44,12 @@ function Log($msg) {
   Add-Content -Path $LOG -Value $line -Encoding utf8
 }
 
-Log "===== monthly report (offline, port $PORT) ====="
+$MODE = if ($Test) { 'TEST space' } else { 'REAL space (CTO)' }
+Log "===== monthly report (offline, port $PORT, $MODE) ====="
 
 # 1. Chi chay that vao ngay cuoi thang (mai la mung 1). Chan som de khong phi dung server.
-if ((Get-Date).AddDays(1).Day -ne 1) {
+#    Che do -Test bo qua guard nay (chay thu bat ky ngay nao).
+if (-not $Test -and (Get-Date).AddDays(1).Day -ne 1) {
   Log "Hom nay khong phai ngay cuoi thang - bo qua."
   exit 0
 }
@@ -66,8 +83,11 @@ try {
     exit 1
   }
 
-  # 4. Reporter: export PDF + upload Drive + gui Google Chat. --cron tu guard ngay cuoi thang.
-  & $PY 'core\monthly_reporter_chat_app.py' --cron 2>&1 | ForEach-Object { Log $_ }
+  # 4. Reporter: export PDF + upload Drive + gui Google Chat. --cron tu guard ngay cuoi thang
+  #    VA keo theo --real (space CTO). Che do -Test: khong truyen gi => space TEST.
+  $repArgs = @('core\monthly_reporter_chat_app.py')
+  if (-not $Test) { $repArgs += '--cron' }
+  & $PY $repArgs 2>&1 | ForEach-Object { Log $_ }
   $rc = $LASTEXITCODE
   Log "===== xong (rc=$rc) ====="
 }

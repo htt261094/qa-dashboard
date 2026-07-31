@@ -4483,11 +4483,19 @@ window.__smSetCustom=function(t, key, val, onChanged){
     return '';
   }
   function monthOf(b){ return _sheetMY(b.month, b.created) || getCreatedMonthYear(b.created); }
-  // Frozen chỉ dùng khi đúng version (_v===2 = sheet-based); snapshot cũ (created-based) -> null
-  // để tính LIVE lại sheet-based, tránh lệch trong lúc chờ scan rebuild.
+  // Version snapshot chart — PHẢI khớp _CHART_V phía Python (bug_backlog.py). Lệch = bỏ frozen,
+  // tính LIVE lại để không hiện số theo semantics cũ trong lúc chờ scan rebuild.
+  var CHART_V = 6;
+  // Frozen dùng khi: (a) snapshot ĐÚNG version, hoặc (b) snapshot CHỐT CỨNG (_frozen=true do
+  // freeze_month() ghi sau khi report gửi CTO) — bản chốt cứng là bản ghi lịch sử, tin theo
+  // nguyên trạng dù version có bump về sau (Decision #69).
+  // Tháng HIỆN TẠI: chỉ dùng frozen nếu đã chốt cứng; còn lại luôn LIVE.
   function frozenFor(selYm){
-    var f = (selYm && selYm !== curYm()) ? (CHART_FROZEN[selYm]||null) : null;
-    return (f && f._v===2) ? f : null;
+    if(!selYm) return null;
+    var f = CHART_FROZEN[selYm]||null;
+    if(!f) return null;
+    if(f._frozen) return f;
+    return (selYm !== curYm() && f._v===CHART_V) ? f : null;
   }
   // danh sách tháng/năm để fill dropdown (năm hiện tại + năm có trong data)
   var FULL_MONTH_YEARS = (function(){
@@ -4567,7 +4575,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     // Số liệu tháng: FROZEN cho tháng đã đóng (chốt cuối tháng, Decision #47 -> KHÔNG trôi khi
     // team sửa/copy sheet tháng sau); LIVE (dedup fp) cho tháng hiện tại + tháng chưa có frozen.
     var selYm = toYm(selectedMonth); var frozen = frozenFor(selYm);
-    var devs = {}, projSet = {}, grandTotal = 0, bc;
+    var devs = {}, projSet = {}, grandTotal = 0, fixedCount = 0, bc;
     if(frozen){
       Object.keys(frozen.devs||{}).forEach(function(d){
         var projs = frozen.devs[d]||{}, total = 0;
@@ -4576,7 +4584,8 @@ window.__smSetCustom=function(t, key, val, onChanged){
       });
       grandTotal = frozen.grand||0;
       var fb = frozen.bl||{};
-      bc = { hasSnapshot:!!fb.has, prev:fb.prev||'', newCount:fb.nc||0, total:fb.tot||0, stillOpen:fb.so||0, resolved:fb.res||0 };
+      bc = { hasSnapshot:!!fb.has, prev:fb.prev||'', newCount:fb.nc||0, total:fb.tot||0, stillOpen:fb.so||0, resolved:fb.res||0,
+             newOwn:fb.nown||0, newFixed:fb.nf||0, newOpen:fb.no||0 };
     } else {
       var mBugs = dedupByFp(BUGS.filter(function(b){ return monthOf(b) === selectedMonth; }));
       mBugs.forEach(function(b){
@@ -4593,6 +4602,9 @@ window.__smSetCustom=function(t, key, val, onChanged){
       grandTotal = mBugs.length;
       bc = computeBacklog(selYm);
     }
+    // Đã fix trong tháng = bug MỚI PHÁT SINH đã Closed. KHÔNG đếm trên cả sheet tháng (sheet Tn
+    // chứa cả bản copy của bug tồn đọng T-1) -> tránh gộp tồn đọng vào số bug mới đã fix.
+    fixedCount = bc.newFixed||0;
     var devList = Object.keys(devs).sort(function(a,b){ return devs[b].total - devs[a].total; });
     var projList = Object.keys(projSet).sort();
     if(!devList.length){ metricCharts.innerHTML = '<div class="an-empty">Không có dữ liệu trong tháng này</div>'; return; }
@@ -4631,15 +4643,28 @@ window.__smSetCustom=function(t, key, val, onChanged){
         + '<span style="display:inline-block; width:14px; height:14px; background:'+color+'; border-radius:3px; margin-right:6px;"></span>'
         + '<span style="color:var(--on-surface);">'+esc(p)+' <strong>('+(+(projTotals[p].toFixed(2)))+')</strong></span></div>';
     });
-    var totalHtml = '<div style="text-align:center; margin-bottom:14px; font-size:14px; color:var(--on-surface);">'
-      + 'Tổng số bug: <strong style="font-size:16px;">'+grandTotal+'</strong></div>';
+    // Tháng đã CHỐT CỨNG (freeze_month sau khi report gửi CTO) -> nói rõ số đang bị khoá,
+    // để không ai thắc mắc "sao sửa file mà số không đổi" (Decision #69).
+    var lockHtml = (frozen && frozen._frozen)
+      ? '<div style="text-align:center; margin-bottom:8px; font-size:12.5px; color:var(--on-surface-variant);">'
+        + '🔒 Số liệu tháng này đã chốt lúc ' + esc((frozen.frozen_at||'').slice(0,16).replace('T',' '))
+        + ' (khớp report đã gửi) — sửa file không làm đổi số nữa.</div>'
+      : '';
+    var totalHtml = lockHtml
+      + '<div style="text-align:center; margin-bottom:14px; font-size:14px; color:var(--on-surface);">'
+      + 'Tổng số bug: <strong style="font-size:16px;">'+grandTotal+'</strong>'
+      + ' · Bug mới đã fix: <strong style="font-size:16px; color:#36b37e;">'+fixedCount+'</strong>'
+      + '<span style="color:var(--on-surface-variant);">/'+(bc.newOwn||0)+' (không tính tồn đọng T-1)</span></div>';
     // Dải tồn đọng T-1 (nằm TRONG khối chart -> có trong ảnh report gửi CTO). bc đã tính ở
     // trên (frozen hoặc live).
     var stripHtml = '';
     if(bc.hasSnapshot){
       stripHtml = '<div style="width:100%; max-width:820px; margin:0 auto 20px; padding:14px 18px; border:1px solid var(--outline-variant); border-radius:8px;">'
         + '<div style="font-size:13.5px; color:var(--on-surface); margin-bottom:10px;">'
-        +   '<strong>'+bc.newCount+'</strong> bug mới phát sinh · Tồn đọng từ T-1 ('+esc(bc.prev)+'): '
+        +   '<strong>'+bc.newCount+'</strong> bug mới phát sinh '
+        +   '(đã fix <strong style="color:#36b37e;">'+(bc.newFixed||0)+'</strong>, '
+        +   'chưa fix <strong>'+(bc.newOpen||0)+'</strong>) · '
+        +   'Tồn đọng từ T-1 ('+esc(bc.prev)+'): '
         +   '<strong>'+bc.total+'</strong> (còn <strong style="color:#ff5630;">'+bc.stillOpen+'</strong>, đã xử lý '+bc.resolved+')'
         + '</div>' + compBar(backlogSegs(bc), 26) + '</div>';
     }
@@ -4806,8 +4831,20 @@ window.__smSetCustom=function(t, key, val, onChanged){
       else if(carried){ total++; resolved++; }
       // else: đóng gọn trong T-1, không bê sang -> bỏ
     });
+    // "Bug ĐÃ FIX trong tháng" chỉ tính trên BUG MỚI PHÁT SINH — KHÔNG gộp tồn đọng T-1.
+    // Loại mọi fp đã có bản tạo trong T-1 (`groups`): bản copy bê sang sheet tháng T thường bị
+    // đổi created sang tháng T (Decision #62) nên không loại thì bug tồn đọng được fix trong
+    // tháng sẽ lẫn vào "bug mới đã fix". PHẢI khớp prev_month_backlog phía Python.
+    var closedFps = {};
+    BUGS.forEach(function(b){ if(isClosed(b.status)) closedFps[_fpOf(b)] = 1; });
+    var newOwn = 0, newFixed = 0;
+    Object.keys(newFps).forEach(function(f){
+      if(groups[f]) return;                 // fp đã tồn tại từ T-1 -> là tồn đọng, không phải bug mới
+      newOwn++; if(closedFps[f]) newFixed++;
+    });
     return { hasSnapshot:hasAny, prev:prev, newCount:newCount, total:total,
-             stillOpen:stillOpen, resolved:resolved };
+             stillOpen:stillOpen, resolved:resolved,
+             newOwn:newOwn, newFixed:newFixed, newOpen:newOwn - newFixed };
   }
 
   // Thanh tỷ lệ ngang: [{label,n,color}] -> stacked bar + chú thích số.
@@ -4829,12 +4866,14 @@ window.__smSetCustom=function(t, key, val, onChanged){
       + '<div style="display:flex; gap:20px; flex-wrap:wrap; margin-top:12px;">'+legend+'</div>';
   }
 
-  // Segment chuẩn cho 1 kỳ: Mới phát sinh · Tồn đọng T-1 còn · đã xử lý.
+  // Segment chuẩn cho 1 kỳ — 4 nhóm KHÔNG chồng lấn (tổng = bug mới + tồn đọng T-1):
+  // Mới đã fix · Mới chưa fix · Tồn đọng T-1 còn treo · Tồn đọng T-1 đã xử lý.
   function backlogSegs(c){
     return [
-      { label:'Mới phát sinh', n:c.newCount, color:'#4c9aff' },
+      { label:'Bug mới đã fix', n:c.newFixed||0, color:'#36b37e' },
+      { label:'Bug mới chưa fix', n:c.newOpen||0, color:'#4c9aff' },
       { label:'Tồn đọng T-1 còn', n:c.stillOpen, color:'#ff5630' },
-      { label:'Tồn đọng T-1 đã xử lý', n:c.resolved, color:'#36b37e' }
+      { label:'Tồn đọng T-1 đã xử lý', n:c.resolved, color:'#00b8d9' }
     ];
   }
 
