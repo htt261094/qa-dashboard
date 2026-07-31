@@ -47,11 +47,12 @@ from remote_store import remote_get, remote_put
 
 BUG_MONTHLY_PROP = 'qa-dashboard-bug-monthly'
 _MONTHS_CAP = 24                 # giữ tối đa 24 tháng gần nhất
-_CHART_V = 5                     # version freeze chart: bump khi đổi cách bucket -> rebuild snapshot cũ
+_CHART_V = 6                     # version freeze chart: bump khi đổi cách bucket -> rebuild snapshot cũ
                                  # (v2 = bucket theo SHEET tháng Tn thay vì created date, 2026-07)
                                  # (v3 = áp filter cột "Bug" = Bug/bug ở tầng parse -> rebuild tháng cũ, 2026-07)
                                  # (v4 = reopen bỏ đếm orphan b-None -> rebuild reopen snapshot, 2026-07)
                                  # (v5 = reopen full attribution: bug nhiều dev tính đủ 1/dev, không chia 1/n, 2026-07)
+                                 # (v6 = bl thêm nown/nf/no: bug mới đã fix, KHÔNG gộp tồn đọng T-1, 2026-07)
 # 'đã đóng' = Closed / Rejected (Reject); còn lại (New/Fixing/Fixed/Reopen/'') = đang MỞ.
 _CLOSED = {'closed', 'rejected', 'reject'}
 _lock = threading.Lock()
@@ -280,23 +281,51 @@ def _load():
     except RuntimeError:
         pass
     cached = _read_cache()
-    months, carry, chart = {}, {}, {}
+    months, carry, chart, frozen = {}, {}, {}, {}
     if cached:
         months.update(cached.get('months', {}) or {})
         carry.update(cached.get('carry', {}) or {})
         chart.update(cached.get('chart', {}) or {})
+        frozen.update(cached.get('frozen', {}) or {})
     if remote:
         months.update(remote.get('months', {}) or {})
         carry.update(remote.get('carry', {}) or {})
         chart.update(remote.get('chart', {}) or {})
+        frozen.update(remote.get('frozen', {}) or {})
     updated = max((cached or {}).get('updated', '') or '',
                   (remote or {}).get('updated', '') or '')
-    return {'months': months, 'carry': carry, 'chart': chart, 'updated': updated}
+    return {'months': months, 'carry': carry, 'chart': chart, 'frozen': frozen,
+            'updated': updated}
 
 
 def load_backlog():
     """Data snapshot tháng hiện tại (để render / embed). {months:{}, updated:''} nếu chưa có."""
     return _load()
+
+
+def _chart_entry(kb, ym, reopen_map, live, frozen_at=None):
+    """Dựng 1 entry `chart[ym]` từ bug của SHEET tháng ym. kb = [(key, bug)].
+    frozen_at (iso) -> đánh dấu snapshot CHỐT CỨNG (freeze_month), archive() sẽ không đụng nữa."""
+    bugs = [b for _, b in kb]
+    dd = _dedup_by_fp(bugs)
+    blr = prev_month_backlog(ym, live=live)
+    entry = {
+        '_v': _CHART_V,
+        'grand': len(dd),
+        'devs': _chart_devs(dd),
+        'valid': _valid_counts(dd),
+        'reopen': _reopen_table(reopen_map, kb, ym),
+        'bl': {'nc': blr['new_count'], 'tot': blr['total'], 'res': blr['resolved'],
+               'so': blr['still_open'], 'prev': blr['prev_month'],
+               'has': blr['has_snapshot'],
+               # bug mới (đã loại fp tồn đọng T-1): tổng / đã fix / chưa fix
+               'nown': blr['new_own'], 'nf': blr['new_fixed'],
+               'no': blr['new_open']},
+    }
+    if frozen_at:
+        entry['_frozen'] = True
+        entry['frozen_at'] = frozen_at
+    return entry
 
 
 def archive(cur_bugs, reopen_map=None):
@@ -305,7 +334,8 @@ def archive(cur_bugs, reopen_map=None):
     cur_bugs = {key: bug} — TẤT CẢ bug đang quan sát (mọi tháng). reopen_map (optional) =
     accumulator reopen (để freeze bảng Tỷ lệ Reopen theo tháng). Chỉ ghi khi có thay đổi thật
     (dedup) để đỡ quota KV. Tháng đã đóng băng (< tháng hiện tại, đã có snapshot) KHÔNG bị
-    đụng. Soft-fail: remote lỗi -> giữ cache local, lần sau đẩy lại."""
+    đụng. Tháng đã CHỐT CỨNG qua freeze_month() (có trong `frozen`) cũng KHÔNG bị đụng, kể cả
+    khi vẫn là tháng hiện tại. Soft-fail: remote lỗi -> giữ cache local, lần sau đẩy lại."""
     now_month = datetime.now().strftime('%Y-%m')
     # `months` (dùng cho backlog T-1) vẫn theo THÁNG TẠO (created) — Decision #46 giữ nguyên.
     # `chart` (Valid/dev/reopen) bucket theo SHEET tháng (Tn) — chính sách mới 2026-07.
@@ -332,46 +362,40 @@ def archive(cur_bugs, reopen_map=None):
         months = data.get('months', {}) or {}
         carry = data.get('carry', {}) or {}
         chart = data.get('chart', {}) or {}
-        before = json.dumps({'m': months, 'c': carry, 'ch': chart},
+        frozen = data.get('frozen', {}) or {}        # {ym: iso} tháng đã chốt cứng -> bất khả xâm phạm
+        before = json.dumps({'m': months, 'c': carry, 'ch': chart, 'f': frozen},
                             sort_keys=True, ensure_ascii=False)
 
         for cm, snap in by_cm.items():
+            if cm in frozen:
+                continue                             # đã chốt cứng -> không đụng
             if cm == now_month:
                 months[cm] = snap                    # tháng hiện tại: cập nhật LIVE mỗi scan
             elif cm not in months:
                 months[cm] = snap                    # bootstrap 1 lần cho tháng quá khứ thiếu
             # cm < now_month đã có -> ĐÓNG BĂNG, để yên
 
-        carry[now_month] = open_now                  # chỉ tháng hiện tại; quá khứ giữ nguyên
+        if now_month not in frozen:
+            carry[now_month] = open_now              # chỉ tháng hiện tại; quá khứ giữ nguyên
 
         # chart snapshot (per-dev/dự án + tổng + dải tồn đọng, đã khử trùng fp): tháng hiện
         # tại cập nhật LIVE mỗi scan (đóng băng ở lần scan cuối tháng); tháng quá khứ thiếu ->
         # bootstrap 1 lần từ data hiện tại; tháng quá khứ ĐÃ CÓ -> để yên (KHÔNG trôi khi team
         # sửa/copy sheet tháng sau). Decision #47.
         for cm, kb in bugs_by_sheet.items():
+            if cm in frozen:
+                continue                             # đã chốt cứng -> KHÔNG rebuild, kể cả khi bump _CHART_V
             # tháng hiện tại: LIVE mỗi scan; tháng quá khứ thiếu -> bootstrap 1 lần; đã có nhưng
             # version cũ (_v != _CHART_V, vd snapshot created-based cũ) -> rebuild 1 lần sheet-based.
             if cm == now_month or cm not in chart or (chart.get(cm) or {}).get('_v') != _CHART_V:
-                bugs = [b for _, b in kb]
-                dd = _dedup_by_fp(bugs)
-                blr = prev_month_backlog(cm, live=cur_bugs)
-                chart[cm] = {
-                    '_v': _CHART_V,
-                    'grand': len(dd),
-                    'devs': _chart_devs(dd),
-                    'valid': _valid_counts(dd),
-                    'reopen': _reopen_table(reopen_map, kb, cm),
-                    'bl': {'nc': blr['new_count'], 'tot': blr['total'], 'res': blr['resolved'],
-                           'so': blr['still_open'], 'prev': blr['prev_month'],
-                           'has': blr['has_snapshot']},
-                }
+                chart[cm] = _chart_entry(kb, cm, reopen_map, cur_bugs)
 
-        # prune: giữ _MONTHS_CAP tháng gần nhất (cả 3 kho)
-        for store in (months, carry, chart):
+        # prune: giữ _MONTHS_CAP tháng gần nhất (cả 4 kho)
+        for store in (months, carry, chart, frozen):
             for m in sorted(store)[:-_MONTHS_CAP]:
                 del store[m]
 
-        after = json.dumps({'m': months, 'c': carry, 'ch': chart},
+        after = json.dumps({'m': months, 'c': carry, 'ch': chart, 'f': frozen},
                            sort_keys=True, ensure_ascii=False)
         if after == before:
             return False                             # không đổi -> khỏi ghi (dedup)
@@ -379,6 +403,7 @@ def archive(cur_bugs, reopen_map=None):
         data['months'] = months
         data['carry'] = carry
         data['chart'] = chart
+        data['frozen'] = frozen
         data['updated'] = _now_iso()
         atomic_write(BUG_MONTHLY_FILE, json.dumps(data, ensure_ascii=False, indent=2))
         try:
@@ -386,6 +411,70 @@ def archive(cur_bugs, reopen_map=None):
         except RuntimeError:
             pass
         return True
+
+
+def freeze_month(month=None, live=None, reopen_map=None):
+    """CHỐT CỨNG số liệu tháng `month` ('YYYY-MM', None = tháng hiện tại) — gọi SAU khi report
+    tháng đã gửi xong (xem hook trong monthly_reporter_chat_app.py).
+
+    Vì sao cần: `archive()` overwrite snapshot tháng HIỆN TẠI mỗi lần scan, nên số chỉ "tự đóng
+    băng" ở lần scan chót của tháng — không trùng với thời điểm gửi report. Freeze tại đúng lúc
+    gửi => số trên dashboard KHỚP số đã gửi CTO, và team copy bug sang sheet tháng sau (đổi
+    STT/created/sheet — Decision #36/#46/#62) cũng không làm trôi nữa.
+
+    Ghi cả 3 kho cho tháng đó: `months` (bug tạo trong tháng, cho backlog T-1 của tháng sau),
+    `carry` (bug đang MỞ = nợ mang sang), `chart` (grand/dev/valid/reopen/dải tồn đọng) + đăng ký
+    `frozen[month]` => archive() sau này BỎ QUA tháng này (kể cả khi bump _CHART_V).
+
+    Gọi lại trên tháng đã freeze thì GHI ĐÈ (freeze là lệnh tường minh — chạy lại report thì số
+    chốt lại theo lần chạy sau). Trả dict tóm tắt để log."""
+    month = month or datetime.now().strftime('%Y-%m')
+    if not _YM_RE.match(month):
+        raise ValueError(f'month phải dạng YYYY-MM (nhận: {month!r})')
+    live = live if live is not None else _live_bugs()
+    if reopen_map is None:
+        try:
+            from bug_log_store import load_bug_log
+            reopen_map = (load_bug_log() or {}).get('reopen', {}) or {}
+        except Exception:      # noqa: BLE001 — thiếu reopen chỉ làm bảng Reopen rỗng, không chặn freeze
+            reopen_map = {}
+
+    kb = [(k, b) for k, b in live.items() if _month_of(b) == month]     # theo SHEET tháng
+    snap_months = {k: _rec(b) for k, b in live.items()
+                   if (b.get('created', '') or '')[:7] == month}       # theo THÁNG TẠO
+    open_now = {_fp(b): _carry_rec(b) for b in live.values()
+                if is_open(b.get('status', ''))}
+    at = _now_iso()
+
+    with _lock:
+        data = _load()
+        months = data.get('months', {}) or {}
+        carry = data.get('carry', {}) or {}
+        chart = data.get('chart', {}) or {}
+        frozen = data.get('frozen', {}) or {}
+
+        months[month] = snap_months
+        carry[month] = open_now
+        chart[month] = _chart_entry(kb, month, reopen_map, live, frozen_at=at)
+        frozen[month] = at
+
+        for store in (months, carry, chart, frozen):
+            for m in sorted(store)[:-_MONTHS_CAP]:
+                del store[m]
+
+        data['months'], data['carry'] = months, carry
+        data['chart'], data['frozen'] = chart, frozen
+        data['updated'] = at
+        atomic_write(BUG_MONTHLY_FILE, json.dumps(data, ensure_ascii=False, indent=2))
+        try:
+            remote_put(BUG_MONTHLY_PROP, data)
+        except RuntimeError:
+            pass
+
+    ch = chart[month]
+    return {'month': month, 'frozen_at': at, 'grand': ch['grand'],
+            'valid': ch['valid'], 'bl': ch['bl'],
+            'carry_open': len(open_now), 'months_bugs': len(snap_months)}
 
 
 # ===== Compute cho báo cáo (tồn đọng T-1 vs mới phát sinh) =====
@@ -426,6 +515,9 @@ def prev_month_backlog(report_month=None, live=None):
       {report_month, prev_month, has_snapshot,
        total, resolved, still_open,
        new_count,      # bug MỚI phát sinh trong report_month (unique fingerprint)
+       new_own,        # = new_count sau khi LOẠI fp đã tồn tại từ T-1 (bản copy đổi created)
+       new_fixed,      # bug MỚI đã fix (Closed) — KHÔNG gộp tồn đọng T-1
+       new_open,       # = new_own - new_fixed
        bugs: [ {id, project, dev, created, status_now, state} ]  # state∈{open,resolved}
       }
     `live` (optional) = {key:bug} truyền sẵn để tránh đọc lại; None -> tự lấy."""
@@ -479,9 +571,21 @@ def prev_month_backlog(report_month=None, live=None):
     new_fps = {_fp(b) for b in live.values()
                if (b.get('created', '') or '')[:7] == report_month}
 
+    # "Bug ĐÃ FIX trong tháng" chỉ tính trên BUG MỚI PHÁT SINH — KHÔNG gộp tồn đọng T-1.
+    # Loại mọi fp đã có bản tạo trong T-1 (`groups`): bản copy bê sang sheet tháng T thường bị
+    # đổi `created` sang tháng T (Decision #62) nên nếu không loại thì bug tồn đọng được fix
+    # trong tháng sẽ bị đếm lẫn vào "bug mới đã fix".
+    own_fps = new_fps - set(groups)
+    closed_fps = {_fp(b) for b in live.values()
+                  if _RE_CLOSED.search(b.get('status', '') or '')}
+    new_fixed = len(own_fps & closed_fps)
+
     return {
         'report_month': report_month, 'prev_month': prev,
         'has_snapshot': bool(groups),                 # có bug T-1 để tính hay không
         'total': resolved + still_open, 'resolved': resolved, 'still_open': still_open,
         'new_count': len(new_fps), 'bugs': bugs,
+        # bug mới phát sinh (đã loại fp tồn đọng T-1): tổng / đã fix (Closed) / chưa fix
+        'new_own': len(own_fps), 'new_fixed': new_fixed,
+        'new_open': len(own_fps) - new_fixed,
     }

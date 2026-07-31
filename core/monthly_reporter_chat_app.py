@@ -1,5 +1,16 @@
 import os
 import sys
+
+# stdout/stderr LUÔN UTF-8: khi chạy qua Task Scheduler (hoặc bất kỳ pipe nào) Python lấy
+# codepage ANSI của Windows (cp1252) -> mọi print tiếng Việt raise UnicodeEncodeError và job
+# chết TRƯỚC khi gửi được report (đã dính 2026-07-31, rc=1). errors='replace' để dù console
+# lạ cũng không bao giờ sập vì log.
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:      # noqa: BLE001 — stream không hỗ trợ reconfigure thì bỏ qua
+        pass
+
 import asyncio
 import datetime
 import argparse
@@ -17,6 +28,9 @@ parser.add_argument('--cron', action='store_true', help='Chỉ chạy nếu hôm
 parser.add_argument('--real', action='store_true',
                     help='Gửi vào space báo cáo THẬT (REAL_GOOGLECHAT_REPORT_SPACE / space CTO). '
                          'Mặc định (không có flag) = gửi vào space TEST (TEST_GOOGLECHAT_SPACE).')
+parser.add_argument('--no-freeze', action='store_true',
+                    help='KHÔNG chốt cứng số liệu tháng sau khi gửi (mặc định: gửi vào space '
+                         'THẬT thì tự chốt; run TEST không bao giờ chốt).')
 parser.add_argument('--month', type=int, default=None,
                     help='Tháng muốn gửi report (1-12). Năm tự lấy năm hiện tại. '
                          'VD: 6 -> 06/2026, 8 -> 08/2026 (sang 2027 thì 6 -> 06/2027). '
@@ -359,6 +373,25 @@ async def main():
             ).execute()
                 
             print("✅ Gửi tin nhắn Google Chat thành công!")
+
+            # CHỐT CỨNG số liệu tháng vừa report (Decision #69) — chỉ khi gửi vào space THẬT.
+            # Đặt SAU khi Chat gửi xong để số trên dashboard khớp đúng số đã gửi CTO, và để
+            # team copy bug sang sheet tháng sau không làm trôi nữa. Run TEST không freeze
+            # (freeze giữa tháng sẽ khoá số tháng đang chạy = sai). Soft-fail: freeze lỗi thì
+            # report vẫn coi là đã gửi thành công.
+            if USE_REAL and not args.no_freeze:
+                try:
+                    from bug_backlog import freeze_month
+                    fmm, fyyyy = month_val.split('/')
+                    fr = freeze_month(month=f"{fyyyy}-{fmm}")
+                    print(f"🔒 Đã chốt cứng số liệu tháng {month_val}: "
+                          f"tổng {fr['grand']} bug · Closed {fr['valid']['closed']} · "
+                          f"bug mới đã fix {fr['bl']['nf']}/{fr['bl']['nown']} · "
+                          f"tồn đọng mang sang tháng sau {fr['carry_open']}")
+                except Exception as e:      # noqa: BLE001
+                    print(f"[CANH BAO] Không chốt được số liệu tháng (report vẫn đã gửi): {e}")
+            elif not USE_REAL:
+                print("(Run TEST — bỏ qua chốt số liệu tháng.)")
 
         except Exception as e:
             print(f"Lỗi trong quá trình thao tác: {e}")
