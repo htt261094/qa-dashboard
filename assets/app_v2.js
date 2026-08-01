@@ -34,11 +34,34 @@ var PHMAP={
  'fiber_new':'sparkle','chat_bubble':'chat-circle-dots','swap_horiz':'arrows-left-right','person_add':'user-plus',
  'bolt':'lightning','sell':'tag','remove_circle_outline':'minus-circle','subdirectory_arrow_right':'arrow-elbow-down-right',
  'library_books':'books','fact_check':'check-square','format_list_numbered':'list-numbers','task_alt':'check-circle',
- 'keyboard_arrow_down':'caret-down','keyboard_arrow_right':'caret-right','code':'file-html'
+ 'keyboard_arrow_down':'caret-down','keyboard_arrow_right':'caret-right','code':'file-html',
+ 'smart_toy':'robot'
 };
 function phIcon(name, extra, weight){
   var ph=PHMAP[name]||name;
   return '<span class="material-symbols-rounded'+(extra?' '+extra:'')+' ph-'+(weight||'light')+' ph-'+ph+'"></span>';
+}
+// Bar độ phủ automation DÙNG CHUNG (trang /test-cases + /analytics — sửa 1 chỗ là cả 2 khớp).
+// ⚠ Bar vẽ theo MẪU SỐ Y+N (đúng con số % bên phải), KHÔNG theo tổng case: nếu chia theo
+// tổng thì Y (41) trên 11165 case ra 0.37% = vô hình. N/A + chưa-phân-loại đứng ngoài bar,
+// chỉ hiện ở cột phụ để không mất thông tin "còn bao nhiêu case chưa khai báo".
+// st = {y,n,na,unset,denom,total,cov} (autoStats/anAutoStats).
+function autoBarRowHTML(name, st, escFn){
+  var e = escFn || function(s){ return s; };
+  var pct = st.denom ? Math.round(st.cov*100) : 0;
+  var yw = st.denom ? st.cov*100 : 0, nw = st.denom ? 100-yw : 0;
+  var sub = st.denom ? st.y+'/'+st.denom+' case'
+                     : (st.na===st.total && st.total ? st.total+' case N/A' : 'chưa khai báo');
+  return '<div class="tc-bar-row"><div class="tc-bar-name" title="'+e(name)+'">'+e(name)+'</div>'
+    + '<div class="tc-bar-track acov" title="'+(st.denom
+        ? st.y+' đã có script / '+st.n+' chưa có script'+(st.na?' · '+st.na+' N/A':'')
+          +(st.unset?' · '+st.unset+' chưa phân loại':'')
+        : 'Chưa có case nào khai báo Y/N ở cột Automated')+'">'
+      + (yw?'<span class="tc-bar-seg a-y" style="width:'+yw+'%"></span>':'')
+      + (nw?'<span class="tc-bar-seg a-n" style="width:'+nw+'%"></span>':'')
+    + '</div>'
+    + '<div class="tc-bar-n'+(st.denom?'':' muted')+'">'+(st.denom?pct+'%':'—')+'</div>'
+    + '<div class="tc-bar-sub">'+sub+'</div></div>';
 }
 // Pager numbered DÙNG CHUNG toàn app (đồng bộ: range info + số trang + ellipsis + mũi tên).
 // data-pg = số trang TUYỆT ĐỐI; container tự bắt click qua delegation. start là index 0-based.
@@ -4448,22 +4471,11 @@ window.__smSetCustom=function(t, key, val, onChanged){
                   .filter(function(r){ return r.st.total; })
                   .sort(function(a,b){ return b.st.cov-a.st.cov || b.st.denom-a.st.denom; });
     if(!rows.length){ rowsBox.innerHTML=''; return; }
-    rowsBox.innerHTML = '<div class="tc-bars">' + rows.map(function(r){
-      var s=r.st, t=s.total||1;
-      var yw=s.y/t*100, nw=s.n/t*100, aw=s.na/t*100, uw=Math.max(0,100-yw-nw-aw);
-      return '<div class="tc-bar-row"><div class="tc-bar-name" title="'+esc(r.name)+'">'+esc(r.name)+'</div>'
-        + '<div class="tc-bar-track">'
-        + (yw?'<span class="tc-bar-seg a-y" style="width:'+yw+'%" title="Y: '+s.y+'"></span>':'')
-        + (nw?'<span class="tc-bar-seg a-n" style="width:'+nw+'%" title="N: '+s.n+'"></span>':'')
-        + (aw?'<span class="tc-bar-seg a-na" style="width:'+aw+'%" title="N/A: '+s.na+'"></span>':'')
-        + (uw?'<span class="tc-bar-seg a-un" style="width:'+uw+'%" title="Chưa phân loại: '+s.unset+'"></span>':'')
-        + '</div>'
-        + '<div class="tc-bar-n'+(s.denom?'':' muted')+'">'+(s.denom?anPct(s.cov):'—')+'</div></div>';
-    }).join('') + '</div>'
+    rowsBox.innerHTML = '<div class="tc-bars">'
+      + rows.map(function(r){ return autoBarRowHTML(r.name, r.st, esc); }).join('') + '</div>'
       + '<div class="tc-auto-legend"><span><i class="a-y"></i>Y — đã có script</span>'
       + '<span><i class="a-n"></i>N — chưa có script</span>'
-      + '<span><i class="a-na"></i>N/A — không thể auto</span>'
-      + '<span><i class="a-un"></i>Chưa phân loại</span></div>';
+      + '<span class="tc-auto-note">N/A và case chưa phân loại KHÔNG tính vào mẫu số</span></div>';
   }
 
   function getCreatedMonthYear(iso){
@@ -5138,24 +5150,11 @@ window.__smSetCustom=function(t, key, val, onChanged){
       return '<div class="tc-chart-card wide"><div class="tc-chart-title">'+title+'</div>'
         + '<div class="tc-bar-empty">Chưa có dữ liệu automation.</div></div>';
     }
-    var bars = rows.map(function(r){
-      var st=r.st, pct=st.denom?Math.round(st.cov*100):0;
-      var yw=st.total?st.y/st.total*100:0, nw=st.total?st.n/st.total*100:0,
-          aw=st.total?st.na/st.total*100:0, uw=Math.max(0,100-yw-nw-aw);
-      return '<div class="tc-bar-row"><div class="tc-bar-name" title="'+esc(r.name)+'">'+esc(r.name)+'</div>'
-        + '<div class="tc-bar-track">'
-          + (yw?'<span class="tc-bar-seg a-y" style="width:'+yw+'%" title="Y (đã có script): '+st.y+'"></span>':'')
-          + (nw?'<span class="tc-bar-seg a-n" style="width:'+nw+'%" title="N (chưa có script): '+st.n+'"></span>':'')
-          + (aw?'<span class="tc-bar-seg a-na" style="width:'+aw+'%" title="N/A (không thể auto): '+st.na+'"></span>':'')
-          + (uw?'<span class="tc-bar-seg a-un" style="width:'+uw+'%" title="Chưa phân loại: '+st.unset+'"></span>':'')
-        + '</div>'
-        + '<div class="tc-bar-n'+(st.denom?'':' muted')+'">'+(st.denom?pct+'%':'—')+'</div></div>';
-    }).join('');
+    var bars = rows.map(function(r){ return autoBarRowHTML(r.name, r.st, esc); }).join('');
     var legend = '<div class="tc-auto-legend">'
       + '<span><i class="a-y"></i>Y — đã có script</span>'
       + '<span><i class="a-n"></i>N — chưa có script</span>'
-      + '<span><i class="a-na"></i>N/A — không thể auto</span>'
-      + '<span><i class="a-un"></i>Chưa phân loại</span></div>';
+      + '<span class="tc-auto-note">N/A và case chưa phân loại KHÔNG tính vào mẫu số</span></div>';
     return '<div class="tc-chart-card wide"><div class="tc-chart-title">'+title+'</div>'
       + head + '<div class="tc-bars">'+bars+'</div>' + legend + '</div>';
   }
