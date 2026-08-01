@@ -19,8 +19,25 @@ env/.env `UPLOADS_DIR`) — trước hardcode path macOS nên upload chết trê
 Layer rule: KHÔNG import qa_dashboard (tránh vòng import).
 """
 import json
+import sys
 
 from config import UPLOADS_DIR
+
+# Allowlist đuôi file cho phép upload (issue #47). = hợp của MỌI loại app thật sự
+# xử lý: tài liệu Office, ảnh, text, HTML (xem file_preview.*_EXTS + _get_uploads).
+# Chặn phần còn lại (.exe/.sh/.php/... ) ngay tại cổng nhận — lớp phòng thủ trước
+# cả nosniff/attachment ở khâu serve. So sánh bằng đuôi đã lower().
+ALLOWED_UPLOAD_EXTS = {
+    # tài liệu
+    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.xlsm', '.ppt', '.pptx',
+    # ảnh
+    '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp',
+    # text / dữ liệu
+    '.txt', '.md', '.markdown', '.csv', '.tsv', '.json', '.log',
+    '.yml', '.yaml', '.xml', '.ini', '.cfg', '.sql',
+    # trang HTML (xem qua /file-raw sandbox — Decision #65)
+    '.html', '.htm',
+}
 
 # Chèn khi `/file-raw?fit=1` (tab "Quy Trình"): file nằm trong origin mờ nên parent KHÔNG
 # đọc được scrollHeight -> file tự báo chiều cao lên parent qua postMessage để iframe cao
@@ -89,11 +106,16 @@ class UploadsMixin:
             content_type = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
         elif ext in ('.png', '.jpg', '.jpeg', '.gif', '.webp'):
             content_type = f'image/{ext[1:] if ext != ".jpg" else "jpeg"}'
+        # CHỈ inline cho pdf + ảnh raster (an toàn). Mọi loại khác (svg, html, text,
+        # octet-stream) ép `attachment` -> browser tải về, KHÔNG render trong origin app
+        # => không thành XSS. svg CỐ Ý không inline (SVG nhúng được <script>).
         disp = 'inline' if ext in ('.pdf', '.png', '.jpg', '.jpeg', '.gif', '.webp') else 'attachment'
         try:
             data = file_path.read_bytes()
             self.send_response(200)
             self.send_header('Content-Type', content_type)
+            # Chặn browser sniff kiểu nội dung (vd đoán octet-stream thành HTML) — issue #47
+            self.send_header('X-Content-Type-Options', 'nosniff')
             self.send_header('Content-Disposition', f"{disp}; filename*=UTF-8''{quote(filename)}")
             self.send_header('Content-Length', str(len(data)))
             self.end_headers()
@@ -252,6 +274,16 @@ class UploadsMixin:
                 self._json(400, b'{"ok":false,"msg":"Ten file khong hop le"}')
                 return
 
+            # Allowlist đuôi file (issue #47) — từ chối loại không hỗ trợ.
+            ext = os.path.splitext(filename)[1].lower()
+            if ext not in ALLOWED_UPLOAD_EXTS:
+                self._json(400, json.dumps({
+                    "ok": False,
+                    "msg": "Loai file khong duoc phep. Chi nhan tai lieu Office, anh, "
+                           "text va HTML.",
+                }).encode('utf-8'))
+                return
+
             # Target path setup
             uploads_dir = UPLOADS_DIR
             uploads_dir.mkdir(parents=True, exist_ok=True)
@@ -278,7 +310,7 @@ class UploadsMixin:
             }, ensure_ascii=False).encode('utf-8'))
 
         except Exception as e:
-            self._json(500, json.dumps({
-                "ok": False,
-                "msg": f"Loi he thong: {str(e)}"
-            }).encode('utf-8'))
+            # KHÔNG trả str(e) cho client (lộ path/lỗi nội bộ) — issue #47.
+            # Log chi tiết ra stderr để debug, client chỉ nhận message chung.
+            print(f"[upload-file] error: {e!r}", file=sys.stderr)
+            self._json(500, b'{"ok":false,"msg":"Loi he thong khi luu file."}')
