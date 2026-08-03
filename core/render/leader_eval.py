@@ -12,12 +12,10 @@ from render.shell import _document_v2
 
 def render_leader_eval_page(tasks, year, month, user=None, activities=None, categories=None, sel_category='', sel_leader='', sel_assignees=None):
     from config import LEADER_EVAL_NUM_FIELD, LEADER_EVAL_TEXT_FIELD, USERS, display_name
-    import json
     sel_assignees = sel_assignees or []
 
     rows = []
     unique_statuses = set()
-    unique_assignees = {}
     for issue in tasks:
         f = issue.get('fields', {})
         st = (f.get('status') or {}).get('name') or ''
@@ -25,7 +23,6 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
             unique_statuses.add(st)
         asg_user = i_assignee(issue)
         asg_name = i_assignee_name(issue)
-        unique_assignees[asg_user] = asg_name
         num_val = f.get(LEADER_EVAL_NUM_FIELD)
         num_str = str(num_val) if num_val is not None else ''
         text_val = f.get(LEADER_EVAL_TEXT_FIELD) or ''
@@ -46,10 +43,6 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
     status_opts = ''
     for st in sorted(unique_statuses):
         status_opts += f'<option value="{esc(st)}">{esc(st)}</option>'
-
-    asg_opts = ''
-    for u, n in sorted(unique_assignees.items(), key=lambda kv: kv[1].lower()):
-        asg_opts += f'<option value="{esc(u)}">{esc(n)}</option>'
 
     table_html = f"""
     <div class="card">
@@ -85,13 +78,6 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
         sel = ' selected' if u == sel_leader else ''
         ld_opts += f'<option value="{esc(u)}"{sel}>{esc(display_name(u))}</option>'
 
-    excl_hidden = ''.join(f'<input type="hidden" name="assignee" value="{esc(u)}">' for u in sel_assignees)
-
-    excl_dropdown_opts = '<option value="">+ Chọn Assignee...</option>'
-    for u in USERS:
-        if u not in sel_assignees:
-            excl_dropdown_opts += f'<option value="{esc(u)}">{esc(display_name(u))}</option>'
-
     month_str = f"{year}-{month:02d}"
 
     chip_css = """
@@ -103,7 +89,6 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
     .ef-month  .set-input { width:140px; }
     .ef-cat    .set-input { width:200px; }
     .ef-leader .set-input { width:150px; }
-    .ef-assignee .set-input { width:200px; }
     .eval-filter .btn-primary { height:42px; padding:0 24px; }
     .eval-chips { flex-basis:100%; display:flex; flex-wrap:wrap; gap:8px; margin-top:2px; }
     .eval-chips:empty { display:none; }
@@ -118,12 +103,6 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
     </style>
     """
 
-    name_map_json = json.dumps({u: display_name(u) for u in USERS})
-    excl_chips = ''.join(
-        f'<span class="eval-chip" data-val="{esc(u)}">{esc(display_name(u))}'
-        f'<span class="eval-chip-x" onclick="removeExcl(\'{esc(u)}\')">\u00d7</span></span>'
-        for u in sel_assignees)
-
     # Build JS as a separate string (NOT inside f-string) to avoid {{/}} hell
     js_block = """
     <script>
@@ -136,15 +115,12 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
 
         /* Status + Assignee filters (combined) */
         var sf = document.getElementById('statusFilter');
-        var af = document.getElementById('asgFilter');
         var ef = document.getElementById('evalStateFilter');
         function applyRowFilters() {
             var sv = sf ? sf.value : '';
-            var av = af ? af.value : '';
             var ev = ef ? ef.value : '';
             document.querySelectorAll('.eval-row').forEach(function(r) {
                 var ok = (!sv || r.getAttribute('data-status') === sv) &&
-                         (!av || r.getAttribute('data-assignee') === av) &&
                          (!ev || r.getAttribute('data-evaluated') === ev);
                 if (ok) {
                     r.style.display = '';
@@ -157,7 +133,6 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
             updateCount();
         }
         if (sf) sf.addEventListener('change', applyRowFilters);
-        if (af) af.addEventListener('change', applyRowFilters);
         if (ef) ef.addEventListener('change', applyRowFilters);
 
         /* Check-all */
@@ -218,53 +193,9 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
             }
         };
 
-        /* Assignee multi-select: dropdown adds a chip on its own row below */
-        var dd = document.getElementById('exclDropdown');
-        var chips = document.getElementById('exclChipsContainer');
-        var hidden = document.getElementById('exclHiddenInputs');
-
-        window.removeExcl = function(val) {
-            var chip = chips.querySelector('.eval-chip[data-val="' + val + '"]');
-            if (chip) chip.remove();
-            var inp = hidden.querySelector('input[value="' + val + '"]');
-            if (inp) inp.remove();
-            var opt = document.createElement('option');
-            opt.value = val;
-            opt.textContent = (window.EVAL_NAMES && window.EVAL_NAMES[val]) || val;
-            dd.appendChild(opt);
-        };
-
-        function addExcl(val) {
-            var name = (window.EVAL_NAMES && window.EVAL_NAMES[val]) || val;
-            var chip = document.createElement('span');
-            chip.className = 'eval-chip';
-            chip.setAttribute('data-val', val);
-            chip.textContent = name;
-            var x = document.createElement('span');
-            x.className = 'eval-chip-x';
-            x.textContent = '\\u00d7';
-            x.onclick = function() { removeExcl(val); };
-            chip.appendChild(x);
-            chips.appendChild(chip);
-            var inp = document.createElement('input');
-            inp.type = 'hidden';
-            inp.name = 'assignee';
-            inp.value = val;
-            hidden.appendChild(inp);
-        }
-
-        if (dd) dd.addEventListener('change', function() {
-            var val = this.value;
-            if (!val) return;
-            var opt = this.options[this.selectedIndex];
-            if (opt) opt.remove();
-            this.value = '';
-            addExcl(val);
-        });
     })();
     </script>
     """
-    js_block = '<script>window.EVAL_NAMES = ' + name_map_json + ';</script>' + js_block
 
     inner = f"""
     {chip_css}
@@ -290,13 +221,7 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
                 <label class="eval-flabel">Leader:</label>
                 <select name="leader" class="set-input">{ld_opts}</select>
             </div>
-            <div class="ef ef-assignee">
-                <label class="eval-flabel">Assignee:</label>
-                <select id="exclDropdown" class="set-input">{excl_dropdown_opts}</select>
-            </div>
             <button type="submit" class="btn btn-primary">L\u1ecdc</button>
-            <div id="exclHiddenInputs" style="display:none;">{excl_hidden}</div>
-            <div class="eval-chips" id="exclChipsContainer">{excl_chips}</div>
         </form>
     </div>
 
@@ -311,13 +236,6 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
                             <select id="statusFilter" class="set-input" style="margin:0; padding:4px 28px 4px 8px; font-size:13px; width:160px;">
                                 <option value="">-- T\u1ea5t c\u1ea3 --</option>
                                 {status_opts}
-                            </select>
-                        </div>
-                        <div style="display:flex; align-items:center; gap:8px;">
-                            <label style="font-size:13px; font-weight:600; color:var(--on-surface-variant);">L\u1ecdc Assignee:</label>
-                            <select id="asgFilter" class="set-input" style="margin:0; padding:4px 28px 4px 8px; font-size:13px; width:160px;">
-                                <option value="">-- T\u1ea5t c\u1ea3 --</option>
-                                {asg_opts}
                             </select>
                         </div>
                         <div style="display:flex; align-items:center; gap:8px;">
