@@ -1224,22 +1224,27 @@ def fetch_leader_eval_tasks(category, leader, sel_assignees, year, month):
     start_str = f"{year}-{month:02d}-01"
     end_str = f"{year}-{month:02d}-{last_day}"
     
-    parts = []
+    parts = ['type in (Task, Sub-task)']
     if category:
         parts.append(f'category = "{category}"')
-        
-    parts.append('type in (Task, Sub-task)')
-    parts.append('"Leader đánh giá (Số)" is EMPTY')
+
+    # Loại trừ DUY NHẤT: task ĐÃ XONG (Done/PENDING) VÀ ĐÃ chấm điểm.
+    # Hệ quả (Decision #71 — khớp JQL dev cấp):
+    #   - task active (TO DO / In Progress) → LUÔN giữ, kể cả đã chấm (điểm 100)
+    #     → xử lý carry-over: việc dài hơi chưa xong vẫn hiện để đánh giá lại.
+    #   - task Done/PENDING mà CHƯA chấm → giữ (cần đánh giá).
+    #   - task Done/PENDING ĐÃ chấm → bỏ (xong + đã chấm).
+    parts.append('NOT ((statusCategory = Done OR status = PENDING) '
+                 'AND "Leader đánh giá (Số)" is not EMPTY)')
+    # Window: overlap tháng đang chấm (start <= cuối tháng AND due >= đầu tháng).
     parts.append(f'("Start date" <= "{end_str}" AND duedate >= "{start_str}")')
-    
+
     if leader:
-        parts.append(f'Leader = "{leader}"')
-        parts.append(f'assignee != "{leader}"')
-        
+        parts.append(f'Leader in ("{leader}")')
     if sel_assignees:
         incl = ', '.join(f'"{a}"' for a in sel_assignees)
         parts.append(f'assignee in ({incl})')
-        
+
     jql = " AND ".join(parts) + " ORDER BY priority DESC, updated DESC"
     fields = f"{_DEFAULT_FIELDS},{LEADER_EVAL_NUM_FIELD},{LEADER_EVAL_TEXT_FIELD},project"
     return jira_search(jql, max_results=500, fields=fields)
