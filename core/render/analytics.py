@@ -287,6 +287,9 @@ def render_analytics_v2(data, user=None, activities=None, testcases=None, links=
         '<span class="material-symbols-rounded ph-light ph-calendar-dots mi-sm"></span> <select id="anMetricMonth"></select></div>'
         '</div>'
         '<div id="anMetricCharts" style="padding:20px; display:flex; gap:24px; flex-wrap:wrap; justify-content:center;"></div>'
+        # Dải tồn đọng T-1: TÁCH khỏi #anMetricCharts để biểu đồ cột (Export PDF) chỉ còn bug
+        # tháng T; thông tin tồn đọng vẫn hiển thị trên dashboard (Decision: user chốt 2026-08-03).
+        '<div id="anBacklogStrip" style="padding:0 20px 20px;"></div>'
         '</div>'
 
         # reopen table

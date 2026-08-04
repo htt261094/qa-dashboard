@@ -74,6 +74,7 @@ def build_bug_log_payload(data, links, sources=None):
                 'severity': b.get('severity', ''),
                 'status': b.get('status', ''),
                 'project': b.get('project', ''),
+                'service': b.get('service', ''),
                 'month': month,
                 'qa': normalize_tester(b.get('qa_pic', '')),
                 'dev': b.get('dev_pic', ''),
@@ -191,6 +192,8 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
         # tab tháng
         '<div class="bl-tabs" id="blTabs"></div>'
         + linkbar
+        # thanh tóm tắt: đếm bug tồn đọng (T-1) vs mới trong tháng của tab đang xem
+        + '<div class="bl-split" id="blSplitBar" style="display:none"></div>'
         # table
         + '<div class="card"><div class="table-header"><div class="table-title">'
         '<span class="material-symbols-rounded ph-light ph-bug-beetle"></span>'
