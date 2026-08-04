@@ -1244,6 +1244,15 @@ html[data-theme="dark"] .bottom-toast {
 .bl-check{width:16px;height:16px;accent-color:var(--primary);cursor:pointer}
 .bl-id{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--primary);font-weight:600}
 .bl-count{font-size:13px;color:var(--on-surface-variant)}
+/* tách tồn đọng vs mới — 2 tab nhóm trên bảng (thay cho collapse) */
+.bl-split{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-end;margin:0 0 14px;border-bottom:1px solid var(--outline-variant)}
+.bl-grptab{font-size:14px}
+.bl-grptab-n{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:20px;padding:0 6px;border-radius:999px;background:var(--surface-variant);color:var(--on-surface-variant);font-size:12px;font-weight:800;font-variant-numeric:tabular-nums}
+.bl-grptab.g-back.active{color:var(--error);border-bottom-color:var(--error)}
+.bl-grptab.g-new.active{color:var(--success);border-bottom-color:var(--success)}
+.bl-grptab.g-back.active .bl-grptab-n{background:color-mix(in srgb,var(--error) 18%,transparent);color:var(--error)}
+.bl-grptab.g-new.active .bl-grptab-n{background:color-mix(in srgb,var(--success) 18%,transparent);color:var(--success)}
+.bl-grptab:hover:not(.active){color:var(--on-surface)}
 /* badges mức độ */
 .bl-badge{display:inline-block;padding:4px 10px;border-radius:var(--r-sm);font-size:11px;font-weight:700;letter-spacing:.02em;white-space:nowrap}
 .sev-crit{background:var(--error);color:#fff}
@@ -1314,6 +1323,10 @@ html[data-theme="dark"] .bl-reopen-kpi .rk-pct { color: #ff7b72; }
 .an-empty { padding: 30px; text-align: center; color: var(--on-surface-variant); width: 100%; }
 .an-valid { display: flex; align-items: center; gap: 40px; flex-wrap: wrap; padding: 22px 24px 8px; }
 .an-valid-main { display: flex; flex-direction: column; }
+.an-valid-main.an-auto-2 { flex-direction: row; gap: 36px; flex-wrap: wrap; }
+.an-valid-one { display: flex; flex-direction: column; }
+.an-valid-pct.alt { color: #0b8a6b; }
+html[data-theme="dark"] .an-valid-pct.alt { color: #47cd89; }
 .an-valid-pct { font-size: 44px; font-weight: 800; line-height: 1; color: #079455; }
 html[data-theme="dark"] .an-valid-pct { color: #47cd89; }
 /* Semantic accent theo ý nghĩa metric (good=xanh lá · info=xanh dương · warn=hổ phách · bad=đỏ) */
@@ -1506,7 +1519,7 @@ html[data-theme="dark"] .rk-bug-n { color: #ff7b72; }
 .tc-link-chips{display:flex;flex-wrap:wrap;gap:6px;min-height:28px}
 
 /* Metric cards */
-.tc-metrics{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin-bottom:22px}
+.tc-metrics{display:grid;grid-template-columns:repeat(6,1fr);gap:16px;margin-bottom:22px}
 @media (max-width:1400px){.tc-metrics{grid-template-columns:repeat(3,1fr)}}
 .tc-metric{background:var(--card);border:1px solid var(--outline-variant);border-radius:var(--r-lg);
            padding:16px 18px;display:flex;align-items:center;gap:14px;box-shadow:0 1px 3px rgba(9,30,66,.10)}
@@ -1553,7 +1566,7 @@ html[data-theme="dark"] .rk-bug-n { color: #ff7b72; }
 /* Bar coverage: track phải giãn hết chỗ (bar phân bố theo bộ set width inline nên
    .tc-bar-track KHÔNG có flex:1 — thiếu class này thì track co về min-width 8px). */
 .tc-bar-track.acov{flex:1;min-width:60px}
-.tc-bar-sub{flex:0 0 108px;font-size:12px;color:var(--on-surface-variant);
+.tc-bar-sub{flex:0 0 152px;font-size:12px;color:var(--on-surface-variant);
             font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
 .tc-bar-seg.a-y{background:#6554c0}
 .tc-bar-seg.a-n{background:#ffab00}
@@ -1562,6 +1575,8 @@ html[data-theme="dark"] .rk-bug-n { color: #ff7b72; }
 .tc-auto-sum{display:flex;align-items:baseline;gap:12px;margin:-4px 0 16px;flex-wrap:wrap}
 .tc-auto-big{font-size:30px;font-weight:700;letter-spacing:-.02em;color:#6554c0;
              font-variant-numeric:tabular-nums}
+.tc-auto-big.alt{color:#0b8a6b}
+html[data-theme="dark"] .tc-auto-big.alt{color:#47cd89}
 .tc-auto-cap{font-size:12.5px;color:var(--on-surface-variant)}
 .tc-auto-cap b{color:var(--on-surface)}
 .tc-auto-legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:14px;font-size:12px;

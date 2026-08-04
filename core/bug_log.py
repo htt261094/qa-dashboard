@@ -455,6 +455,25 @@ def project_from_filename(filename):
     return (parts[0] if parts else base).strip().upper()
 
 
+_T_SHEET_Y_NL = re.compile(r'^T(\d{1,2})(\d{4})$')   # 'T12026' -> 2026-01 (năm tường minh)
+_T_SHEET_NL = re.compile(r'^T(\d{1,2})$')            # 'T7' -> tháng 7, năm lấy từ created
+
+
+def _sheet_ym(month, created):
+    """Tên sheet (Tn) -> 'YYYY-MM' để so tuổi giữa các bản copy. Sheet module/không phải Tn
+    -> fallback tháng của created. Cùng luật với _month_of (bug_backlog) / monthOf (JS)."""
+    mo = (month or '').strip()
+    m = _T_SHEET_Y_NL.match(mo)
+    if m and 1 <= int(m.group(1)) <= 12:
+        return f"{int(m.group(2)):04d}-{int(m.group(1)):02d}"
+    m = _T_SHEET_NL.match(mo)
+    if m and 1 <= int(m.group(1)) <= 12:
+        yr = (created or '')[:4]
+        if re.match(r'^\d{4}$', yr):
+            return f"{yr}-{int(m.group(1)):02d}"
+    return (created or '')[:7]
+
+
 def normalize(rows, project='', service=''):
     """rows thô (parse_xlsx) -> {bugs:[...], unmapped:[...]}.
 
@@ -465,19 +484,21 @@ def normalize(rows, project='', service=''):
     - Khoá diff = {project}#{service}#{month}#{bug_no} (nếu có service) hoặc {project}#{month}#{bug_no}.
       Thiếu bug_no -> unmapped (reason 'no_stt');
       trùng khoá -> MỌI dòng cùng khoá vào unmapped (reason 'dup_stt') vì không phân biệt được.
+    - Cột "Bug" quyết định dòng có phải bug hay không, và phân loại LAN theo nội dung: các dòng
+      cùng summary (bản copy sang sheet tháng mới) lấy phân loại của bản MỚI NHẤT -> đánh dấu
+      lại 1 dòng là "không phải bug" thì bản ở sheet tháng cũ cũng bị loại (hết tồn đọng oan).
     `project` nên do caller suy từ tên file (project_from_filename)."""
     project = (project or '').strip()
     service = (service or '').strip()
     parsed = []
-    for rec in rows:
+    for idx, rec in enumerate(rows):
         month = str(rec.get('_sheet', '')).strip()
         nrec = {_norm_header(k): v for k, v in rec.items() if k != '_sheet'}
 
-        # Lọc theo cột "Bug": CHỈ giữ dòng loại = 'Bug'/'bug'. Ô trống hoặc giá trị khác
-        # (Improvement, Task, ...) -> BỎ. Sheet KHÔNG có cột "Bug" -> 'bug' vắng khỏi nrec
-        # -> giữ nguyên như cũ (backward-compat file/sheet cũ).
-        if 'bug' in nrec and str(nrec.get('bug', '')).strip().lower() != 'bug':
-            continue
+        # Phân loại theo cột "Bug": CHỈ dòng loại = 'Bug'/'bug' là bug. Ô trống hoặc giá trị
+        # khác (Improvement, Task, nghiệp vụ mới, ...) -> KHÔNG phải bug. Sheet KHÔNG có cột
+        # "Bug" -> 'bug' vắng khỏi nrec -> coi là bug (backward-compat file/sheet cũ).
+        is_bug = (str(nrec.get('bug', '')).strip().lower() == 'bug') if 'bug' in nrec else True
 
         bug = {'month': month, 'project': project}
         for nh, field in _FIELD_MAP.items():
@@ -499,7 +520,47 @@ def normalize(rows, project='', service=''):
         bug['service'] = service
         base_key = f"{project}#{service}#{month}#{bug['bug_no']}" if service else f"{project}#{month}#{bug['bug_no']}"
         bug['key'] = base_key if bug['bug_no'] else ''
+        bug['_is_bug'] = is_bug
+        bug['_idx'] = idx
         parsed.append(bug)
+
+    # ----- Phân loại lan theo NỘI DUNG: bản MỚI NHẤT thắng -----
+    # Team bê bug tồn sang sheet tháng mới rồi đánh dấu lại cột "Bug" (vd bỏ khỏi diện bug vì
+    # thực chất là nghiệp vụ mới). Nếu chỉ lọc từng dòng thì bản ở sheet tháng CŨ vẫn còn ->
+    # vẫn bị đếm là bug đang mở (tồn đọng oan). Nên gom các dòng CÙNG NỘI DUNG (fingerprint =
+    # project|service|summary — trong 1 lần normalize thì project/service cố định nên chỉ cần
+    # summary đã chuẩn hoá, KHỎI phải nhân bản fingerprint()) rồi lấy phân loại của bản MỚI
+    # NHẤT (theo THÁNG của sheet) áp cho CẢ nhóm:
+    #   - tháng mới nhất của nhóm KHÔNG còn dòng nào là bug -> bỏ TOÀN BỘ nhóm (gồm bản ở
+    #     sheet tháng cũ);
+    #   - còn dòng 'Bug' ở tháng mới nhất -> giữ như cũ (chỉ dòng đánh 'Bug' được giữ).
+    # Chọn "tháng mới nhất thắng" (không phải "hễ có 1 dòng non-bug là bỏ hết") để dòng cũ CHƯA
+    # kịp điền cột Bug không xoá oan bản mới đã đánh dấu đúng. So theo THÁNG (không theo từng
+    # dòng) nên 2 dòng trùng nội dung TRONG CÙNG sheet — 1 đánh 'Bug', 1 bỏ trống (dedup tay) —
+    # thì "là bug" thắng, không xoá oan dòng bug thật.
+    # CHỈ dòng CÓ STT được bỏ phiếu: dòng thiếu STT là dòng rác/spill (vốn đã vào unmapped),
+    # cột "Bug" của nó thường trống nên nếu cho bỏ phiếu sẽ xoá oan bản bug thật cùng summary.
+    latest = {}
+    for b in parsed:
+        if not b.get('bug_no'):
+            continue
+        fp = ' '.join((b.get('summary') or '').strip().lower().split())
+        if not fp:
+            continue                                  # summary rỗng -> không gom nhóm
+        ym = _sheet_ym(b.get('month'), b.get('created'))
+        cur = latest.get(fp)
+        if cur is None or ym > cur[0]:
+            latest[fp] = (ym, b['_is_bug'])
+        elif ym == cur[0] and b['_is_bug']:
+            latest[fp] = (ym, True)                   # cùng tháng: 'là bug' thắng
+    declassified = {fp for fp, (_, ok) in latest.items() if not ok}
+
+    parsed = [b for b in parsed
+              if b['_is_bug']
+              and ' '.join((b.get('summary') or '').strip().lower().split()) not in declassified]
+    for b in parsed:
+        b.pop('_is_bug', None)
+        b.pop('_idx', None)
 
     # đếm khoá để bắt trùng (chỉ tính dòng CÓ bug_no)
     key_count = {}
