@@ -35,7 +35,7 @@ var PHMAP={
  'bolt':'lightning','sell':'tag','remove_circle_outline':'minus-circle','subdirectory_arrow_right':'arrow-elbow-down-right',
  'library_books':'books','fact_check':'check-square','format_list_numbered':'list-numbers','task_alt':'check-circle',
  'keyboard_arrow_down':'caret-down','keyboard_arrow_right':'caret-right','code':'file-html',
- 'smart_toy':'robot'
+ 'smart_toy':'robot','precision_manufacturing':'gauge','pending':'clock','block':'prohibit'
 };
 function phIcon(name, extra, weight){
   var ph=PHMAP[name]||name;
@@ -2022,6 +2022,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
   var EDIT = !!window.QA_DOCS_EDITABLE;
   var DOC_TREE = readJSON('docsData') || [];
   var currentPath = []; // Mảng lưu trữ đường dẫn thư mục hiện tại từ root
+  var showAllDocs = false; // "Xem tất cả": bỏ giới hạn 5 tài liệu ở màn gốc
   var contextMenuSelectedId = null;
   var viewerDocId = null;   // tài liệu đang mở trong viewer (đồng bộ ?doc= trên URL)
   var urlSuppress = false;  // đang dựng lại từ URL -> không ghi URL (tránh vòng lặp)
@@ -2138,6 +2139,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var folder = findFolderById(DOC_TREE, folderId);
     if (!folder) return;
     currentPath = [];
+    showAllDocs = false;
     buildPathToFolder(DOC_TREE, folderId, currentPath);
     updateBreadcrumbs();
     renderFolders();
@@ -2147,10 +2149,20 @@ window.__smSetCustom=function(t, key, val, onChanged){
 
   window.navigateBackToRoot = function() {
     currentPath = [];
+    showAllDocs = false;
     updateBreadcrumbs();
     renderFolders();
     renderTable();
     writeUrl(true);
+  };
+
+  // "Xem tất cả": ở màn gốc bỏ giới hạn 5 -> liệt kê toàn bộ tài liệu (vẫn sắp mới nhất).
+  window.viewAllDocuments = function() {
+    currentPath = [];
+    showAllDocs = true;
+    updateBreadcrumbs();
+    renderFolders();
+    renderTable();
   };
 
   function updateBreadcrumbs() {
@@ -2160,8 +2172,8 @@ window.__smSetCustom=function(t, key, val, onChanged){
     
     if (currentPath.length === 0) {
       breadcrumbs.style.display = 'none';
-      tableTitle.textContent = 'Tài liệu gần đây';
-      if (viewAllDocs) viewAllDocs.style.display = 'block';
+      tableTitle.textContent = showAllDocs ? 'Tất cả tài liệu' : 'Tài liệu gần đây';
+      if (viewAllDocs) viewAllDocs.style.display = showAllDocs ? 'none' : 'block';
     } else {
       breadcrumbs.style.display = 'flex';
       if (viewAllDocs) viewAllDocs.style.display = 'none';
@@ -2420,6 +2432,13 @@ window.__smSetCustom=function(t, key, val, onChanged){
       return !query || d.name.toLowerCase().indexOf(query) >= 0;
     });
 
+    // Màn gốc = "Tài liệu gần đây": sắp theo ngày sửa mới nhất, chỉ giữ 5 tài liệu
+    // (khi không tìm kiếm — search vẫn ra hết để còn tìm được). Tài liệu thiếu ts xuống cuối.
+    if (currentPath.length === 0) {
+      filtered.sort(function(a, b) { return (b.ts || 0) - (a.ts || 0); });
+      if (!query && !showAllDocs) filtered = filtered.slice(0, 5);
+    }
+
     // Kiểu Google Drive: thư mục chỉ chứa thư mục con -> KHÔNG hiện bảng rỗng, chỉ hiện
     // lưới thư mục. Bảng chỉ xuất hiện khi thật sự có tài liệu (hoặc đang tìm kiếm).
     var hasSub = (currentNode.children || []).some(function(n) { return n.type === 'folder'; });
@@ -2580,6 +2599,20 @@ window.__smSetCustom=function(t, key, val, onChanged){
       if (fpOv.classList.contains('open')) fpBody.innerHTML = fpFallback(url, 'Lỗi tải nội dung xem trước');
     });
   };
+
+  // Đổi sheet xlsx (tab đáy kiểu Excel) — markup do /file-preview dựng, không kèm script
+  if (fpBody) fpBody.addEventListener('click', function(e) {
+    var tb = e.target.closest ? e.target.closest('.fp-xls-tab') : null;
+    if (!tb) return;
+    var box = tb.closest('.fp-xls'), id = tb.getAttribute('data-sheet');
+    if (!box) return;
+    box.querySelectorAll('.fp-xls-tab').forEach(function(b) { b.classList.toggle('active', b === tb); });
+    box.querySelectorAll('.fp-xls-pane').forEach(function(p) {
+      var on = p.getAttribute('data-sheet') === id;
+      p.classList.toggle('active', on);
+      if (on) { var w = p.querySelector('.fp-grid-wrap'); if (w) { w.scrollTop = 0; w.scrollLeft = 0; } }
+    });
+  });
 
   if (fpOv) {
     fpOv.addEventListener('click', function(e) { if (e.target === fpOv) fpClose(); });
@@ -2956,14 +2989,18 @@ window.__smSetCustom=function(t, key, val, onChanged){
       if (foot) foot.style.display = 'flex';
       updateModalDropdowns();
 
-      // Trong thư mục "Quy Trình" chỉ nhận HTML (mỗi file = 1 tab)
+      // Cho phép chọn NHIỀU tệp + đảm bảo có ô danh sách tệp, kể cả khi template
+      // (docs.py) chưa restart — JS/CSS hot-reload theo F5 nhưng Python nạp 1 lần.
+      if (fileInput) fileInput.multiple = true;
+      var fileList = ensureFileListBox(uploadForm);
+      if (fileList) fileList.innerHTML = '';
       var proc = !!curProcFolder();
-      selectFileObj = null;
+      selectFiles = [];
       if (fileInput) fileInput.accept = proc ? '.html,.htm' : '';
       var hint = dropzone ? dropzone.querySelector('.hint') : null;
       if (hint) hint.textContent = proc
-        ? 'Chỉ nhận file .html / .htm — mỗi file sẽ thành 1 tab quy trình (tối đa 20MB)'
-        : 'Hỗ trợ .pdf, .xlsx, .docx, .png (tối đa 20MB)';
+        ? 'Chỉ nhận file .html / .htm — mỗi file thành 1 tab quy trình (chọn được nhiều tệp, tối đa 20MB/tệp)'
+        : 'Hỗ trợ .pdf, .xlsx, .docx, .png — chọn được nhiều tệp (tối đa 20MB/tệp)';
       var mh = document.querySelector('#uploadModal .modal-head h3');
       if (mh) mh.textContent = proc ? 'Tải lên file HTML quy trình' : 'Tải lên tài liệu';
     }
@@ -3066,34 +3103,119 @@ window.__smSetCustom=function(t, key, val, onChanged){
     showBottomToast('Thêm link tài liệu thành công ✔');
   };
 
-  // Drag and Drop & Upload
-  var selectFileObj = null;
+  // Drag and Drop & Upload (chọn + tải NHIỀU tệp cùng lúc)
+  var selectFiles = [];
 
   window.handleFileSelect = function(event) {
     if (event.target.files && event.target.files.length) {
-      handleFiles(event.target.files[0]);
+      handleFiles(event.target.files);
     }
     event.target.value = '';
   };
 
-  function handleFiles(file) {
-    // Thư mục Quy Trình = tab HTML -> chặn định dạng khác ngay ở client
-    if (curProcFolder() && !/\.html?$/i.test(file.name || '')) {
-      toast('Thư mục Quy Trình chỉ nhận file .html / .htm', false);
-      return;
+  // Tạo ô danh sách tệp trong modal nếu template chưa có (docs.py chưa restart)
+  function ensureFileListBox(uploadForm) {
+    var box = $('uploadFileList');
+    if (box) return box;
+    if (!uploadForm) return null;
+    box = document.createElement('div');
+    box.id = 'uploadFileList';
+    box.className = 'upload-file-list';
+    uploadForm.insertBefore(box, uploadForm.firstChild);
+    return box;
+  }
+
+  // Tạo khay tiến trình nổi nếu template chưa có; gắn nút đóng 1 lần
+  function ensureUploadTray() {
+    var tray = $('uploadTray');
+    if (!tray) {
+      tray = document.createElement('div');
+      tray.id = 'uploadTray';
+      tray.className = 'upload-tray';
+      tray.setAttribute('aria-hidden', 'true');
+      tray.innerHTML =
+        '<div class="ut-head">' +
+        '<span class="material-symbols-rounded ph-light ph-cloud-arrow-up"></span>' +
+        '<span class="ut-title" id="utTitle">Đang tải lên…</span>' +
+        '<button class="ut-close material-symbols-rounded ph-light ph-x" id="utClose" title="Đóng"></button>' +
+        '</div><div class="ut-list" id="utList"></div>';
+      document.body.appendChild(tray);
     }
-    selectFileObj = file;
+    var closeBtn = tray.querySelector('#utClose');
+    if (closeBtn && !closeBtn.__bound) {
+      closeBtn.__bound = true;
+      closeBtn.addEventListener('click', function() {
+        tray.classList.remove('show');
+        tray.setAttribute('aria-hidden', 'true');
+      });
+    }
+    return tray;
+  }
+
+  // Danh sách tệp đã chọn trong modal (xoá bớt được trước khi tải)
+  function renderSelectedFiles() {
+    var box = $('uploadFileList');
+    if (!box) return;
+    box.innerHTML = selectFiles.map(function(f, i) {
+      return '<div class="ufl-item">' +
+        '<span class="material-symbols-rounded ph-light ph-file"></span>' +
+        '<span class="ufl-name" title="' + esc(f.name) + '">' + esc(f.name) + '</span>' +
+        '<span class="ufl-size">' + (f.size / (1024 * 1024)).toFixed(2) + ' MB</span>' +
+        '<button class="ufl-rm" data-i="' + i + '" title="Bỏ tệp này">' +
+        '<span class="material-symbols-rounded ph-light ph-x"></span></button>' +
+        '</div>';
+    }).join('');
+    box.querySelectorAll('.ufl-rm').forEach(function(b) {
+      b.addEventListener('click', function() {
+        selectFiles.splice(parseInt(b.getAttribute('data-i'), 10), 1);
+        if (!selectFiles.length) { resetUploadModal(); return; }
+        renderSelectedFiles();
+        updateUploadBtn();
+      });
+    });
+  }
+
+  function updateUploadBtn() {
+    var btn = $('uploadBtn');
+    if (!btn) return;
+    btn.disabled = !selectFiles.length;
+    var totMB = selectFiles.reduce(function(s, f) { return s + f.size; }, 0) / (1024 * 1024);
+    btn.textContent = selectFiles.length === 1
+      ? 'Bắt đầu tải lên (' + totMB.toFixed(2) + ' MB)'
+      : 'Tải lên ' + selectFiles.length + ' tệp (' + totMB.toFixed(2) + ' MB)';
+  }
+
+  function resetUploadModal() {
+    selectFiles = [];
     var dropzone = $('dropzone');
     var uploadForm = $('uploadForm');
     var btn = $('uploadBtn');
-    
+    if (dropzone) dropzone.style.display = 'block';
+    if (uploadForm) uploadForm.style.display = 'none';
+    if (btn) { btn.disabled = true; btn.textContent = 'Bắt đầu tải lên'; }
+  }
+
+  function handleFiles(files) {
+    var arr = Array.prototype.slice.call(files || []);
+    // Thư mục Quy Trình = tab HTML -> chặn định dạng khác ngay ở client
+    if (curProcFolder()) {
+      var before = arr.length;
+      arr = arr.filter(function(f) { return /\.html?$/i.test(f.name || ''); });
+      if (arr.length < before) toast('Thư mục Quy Trình chỉ nhận file .html / .htm', false);
+    }
+    if (!arr.length) return;
+    // gộp vào lựa chọn hiện có, khử trùng theo tên+size (chọn 2 lần không bị đúp)
+    arr.forEach(function(f) {
+      var dup = selectFiles.some(function(g) { return g.name === f.name && g.size === f.size; });
+      if (!dup) selectFiles.push(f);
+    });
+
+    var dropzone = $('dropzone');
+    var uploadForm = $('uploadForm');
     if (dropzone) dropzone.style.display = 'none';
     if (uploadForm) uploadForm.style.display = 'block';
-    
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = 'Bắt đầu tải lên (' + (file.size / (1024 * 1024)).toFixed(2) + ' MB)';
-    }
+    renderSelectedFiles();
+    updateUploadBtn();
   }
 
   // Setup drag drop events on load for dropzone
@@ -3110,98 +3232,126 @@ window.__smSetCustom=function(t, key, val, onChanged){
       e.preventDefault();
       dropzone.classList.remove('dragover');
       if (e.dataTransfer && e.dataTransfer.files.length) {
-        handleFiles(e.dataTransfer.files[0]);
+        handleFiles(e.dataTransfer.files);
       }
     });
   }
 
-  // Real Upload logic via XMLHttpRequest
-  window.performRealUpload = function() {
-    if (!selectFileObj) return;
-    
-    var progressWrap = $('progressWrap');
-    var progressPercent = $('progressPercent');
-    var uploadFileName = $('uploadFileName');
-    var uploadPercentage = $('uploadPercentage');
-    var uploadForm = $('uploadForm');
-    var foot = $('uploadModalFoot');
-    
-    if (uploadForm) uploadForm.style.display = 'none';
-    if (foot) foot.style.display = 'none';
-    if (progressWrap) progressWrap.style.display = 'flex';
-    if (uploadFileName) uploadFileName.textContent = selectFileObj.name;
-    
-    var fd = new FormData();
-    fd.append('file', selectFileObj);
-    
-    var xhr = new XMLHttpRequest();
-    xhr.open('POST', '/upload-file', true);
-    
-    xhr.upload.onprogress = function(e) {
-      if (e.lengthComputable) {
-        var pct = Math.round((e.loaded / e.total) * 100);
-        if (progressPercent) progressPercent.style.width = pct + '%';
-        if (uploadPercentage) uploadPercentage.textContent = pct + '%';
-      }
+  // Thêm tài liệu vừa tải lên vào cây + re-render + lưu
+  function addUploadedDoc(res, targetFolderId) {
+    var targetFolder = targetFolderId ? findFolderById(DOC_TREE, targetFolderId) : null;
+    var newDoc = {
+      id: "d_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+      type: "link",
+      name: res.filename,
+      ts: Date.now(),
+      url: res.url
     };
-    
-    xhr.onload = function() {
-      if (xhr.status === 200) {
-        try {
-          var res = JSON.parse(xhr.responseText);
-          if (res.ok) {
-            var folderSel = $('uploadFolderSel');
-            var targetFolderId = folderSel ? folderSel.value : '';
-            var targetFolder = targetFolderId ? findFolderById(DOC_TREE, targetFolderId) : null;
-            
-            var newDoc = {
-              id: "d_" + Date.now(),
-              type: "link",
-              name: res.filename,
-              ts: Date.now(),
-              url: res.url
-            };
-            
-            if (targetFolder) {
-              if (!targetFolder.children) targetFolder.children = [];
-              targetFolder.children.unshift(newDoc);
-            } else {
-              DOC_TREE.unshift(newDoc);
-            }
+    if (targetFolder) {
+      if (!targetFolder.children) targetFolder.children = [];
+      targetFolder.children.unshift(newDoc);
+    } else {
+      DOC_TREE.unshift(newDoc);
+    }
+    // Vừa tải lên trong thư mục Quy Trình -> mở luôn tab mới
+    if (curProcFolder() && isHtmlDoc(newDoc)) procActiveId = newDoc.id;
+    renderFolders();
+    renderTable();
+    saveDocs();
+  }
 
-            // Vừa tải lên trong thư mục Quy Trình -> mở luôn tab mới
-            if (curProcFolder() && isHtmlDoc(newDoc)) procActiveId = newDoc.id;
+  // Khay tiến trình nổi góc dưới bên phải — tải tuần tự từng tệp (backend 1 tệp/request)
+  function runUploadQueue(files, targetFolderId) {
+    var tray = ensureUploadTray();
+    var list = $('utList');
+    var title = $('utTitle');
+    if (!tray || !list) return;
 
-            closeModal('uploadModal');
-            renderFolders();
-            renderTable();
-            saveDocs();
-            showBottomToast('Đã tải lên tệp: ' + res.filename + ' ✔');
-          } else {
-            toast('Lỗi tải lên: ' + (res.msg || 'Không rõ nguyên nhân'), false);
-            closeModal('uploadModal');
-          }
-        } catch(ex) {
-          toast('Lỗi phân tích phản hồi từ máy chủ', false);
-          closeModal('uploadModal');
+    list.innerHTML = '';
+    tray.classList.add('show');
+    tray.setAttribute('aria-hidden', 'false');
+
+    var items = files.map(function(f) {
+      var el = document.createElement('div');
+      el.className = 'ut-item';
+      el.innerHTML = '<div class="ut-item-row"><span class="ut-name" title="' + esc(f.name) +
+        '">' + esc(f.name) + '</span><span class="ut-status">Chờ…</span></div>' +
+        '<div class="ut-bar"><i></i></div>';
+      list.appendChild(el);
+      return { file: f, el: el, bar: el.querySelector('.ut-bar i'), st: el.querySelector('.ut-status') };
+    });
+
+    var idx = 0, ok = 0, fail = 0;
+
+    function finish() {
+      if (title) title.textContent = fail
+        ? ('Hoàn tất — ' + ok + ' thành công, ' + fail + ' lỗi')
+        : ('Đã tải lên ' + ok + ' tệp ✔');
+      if (!fail) setTimeout(function() {
+        tray.classList.remove('show');
+        tray.setAttribute('aria-hidden', 'true');
+      }, 4500);
+    }
+
+    function next() {
+      if (idx >= items.length) { finish(); return; }
+      var it = items[idx];
+      if (title) title.textContent = 'Đang tải lên ' + (idx + 1) + '/' + items.length + '…';
+      it.st.textContent = '0%';
+
+      var fd = new FormData();
+      fd.append('file', it.file);
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', '/upload-file', true);
+
+      xhr.upload.onprogress = function(e) {
+        if (e.lengthComputable) {
+          var pct = Math.round((e.loaded / e.total) * 100);
+          it.bar.style.width = pct + '%';
+          it.st.textContent = pct + '%';
         }
-      } else if (xhr.status === 403) {
-        toast('Lỗi 403: Bạn không có quyền thực hiện thao tác này', false);
-        closeModal('uploadModal');
-      } else {
-        toast('Lỗi máy chủ: ' + xhr.status, false);
-        closeModal('uploadModal');
-      }
-      selectFileObj = null;
-    };
-    
-    xhr.onerror = function() {
-      toast('Lỗi kết nối mạng trong quá trình tải lên', false);
-      closeModal('uploadModal');
-      selectFileObj = null;
-    };
-    
-    xhr.send(fd);
+      };
+      xhr.onload = function() {
+        var res = null;
+        try { res = JSON.parse(xhr.responseText); } catch (ex) {}
+        if (xhr.status === 200 && res && res.ok) {
+          it.bar.style.width = '100%';
+          it.st.textContent = '✔';
+          it.el.classList.add('ok');
+          addUploadedDoc(res, targetFolderId);
+          ok++;
+        } else {
+          it.st.textContent = '✕';
+          it.el.classList.add('err');
+          it.el.title = (res && res.msg) ? res.msg
+            : (xhr.status === 403 ? 'Không có quyền tải lên' : ('Lỗi máy chủ ' + xhr.status));
+          fail++;
+        }
+        idx++;
+        next();
+      };
+      xhr.onerror = function() {
+        it.st.textContent = '✕';
+        it.el.classList.add('err');
+        it.el.title = 'Lỗi kết nối mạng';
+        fail++;
+        idx++;
+        next();
+      };
+      xhr.send(fd);
+    }
+    next();
+  }
+
+  // Real Upload logic — đóng modal, đẩy tiến trình xuống khay góc dưới bên phải
+  window.performRealUpload = function() {
+    if (!selectFiles.length) return;
+    var folderSel = $('uploadFolderSel');
+    var targetFolderId = folderSel ? folderSel.value : '';
+    var files = selectFiles.slice();
+    selectFiles = [];
+    closeModal('uploadModal');
+    runUploadQueue(files, targetFolderId);
   };
 
   // Close context menu on click outside
@@ -3563,7 +3713,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
   var linkFilter = '';     // lọc theo trạng thái liên kết task: ''=tất cả, 'linked', 'unlinked'
   // thu gọn nhóm tồn đọng / mới trong tháng (nhớ qua localStorage)
   // nhóm đang xem: 'back' = tồn đọng từ tháng trước · 'new' = mới trong tháng (2 tab riêng)
-  var grpTab = 'back';
+  var grpTab = 'new';
   try{ var _gt=localStorage.getItem('qa-buglog-grp'); if(_gt==='back'||_gt==='new') grpTab=_gt; }catch(e){}
   function saveGrpTab(){ try{ localStorage.setItem('qa-buglog-grp', grpTab); }catch(e){} }
   var tabs=$('blTabs'), rows=$('blRows'), pager=$('blPager'), cnt=$('blCount');

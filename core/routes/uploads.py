@@ -5,7 +5,7 @@ nghĩa method, không đổi logic/route/output.
 
 Gom các route file:
 - `_get_uploads(path)` — serve file trong uploads/ (GET /uploads/<filename>)
-- `_post_upload_file` — nhận upload multipart, lưu vào uploads/ (POST /upload-file, admin-only)
+- `_post_upload_file` — nhận upload multipart, lưu vào uploads/ (POST /upload-file, mọi QA authed)
 - `_get_file_preview` — JSON nội dung dựng sẵn để xem trước trong app (GET /file-preview)
 
 Mixin dùng các helper dùng chung định nghĩa ở Handler (resolve qua MRO):
@@ -211,7 +211,9 @@ class UploadsMixin:
             self.end_headers()
 
     def _post_upload_file(self):
-        if not self._is_admin():
+        # Mở cho MỌI QA authed (khớp editable=True ở /docs). Dev bị chặn tự nhiên:
+        # /upload-file không trong _DEV_POST_ALLOWED.
+        if not self._authed():
             self._json(403, b'{"ok":false,"err":"forbidden"}')
             return
         try:
