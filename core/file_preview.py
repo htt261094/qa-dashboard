@@ -74,21 +74,71 @@ def _table_html(rows, caption=''):
 
 
 # ===== xlsx =====
+def _col_letter(i):
+    """0 -> A, 25 -> Z, 26 -> AA (giống thanh cột Excel)."""
+    s = ''
+    i += 1
+    while i:
+        i, r = divmod(i - 1, 26)
+        s = chr(65 + r) + s
+    return s
+
+
+def _grid_html(rows):
+    """rows -> lưới kiểu Excel: thanh cột A/B/C + cột số dòng, header dính khi cuộn."""
+    rows = [r for r in rows if any((c or '').strip() for c in r)]
+    if not rows:
+        return '<p class="fp-empty">Sheet trống.</p>'
+    cut_rows = len(rows) > MAX_ROWS
+    rows = rows[:MAX_ROWS]
+    ncol = min(max(len(r) for r in rows), MAX_COLS)
+
+    html = ['<div class="fp-grid-wrap"><table class="fp-grid"><thead><tr>',
+            '<th class="fp-corner"></th>']
+    for c in range(ncol):
+        html.append(f'<th class="fp-colh">{_col_letter(c)}</th>')
+    html.append('</tr></thead><tbody>')
+    for n, r in enumerate(rows, 1):
+        cls = ' class="fp-row1"' if n == 1 else ''
+        html.append(f'<tr{cls}><th class="fp-rowh">{n}</th>')
+        for c in range(ncol):
+            v = r[c] if c < len(r) else ''
+            html.append(f'<td>{esc(str(v))}</td>')
+        html.append('</tr>')
+    html.append('</tbody></table></div>')
+    out = ''.join(html)
+    if cut_rows:
+        out = _truncated(out, f'Chỉ hiển thị {MAX_ROWS} dòng đầu — tải file để xem đầy đủ.')
+    return out
+
+
 def _xlsx_html(data):
+    """Nhiều sheet -> tab ở đáy như Excel thật (KHÔNG xếp dọc nối đuôi nhau).
+
+    Chuyển tab do JS lo (delegation `.fp-xls-tab` trong app_v2.js) — markup này
+    nhét vào DOM bằng innerHTML nên không kèm <script> được.
+    """
     from bug_log import list_sheet_names, read_sheet_rows
     names = list_sheet_names(data)
     if not names:
         return '<p class="fp-empty">File không có sheet nào.</p>'
-    parts = []
+    panes, tabs = [], []
     for name in names:
         try:
             rows = read_sheet_rows(data, name)
         except Exception:
             continue
-        parts.append(_table_html(rows, caption=name))
-    if not parts:
+        i = len(panes)
+        act = ' active' if i == 0 else ''
+        panes.append(f'<div class="fp-xls-pane{act}" data-sheet="{i}">{_grid_html(rows)}</div>')
+        tabs.append(f'<button type="button" class="fp-xls-tab{act}" data-sheet="{i}">'
+                    f'{esc(name)}</button>')
+    if not panes:
         return '<p class="fp-empty">Không đọc được nội dung sheet.</p>'
-    return ''.join(parts)
+    if len(panes) == 1:   # 1 sheet thì khỏi thanh tab cho gọn
+        return f'<div class="fp-xls">{panes[0]}</div>'
+    return ('<div class="fp-xls"><div class="fp-xls-panes">' + ''.join(panes) + '</div>'
+            '<div class="fp-xls-tabs" role="tablist">' + ''.join(tabs) + '</div></div>')
 
 
 # ===== docx =====

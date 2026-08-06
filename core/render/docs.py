@@ -76,7 +76,7 @@ def render_docs_page(tree, editable=True, user=None, activities=None):
       <div id="docsListSection">
         <div class="section-title-row">
           <h3 id="tableTitle">Tài liệu gần đây</h3>
-          <a class="view-all-link" id="viewAllDocs" onclick="navigateBackToRoot()">Xem tất cả <span class="material-symbols-rounded ph-light ph-caret-right"></span></a>
+          <a class="view-all-link" id="viewAllDocs" onclick="viewAllDocuments()">Xem tất cả <span class="material-symbols-rounded ph-light ph-caret-right"></span></a>
         </div>
         
         <div class="table-card">
@@ -140,6 +140,16 @@ def render_docs_page(tree, editable=True, user=None, activities=None):
     <div class="bottom-toast" id="bottomToast">
       <span class="material-symbols-rounded ph-light ph-check-circle icon-success"></span>
       <span class="toast-text" id="bottomToastText">Đang xử lý yêu cầu...</span>
+    </div>
+
+    <!-- ===== Floating Upload Progress (góc dưới bên phải) ===== -->
+    <div class="upload-tray" id="uploadTray" aria-hidden="true">
+      <div class="ut-head">
+        <span class="material-symbols-rounded ph-light ph-cloud-arrow-up"></span>
+        <span class="ut-title" id="utTitle">Đang tải lên…</span>
+        <button class="ut-close material-symbols-rounded ph-light ph-x" id="utClose" title="Đóng"></button>
+      </div>
+      <div class="ut-list" id="utList"></div>
     </div>
     """
 
@@ -222,12 +232,13 @@ def render_docs_page(tree, editable=True, user=None, activities=None):
         <div class="modal-body">
           <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
             <span class="material-symbols-rounded ph-light ph-cloud-arrow-up icon"></span>
-            <div class="text">Kéo thả tệp tin hoặc Click để chọn tệp tải lên</div>
-            <div class="hint" style="font-size: 11px; color: var(--on-surface-variant); margin-top: 4px;">Hỗ trợ .pdf, .xlsx, .docx, .png (tối đa 20MB)</div>
-            <input type="file" id="fileInput" onchange="handleFileSelect(event)">
+            <div class="text">Kéo thả nhiều tệp hoặc Click để chọn tệp tải lên</div>
+            <div class="hint" style="font-size: 11px; color: var(--on-surface-variant); margin-top: 4px;">Hỗ trợ .pdf, .xlsx, .docx, .png (tối đa 20MB/tệp)</div>
+            <input type="file" id="fileInput" multiple onchange="handleFileSelect(event)">
           </div>
-          
+
           <div class="mfield" id="uploadForm" style="display:none">
+            <div id="uploadFileList" class="upload-file-list"></div>
             <label for="uploadFolderSel">Lưu vào thư mục</label>
             <select id="uploadFolderSel">
             </select>

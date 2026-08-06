@@ -728,9 +728,11 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             res = run_parallel({'docs': load_docs, 'bell': self._bell_activities})
             # Folder "Quy Trình" (tab HTML) luôn có sẵn; chỉ admin mới persist được
             tree, changed = ensure_process_folder(res['docs'])
-            if changed and self._is_admin():
+            if changed and self._authed():
                 save_docs(tree)
-            self._html(render_docs_page(tree, editable=self._is_admin(),
+            # editable=True -> MỌI QA đăng nhập được upload/tạo thư mục/sửa (như Test Case).
+            # Dev bị chặn tự nhiên: /docs không trong _DEV_GET_ALLOWED.
+            self._html(render_docs_page(tree, editable=True,
                                         user=self._user_ctx(), activities=res['bell']))
         except RuntimeError as e:
             self._html(render_error_page(str(e)))
@@ -1376,7 +1378,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
     # _post_upload_file -> routes/uploads.py (UploadsMixin, B3/#115)
 
     def _post_save_docs(self):
-        if not self._is_admin():
+        # Mở cho MỌI QA authed (khớp editable=True ở render). Dev bị chặn tự nhiên:
+        # /save-docs không trong _DEV_POST_ALLOWED.
+        if not self._authed():
             self._json(403, b'{"ok":false,"err":"forbidden"}')
             return
         ok = False

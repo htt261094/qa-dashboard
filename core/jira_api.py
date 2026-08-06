@@ -615,11 +615,17 @@ def global_search(query, limit=20):
         return []
     keys = []
     try:
+        import re
+        # Tách query thành token chữ-số (bỏ '[', ']', dấu câu). Gửi cho picker bản đã làm
+        # sạch (dấu ngoặc làm picker match kém), rồi lọc local theo TỪNG token: mọi token
+        # đều phải xuất hiện trong key+summary (không cần liền mạch) -> '[QA] VietQRPay'
+        # khớp summary '[QA] Test thanh toán VietQRPay ...'.
+        words = [w.lower() for w in re.findall(r'[0-9A-Za-z]+', q)]
+        picker_q = ' '.join(words) if words else q
         r = _SESSION.get(f"{JIRA_URL}/rest/api/2/issue/picker", headers=_auth_headers(),
-                         params={'query': q, 'currentJQL': '', 'showSubTasks': 'true',
+                         params={'query': picker_q, 'currentJQL': '', 'showSubTasks': 'true',
                                  'showSubTaskParent': 'true'}, timeout=15)
         r.raise_for_status()
-        import re
         q_lower = q.lower()
         for sec in (r.json().get('sections') or []):
             for it in (sec.get('issues') or []):
@@ -628,7 +634,8 @@ def global_search(query, limit=20):
                     continue
                 summary = it.get('summary') or it.get('summaryText') or ''
                 summary_clean = re.sub(r'<[^>]+>', '', summary).lower()
-                if q_lower in k.lower() or q_lower in summary_clean:
+                hay = (k + ' ' + summary_clean).lower()
+                if (words and all(w in hay for w in words)) or q_lower in k.lower():
                     keys.append(k)
     except requests.RequestException as e:
         raise RuntimeError(f"Network error: {str(e).replace(PAT, '<REDACTED>')}")
