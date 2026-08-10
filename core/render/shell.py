@@ -175,10 +175,11 @@ def _settings_modal_v2(user=None):
 
 
 def _subtask_modal_v2():
-    """Modal tạo Sub-task QA dưới 1 task cha (dùng chung mọi trang v2).
-    Parent + Leader = type-ahead (gọi /search-parents, /search-people). Mỗi sub-task 1 DÒNG
-    trong danh sách: ô tiêu đề + dropdown QA RIÊNG (gán người khác nhau cho từng dòng).
-    Start date default hôm nay. JS điều khiển + clone #subRowTpl trong app_v2.js."""
+    """Modal tạo Sub-task QA dưới NHIỀU task cha (dùng chung mọi trang v2).
+    Chọn 1 task cha -> sinh 1 NHÓM (2 dòng QA mặc định) dưới nhãn task cha đó; chọn thêm task
+    cha khác -> thêm nhóm mới. Mỗi dòng: ô tiêu đề + dropdown QA RIÊNG. Hover chip task cha ->
+    popup sub-task đang có, bấm để thêm dòng QA vào ĐÚNG nhóm đó. Leader = type-ahead dùng chung.
+    Start date default hôm nay. JS điều khiển + clone #subGroupTpl/#subRowTpl trong app_v2.js."""
     today = datetime.now().strftime('%Y-%m-%d')
     opts = '<option value="">— Chưa gán —</option>'
     for u in USERS:
@@ -189,19 +190,16 @@ def _subtask_modal_v2():
         '<h3>Tạo Sub-task</h3>'
         '<button type="button" class="x material-symbols-rounded ph-light ph-x" id="subClose"></button></div>'
         '<div class="modal-body">'
-        '<div class="mfield"><label>Task cha *</label>'
+        '<div class="mfield"><label>Thêm task cha *</label>'
         '<div class="typeahead" id="subParentTA">'
-        '<input type="text" id="subParentInp" placeholder="Gõ key hoặc tên task…" autocomplete="off" spellcheck="false">'
+        '<input type="text" id="subParentInp" placeholder="Gõ key hoặc tên task cha…" autocomplete="off" spellcheck="false">'
         '<div class="ta-results" id="subParentRes"></div></div>'
-        '<div class="ta-chip" id="subParentChip" style="display:none"></div>'
         '<div class="st-parent-hint" id="subParentHint">'
         '<span class="material-symbols-rounded ph-light ph-list-magnifying-glass mi-sm"></span>'
-        'Di chuột vào task cha để xem sub-task đang có · bấm để thêm dòng QA</div></div>'
-        '<div class="mfield"><label>Sub-task * <small class="mhint">(mỗi dòng 1 sub-task — gán QA riêng)</small></label>'
-        '<div class="st-head"><span class="h-idx">#</span><span>Tiêu đề</span><span>QA xử lý</span><span></span></div>'
-        '<div class="st-list" id="subList"></div>'
-        '<button type="button" class="st-add" id="subAddRow">'
-        '<span class="material-symbols-rounded ph-light ph-plus mi-sm"></span>Thêm sub-task</button>'
+        'Mỗi task cha đã chọn tạo 1 nhóm sub-task riêng · di chuột vào tên task cha để xem sub-task đang có</div></div>'
+        '<div class="mfield"><label>Nhóm sub-task theo task cha *</label>'
+        '<div class="st-groups" id="subGroups"></div>'
+        '<div class="st-groups-empty" id="subGroupsEmpty">Chưa có task cha nào — chọn ở ô trên để bắt đầu.</div>'
         '<div class="st-summary mcount" id="subCount"></div></div>'
         '<div class="mfield row2">'
         f'<div><label>Ngày bắt đầu *</label><input type="date" id="subStart" value="{today}"></div>'
@@ -217,6 +215,18 @@ def _subtask_modal_v2():
         '<button type="button" class="btn btn-ghost" id="subCancel">Huỷ</button>'
         '<button type="button" class="btn btn-primary" id="subCreate">Tạo sub-task</button>'
         '</div></div></div>'
+        # Template 1 NHÓM (JS clone): đầu nhóm = chip task cha + nút bỏ; thân = danh sách dòng
+        '<template id="subGroupTpl">'
+        '<div class="st-group">'
+        '<div class="st-group-head">'
+        '<span class="st-gchip"><span class="st-gkey"></span><span class="st-gsum"></span></span>'
+        '<button type="button" class="st-gdel material-symbols-rounded ph-light ph-x mi-sm" title="Bỏ task cha này"></button>'
+        '</div>'
+        '<div class="st-head"><span class="h-idx">#</span><span>Tiêu đề</span><span>QA xử lý</span><span></span></div>'
+        '<div class="st-list"></div>'
+        '<button type="button" class="st-add st-add-row">'
+        '<span class="material-symbols-rounded ph-light ph-plus mi-sm"></span>Thêm sub-task</button>'
+        '</div></template>'
         # Template 1 dòng sub-task (JS clone): ô tiêu đề + dropdown QA + nút xoá
         '<template id="subRowTpl">'
         '<div class="st-row">'

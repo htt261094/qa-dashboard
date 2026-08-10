@@ -206,6 +206,66 @@ def create_subtasks(parent_key, items, duedate, start_date, leader=None, pat=Non
     return bool(created), {'created': created, 'failed': failed}
 
 
+def create_subtasks_multi(groups, duedate, start_date, leader=None, pat=None):
+    """Tạo sub-task dưới NHIỀU task cha trong 1 lần, NHÂN DANH chủ PAT.
+
+    `groups` = list; mỗi phần tử là dict {'parent': '<KEY>', 'items': [ {summary,assignee}|str ]}.
+    Mỗi cha verify 1 lần rồi tạo tuần tự các item của nó (mỗi item gán QA riêng). Chung
+    duedate/start_date/leader cho MỌI cha.
+    Trả (overall_ok, {'created': [{'key','summary','parent'}],
+                      'failed':  [{'summary','assignee','parent','msg'}]}).
+    overall_ok = True nếu tạo được ÍT NHẤT 1 issue. Cha verify fail -> mọi item của cha đó
+    vào `failed` (không làm hỏng các cha khác). Không có group hợp lệ -> (False, {'msg': ...})."""
+    if not duedate:
+        return False, {'msg': 'Thiếu hạn chót (Due date).'}
+    if not start_date:
+        return False, {'msg': 'Thiếu ngày bắt đầu (Start date).'}
+    # Chuẩn hoá từng group: (parent_key, [(summary, assignee|None)])
+    norm_groups = []
+    for g in (groups or []):
+        if not isinstance(g, dict):
+            continue
+        pkey = (g.get('parent') or '').strip()
+        if not pkey:
+            continue
+        rows = []
+        for it in (g.get('items') or []):
+            if isinstance(it, dict):
+                s = (it.get('summary') or '').strip()
+                a = (it.get('assignee') or '').strip() or None
+            elif isinstance(it, str):
+                s, a = it.strip(), None
+            else:
+                continue
+            if s:
+                rows.append((s, a))
+        if rows:
+            norm_groups.append((pkey, rows))
+    if not norm_groups:
+        return False, {'msg': 'Chưa có task cha hoặc sub-task nào để tạo.'}
+    created, failed = [], []
+    parent_cache = {}   # parent_key -> (ok, project_key|msg) — verify mỗi cha đúng 1 lần
+    for pkey, rows in norm_groups:
+        if pkey not in parent_cache:
+            parent_cache[pkey] = _resolve_parent(pkey, pat)
+        p_ok, p_res = parent_cache[pkey]
+        if not p_ok:
+            for title, assignee in rows:
+                failed.append({'summary': title, 'assignee': assignee or '',
+                               'parent': pkey, 'msg': p_res})
+            continue
+        project_key = p_res
+        for title, assignee in rows:
+            one_ok, one_res = _create_one_subtask(project_key, pkey, title, duedate,
+                                                  start_date, assignee, leader, pat)
+            if one_ok:
+                created.append({'key': one_res, 'summary': title, 'parent': pkey})
+            else:
+                failed.append({'summary': title, 'assignee': assignee or '',
+                               'parent': pkey, 'msg': one_res})
+    return bool(created), {'created': created, 'failed': failed}
+
+
 def can_edit_duedate(key, pat):
     """Task này người dùng (theo PAT cá nhân) CÓ được sửa Due date không?
 

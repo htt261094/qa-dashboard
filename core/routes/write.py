@@ -20,7 +20,7 @@ from config import JIRA_URL
 from pat_store import load_user_pat
 from custom_status import set_custom_status, is_valid
 from jira_write import (get_transitions, do_transition, add_comment, create_subtask,
-                        create_subtasks, can_edit_duedate, set_duedate,
+                        create_subtasks, create_subtasks_multi, can_edit_duedate, set_duedate,
                         get_editmeta_fields, update_issue)
 
 
@@ -148,7 +148,9 @@ class WriteMixin:
             self._reply_json(False, {'ok': False, 'msg': 'Lỗi xử lý yêu cầu.'})
 
     def _handle_create_subtasks(self):
-        """Tạo NHIỀU Sub-task QA dưới CÙNG 1 Task-PTSP (verify cha 1 lần, tạo tuần tự).
+        """Tạo NHIỀU Sub-task QA dưới 1 HOẶC NHIỀU task cha (verify mỗi cha 1 lần, tạo tuần tự).
+        - payload có `groups`=[{parent, items}] -> tạo cho nhiều cha (mỗi cha 1 nhóm sub-task).
+        - payload cũ (`parent` + `items`/`summaries`) -> giữ luồng 1 cha (tương thích ngược).
         Partial-failure: trả cả created lẫn failed để FE báo rõ."""
         pat = load_user_pat(self._user_email())
         if not pat:
@@ -156,9 +158,12 @@ class WriteMixin:
                 'msg': 'Bạn chưa cấu hình PAT. Vào ⚙ Cài đặt để thêm, rồi thử lại.'})
             return
         try:
-            payload = self._read_json_body(50_000)
+            payload = self._read_json_body(80_000)
             if not isinstance(payload, dict):
                 self._reply_json(False, {'ok': False, 'msg': 'Dữ liệu không hợp lệ.'})
+                return
+            if isinstance(payload.get('groups'), list):
+                self._handle_create_subtasks_multi(payload, pat)
                 return
             parent = (payload.get('parent') or '').strip()
             # items = [{summary, assignee}] (assignee RIÊNG mỗi dòng). Tương thích ngược:
@@ -196,6 +201,56 @@ class WriteMixin:
             ok, res = create_subtasks(parent, items, duedate, start_date, leader, pat)
             if not ok and not isinstance(res.get('created'), list):
                 # Lỗi sớm (verify cha / thiếu field) -> chỉ có msg
+                self._reply_json(False, {'ok': False, 'msg': res.get('msg', 'Lỗi tạo sub-task.')})
+                return
+            created = res.get('created', [])
+            failed = res.get('failed', [])
+            for c in created:
+                c['url'] = f"{JIRA_URL}/browse/{c.get('key','')}"
+            self._reply_json(bool(created),
+                {'ok': bool(created), 'created': created, 'failed': failed})
+        except (ValueError, json.JSONDecodeError, OSError):
+            self._reply_json(False, {'ok': False, 'msg': 'Lỗi xử lý yêu cầu.'})
+
+    def _handle_create_subtasks_multi(self, payload, pat):
+        """Tạo sub-task dưới NHIỀU task cha (mỗi cha 1 nhóm). Chung due/start/leader.
+        Cap tổng 40 sub-task/lần (nhiều cha) để tránh loạt call quá nặng."""
+        try:
+            duedate = (payload.get('duedate') or '').strip()
+            start_date = (payload.get('startDate') or '').strip()
+            leader = (payload.get('leader') or '').strip() or None
+            datep = r'^\d{4}-\d{2}-\d{2}$'
+            if not re.match(datep, duedate) or not re.match(datep, start_date):
+                self._reply_json(False, {'ok': False,
+                    'msg': 'Ngày phải đúng định dạng YYYY-MM-DD.'})
+                return
+            groups, total = [], 0
+            for g in payload.get('groups', []):
+                if not isinstance(g, dict):
+                    continue
+                parent = (g.get('parent') or '').strip()
+                if not re.match(r'^[A-Za-z0-9]+-\d+$', parent):
+                    continue
+                items = []
+                for it in (g.get('items') or []):
+                    if total >= 40:
+                        break
+                    if isinstance(it, dict) and isinstance(it.get('summary'), str) and it['summary'].strip():
+                        a = it.get('assignee')
+                        items.append({'summary': it['summary'],
+                                      'assignee': a if isinstance(a, str) else ''})
+                        total += 1
+                    elif isinstance(it, str) and it.strip():
+                        items.append({'summary': it, 'assignee': ''})
+                        total += 1
+                if items:
+                    groups.append({'parent': parent, 'items': items})
+            if not groups:
+                self._reply_json(False, {'ok': False,
+                    'msg': 'Chưa có task cha hoặc sub-task nào hợp lệ.'})
+                return
+            ok, res = create_subtasks_multi(groups, duedate, start_date, leader, pat)
+            if not ok and not isinstance(res.get('created'), list):
                 self._reply_json(False, {'ok': False, 'msg': res.get('msg', 'Lỗi tạo sub-task.')})
                 return
             created = res.get('created', [])

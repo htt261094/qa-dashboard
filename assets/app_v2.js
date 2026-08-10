@@ -3432,13 +3432,14 @@ window.__smSetCustom=function(t, key, val, onChanged){
   applyUrlState();
 })();
 
-// ---------- Tạo Sub-task (modal type-ahead, dùng chung mọi trang v2) ----------
+// ---------- Tạo Sub-task (modal type-ahead, NHIỀU task cha, dùng chung mọi trang v2) ----------
 (function(){
   var ov = $('subOverlay'); if(!ov) return;
   var openBtn = $('createSubBtn');
-  var parent = { key:'', summary:'' };   // Task-PTSP đã chọn
-  var leader = { name:'', display:'' };  // user đã chọn (optional)
+  var leader = { name:'', display:'' };  // user đã chọn (optional, dùng chung mọi nhóm)
+  var groupsBox = $('subGroups'), groupTpl = $('subGroupTpl'), rowTpl = $('subRowTpl');
 
+  function stripPrefix(s){ return (s||'').trim().replace(/^\[[^\]]*\]\s*/,''); }
   // Ngày cuối tháng hiện tại (YYYY-MM-DD) — default cho Hạn chót
   function endOfMonth(){
     var d=new Date(), e=new Date(d.getFullYear(), d.getMonth()+1, 0);
@@ -3446,22 +3447,22 @@ window.__smSetCustom=function(t, key, val, onChanged){
     return e.getFullYear()+'-'+mm+'-'+dd;
   }
   function open(){ ov.classList.add('open');
-    // Auto-fill Hạn chót = cuối tháng hiện tại (nếu chưa nhập)
     var due=$('subDue'); if(due && !due.value){ due.value=endOfMonth(); }
-    ensureRow(); updateCount();
+    updateCount();
     var p=$('subParentInp'); if(p) setTimeout(function(){ p.focus(); }, 60); }
   function close(){ ov.classList.remove('open'); if(subPop) subPop.classList.remove('open'); }
   function debounce(fn, ms){ var t; return function(){ var a=arguments, self=this;
     clearTimeout(t); t=setTimeout(function(){ fn.apply(self, a); }, ms||260); }; }
 
   // --- generic type-ahead: gắn input -> results, gọi search(url), chọn 1 mục ---
-  function wireTA(inpId, resId, chipId, url, fmt, onPick){
-    var inp=$(inpId), res=$(resId), chip=$(chipId), opts=[], active=-1;
+  // noChip=true -> chọn xong KHÔNG hiện chip mà xoá input để chọn tiếp (dùng cho ô "thêm task cha")
+  function wireTA(inpId, resId, chipId, url, fmt, onPick, noChip){
+    var inp=$(inpId), res=$(resId), chip=chipId?$(chipId):null, opts=[], active=-1;
     function place(){ var r=inp.getBoundingClientRect();   // toạ độ viewport cho position:fixed
       res.style.top=(r.bottom+4)+'px'; res.style.left=r.left+'px'; res.style.width=r.width+'px'; }
     function hide(){ res.classList.remove('open'); res.innerHTML=''; opts=[]; active=-1; }
     function show(){ place(); res.classList.add('open'); }
-    function showChip(label){ chip.innerHTML = label +
+    function showChip(label){ if(!chip) return; chip.innerHTML = label +
         '<button type="button" class="ta-x material-symbols-rounded ph-light ph-x mi-sm" title="Bỏ chọn"></button>';
       chip.style.display='flex'; inp.style.display='none';
       chip.querySelector('.ta-x').addEventListener('click', function(){
@@ -3492,34 +3493,131 @@ window.__smSetCustom=function(t, key, val, onChanged){
     });
     res.addEventListener('mousedown', function(e){ var el=e.target.closest('.ta-opt'); if(el) pick(+el.getAttribute('data-i')); });
     inp.addEventListener('blur', function(){ setTimeout(hide, 150); });  // click ra ngoài -> đóng (mousedown pick chạy trước)
-    function pick(i){ var o=opts[i]; if(!o) return; onPick(o); showChip(fmt(o)); hide(); }
+    function pick(i){ var o=opts[i]; if(!o) return;
+      if(noChip){ onPick(o); inp.value=''; hide(); inp.focus(); }   // giữ input để thêm cha kế
+      else { onPick(o); showChip(fmt(o)); hide(); }
+    }
     return {
-      reset:function(){ chip.style.display='none'; chip.innerHTML=''; inp.style.display=''; inp.value=''; hide(); },
-      // set giá trị bằng tay (auto-fill): hiện chip + chạy onPick như vừa chọn
-      set:function(o){ if(!o){ onPick(null); return; } onPick(o); showChip(fmt(o)); }
+      reset:function(){ if(chip){ chip.style.display='none'; chip.innerHTML=''; } inp.style.display=''; inp.value=''; hide(); },
+      set:function(o){ if(!o){ onPick(null); return; } onPick(o); if(!noChip) showChip(fmt(o)); }
     };
   }
 
-  var parentTA = wireTA('subParentInp','subParentRes','subParentChip','/search-parents?q=',
+  // Chọn 1 task cha -> thêm 1 NHÓM mới (không hiện chip; giữ input để chọn cha tiếp)
+  var parentTA = wireTA('subParentInp','subParentRes',null,'/search-parents?q=',
     function(o){ return '<b>'+esc(o.key)+'</b>'+esc(o.summary||''); },
-    function(o){ parent = o ? {key:o.key, summary:o.summary||''} : {key:'',summary:''};
-      // Chọn cha -> auto-gen 2 dòng: "[QA] Viết testcase <cha>" + "[QA] Test <cha>"
-      // (bỏ MỌI tiền tố [xxxx] của cha nếu có để tránh lồng nhau; QA để "Chưa gán")
-      clearRows();
-      if(parent.key){
-        var t=(parent.summary||'').trim().replace(/^\[[^\]]*\]\s*/,'');
-        addRow('[QA] Viết testcase '+t, ''); addRow('[QA] Test '+t, '');
-      } else { ensureRow(); }
-      updateCount();
-      var hint=$('subParentHint'); if(hint) hint.style.display = parent.key ? 'flex' : 'none';
-      if(parent.key) preloadSubtasks(parent.key);   // warm cache cho popup hover
-    });
+    function(o){ if(o && o.key) addGroup(o.key, o.summary||''); }, true);
   var leaderTA = wireTA('subLeaderInp','subLeaderRes','subLeaderChip','/search-people?q=',
     function(o){ return '<b>'+esc(o.display||o.name)+'</b><small>'+esc(o.name)+'</small>'; },
     function(o){ leader = o ? {name:o.name, display:o.display||o.name} : {name:'',display:''}; });
 
-  // --- popup "sub-task đang có" của task cha: hover chip -> list zoom-in, bấm 1 mục -> thêm dòng QA ---
-  var subCache={}, subPop=null, subPopTimer=null, chipEl=$('subParentChip');
+  // ===== Nhóm sub-task theo task cha =====
+  function groupEls(){ return groupsBox ? Array.prototype.slice.call(groupsBox.querySelectorAll('.st-group')) : []; }
+  function findGroup(key){
+    var hit=null; groupEls().forEach(function(g){ if(g.getAttribute('data-parent')===key) hit=g; }); return hit;
+  }
+  function addRow(listEl, title, assignee){
+    if(!listEl || !rowTpl) return;
+    var node = rowTpl.content.firstElementChild.cloneNode(true);
+    var ti = node.querySelector('.st-title'), se = node.querySelector('.st-assignee');
+    if(ti) ti.value = title||'';
+    if(se){ se.value = assignee||''; se.classList.toggle('unset', !se.value); }
+    listEl.appendChild(node); renumber(listEl);
+  }
+  function ensureGroupRow(listEl){ if(listEl && !listEl.querySelector('.st-row')) addRow(listEl, '', ''); }
+  function renumber(listEl){
+    if(!listEl) return;
+    listEl.querySelectorAll('.st-row').forEach(function(r,i){
+      var idx=r.querySelector('.st-idx'); if(idx) idx.textContent=(i+1); });
+  }
+  function addGroup(key, summary){
+    if(!groupsBox || !groupTpl || !key) return;
+    var exist=findGroup(key);
+    if(exist){   // đã có nhóm cho cha này -> không nhân đôi, cuộn tới + nhấp nháy
+      exist.scrollIntoView({block:'center', behavior:'smooth'});
+      exist.classList.add('st-group-flash'); setTimeout(function(){ exist.classList.remove('st-group-flash'); }, 900);
+      toast('Task cha '+key+' đã có trong danh sách', false); return;
+    }
+    var node = groupTpl.content.firstElementChild.cloneNode(true);
+    node.setAttribute('data-parent', key);
+    var gk=node.querySelector('.st-gkey'), gs=node.querySelector('.st-gsum');
+    if(gk) gk.textContent = key;
+    if(gs) gs.textContent = summary||'';
+    var listEl = node.querySelector('.st-list');
+    // Auto-gen 2 dòng: "[QA] Viết testcase <cha>" + "[QA] Test <cha>" (QA để "Chưa gán")
+    var t=stripPrefix(summary);
+    addRow(listEl, '[QA] Viết testcase '+t, ''); addRow(listEl, '[QA] Test '+t, '');
+    groupsBox.appendChild(node);
+    // hover chip -> popup sub-task đang có của cha này
+    var chip=node.querySelector('.st-gchip');
+    if(chip){
+      chip.addEventListener('mouseenter', function(){ clearTimeout(subPopTimer); showPop(node, key, chip); });
+      chip.addEventListener('mouseleave', hidePop);
+    }
+    preloadSubtasks(key);   // warm cache cho popup
+    reflectEmpty(); updateCount();
+  }
+  function removeGroup(g){ if(g) g.remove(); reflectEmpty(); updateCount(); }
+  function reflectEmpty(){
+    var empty=$('subGroupsEmpty'); if(empty) empty.style.display = groupEls().length ? 'none' : 'block';
+  }
+  function getGroups(){
+    return groupEls().map(function(g){
+      var items=[];
+      g.querySelectorAll('.st-row').forEach(function(r){
+        var t=(r.querySelector('.st-title')||{}).value||'';
+        var a=(r.querySelector('.st-assignee')||{}).value||'';
+        t=t.trim(); if(t) items.push({summary:t, assignee:a});
+      });
+      return {parent:g.getAttribute('data-parent'), summary:(g.querySelector('.st-gsum')||{}).textContent||'', items:items};
+    }).filter(function(gr){ return gr.parent && gr.items.length; });
+  }
+  function updateCount(){
+    var groups=getGroups(), n=0, assigned=0;
+    groups.forEach(function(gr){ n+=gr.items.length;
+      assigned += gr.items.filter(function(x){return x.assignee;}).length; });
+    var c=$('subCount'), b=$('subCreate');
+    if(c){
+      if(!n){ c.textContent=''; }
+      else { c.textContent = groups.length+' task cha · '+n+' sub-task · '+assigned+' QA được gán'
+        + (n-assigned>0 ? (' · '+(n-assigned)+' chưa gán') : ''); }
+    }
+    if(b) b.textContent = n>1 ? ('Tạo '+n+' sub-task') : 'Tạo sub-task';
+  }
+  function reset(){
+    leader={name:'',display:''};
+    parentTA.reset(); leaderTA.reset();
+    if(groupsBox) groupsBox.innerHTML='';
+    var d=$('subDue'); if(d) d.value='';
+    if(subPop) subPop.classList.remove('open');
+    reflectEmpty(); updateCount();
+  }
+
+  // Delegation trên container: xoá nhóm / thêm dòng / xoá dòng / đổi tiêu đề / đổi QA
+  if(groupsBox){
+    groupsBox.addEventListener('click', function(e){
+      var gdel=e.target.closest('.st-gdel');
+      if(gdel){ removeGroup(gdel.closest('.st-group')); return; }
+      var addR=e.target.closest('.st-add-row');
+      if(addR){ var list=addR.closest('.st-group').querySelector('.st-list');
+        addRow(list,'',''); updateCount();
+        var last=list.querySelector('.st-row:last-child .st-title'); if(last) last.focus(); return; }
+      var del=e.target.closest('.st-del');
+      if(del){ var row=del.closest('.st-row'), list2=del.closest('.st-list');
+        if(row) row.remove(); ensureGroupRow(list2); renumber(list2); updateCount(); return; }
+    });
+    groupsBox.addEventListener('input', function(e){
+      if(e.target.classList.contains('st-title')) updateCount();
+    });
+    groupsBox.addEventListener('change', function(e){
+      if(e.target.classList.contains('st-assignee')){
+        e.target.classList.toggle('unset', !e.target.value); updateCount();
+      }
+    });
+  }
+
+  // --- popup "sub-task đang có" của task cha: hover chip -> list zoom-in, bấm 1 mục -> thêm dòng QA vào ĐÚNG nhóm ---
+  var subCache={}, subPop=null, subPopTimer=null, popGroup=null, popChip=null;
   function preloadSubtasks(key){
     if(!key || subCache[key]) return;
     getJSON('/parent-subtasks?key='+encodeURIComponent(key))
@@ -3533,18 +3631,18 @@ window.__smSetCustom=function(t, key, val, onChanged){
     subPop.addEventListener('mouseenter', function(){ clearTimeout(subPopTimer); });
     subPop.addEventListener('mouseleave', hidePop);
     subPop.addEventListener('click', function(e){
-      var it=e.target.closest('.stp-item'); if(!it) return;
-      // Bấm 1 sub-task -> sinh 2 dòng QA: "Viết testcase" + "Test" (như chọn cha)
-      // (bỏ MỌI tiền tố [xxxx] cho nhất quán với auto-fill khi chọn cha)
-      var s=(it.getAttribute('data-sum')||'').replace(/^\[[^\]]*\]\s*/,'');
-      addRow('[QA] Viết testcase '+s, ''); addRow('[QA] Test '+s, ''); updateCount();
+      var it=e.target.closest('.stp-item'); if(!it || !popGroup) return;
+      // Bấm 1 sub-task -> sinh 2 dòng QA vào nhóm của cha đang hover: "Viết testcase" + "Test"
+      var list=popGroup.querySelector('.st-list'); if(!list) return;
+      var s=stripPrefix(it.getAttribute('data-sum')||'');
+      addRow(list, '[QA] Viết testcase '+s, ''); addRow(list, '[QA] Test '+s, ''); updateCount();
       it.classList.add('added'); toast('Đã thêm 2 dòng QA cho: '+s, true);
     });
     return subPop;
   }
   function placePop(){
-    if(!subPop || !chipEl) return;
-    var r=chipEl.getBoundingClientRect();
+    if(!subPop || !popChip) return;
+    var r=popChip.getBoundingClientRect();
     subPop.style.top=(r.bottom+6)+'px'; subPop.style.left=r.left+'px';
     subPop.style.width=Math.max(r.width, 320)+'px';
   }
@@ -3561,88 +3659,19 @@ window.__smSetCustom=function(t, key, val, onChanged){
           '<span class="stp-add material-symbols-rounded ph-light ph-plus mi-sm"></span></div>';
       }).join('');
   }
-  function showPop(){
-    if(!parent.key || !chipEl) return;
+  function showPop(groupEl, key, chip){
+    if(!key || !chip) return;
+    popGroup=groupEl; popChip=chip;
     var p=buildPop(); p.classList.add('open');
-    if(subCache[parent.key]){ renderPop(subCache[parent.key]); placePop(); return; }
+    if(subCache[key]){ renderPop(subCache[key]); placePop(); return; }
     p.innerHTML='<div class="stp-loading">Đang tải sub-task…</div>'; placePop();
-    var want=parent.key;
+    var want=key;
     getJSON('/parent-subtasks?key='+encodeURIComponent(want)).then(function(j){
       var list=(j&&j.results)||[]; subCache[want]=list;
-      if(p.classList.contains('open') && parent.key===want){ renderPop(list); placePop(); }
+      if(p.classList.contains('open') && popChip===chip){ renderPop(list); placePop(); }
     }).catch(function(){ if(p.classList.contains('open')) p.innerHTML='<div class="stp-empty">Lỗi tải sub-task</div>'; });
   }
   function hidePop(){ subPopTimer=setTimeout(function(){ if(subPop) subPop.classList.remove('open'); }, 180); }
-  if(chipEl){
-    chipEl.addEventListener('mouseenter', function(){ clearTimeout(subPopTimer); showPop(); });
-    chipEl.addEventListener('mouseleave', hidePop);
-  }
-
-  // --- danh sách sub-task: mỗi dòng 1 tiêu đề + 1 dropdown QA riêng ---
-  var listEl = $('subList'), rowTpl = $('subRowTpl');
-  function clearRows(){ if(listEl) listEl.innerHTML=''; }
-  function addRow(title, assignee){
-    if(!listEl || !rowTpl) return;
-    var node = rowTpl.content.firstElementChild.cloneNode(true);
-    var ti = node.querySelector('.st-title'), se = node.querySelector('.st-assignee');
-    if(ti) ti.value = title||'';
-    if(se){ se.value = assignee||''; se.classList.toggle('unset', !se.value); }
-    listEl.appendChild(node); renumber();
-  }
-  function ensureRow(){ if(listEl && !listEl.querySelector('.st-row')) addRow('', ''); }
-  function renumber(){
-    if(!listEl) return;
-    listEl.querySelectorAll('.st-row').forEach(function(r,i){
-      var idx=r.querySelector('.st-idx'); if(idx) idx.textContent=(i+1); });
-  }
-  function getRows(){
-    if(!listEl) return [];
-    var out=[];
-    listEl.querySelectorAll('.st-row').forEach(function(r){
-      var t=(r.querySelector('.st-title')||{}).value||'';
-      var a=(r.querySelector('.st-assignee')||{}).value||'';
-      t=t.trim(); if(t) out.push({summary:t, assignee:a});
-    });
-    return out;
-  }
-  function updateCount(){
-    var rows=getRows(), n=rows.length, assigned=rows.filter(function(x){return x.assignee;}).length;
-    var c=$('subCount'), b=$('subCreate');
-    if(c){
-      if(!n){ c.textContent=''; }
-      else { c.textContent = n+' sub-task · '+assigned+' QA được gán'
-        + (n-assigned>0 ? (' · '+(n-assigned)+' chưa gán') : ''); }
-    }
-    if(b) b.textContent = n>1 ? ('Tạo '+n+' sub-task') : 'Tạo sub-task';
-  }
-  function reset(){
-    parent={key:'',summary:''}; leader={name:'',display:''};
-    parentTA.reset(); leaderTA.reset();
-    clearRows(); ensureRow();
-    var d=$('subDue'); if(d) d.value='';
-    var hint=$('subParentHint'); if(hint) hint.style.display='none';
-    if(subPop) subPop.classList.remove('open');
-    updateCount();
-  }
-  // Delegation: xoá dòng, đổi tiêu đề/QA -> cập nhật đếm + trạng thái "unset"
-  if(listEl){
-    listEl.addEventListener('click', function(e){
-      var del=e.target.closest('.st-del'); if(!del) return;
-      var row=del.closest('.st-row'); if(row) row.remove();
-      ensureRow(); renumber(); updateCount();
-    });
-    listEl.addEventListener('input', function(e){
-      if(e.target.classList.contains('st-title')) updateCount();
-    });
-    listEl.addEventListener('change', function(e){
-      if(e.target.classList.contains('st-assignee')){
-        e.target.classList.toggle('unset', !e.target.value); updateCount();
-      }
-    });
-  }
-  var addBtn=$('subAddRow');
-  if(addBtn) addBtn.addEventListener('click', function(){ addRow('',''); updateCount();
-    var last=listEl && listEl.querySelector('.st-row:last-child .st-title'); if(last) last.focus(); });
 
   // Chưa có PAT -> không mở form tạo, mở thẳng modal Cài đặt PAT (create cần PAT cá nhân).
   if(openBtn) openBtn.addEventListener('click', function(){
@@ -3661,17 +3690,17 @@ window.__smSetCustom=function(t, key, val, onChanged){
 
   var createBtn=$('subCreate');
   if(createBtn) createBtn.addEventListener('click', function(){
-    var items=getRows();
+    var groups=getGroups();
     var start=($('subStart').value||'').trim();
     var due=($('subDue').value||'').trim();
-    if(!parent.key){ toast('Chưa chọn task cha', false); return; }
-    if(!items.length){ toast('Chưa nhập tiêu đề', false); return; }
+    if(!groups.length){ toast('Chưa chọn task cha nào', false); return; }
     if(!start){ toast('Chưa chọn ngày bắt đầu', false); return; }
     if(!due){ toast('Chưa chọn hạn chót', false); return; }
     createBtn.disabled=true;
-    // Mỗi dòng 1 assignee -> endpoint gộp (verify cha 1 lần). Timeout dài vì tạo tuần tự N issue.
-    postJSON('/create-subtasks', { parent:parent.key, items:items, startDate:start,
-        duedate:due, leader:leader.name }, 60000)
+    // Nhiều cha -> gửi `groups`. Timeout dài vì tạo tuần tự N issue trên nhiều cha.
+    var payloadGroups=groups.map(function(gr){ return {parent:gr.parent, items:gr.items}; });
+    postJSON('/create-subtasks', { groups:payloadGroups, startDate:start,
+        duedate:due, leader:leader.name }, 90000)
       .then(function(j){
         createBtn.disabled=false;
         if(!j){ toast('Lỗi tạo sub-task', false); return; }
@@ -3683,11 +3712,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
           toast(m, false); return;
         }
         if(failed.length){
-          // Partial: báo cả hai, giữ lại các dòng lỗi (kèm QA đã gán) trong danh sách để retry
-          toast('Đã tạo '+created.length+', lỗi '+failed.length+' (giữ lại dòng lỗi)', false);
-          clearRows();
-          failed.forEach(function(f){ addRow(f.summary||'', f.assignee||''); });
-          ensureRow(); updateCount();
+          toast('Đã tạo '+created.length+', lỗi '+failed.length, false);
           setTimeout(function(){ location.reload(); }, 2200);
         } else {
           toast('Đã tạo '+created.length+' sub-task ✓', true); reset(); close();
