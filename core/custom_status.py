@@ -29,14 +29,12 @@ _ACT_PRUNE_DAYS = 14    # bỏ sự kiện cũ hơn 14 ngày
 # (value, label) — value đi vào data-*, label hiển thị. '' = gỡ nhãn.
 # 4 cái đầu theo yêu cầu; còn lại là tình huống QA Bảo Kim hay gặp.
 CUSTOM_STATUSES = [
-    ('dev_fixing',  'Dev fix bug'),
-    ('wait_ba',     'Chờ BA confirm'),
-    ('dev_busy',    'Dev có priority cao hơn'),
-    ('pm_paused',   'PM tạm dừng'),
-    ('wait_deploy', 'Chờ deploy test'),
-    ('wait_review', 'Chờ review/UAT'),
-    ('wait_data',   'Chờ data test'),
-    ('reopened',    'Bug reopen'),
+    ('dev_fixing',    'Dev fix bug'),
+    ('wait_ba',       'Chờ BA confirm requirement'),
+    ('req_changed',   'Có thay đổi requirement'),
+    ('wait_data',     'Chờ data test'),
+    ('env_not_ready', 'Môi trường test chưa sẵn sàng'),
+    ('wait_deploy',   'Chờ deploy lên test'),
 ]
 _LABELS = dict(CUSTOM_STATUSES)
 _VALID = set(_LABELS)
