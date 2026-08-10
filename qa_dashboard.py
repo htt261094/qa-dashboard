@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cor
 from config import (JIRA_URL, USERS, PORT, ADMIN_EMAIL, ADMIN_EMAILS, ALLOWED_DOMAIN,
                     AUTH_ENABLED, SELF_USER, PUBLIC_BASE_URL, DEV_EMAILS,
                     APP_LINK_PACKAGE, APP_LINK_FINGERPRINT,
-                    display_name, username_from_email)
+                    display_name, username_from_email, canon_key)
 from auth import (SESSION_COOKIE, SESSION_TTL, email_from_session,
                   session_status, make_session_token)
 from drive_token import has_drive_token, delete_drive_token
@@ -227,7 +227,10 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         except Exception:
             return []
         # Entry link tới task này + fingerprint đã stamp (để bám bug qua copy sang sheet mới).
-        linked = [(bk, fp_of(v)) for bk, v in links.items() if task_key in tasks_of(v)]
+        # So khớp theo CANON key (bền qua đổi project key mỗi kỳ nửa năm, xem config.canon_key).
+        ck = canon_key(task_key)
+        linked = [(bk, fp_of(v)) for bk, v in links.items()
+                  if ck in {canon_key(t) for t in tasks_of(v)}]
         if not linked:
             return []
         try:

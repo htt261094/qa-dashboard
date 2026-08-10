@@ -499,93 +499,65 @@ def _cur_month_sheet(report_month):
 
 
 def prev_month_backlog(report_month=None, live=None):
-    """Tồn đọng T-1 cho báo cáo tháng `report_month` ('YYYY-MM', None=tháng hiện tại).
+    """Tồn đọng cho báo cáo tháng `report_month` ('YYYY-MM', None=tháng hiện tại).
 
-    Định nghĩa (user chốt 2026-07-10 — xem Decision #46), tính TRỰC TIẾP từ bug live
-    (KHÔNG dùng snapshot `months`/`carry` nữa — bản thân việc team copy bug sang sheet
-    tháng mới đã là "freeze" tự nhiên rồi). Gom bug TẠO trong T-1 theo FINGERPRINT nội
-    dung (khử trùng bản copy T6↔T7), mỗi bug thật xét 1 lần:
-      - CÒN TREO (still_open): KHÔNG bản nào Closed/Reject -> nợ chưa dọn.
-      - ĐÃ XỬ LÝ (resolved): có bản Closed/Reject VÀ có bản nằm ở sheet tháng T (đã bê
-        sang rồi đóng) -> tồn đọng đã giải quyết trong tháng T.
-      - đóng gọn NGAY trong T-1 (có bản đóng nhưng KHÔNG bê sang) -> KHÔNG phải tồn đọng.
-    total = still_open + resolved.
+    Định nghĩa SHEET-BASED (user chốt 2026-08-07 — xem Decision #75). Đọc THẲNG sheet của
+    tháng T (bucket theo `_month_of` = tên sheet Tn), đếm DÒNG, tách theo `created`:
+      - TỒN ĐỌNG (mang sang từ tháng trước): dòng có `created` < tháng của sheet. Trong đó
+        status mở = CÒN TREO (still_open); Closed/Reject = ĐÃ XỬ LÝ (resolved).
+      - MỚI PHÁT SINH: dòng có `created` == (hoặc >) tháng của sheet.
+    total = still_open + resolved = số dòng tồn đọng.
 
-    Trả dict:
+    Vì team bê bug chưa xử lý xong sang sheet tháng mới (GIỮ NGUYÊN ngày created), chính cái
+    sheet đã là source-of-truth — KHÔNG cần fingerprint/carry/dedup qua nhiều sheet nữa. Cả
+    màn Bug (splitGroups) + Analytics (computeBacklog JS) + report này đọc CÙNG 1 sheet, CÙNG
+    quy tắc -> số liệu KHÔNG thể lệch. PHẢI khớp computeBacklog phía JS (app_v2.js).
+
+    Trả dict (giữ nguyên keys cũ để caller/embed không vỡ):
       {report_month, prev_month, has_snapshot,
        total, resolved, still_open,
-       new_count,      # bug MỚI phát sinh trong report_month (unique fingerprint)
-       new_own,        # = new_count sau khi LOẠI fp đã tồn tại từ T-1 (bản copy đổi created)
-       new_fixed,      # bug MỚI đã fix (Closed) — KHÔNG gộp tồn đọng T-1
-       new_open,       # = new_own - new_fixed
+       new_count,      # = new_own (số dòng mới phát sinh trong sheet)
+       new_own, new_fixed, new_open,   # bug mới: tổng / đã fix (Closed) / chưa fix
        bugs: [ {id, project, dev, created, status_now, state} ]  # state∈{open,resolved}
       }
     `live` (optional) = {key:bug} truyền sẵn để tránh đọc lại; None -> tự lấy."""
     if not report_month:
         report_month = datetime.now().strftime('%Y-%m')
     prev = _prev_month(report_month)
-    cur_sheet = _cur_month_sheet(report_month)
     live = live if live is not None else _live_bugs()
 
     def _id(p, sv, n):
         return f"{p}-{sv + '-' if sv else ''}{n}".strip('-')
 
-    # Gom bug tạo trong T-1 theo fingerprint (khử trùng bản copy sang sheet tháng mới).
-    groups = {}
-    for b in live.values():
-        if (b.get('created', '') or '')[:7] == prev:
-            groups.setdefault(_fp(b), []).append(b)
-
-    # Bản đã BÊ SANG sheet tháng T (carried) = cùng fingerprint, month == cur_sheet — BẤT KỂ
-    # ngày created (team hay đổi created của bản copy sang tháng T thay vì giữ ngày gốc T-1).
-    # Chỉ nhặt bản ở đúng sheet T (không phải mọi bug cùng fp) để không kéo nhầm bug cũ tháng
-    # khác có summary trùng vào diện "đã đóng".
-    carried_by_fp = {}
-    for b in live.values():
-        if (b.get('month', '') or '') == cur_sheet:
-            carried_by_fp.setdefault(_fp(b), []).append(b)
+    # Dòng thuộc SHEET của tháng T (bucket theo tên sheet Tn -> khớp monthOf JS).
+    rows = [b for b in live.values() if _month_of(b) == report_month]
+    back, fresh = [], []
+    for b in rows:
+        (back if (b.get('created', '') or '')[:7] < report_month else fresh).append(b)
 
     bugs = []
     resolved = still_open = 0
-    for fp, group in groups.items():
-        members = group + carried_by_fp.get(fp, [])   # bản T-1 + bản đã bê sang sheet T
-        any_closed = any(not is_open(x.get('status', '')) for x in members)
-        carried = bool(carried_by_fp.get(fp))
-        if not any_closed:
+    for b in back:
+        if is_open(b.get('status', '')):
             state = 'open'; still_open += 1
-            rep = group[0]                            # bản đại diện (còn treo) — dùng bản T-1
-        elif carried:
-            state = 'resolved'; resolved += 1
-            rep = next((x for x in members if not is_open(x.get('status', ''))), group[0])
         else:
-            continue                                  # đóng gọn trong T-1, không bê sang
+            state = 'resolved'; resolved += 1
         bugs.append({
-            'id': _id(rep.get('project', ''), rep.get('service', ''), rep.get('bug_no', '')),
-            'project': rep.get('project', ''), 'dev': rep.get('dev_pic', '') or '',
-            'created': (rep.get('created', '') or '')[:10],
-            'status_now': rep.get('status', '') or '', 'state': state,
+            'id': _id(b.get('project', ''), b.get('service', ''), b.get('bug_no', '')),
+            'project': b.get('project', ''), 'dev': b.get('dev_pic', '') or '',
+            'created': (b.get('created', '') or '')[:10],
+            'status_now': b.get('status', '') or '', 'state': state,
         })
     bugs.sort(key=lambda x: (x['state'] != 'open', x['project'], x['id']))
 
-    # Mới phát sinh trong report_month = số bug thật (unique fingerprint) created trong tháng đó.
-    new_fps = {_fp(b) for b in live.values()
-               if (b.get('created', '') or '')[:7] == report_month}
-
-    # "Bug ĐÃ FIX trong tháng" chỉ tính trên BUG MỚI PHÁT SINH — KHÔNG gộp tồn đọng T-1.
-    # Loại mọi fp đã có bản tạo trong T-1 (`groups`): bản copy bê sang sheet tháng T thường bị
-    # đổi `created` sang tháng T (Decision #62) nên nếu không loại thì bug tồn đọng được fix
-    # trong tháng sẽ bị đếm lẫn vào "bug mới đã fix".
-    own_fps = new_fps - set(groups)
-    closed_fps = {_fp(b) for b in live.values()
-                  if _RE_CLOSED.search(b.get('status', '') or '')}
-    new_fixed = len(own_fps & closed_fps)
+    # Mới phát sinh = số DÒNG trong sheet có created trong tháng T. Đã fix = trong đó Closed.
+    new_own = len(fresh)
+    new_fixed = sum(1 for b in fresh if _RE_CLOSED.search(b.get('status', '') or ''))
 
     return {
         'report_month': report_month, 'prev_month': prev,
-        'has_snapshot': bool(groups),                 # có bug T-1 để tính hay không
+        'has_snapshot': bool(rows),                   # sheet có dòng nào để tính hay không
         'total': resolved + still_open, 'resolved': resolved, 'still_open': still_open,
-        'new_count': len(new_fps), 'bugs': bugs,
-        # bug mới phát sinh (đã loại fp tồn đọng T-1): tổng / đã fix (Closed) / chưa fix
-        'new_own': len(own_fps), 'new_fixed': new_fixed,
-        'new_open': len(own_fps) - new_fixed,
+        'new_count': new_own, 'bugs': bugs,
+        'new_own': new_own, 'new_fixed': new_fixed, 'new_open': new_own - new_fixed,
     }

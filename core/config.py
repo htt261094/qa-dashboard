@@ -4,6 +4,7 @@ Importing this module loads .env (or OS env vars) and validates that JIRA_URL/JI
 exist — exits with a clear message if not. Every other module imports from here.
 """
 import os
+import re
 import sys
 import threading
 from pathlib import Path
@@ -264,6 +265,24 @@ def username_from_email(email):
 def display_name(username):
     """Short team name for a QA username, else the username unchanged."""
     return DEFAULT_DISPLAY_NAMES.get(username, username)
+
+
+# Chuẩn hoá key Jira để so khớp link BỀN qua đổi project key mỗi kỳ nửa năm.
+# Bối cảnh: Jira đổi key khi chuyển kỳ (DA51H26 -> DA52H26 -> DA51H27 ...) NHƯNG số issue
+# giữ nguyên khi move -> link cũ lưu key kỳ trước trượt hết khi so với task live kỳ mới.
+# Cách chữa: gộp đoạn "kỳ" `<digit>H<2-digit-year>` về placeholder '#' -> mọi phiên bản key
+# của CÙNG 1 issue (khác nhau chỉ ở kỳ) canon về một chuỗi, khớp nhau bất kể kỳ nào.
+#   DA51H26-1252 / DA52H26-1252 / DA51H27-1252  ->  DA5#-1252
+# Key KHÔNG theo mẫu kỳ (vd DA2B-100) giữ nguyên -> so khớp đúng như cũ.
+# ⚠ TWIN ở app_v2.js (canonKey) — sửa 1 bên PHẢI sửa bên kia.
+_HALFYEAR_RE = re.compile(r'\dH\d{2}(-\d+)$')
+
+
+def canon_key(key):
+    """Key Jira đã gộp đoạn kỳ nửa năm -> so khớp link bền qua rename kỳ. '' -> ''."""
+    if not key:
+        return key
+    return _HALFYEAR_RE.sub(r'#\1', key.strip())
 
 
 # Canonical QA tester name theo ALIAS đầu (ascii, lowercase). Dùng để gom các biến

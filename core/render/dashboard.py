@@ -10,7 +10,7 @@ chuyển định nghĩa, re-export ở __init__ để chỗ gọi không phải 
 """
 from datetime import datetime, timedelta
 
-from config import JIRA_URL, STUCK_DAYS
+from config import JIRA_URL, STUCK_DAYS, canon_key
 from issues import (parse_date, i_assignee, i_assignee_name, i_status, i_summary,
                     i_duedate, i_created, i_updated, i_comment_count, days_overdue, is_stuck, esc)
 from custom_status import values_of
@@ -22,12 +22,14 @@ from render.shell import _avatar, _document_v2, _conn_error_card
 
 
 def _tc_linked_keys():
-    """Set task key ĐÃ link tới 1 bộ test case (folder) CÒN TỒN TẠI. Bỏ link "mồ côi"
-    (folder đã xoá khỏi testcase config nhưng entry link còn sót) — khớp với drawer detail
-    (chỉ hiện bộ còn tồn tại). Best-effort: lỗi kho -> set rỗng, KHÔNG chặn render."""
+    """Set task key (đã CANON qua kỳ nửa năm) ĐÃ link tới 1 bộ test case (folder) CÒN TỒN
+    TẠI. Bỏ link "mồ côi" (folder đã xoá khỏi testcase config nhưng entry link còn sót) —
+    khớp với drawer detail (chỉ hiện bộ còn tồn tại). Key canon để miễn nhiễm đổi project
+    key mỗi kỳ (DA51H26<->DA52H26, xem config.canon_key); caller so `canon_key(live)` với
+    set này. Best-effort: lỗi kho -> set rỗng, KHÔNG chặn render."""
     try:
         valid_fids = {f.get('id') for f in (load_testcases() or {}).get('folders', [])}
-        return {t for fid, v in load_links().items()
+        return {canon_key(t) for fid, v in load_links().items()
                 if fid in valid_fids for t in tasks_of(v)}
     except Exception:
         return set()
@@ -188,7 +190,7 @@ def build_dashboard_payload(data, cmap):
         upd_date = (upd_src or '')[:10]
         tasks.append({
             'key': key, 'summary': i_summary(iss), 'jira': st,
-            'hasTc': key in linked_keys,
+            'hasTc': canon_key(key) in linked_keys,
             'customs': customs, 'canCustom': st in ('TO DO', 'In Progress'),
             'assignee': {'name': aname, 'init': init, 'cls': cls},
             'due': i_duedate(iss) or '', 'dueDisp': i_duedate(iss) or 'Chưa đặt hạn',
@@ -213,7 +215,7 @@ def build_dashboard_payload(data, cmap):
         upd_date = (i_updated(iss) or '')[:10]
         tasks.append({
             'key': key, 'summary': i_summary(iss), 'jira': st,
-            'hasTc': key in linked_keys,
+            'hasTc': canon_key(key) in linked_keys,
             'customs': [], 'canCustom': False,
             'assignee': {'name': aname, 'init': init, 'cls': cls},
             'due': i_duedate(iss) or '', 'dueDisp': i_duedate(iss) or '',
@@ -408,7 +410,7 @@ def build_my_work_payload(data, cmap):
         customs = values_of((cmap or {}).get(iss['key']))   # values; JS map -> label qua QA_CUSTOM_STATUSES
         tasks.append({
             'key': iss['key'], 'summary': i_summary(iss), 'jira': st,
-            'hasTc': iss['key'] in linked_keys,
+            'hasTc': canon_key(iss['key']) in linked_keys,
             'customs': customs, 'canCustom': st in ('TO DO', 'In Progress'),
             'assignee': {'name': aname, 'init': init, 'cls': cls},
             'due': i_duedate(iss) or '', 'dueDisp': i_duedate(iss) or 'Chưa đặt hạn',
@@ -425,7 +427,7 @@ def build_my_work_payload(data, cmap):
         init, cls = _avatar(a, aname)
         tasks.append({
             'key': iss['key'], 'summary': i_summary(iss), 'jira': st,
-            'hasTc': iss['key'] in linked_keys,
+            'hasTc': canon_key(iss['key']) in linked_keys,
             'customs': [], 'canCustom': False,
             'assignee': {'name': aname, 'init': init, 'cls': cls},
             'due': i_duedate(iss) or '', 'dueDisp': i_duedate(iss) or '',
@@ -439,7 +441,7 @@ def build_my_work_payload(data, cmap):
 
     # Bao nhiêu task đã được link tới bộ test case (folder).
     all_keys = {iss['key'] for iss in active} | {iss['key'] for iss in data['done_week']}
-    n_linked = sum(1 for k in all_keys if k in linked_keys)
+    n_linked = sum(1 for k in all_keys if canon_key(k) in linked_keys)
     n_total = len(all_keys)
     return tasks, meta, n_linked, n_total
 
