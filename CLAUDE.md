@@ -349,6 +349,13 @@ Dùng chung cho: chart dedup (#47), `task_link` (#37/#50/#51). `bug_backlog.fing
 Thanh 2 tab (badge số), bảng chỉ hiện nhóm đang chọn; pager/count/check-all/export Excel đều tính trên nhóm đang xem. State nhớ `localStorage qa-buglog-grp`; nhóm rỗng → **auto lùi sang nhóm còn lại nhưng KHÔNG ghi lại localStorage** (về tháng có tồn đọng thì trở lại tab cũ).
 Phân loại theo #75 (created < tháng của tab). ⚠ **Khác chart "Tồn đọng T-1"**: bug tab tính mọi tháng cũ hơn, không lọc status, không dedup → số có thể ≠ chart. Có chủ đích.
 
+### 85. Pie chart Severity ở Analytics + đưa vào report tháng
+Thang severity trong file bug log gõ LẪN 2 kiểu chữ cho cùng 1 mức → user chốt quy về **3 mức**: `Major = High` · `Normal = Medium` · `Minor = Low` (Blocker/Critical nếu có gom vào Major). Ô trống / giá trị lạ (`Minior` sai chính tả đã map, còn lại) → `none` **KHÔNG vẽ trong pie** nhưng vẫn hiện thành ghi chú "Chưa phân loại: n/N bug" — bỏ hẳn thì mất mẫu số, CTO tưởng tháng chỉ có ngần ấy bug. **Mẫu số % của pie = bug đã phân loại**, không phải tổng bug tháng.
+Tập bug = **y hệt biểu đồ cột** (dòng trong sheet tháng T **và** created trong T — #75) → tổng 2 chart luôn khớp. Tính **LIVE mọi tháng** (không đụng freeze #47/#69 — freeze chỉ áp Valid Bug Rate + Reopen).
+Pie render **vào trong `#anMetricCharts`** (không tách card riêng) để tự lọt vào ảnh PNG/PDF mà `monthly_reporter_chat_app.py` chụp gửi CTO; text Chat thêm block "🎚 Mức độ nghiêm trọng" đọc từ `severity_counts()`.
+Vẽ bằng **SVG `<path>` arc**, KHÔNG `conic-gradient` — html2canvas không render conic → ảnh gửi CTO sẽ trắng.
+⚠ Twin Python↔JS: `_SEV_MAP`/`_SEV_ORDER`/`_SEV_PIE`/`_sev_bucket` (`bug_backlog.py`) ↔ `SEV_MAP`/`SEV_ORDER`/`SEV_PIE`/`sevOf` (`app_v2.js`).
+
 ### 45b. Bug Log — filter cho mọi người + Export Excel
 Tách `filters_html` (3 dropdown lọc-xem, render cho **tất cả**) khỏi `link_widget` + checkbox column (giữ `editable`-only) → dev cũng lọc được. Dropdown build từ `monthScopeBugs()` (bug của tháng đang xem) chứ không phải mọi tháng.
 `core/xlsx_export.py` zero-dep (stdlib `zipfile` + XML `inlineStr`, KHÔNG openpyxl): client build rows từ bảng đang xem, POST `/export-bug-log` → server chốt header + `build_xlsx`. Rows chỉ là chuỗi hiển thị → không chạm Jira/Drive/PAT. Cap 20000 rows, cell ≤32767, lọc ký tự XML không hợp lệ.
@@ -488,7 +495,7 @@ KHÔNG được:
 - No HTTPS ở tầng app — TLS do cloudflared lo; server bind `127.0.0.1`.
 - Display name mặc định hardcode trong `DEFAULT_DISPLAY_NAMES` (override qua env `JIRA_DISPLAY_NAMES` JSON).
 - Data bảng/KPI chỉ tươi khi F5 (trừ status + nhãn nội bộ, xem #24).
-- Nhiều công thức là **twin Python↔JS** — sửa 1 bên phải sửa bên kia (danh sách ở #47/#49/#54/#64/#75/#76/#81).
+- Nhiều công thức là **twin Python↔JS** — sửa 1 bên phải sửa bên kia (danh sách ở #47/#49/#54/#64/#75/#76/#81/#85).
 - Fingerprint match theo nội dung → team sửa `summary` lúc copy sheet là đứt (#54).
 - File upload không sync chéo máy (chỉ ở host, `uploads/` gitignore).
 

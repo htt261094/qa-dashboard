@@ -4845,6 +4845,88 @@ window.__smSetCustom=function(t, key, val, onChanged){
       + '</div>';
   }
 
+  // ---------- Severity: gom nhãn + pie chart (Decision #85) ----------
+  // Các file bug log dùng LẪN 2 thang chữ cho cùng 1 mức -> quy về ĐÚNG 3 mức (user chốt
+  // 2026-08-10): Major=High · Normal=Medium · Minor=Low. Ô trống/giá trị lạ -> 'none', KHÔNG
+  // vẽ trong pie nhưng vẫn hiện thành ghi chú dưới chart (bỏ hẳn thì mất mẫu số).
+  // PHẢI khớp _SEV_MAP/_SEV_ORDER/_SEV_PIE/_sev_bucket phía Python (bug_backlog.py).
+  var SEV_ORDER = ['major','normal','minor','none'];
+  var SEV_PIE   = ['major','normal','minor'];
+  var SEV_LABEL = { major:'Major (High)', normal:'Normal (Medium)', minor:'Minor (Low)',
+                    none:'Chưa phân loại' };
+  var SEV_COLOR = { major:'#ff5630', normal:'#ffab00', minor:'#36b37e', none:'#97a0af' };
+  var SEV_MAP = {
+    'major':'major','high':'major','cao':'major',
+    'blocker':'major','critical':'major','crit':'major',
+    'nghiêm trọng':'major','nghiem trong':'major',
+    'normal':'normal','medium':'normal','trung bình':'normal','trung binh':'normal',
+    'minor':'minor','minior':'minor','low':'minor','thấp':'minor','thap':'minor','trivial':'minor'
+  };
+  function sevOf(b){
+    var s = (''+(b.severity||'')).trim().toLowerCase().split(/\s+/).filter(Boolean).join(' ');
+    return SEV_MAP[s] || 'none';
+  }
+  function sevCounts(list){
+    var c = {}; SEV_ORDER.forEach(function(k){ c[k]=0; });
+    list.forEach(function(b){ c[sevOf(b)]++; });
+    return c;
+  }
+  // Pie SVG thuần path (KHÔNG conic-gradient — html2canvas không render được conic, ảnh gửi
+  // CTO sẽ trắng bệch). 1 nhóm duy nhất -> vẽ <circle> vì cung 360° làm path arc suy biến.
+  function pieSVG(segs, size){
+    var total = 0; segs.forEach(function(s){ total += s.n; });
+    if(total <= 0) return '';
+    var r = size/2, cx = r, cy = r;
+    var live = segs.filter(function(s){ return s.n > 0; });
+    if(live.length === 1)
+      return '<svg width="'+size+'" height="'+size+'" viewBox="0 0 '+size+' '+size+'">'
+        + '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="'+live[0].color+'"></circle></svg>';
+    var a0 = -Math.PI/2, paths = '';
+    live.forEach(function(s){
+      var a1 = a0 + (s.n/total)*Math.PI*2;
+      var x0 = cx + r*Math.cos(a0), y0 = cy + r*Math.sin(a0);
+      var x1 = cx + r*Math.cos(a1), y1 = cy + r*Math.sin(a1);
+      var large = (a1-a0) > Math.PI ? 1 : 0;
+      paths += '<path d="M '+cx+' '+cy+' L '+x0.toFixed(2)+' '+y0.toFixed(2)
+        + ' A '+r+' '+r+' 0 '+large+' 1 '+x1.toFixed(2)+' '+y1.toFixed(2)+' Z" fill="'+s.color+'">'
+        + '<title>'+esc(s.label)+': '+s.n+'</title></path>';
+      a0 = a1;
+    });
+    return '<svg width="'+size+'" height="'+size+'" viewBox="0 0 '+size+' '+size+'">'+paths+'</svg>';
+  }
+  // Khối "Phân bố theo mức độ nghiêm trọng" — nằm TRONG #anMetricCharts nên tự lọt vào ảnh
+  // Export PDF/PNG mà reporter tháng gửi CTO.
+  function sevBlockHTML(list){
+    var c = sevCounts(list), total = list.length;
+    if(!total) return '';
+    // Pie CHỈ 3 mức (user chốt); mẫu số % = bug ĐÃ phân loại, không phải tổng bug tháng.
+    var classified = SEV_PIE.reduce(function(a,k){ return a + c[k]; }, 0);
+    if(!classified)
+      return '<div style="width:100%; border-top:1px solid var(--outline-variant); margin-top:8px; padding-top:18px;">'
+        + '<div class="an-empty">Chưa bug nào của tháng này được điền cột Severity ('+total+' bug).</div></div>';
+    var segs = SEV_PIE.filter(function(k){ return c[k] > 0; }).map(function(k){
+      return { label: SEV_LABEL[k], n: c[k], color: SEV_COLOR[k] }; });
+    var rows = segs.map(function(s){
+      var p = s.n/classified*100, pd = (p%1===0 ? p.toFixed(0) : p.toFixed(1))+'%';
+      return '<div style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-bottom:8px;">'
+        + '<span style="width:14px; height:14px; border-radius:3px; background:'+s.color+'; display:inline-block; flex-shrink:0;"></span>'
+        + '<span style="color:var(--on-surface); flex:1;">'+esc(s.label)+'</span>'
+        + '<strong style="color:var(--on-surface);">'+s.n+'</strong>'
+        + '<span style="color:var(--on-surface-variant); min-width:48px; text-align:right;">'+pd+'</span></div>';
+    }).join('');
+    var note = c.none
+      ? '<div style="text-align:center; font-size:12.5px; color:var(--on-surface-variant); margin-top:14px;">'
+        + 'Chưa phân loại: <strong>'+c.none+'</strong>/'+total+' bug — không tính vào biểu đồ.</div>'
+      : '';
+    return '<div style="width:100%; border-top:1px solid var(--outline-variant); margin-top:8px; padding-top:18px;">'
+      + '<div style="text-align:center; font-size:14px; font-weight:600; color:var(--on-surface); margin-bottom:14px;">'
+      +   'Phân bố theo mức độ nghiêm trọng (Severity) — '+classified+' bug đã phân loại</div>'
+      + '<div style="display:flex; gap:28px; align-items:center; justify-content:center; flex-wrap:wrap;">'
+      +   '<div style="flex-shrink:0;">'+pieSVG(segs, 200)+'</div>'
+      +   '<div style="min-width:280px;">'+rows+'</div>'
+      + '</div>' + note + '</div>';
+  }
+
   // ---------- Bar chart: bug của dev theo dự án ----------
   var metricMonthSel = $('anMetricMonth'), metricCharts = $('anMetricCharts');
   function renderMetric(){
@@ -4941,7 +5023,10 @@ window.__smSetCustom=function(t, key, val, onChanged){
       +   '<div style="position:relative; height:'+chartHeight+'px; width:40px; flex-shrink:0;">' + ticksHtml + '</div>'
       +   '<div class="hide-scrollbar" style="position:relative; flex:1; height:'+(chartHeight+50)+'px; display:flex; align-items:flex-start; overflow-x:auto; border-bottom:1px solid var(--outline-variant);">'
       +     '<div style="display:flex; height:'+(chartHeight+40)+'px; padding-top:0;">' + barsHtml + '</div>'
-      +   '</div></div></div>';
+      +   '</div></div>'
+      // Pie severity CÙNG tập bug với bar chart (mới phát sinh trong T) -> tổng 2 chart khớp nhau.
+      + sevBlockHTML(mBugs)
+      + '</div>';
   }
 
   // ---------- Reopen table ----------

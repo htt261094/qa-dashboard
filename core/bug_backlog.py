@@ -196,6 +196,64 @@ def _valid_counts(bugs):
     }
 
 
+# ===== Severity — pie chart Analytics + report CTO (Decision #85) =====
+# Các file bug log dùng LẪN 2 thang chữ cho cùng 1 mức (team đổi cách gõ theo thời điểm), nên
+# user chốt 2026-08-10 quy về ĐÚNG 3 mức: Major=High · Normal=Medium · Minor=Low.
+# Blocker/Critical (nếu ai đó gõ) gom vào Major — thang chỉ có 3 bậc, đây là bậc cao nhất.
+# Ô trống + giá trị lạ + sai chính tả không map được -> 'none' (Chưa phân loại): KHÔNG vẽ trong
+# pie (user chốt pie chỉ 3 mức) nhưng vẫn trả về để hiển thị/report thành ghi chú — bỏ hẳn thì
+# mẫu số biến mất, CTO tưởng tháng đó chỉ có ngần ấy bug.
+# PHẢI khớp SEV_MAP/SEV_ORDER/SEV_PIE/sevOf phía JS (app_v2.js) — twin Python↔JS.
+_SEV_ORDER = ('major', 'normal', 'minor', 'none')
+_SEV_PIE = ('major', 'normal', 'minor')      # mức được vẽ trong pie
+_SEV_LABEL = {
+    'major': 'Major (High)', 'normal': 'Normal (Medium)', 'minor': 'Minor (Low)',
+    'none': 'Chưa phân loại',
+}
+_SEV_MAP = {
+    'major': 'major', 'high': 'major', 'cao': 'major',
+    'blocker': 'major', 'critical': 'major', 'crit': 'major',
+    'nghiêm trọng': 'major', 'nghiem trong': 'major',
+    'normal': 'normal', 'medium': 'normal', 'trung bình': 'normal', 'trung binh': 'normal',
+    'minor': 'minor', 'minior': 'minor', 'low': 'minor', 'thấp': 'minor', 'thap': 'minor',
+    'trivial': 'minor',
+}
+
+
+def _sev_bucket(raw):
+    """Giá trị cột Severity thô -> 1 trong _SEV_ORDER. Trống/không map được -> 'none'."""
+    return _SEV_MAP.get(_norm(raw), 'none')
+
+
+def severity_counts(report_month=None, live=None):
+    """Phân bố severity của bug MỚI PHÁT SINH trong tháng `report_month` ('YYYY-MM').
+
+    Cùng tập bug với biểu đồ cột "Bug của Dev theo dự án" (dòng nằm trong sheet tháng T VÀ
+    created trong T — Decision #75) để `total` khớp "Tổng số bug" của bar chart, tránh lặp lại
+    vụ 2 màn đo 2 định nghĩa. Đếm DÒNG, KHÔNG dedup fp, tính LIVE mọi tháng (bar chart cũng
+    LIVE — freeze #47/#69 chỉ áp cho Valid Bug Rate + Reopen).
+    PHẢI khớp sevCounts() phía JS (app_v2.js).
+
+    Trả {month, total, classified, counts:{bucket:n}, order, pie, labels}:
+      total      = mọi bug mới trong tháng
+      classified = total − counts['none'] = mẫu số của % trong pie."""
+    if not report_month:
+        report_month = datetime.now().strftime('%Y-%m')
+    live = live if live is not None else _live_bugs()
+    counts = {k: 0 for k in _SEV_ORDER}
+    total = 0
+    for b in live.values():
+        if _month_of(b) != report_month:
+            continue
+        if (b.get('created', '') or '')[:7] != report_month:
+            continue
+        counts[_sev_bucket(b.get('severity', ''))] += 1
+        total += 1
+    return {'month': report_month, 'total': total,
+            'classified': total - counts['none'], 'counts': counts,
+            'order': list(_SEV_ORDER), 'pie': list(_SEV_PIE), 'labels': dict(_SEV_LABEL)}
+
+
 def _reopen_table(reopen_map, kb, ym):
     """Bảng Tỷ lệ Reopen cho tháng `ym` — replicate renderReopen phía JS (RAW, KHÔNG dedup:
     giữ nguyên semantics live, freeze chỉ để chặn trôi). kb = [(key, bug)] bug tạo trong ym.
