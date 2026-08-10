@@ -267,7 +267,7 @@ Hiền THƯỜNG là reporter trong các task QA team được giao — vì cô 
 
 ### 21. Custom status overlay — nhãn tình trạng thật (local) (2026-06-08)
 - **Bối cảnh**: status Jira nghèo (TO DO/In Progress/PENDING/DONE/CANCELLED), không nói được task đang "Chờ BA confirm" hay "Dev fix bug". Thêm **lớp nhãn PHỦ local**, KHÔNG đụng status Jira thật.
-- **`custom_status.py`**: lưu Jira property `qa-dashboard-custom-status` = `{status:{KEY:{v:[labels],by,at}}, activity:[...]}`. **Mỗi task gắn NHIỀU nhãn** (`v` là list; migration-safe: string cũ đọc thành list 1 phần tử). 8 nhãn định sẵn (`CUSTOM_STATUSES`: Dev fix bug, Chờ BA confirm, …). Cache local `.custom_status.json` fallback.
+- **`custom_status.py`**: lưu Jira property `qa-dashboard-custom-status` = `{status:{KEY:{v:[labels],by,at}}, activity:[...]}`. **Mỗi task gắn NHIỀU nhãn** (`v` là list; migration-safe: string cũ đọc thành list 1 phần tử). 6 nhãn định sẵn (`CUSTOM_STATUSES`: Dev fix bug · Chờ BA confirm requirement · Có thay đổi requirement · Chờ data test · Môi trường test chưa sẵn sàng · Chờ deploy lên test — cập nhật 2026-08-10; trước là 8 nhãn khác). Đổi/bỏ nhãn PHẢI giữ **key cũ** ở đâu semantic trùng vì `values_of` lọc theo `_VALID` → đổi key = task đang gắn key đó rớt nhãn (data Jira property không hỏng, chỉ ẩn). Cache local `.custom_status.json` fallback.
 - Mỗi lần đổi nhãn → ghi 1 **sự kiện vào activity** (cap 200, prune 14 ngày) → gộp vào block "Hoạt động" để admin thấy ai vừa đổi gì. `load_bundle(scope, days)` trả `(overlay, events)`; `/` merge events này với feed Jira.
 - **Route**: POST `/set-custom-status`. Render: data-* trên row + drawer.
 
