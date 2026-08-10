@@ -614,7 +614,7 @@ tr.cmt-row:hover td{background:var(--surface-low)}
 .stp-add{color:var(--primary);opacity:.55}
 .stp-item:hover .stp-add{opacity:1}
 .stp-item.added{opacity:.45}
-.stp-item.done .stp-sum{text-decoration:line-through;color:var(--on-surface-variant)}
+.stp-item.done .stp-sum{color:var(--on-surface-variant)}
 @media (prefers-reduced-motion:reduce){.st-pop{transition:opacity var(--dur-1) linear;transform:none}.st-pop.open{transform:none}}
 .modal-foot{display:flex;gap:10px;justify-content:flex-end;padding:14px 20px;border-top:1px solid var(--divider)}
 .btn{padding:9px 16px;border-radius:var(--r-md);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;border:1px solid transparent}

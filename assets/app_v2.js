@@ -3504,10 +3504,10 @@ window.__smSetCustom=function(t, key, val, onChanged){
     function(o){ return '<b>'+esc(o.key)+'</b>'+esc(o.summary||''); },
     function(o){ parent = o ? {key:o.key, summary:o.summary||''} : {key:'',summary:''};
       // Chọn cha -> auto-gen 2 dòng: "[QA] Viết testcase <cha>" + "[QA] Test <cha>"
-      // (bỏ tiền tố [QA] của cha nếu có để tránh lồng nhau; QA để "Chưa gán")
+      // (bỏ MỌI tiền tố [xxxx] của cha nếu có để tránh lồng nhau; QA để "Chưa gán")
       clearRows();
       if(parent.key){
-        var t=(parent.summary||'').trim().replace(/^\[QA\]\s*/i,'');
+        var t=(parent.summary||'').trim().replace(/^\[[^\]]*\]\s*/,'');
         addRow('[QA] Viết testcase '+t, ''); addRow('[QA] Test '+t, '');
       } else { ensureRow(); }
       updateCount();
@@ -3535,7 +3535,8 @@ window.__smSetCustom=function(t, key, val, onChanged){
     subPop.addEventListener('click', function(e){
       var it=e.target.closest('.stp-item'); if(!it) return;
       // Bấm 1 sub-task -> sinh 2 dòng QA: "Viết testcase" + "Test" (như chọn cha)
-      var s=(it.getAttribute('data-sum')||'').replace(/^\[QA\]\s*/i,'');
+      // (bỏ MỌI tiền tố [xxxx] cho nhất quán với auto-fill khi chọn cha)
+      var s=(it.getAttribute('data-sum')||'').replace(/^\[[^\]]*\]\s*/,'');
       addRow('[QA] Viết testcase '+s, ''); addRow('[QA] Test '+s, ''); updateCount();
       it.classList.add('added'); toast('Đã thêm 2 dòng QA cho: '+s, true);
     });
