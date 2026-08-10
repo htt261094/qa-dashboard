@@ -288,6 +288,28 @@ async def main():
             except Exception as e:
                 print(f"Bỏ qua phần tồn đọng T-1 (lỗi tính): {e}")
 
+            # Phân bố severity của bug MỚI phát sinh trong tháng (Decision #85) — cùng tập bug
+            # với biểu đồ cột nên tổng khớp con số "Bug mới phát sinh" ở trên. Pie tương ứng đã
+            # nằm trong ảnh/PDF đính kèm; text ở đây để CTO đọc được số ngay trong Chat.
+            try:
+                from bug_backlog import severity_counts
+                smm, syyyy = month_val.split('/')
+                sv = severity_counts(f"{syyyy}-{smm}")
+                if sv['classified']:
+                    text_content += f"🎚 *Mức độ nghiêm trọng (bug mới tháng {month_val})*:\n"
+                    for k in sv['pie']:      # chỉ 3 mức Major/Normal/Minor (khớp pie chart)
+                        n = sv['counts'].get(k, 0)
+                        if not n:
+                            continue
+                        text_content += (f"• {sv['labels'][k]}: {n} "
+                                         f"({round(n / sv['classified'] * 100)}%)\n")
+                    if sv['counts'].get('none'):
+                        text_content += (f"_Chưa phân loại: {sv['counts']['none']}/{sv['total']} "
+                                         f"bug — không tính vào tỷ lệ trên._\n")
+                    text_content += "\n"
+            except Exception as e:
+                print(f"Bỏ qua phần Severity (lỗi tính): {e}")
+
             # Reopen: text = TÍN HIỆU (tỷ lệ tổng + trend T-1 + tỷ lệ theo dev + bug dội nhiều
             # lần). Chi tiết đầy đủ từng bug nằm trong file Excel đính kèm — Chat hẹp, không nhồi.
             try:

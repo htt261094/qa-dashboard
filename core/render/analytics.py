@@ -11,7 +11,7 @@ from config import canon_key
 from issues import esc
 from task_link import tasks_of
 from bug_backlog import (_month_of, _dedup_by_fp, _chart_devs, _valid_counts,
-                         _reopen_table, prev_month_backlog, _YM_RE)
+                         _reopen_table, prev_month_backlog, severity_counts, _YM_RE)
 from render.base import _json_script
 from render.shell import _document_v2
 
@@ -114,6 +114,7 @@ def build_analytics_payload(data, testcases=None, links=None, tc_links=None, bac
                       'validPct': (vc['closed'] / denom * 100) if denom > 0 else None,
                       'rejectPct': (vc['reject'] / vc['total'] * 100) if vc['total'] else None},
             'reopen': _reopen_table(reopen_map, kb, ym),
+            'severity': severity_counts(ym, live=live),   # phân bố severity bug mới (#85)
             'backlog': {'prev': blr['prev_month'], 'total': blr['total'],
                         'resolved': blr['resolved'], 'stillOpen': blr['still_open'],
                         'newCount': blr['new_count'], 'hasSnapshot': blr['has_snapshot'],
@@ -147,6 +148,7 @@ def _flatten_bugs(data):
                 'feature': b.get('feature', ''),
                 'month': month,
                 'dev': b.get('dev_pic', ''),
+                'severity': b.get('severity', '') or '',   # pie severity (#85)
                 'created': (b.get('created', '') or '')[:10],
             })
     return bugs, sorted((m for m in months if m), reverse=True)
@@ -283,7 +285,9 @@ def render_analytics_v2(data, user=None, activities=None, testcases=None, links=
         # bar chart bug theo dev/dự án
         '<div class="card metric-card" style="flex:1; min-width:400px; margin-top:0;">'
         '<div class="metric-header">'
-        '<div class="table-title"><span>Bug của Dev theo dự án (Tháng)</span></div>'
+        # Pie severity render CHUNG vào #anMetricCharts (không tách card) để lọt vào ảnh
+        # Export PDF/PNG mà reporter tháng chụp gửi CTO — xem Decision #85.
+        '<div class="table-title"><span>Bug của Dev theo dự án &amp; mức độ nghiêm trọng (Tháng)</span></div>'
         '<div class="metric-filter" style="display:flex; align-items:center; gap:8px;">'
         '<button class="lbtn ghost" id="anExportChart" title="Export PDF ảnh chart" style="padding:4px 8px; font-size:13px;">'
         '<span class="material-symbols-rounded ph-light ph-file-pdf mi-sm"></span> Export PDF</button>'
