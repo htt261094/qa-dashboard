@@ -40,3 +40,6 @@ uploads/
 # Báo cáo PDF + log cron sinh ra khi chạy reporter
 reports/
 
+
+# Backup thủ công (migrate/freeze) — lưới rollback, không commit
+*.bak-*
