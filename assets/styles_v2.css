@@ -592,6 +592,22 @@ tr.cmt-row:hover td{background:var(--surface-low)}
   font-family:inherit;display:inline-flex;align-items:center;gap:6px;margin-top:2px}
 .st-add:hover{border-color:var(--primary);background:var(--primary-tint)}
 .st-summary{margin-top:2px}
+/* ===== Nhiều task cha: mỗi cha 1 nhóm sub-task ===== */
+.st-groups{display:flex;flex-direction:column;gap:12px}
+.st-groups-empty{font-size:12.5px;color:var(--on-surface-variant);padding:12px;text-align:center;
+  border:1px dashed var(--outline-variant);border-radius:var(--r-lg)}
+.st-group{border:1px solid var(--outline-variant);border-radius:var(--r-lg);padding:10px 12px;
+  background:var(--surface-low);display:flex;flex-direction:column;gap:8px}
+.st-group.st-group-flash{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-tint)}
+.st-group-head{display:flex;align-items:center;gap:8px}
+.st-gchip{flex:1;min-width:0;display:flex;align-items:baseline;gap:8px;cursor:default;
+  padding:4px 8px;border-radius:8px;background:var(--primary-tint)}
+.st-gkey{font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;color:var(--primary);white-space:nowrap}
+.st-gsum{font-size:12.5px;color:var(--on-surface);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.st-gdel{cursor:pointer;background:none;border:none;color:var(--outline);font-size:18px;height:28px;width:28px;
+  border-radius:8px;display:inline-flex;align-items:center;justify-content:center;flex:none}
+.st-gdel:hover{color:var(--error);background:var(--card)}
+.st-group .st-head{padding:0}
 /* Popup "sub-task đang có" của task cha (hover chip -> zoom-in) */
 .st-parent-hint{display:none;margin-top:7px;font-size:11.5px;color:var(--on-surface-variant);
   align-items:center;gap:5px}
