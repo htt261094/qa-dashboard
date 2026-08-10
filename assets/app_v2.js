@@ -9,6 +9,10 @@ function esc(s){ return (s==null?'':String(s))
   .replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 function $(id){ return document.getElementById(id); }
 function readJSON(id){ var el=$(id); if(!el) return null; try{ return JSON.parse(el.textContent); }catch(e){ return null; } }
+// Canon key Jira để so khớp link BỀN qua đổi project key mỗi kỳ nửa năm (DA51H26<->DA52H26<->
+// DA51H27). Gộp đoạn kỳ `<digit>H<2-digit-year>` cuối key -> '#' => mọi phiên bản key của CÙNG
+// issue khớp nhau. TWIN của config.canon_key (Python) — sửa 1 bên PHẢI sửa bên kia.
+function canonKey(k){ return k ? String(k).trim().replace(/\dH\d{2}(-\d+)$/, '#$1') : k; }
 // Phosphor (light) icon — map tên Material cũ -> glyph Phosphor. Giữ class `material-symbols-rounded`
 // làm hook CSS (nhiều rule nhắm nó), thêm `ph-light ph-<name>`. Đồng bộ với bảng map ở render (Python).
 var PHMAP={
@@ -3773,15 +3777,9 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var my = _sheetMY(curMonth, cr) || getCreatedMonthYear(cr);   // MM/YYYY
     var p=(my||'').split('/'); return p.length>=2 ? p[1]+'-'+p[0] : '';
   }
-  // Fingerprint của mọi bug (trong file đang xem) được TẠO ở tháng TRƯỚC tháng tab.
-  // Bug ở tab hiện tại có fp nằm trong tập này = tồn đọng (đã xuất hiện từ tháng cũ,
-  // kể cả khi bản copy bị đổi STT/ngày created sang tháng mới).
-  function olderFpSet(){
-    var ym = tabYm(); if(!ym) return {};
-    var s={};
-    fileBugs().forEach(function(b){ var c=(b.created||'').slice(0,7); if(c && c < ym) s[_fpOf(b)]=1; });
-    return s;
-  }
+  // (SHEET-BASED, Decision #75) tồn đọng vs mới tách theo NGÀY CREATED của chính dòng đó
+  // so với tháng của sheet đang xem: created < tháng-sheet = tồn đọng (mang sang từ tháng cũ,
+  // team bê bug GIỮ NGUYÊN created). Đọc thẳng sheet, KHÔNG fingerprint — khớp computeBacklog.
 
   // ----- map mức độ / trạng thái -> class + nhãn -----
   function sevCls(s){ var t=(s||'').toLowerCase();
@@ -3914,8 +3912,8 @@ window.__smSetCustom=function(t, key, val, onChanged){
   // Trả {back, fresh, active}: `active` = nhóm đang xem, tự lùi sang nhóm còn lại nếu nhóm
   // đang chọn rỗng (vd đổi tháng/bộ lọc làm nhóm đó không còn dòng nào) -> KHÔNG bảng trống oan.
   function splitGroups(){
-    var older = olderFpSet(), back=[], fresh=[];
-    monthBugs().forEach(function(b){ (older[_fpOf(b)] ? back : fresh).push(b); });
+    var ym = tabYm(), back=[], fresh=[];
+    monthBugs().forEach(function(b){ ((ym && (b.created||'').slice(0,7) < ym) ? back : fresh).push(b); });
     var act = grpTab;
     if(act==='back' && !back.length && fresh.length) act='new';
     else if(act==='new' && !fresh.length && back.length) act='back';
@@ -4567,13 +4565,14 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var bugTaskSet = {};
     var totalBugCountLinked = 0;
 
+    // Canon key -> task cùng issue nhưng khác kỳ (DA51H26 vs DA52H26) đếm là MỘT.
     Object.keys(BUG_LINKS).forEach(function(bugKey) {
       var ts = tasksOf(BUG_LINKS[bugKey]);
       if (ts.length) totalBugCountLinked++;
-      ts.forEach(function(t) { linkedTaskSet[t] = true; bugTaskSet[t] = true; });
+      ts.forEach(function(t) { var c=canonKey(t); linkedTaskSet[c] = true; bugTaskSet[c] = true; });
     });
     Object.keys(TC_LINKS).forEach(function(folderId) {
-      tasksOf(TC_LINKS[folderId]).forEach(function(t) { linkedTaskSet[t] = true; tcTaskSet[t] = true; });
+      tasksOf(TC_LINKS[folderId]).forEach(function(t) { var c=canonKey(t); linkedTaskSet[c] = true; tcTaskSet[c] = true; });
     });
 
     var totalTasks = Object.keys(linkedTaskSet).length;
@@ -4828,20 +4827,14 @@ window.__smSetCustom=function(t, key, val, onChanged){
     if(backlogStripEl) backlogStripEl.innerHTML = '';  // reset, tránh dải tồn đọng cũ sót khi đổi tháng
     var selectedMonth = metricMonthSel.value;
     if(!selectedMonth){ metricCharts.innerHTML = '<div class="an-empty">Không có dữ liệu</div>'; return; }
-    // Biểu đồ cột + "Tổng số bug" CHỈ tính BUG MỚI PHÁT SINH trong tháng T (created trong T,
-    // unique fingerprint) — KHÔNG bucket theo sheet Tn nữa, nên loại bản copy của bug tồn đọng
-    // T-1 bê sang. grandTotal = số bug tạo mới trong T = khớp "bug mới phát sinh" ở dải tồn đọng.
-    // Tính LIVE cho MỌI tháng (không đọc frozen sheet-based, vì frozen bucket theo sheet không
-    // tách được bug mới khỏi tồn đọng). User chốt 2026-08-03. Freeze (#47/#69) VẪN áp cho
-    // Valid Bug Rate + Reopen — chỉ biểu đồ cột này đổi sang created-based + live.
+    // Biểu đồ cột + "Tổng số bug" CHỈ tính BUG MỚI PHÁT SINH trong tháng T — SHEET-BASED
+    // (Decision #75): dòng nằm trong sheet tháng T (monthOf===tháng chọn) có created trong T.
+    // Đếm DÒNG (không dedup) -> grandTotal = "mới phát sinh" khớp dải tồn đọng + màn Bug.
+    // Tính LIVE cho MỌI tháng. Freeze (#47/#69) VẪN áp cho Valid Bug Rate + Reopen.
     var selYm = toYm(selectedMonth);
     var devs = {}, projSet = {}, grandTotal = 0, fixedCount = 0, bc;
-    // Loại fingerprint đã tồn tại từ T-1 (bản copy của bug tồn đọng bê sang, dù bị đổi created
-    // sang tháng T) -> tổng + cột = đúng "bug mới phát sinh trong T" (newOwn), khớp dải tồn đọng.
-    var prevMonthYm = prevYm(selYm), prevFps = {};
-    BUGS.forEach(function(b){ if((b.created||'').slice(0,7) === prevMonthYm) prevFps[_fpOf(b)] = 1; });
-    var mBugs = dedupByFp(BUGS.filter(function(b){ return (b.created||'').slice(0,7) === selYm; }))
-                  .filter(function(b){ return !prevFps[_fpOf(b)]; });
+    var mBugs = BUGS.filter(function(b){
+      return monthOf(b) === selectedMonth && (b.created||'').slice(0,7) === selYm; });
     mBugs.forEach(function(b){
       var dl = (b.dev||'Chưa gán').trim().split(/[,;+&\/]/).map(function(s){ return s.trim(); }).filter(Boolean);
       if(!dl.length) dl = ['Chưa gán'];
@@ -4910,7 +4903,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
           +   '<strong>'+(bc.newOwn||0)+'</strong> bug mới phát sinh '
           +   '(đã fix <strong style="color:#36b37e;">'+(bc.newFixed||0)+'</strong>, '
           +   'chưa fix <strong>'+(bc.newOpen||0)+'</strong>) · '
-          +   'Tồn đọng từ T-1 ('+esc(bc.prev)+'): '
+          +   'Tồn đọng từ tháng trước: '
           +   '<strong>'+bc.total+'</strong> (còn <strong style="color:#ff5630;">'+bc.stillOpen+'</strong>, đã xử lý '+bc.resolved+')'
           + '</div>' + compBar(backlogSegs(bc), 26) + '</div>';
       } else { backlogStrip.innerHTML = ''; }
@@ -5049,48 +5042,26 @@ window.__smSetCustom=function(t, key, val, onChanged){
     return Object.keys(by).map(function(f){ return by[f]; });
   }
 
-  // Tính tồn đọng T-1 cho tháng report 'YYYY-MM' — TRỰC TIẾP từ bug live (Decision #46,
-  // PHẢI khớp prev_month_backlog phía Python). Gom bug TẠO trong T-1 theo fingerprint
-  // (khử trùng bản copy T6↔T7), mỗi bug thật xét 1 lần:
-  //   - còn treo (still_open): KHÔNG bản nào Closed/Reject.
-  //   - đã xử lý (resolved): có bản đóng VÀ có bản ở sheet 'T<tháng report>' (đã bê sang rồi đóng).
-  //   - đóng gọn trong T-1 (đóng nhưng không bê sang) -> KHÔNG phải tồn đọng.
+  // Tính tồn đọng cho tháng report 'YYYY-MM' — SHEET-BASED (Decision #75, PHẢI khớp
+  // prev_month_backlog phía Python + splitGroups màn Bug). Đọc THẲNG sheet tháng T (bucket
+  // theo monthOf = tên sheet Tn), đếm DÒNG, tách theo created:
+  //   - tồn đọng (back): created < tháng-sheet. status mở=còn treo, Closed/Reject=đã xử lý.
+  //   - mới phát sinh (fresh): created >= tháng-sheet.
+  // KHÔNG fingerprint/carry/dedup — sheet đã là source-of-truth (team bê bug giữ nguyên created).
   function computeBacklog(reportYm){
-    var prev = prevYm(reportYm), curSheet = curSheetOf(reportYm);
-    // mới phát sinh = số bug thật (unique fingerprint) tạo trong tháng report.
-    var newFps = {}; BUGS.forEach(function(b){ if((b.created||'').slice(0,7)===reportYm) newFps[_fpOf(b)]=1; });
-    var newCount = Object.keys(newFps).length;
-    // gom bug tạo T-1 theo fingerprint
-    var groups = {};
-    BUGS.forEach(function(b){ if((b.created||'').slice(0,7)===prev){ var f=_fpOf(b); (groups[f]=groups[f]||[]).push(b); } });
-    // bản đã bê sang sheet tháng T (carried): cùng fp, month===curSheet, BẤT KỂ created
-    // (team hay đổi created bản copy sang tháng T). Chỉ nhặt bản ở đúng sheet T.
-    var carriedByFp = {};
-    BUGS.forEach(function(b){ if((b.month||'')===curSheet){ var f=_fpOf(b); (carriedByFp[f]=carriedByFp[f]||[]).push(b); } });
-    var total=0, stillOpen=0, resolved=0, hasAny=false;
-    Object.keys(groups).forEach(function(f){
-      hasAny=true;
-      var members = groups[f].concat(carriedByFp[f]||[]);   // bản T-1 + bản đã bê sang sheet T
-      var anyClosed = members.some(function(x){ return !isOpenBug(x.status); });
-      var carried   = (carriedByFp[f]||[]).length>0;
-      if(!anyClosed){ total++; stillOpen++; }
-      else if(carried){ total++; resolved++; }
-      // else: đóng gọn trong T-1, không bê sang -> bỏ
-    });
-    // "Bug ĐÃ FIX trong tháng" chỉ tính trên BUG MỚI PHÁT SINH — KHÔNG gộp tồn đọng T-1.
-    // Loại mọi fp đã có bản tạo trong T-1 (`groups`): bản copy bê sang sheet tháng T thường bị
-    // đổi created sang tháng T (Decision #62) nên không loại thì bug tồn đọng được fix trong
-    // tháng sẽ lẫn vào "bug mới đã fix". PHẢI khớp prev_month_backlog phía Python.
-    var closedFps = {};
-    BUGS.forEach(function(b){ if(isClosed(b.status)) closedFps[_fpOf(b)] = 1; });
-    var newOwn = 0, newFixed = 0;
-    Object.keys(newFps).forEach(function(f){
-      if(groups[f]) return;                 // fp đã tồn tại từ T-1 -> là tồn đọng, không phải bug mới
-      newOwn++; if(closedFps[f]) newFixed++;
-    });
-    return { hasSnapshot:hasAny, prev:prev, newCount:newCount, total:total,
-             stillOpen:stillOpen, resolved:resolved,
-             newOwn:newOwn, newFixed:newFixed, newOpen:newOwn - newFixed };
+    var prev = prevYm(reportYm);
+    var mmYYYY = reportYm.slice(5,7)+'/'+reportYm.slice(0,4);   // 'YYYY-MM' -> 'MM/YYYY' (khớp monthOf)
+    var rows = BUGS.filter(function(b){ return monthOf(b) === mmYYYY; });
+    var back=[], fresh=[];
+    rows.forEach(function(b){ (((b.created||'').slice(0,7) < reportYm) ? back : fresh).push(b); });
+    var stillOpen=0, resolved=0;
+    back.forEach(function(b){ if(isOpenBug(b.status)) stillOpen++; else resolved++; });
+    var newFixed=0;
+    fresh.forEach(function(b){ if(isClosed(b.status)) newFixed++; });
+    return { hasSnapshot: rows.length>0, prev:prev,
+             newCount: fresh.length, total: back.length,
+             stillOpen: stillOpen, resolved: resolved,
+             newOwn: fresh.length, newFixed: newFixed, newOpen: fresh.length - newFixed };
   }
 
   // Thanh tỷ lệ ngang: [{label,n,color}] -> stacked bar + chú thích số.

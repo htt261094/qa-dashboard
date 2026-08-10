@@ -7,6 +7,7 @@ Tỷ lệ Reopen được chuyển sang đây, kèm chỉ số mới **Valid Bug
 Bảng/chart render client-side bởi controller `#analyticsData` trong app_v2.js.
 Data nguồn = bug_log_store.load_bug_log() (cache local/property, KHÔNG gọi Jira).
 """
+from config import canon_key
 from issues import esc
 from task_link import tasks_of
 from bug_backlog import (_month_of, _dedup_by_fp, _chart_devs, _valid_counts,
@@ -22,6 +23,8 @@ def _cross_metrics(links, tc_links, tc_cases):
     - Density  = tổng-bug-liên-kết / tổng-task-có-hoạt-động.
     - Execution= (Pass+Fail)/Tổng-case · PassRate = Pass/(Pass+Fail).
     Trả counts + pct đã suy sẵn (None khi mẫu số 0) → app chỉ hiển thị (D3)."""
+    # Canon key -> task cùng issue nhưng khác kỳ nửa năm (DA51H26 vs DA52H26) đếm là MỘT
+    # (parity với renderCrossMetrics phía JS). Xem config.canon_key.
     linked, tc_set, bug_set = set(), set(), set()
     total_bug_linked = 0
     for v in (links or {}).values():
@@ -29,12 +32,12 @@ def _cross_metrics(links, tc_links, tc_cases):
         if ts:
             total_bug_linked += 1
         for t in ts:
-            linked.add(t)
-            bug_set.add(t)
+            linked.add(canon_key(t))
+            bug_set.add(canon_key(t))
     for v in (tc_links or {}).values():
         for t in tasks_of(v):
-            linked.add(t)
-            tc_set.add(t)
+            linked.add(canon_key(t))
+            tc_set.add(canon_key(t))
     total_tasks = len(linked)
     tasks_with_tc = len(tc_set)
 

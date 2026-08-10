@@ -17,7 +17,7 @@ import json
 import re
 from datetime import datetime
 
-from config import TESTCASE_TASK_LINK_FILE, username_from_email, atomic_write
+from config import TESTCASE_TASK_LINK_FILE, username_from_email, atomic_write, canon_key
 from remote_store import synced_load, synced_save
 
 TC_LINK_PROP = 'qa-dashboard-testcase-task-link'
@@ -114,7 +114,10 @@ def set_folder_links(email, folder_id, task_key, op='add'):
 
 
 def folders_for_task(task_key):
-    """Chiều ngược: list folder_id của các bộ ĐÃ LINK tới `task_key`. [] nếu lỗi/không có."""
+    """Chiều ngược: list folder_id của các bộ ĐÃ LINK tới `task_key`. [] nếu lỗi/không có.
+
+    So khớp theo CANON key (config.canon_key) -> bền qua đổi project key mỗi kỳ nửa năm
+    (link cũ lưu DA51H26-x, task live DA52H26-x vẫn khớp)."""
     task_key = (task_key or '').strip()
     if not task_key:
         return []
@@ -122,4 +125,6 @@ def folders_for_task(task_key):
         links = load_links()
     except Exception:
         return []
-    return [fid for fid, v in links.items() if task_key in tasks_of(v)]
+    ck = canon_key(task_key)
+    return [fid for fid, v in links.items()
+            if ck in {canon_key(t) for t in tasks_of(v)}]
