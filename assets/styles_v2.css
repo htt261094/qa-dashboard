@@ -1388,6 +1388,10 @@ html[data-theme="dark"] .bl-sev.minor{color:#47cd89}
 .metric-filter select:hover { background: var(--surface-high); border-color: var(--outline); }
 .metric-filter select:focus { border-color: var(--primary); }
 .metric-filter select option { background: var(--card); color: var(--on-surface); }
+/* Bảng metric ở /analytics dùng lại .bl-table (border/padding) nhưng chỉ 3-4 cột.
+   .bl-table có min-width:1120px cho bảng /bug-log 10 cột (Decision #85) -> ép bảng metric
+   tràn ngang trong card ~1040px: cột cuối bị cắt + ô colspan center lệch phải. Huỷ min-width ở đây. */
+.metric-table { min-width: 0; }
 .metric-table th { background: #f0f4f8; color: var(--on-surface); font-weight: 700; text-transform: none; }
 html[data-theme="dark"] .metric-table th { background: var(--surface-highest); }
 .metric-table td { padding: 12px 20px; }
