@@ -143,6 +143,18 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
         '<span class="material-symbols-rounded ph-light ph-wrench mi-sm"></span>'
         '<select id="blDevFilter"><option value="">Tất cả dev</option></select>'
         '</div>'
+        # Lọc theo Severity — 3 mức đã quy chuẩn (#85) + "chưa phân loại" (ô trống/giá trị lạ),
+        # option cố định (không build từ data) vì thang là hằng số, không phụ thuộc file.
+        '<div class="bl-filter" id="blSevWrap">'
+        '<span class="material-symbols-rounded ph-light ph-gauge mi-sm"></span>'
+        '<select id="blSevFilter">'
+        '<option value="">Tất cả severity</option>'
+        '<option value="major">Major (High)</option>'
+        '<option value="normal">Normal (Medium)</option>'
+        '<option value="minor">Minor (Low)</option>'
+        '<option value="none">Chưa phân loại</option>'
+        '</select>'
+        '</div>'
         '<div class="bl-filter" id="blLinkWrap">'
         '<span class="material-symbols-rounded ph-light ph-link mi-sm"></span>'
         '<select id="blLinkFilter">'
@@ -203,6 +215,9 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
         f'{th_check}'
         '<th style="width:110px">ID</th><th style="width:140px">Module</th>'
         '<th>Mô tả bug</th><th style="width:110px;white-space:nowrap">Ngày</th>'
+        # Severity quy về 3 mức Major/Normal/Minor (Decision #85) — cùng thang với pie ở /analytics
+        '<th style="width:104px" title="Mức độ nghiêm trọng — Major (High) / Normal (Medium) '
+        '/ Minor (Low). Ô trống trong file hiện —">Severity</th>'
         '<th style="width:140px">Trạng thái</th>'
         '<th style="width:120px">Tester</th><th style="width:130px">Dev in charge</th>'
         '<th style="width:160px">Liên kết Task</th>'
