@@ -1196,13 +1196,14 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
 
     def _post_export_bug_log(self):
         """Nhận rows đã lọc từ client (đúng bảng đang xem) -> trả file .xlsx tải về.
-        Header cột cố định server-side (7 cột, KHÔNG có liên kết task). Cho MỌI người
+        Header cột cố định server-side (8 cột, KHÔNG có liên kết task). Cho MỌI người
         authed (mục đích: dev-lead export). Rows chỉ là chuỗi hiển thị -> KHÔNG chạm
         Jira/Drive/PAT nên an toàn mở cho cả role dev."""
         import re
         from urllib.parse import quote
         from xlsx_export import build_xlsx
-        HEADERS = ['ID', 'Module', 'Mô tả bug', 'Ngày', 'Trạng thái', 'Tester', 'Dev in charge']
+        HEADERS = ['ID', 'Module', 'Mô tả bug', 'Ngày', 'Severity', 'Trạng thái',
+                   'Tester', 'Dev in charge']
         try:
             length = int(self.headers.get('Content-Length', 0))
             if not (0 < length <= 5_000_000):

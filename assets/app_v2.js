@@ -71,6 +71,27 @@ function autoBarRowHTML(name, st, escFn){
     + '<div class="tc-bar-n'+(st.denom?'':' muted')+'">'+(st.denom?pct+'%':'—')+'</div>'
     + '<div class="tc-bar-sub">'+sub+'</div></div>';
 }
+// ---------- Severity: thang 3 mức DÙNG CHUNG (Decision #85) ----------
+// Các file bug log dùng LẪN 2 thang chữ cho cùng 1 mức -> quy về ĐÚNG 3 mức (user chốt
+// 2026-08-10): Major=High · Normal=Medium · Minor=Low. Ô trống/giá trị lạ -> 'none'.
+// PHẢI khớp _SEV_MAP/_SEV_ORDER/_SEV_PIE/_sev_bucket phía Python (bug_backlog.py).
+// Đặt ở scope chung vì DÙNG Ở 2 NƠI: pie chart /analytics + cột Severity bảng /bug-log.
+var SEV_ORDER = ['major','normal','minor','none'];
+var SEV_PIE   = ['major','normal','minor'];
+var SEV_LABEL = { major:'Major (High)', normal:'Normal (Medium)', minor:'Minor (Low)',
+                  none:'Chưa phân loại' };
+var SEV_COLOR = { major:'#ff5630', normal:'#ffab00', minor:'#36b37e', none:'#97a0af' };
+var SEV_MAP = {
+  'major':'major','high':'major','cao':'major',
+  'blocker':'major','critical':'major','crit':'major',
+  'nghiêm trọng':'major','nghiem trong':'major',
+  'normal':'normal','medium':'normal','trung bình':'normal','trung binh':'normal',
+  'minor':'minor','minior':'minor','low':'minor','thấp':'minor','thap':'minor','trivial':'minor'
+};
+function sevOf(b){
+  var s = (''+(b.severity||'')).trim().toLowerCase().split(/\s+/).filter(Boolean).join(' ');
+  return SEV_MAP[s] || 'none';
+}
 // Pager numbered DÙNG CHUNG toàn app (đồng bộ: range info + số trang + ellipsis + mũi tên).
 // data-pg = số trang TUYỆT ĐỐI; container tự bắt click qua delegation. start là index 0-based.
 function pagerHTML(page, pages, total, start, count, unit){
@@ -3740,6 +3761,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
   var taskSel = [];        // các task key đã chọn ở ô tìm (multi-select chip)
   var testerFilter = '';   // lọc bảng theo tester (qa_pic); '' = tất cả
   var devFilter = '';      // lọc bảng theo dev in charge (dev_pic); '' = tất cả
+  var sevFilter = '';      // lọc theo severity đã quy chuẩn: ''=tất cả, major/normal/minor/none
   var linkFilter = '';     // lọc theo trạng thái liên kết task: ''=tất cả, 'linked', 'unlinked'
   // thu gọn nhóm tồn đọng / mới trong tháng (nhớ qua localStorage)
   // nhóm đang xem: 'back' = tồn đọng từ tháng trước · 'new' = mới trong tháng (2 tab riêng)
@@ -3847,6 +3869,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
       if(devFilter==='__none__'){ if((b.dev||'').trim()) return false; }
       else if((b.dev||'')!==devFilter) return false;
     }
+    if(sevFilter && sevOf(b)!==sevFilter) return false;   // 'none' = chưa phân loại (#85)
     if(linkFilter){
       var linked = (b.tasks||[]).length>0;
       if(linkFilter==='linked' && !linked) return false;
@@ -3922,6 +3945,15 @@ window.__smSetCustom=function(t, key, val, onChanged){
     }).join('');
   }
 
+  // Ô Severity: quy về 3 mức chung (#85). 'none' = ô trống / giá trị lạ trong file -> hiện
+  // gạch ngang mờ kèm giá trị thô ở title, KHÔNG ép về Normal (cần thấy sheet còn thiếu).
+  function sevCell(b){
+    var k = sevOf(b), raw = (b.severity||'').trim();
+    if(k==='none') return '<span class="bl-sev none" title="'
+      + (raw ? 'Giá trị trong file: '+esc(raw) : 'Chưa phân loại severity')+'">—</span>';
+    return '<span class="bl-sev '+k+'" title="'+esc(SEV_LABEL[k])
+      + (raw ? ' · file: '+esc(raw) : '')+'">'+esc(SEV_LABEL[k].split(' ')[0])+'</span>';
+  }
   function rowHTML(b){
     var chk = EDIT ? '<td><input type="checkbox" class="bl-check bl-row-chk" data-k="'+esc(b.key)+'"'+(sel[b.key]?' checked':'')+'></td>' : '';
     return '<tr data-bug="'+esc(b.key)+'">'+chk
@@ -3929,6 +3961,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
       +'<td>'+esc(b.module)+'</td>'
       +'<td><b>'+esc(b.summary)+'</b></td>'
       +'<td style="white-space:nowrap">'+esc(formatCreated(b.created))+'</td>'
+      +'<td>'+sevCell(b)+'</td>'
       +'<td>'+stCell(b.status)+'</td>'
       +'<td>'+esc(b.qa||'—')+'</td>'
       +'<td>'+esc(b.dev||'—')+'</td>'
@@ -3953,7 +3986,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var total = ordered.length, pages = Math.max(1, Math.ceil(total/PER));
     if(page>pages) page=pages;
     var start=(page-1)*PER, slice=ordered.slice(start, start+PER);
-    var cols = EDIT?9:8;
+    var cols = EDIT?10:9;   // +1 = cột Severity
 
     // 2 tab nhóm (ẩn khi tháng không có bug nào)
     var sb=$('blSplitBar');
@@ -4020,6 +4053,9 @@ window.__smSetCustom=function(t, key, val, onChanged){
   // ----- events: lọc theo dev in charge -----
   (function(){ var df=$('blDevFilter'); if(!df) return;
     df.addEventListener('change', function(){ devFilter=df.value||''; page=1; render(); }); })();
+  // ----- events: lọc theo severity -----
+  (function(){ var sf=$('blSevFilter'); if(!sf) return;
+    sf.addEventListener('change', function(){ sevFilter=sf.value||''; page=1; render(); }); })();
   // ----- events: lọc theo trạng thái liên kết task -----
   (function(){ var lf=$('blLinkFilter'); if(!lf) return;
     lf.addEventListener('change', function(){ linkFilter=lf.value||''; page=1; render(); }); })();
@@ -4028,7 +4064,9 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var list=visibleBugs();   // đúng bảng đang xem: file + tháng + tester/dev/link + tab nhóm
     if(!list.length){ toast('Không có bug nào để export', false); return; }
     var rows=list.map(function(b){
+      var sk = sevOf(b);   // cột Severity: xuất nhãn đã quy về 3 mức (#85), 'none' -> rỗng
       return [ b.id||'', b.module||'', b.summary||'', formatCreated(b.created),
+               (sk==='none' ? '' : SEV_LABEL[sk].split(' ')[0]),
                statusLabel(b.status), b.qa||'', b.dev||'' ]; });
     var lbl=(activeLabel()||'tat-ca').replace(/[^\w]+/g,'-').replace(/^-+|-+$/g,'');
     var mon=(curMonth||'').replace(/[\/]/g,'-');
@@ -4366,9 +4404,9 @@ window.__smSetCustom=function(t, key, val, onChanged){
   if(deepBug){
     var db = BUGS.filter(function(b){ return b.key===deepBug; })[0];
     if(db){
-      testerFilter=''; devFilter=''; linkFilter='';
-      var tf=$('blTesterFilter'), df=$('blDevFilter'), lf=$('blLinkFilter');
-      if(tf) tf.value=''; if(df) df.value=''; if(lf) lf.value='';
+      testerFilter=''; devFilter=''; linkFilter=''; sevFilter='';
+      var tf=$('blTesterFilter'), df=$('blDevFilter'), lf=$('blLinkFilter'), svf=$('blSevFilter');
+      if(tf) tf.value=''; if(df) df.value=''; if(lf) lf.value=''; if(svf) svf.value='';
       if(db.fid && SOURCES.some(function(s){ return s.id===db.fid; })) activeFid=db.fid;
       if(db.month) curMonth=db.month;
       var list0=monthBugs();
@@ -4845,27 +4883,10 @@ window.__smSetCustom=function(t, key, val, onChanged){
       + '</div>';
   }
 
-  // ---------- Severity: gom nhãn + pie chart (Decision #85) ----------
-  // Các file bug log dùng LẪN 2 thang chữ cho cùng 1 mức -> quy về ĐÚNG 3 mức (user chốt
-  // 2026-08-10): Major=High · Normal=Medium · Minor=Low. Ô trống/giá trị lạ -> 'none', KHÔNG
-  // vẽ trong pie nhưng vẫn hiện thành ghi chú dưới chart (bỏ hẳn thì mất mẫu số).
-  // PHẢI khớp _SEV_MAP/_SEV_ORDER/_SEV_PIE/_sev_bucket phía Python (bug_backlog.py).
-  var SEV_ORDER = ['major','normal','minor','none'];
-  var SEV_PIE   = ['major','normal','minor'];
-  var SEV_LABEL = { major:'Major (High)', normal:'Normal (Medium)', minor:'Minor (Low)',
-                    none:'Chưa phân loại' };
-  var SEV_COLOR = { major:'#ff5630', normal:'#ffab00', minor:'#36b37e', none:'#97a0af' };
-  var SEV_MAP = {
-    'major':'major','high':'major','cao':'major',
-    'blocker':'major','critical':'major','crit':'major',
-    'nghiêm trọng':'major','nghiem trong':'major',
-    'normal':'normal','medium':'normal','trung bình':'normal','trung binh':'normal',
-    'minor':'minor','minior':'minor','low':'minor','thấp':'minor','thap':'minor','trivial':'minor'
-  };
-  function sevOf(b){
-    var s = (''+(b.severity||'')).trim().toLowerCase().split(/\s+/).filter(Boolean).join(' ');
-    return SEV_MAP[s] || 'none';
-  }
+  // ---------- Severity: pie chart (Decision #85) ----------
+  // Thang 3 mức + sevOf() dùng chung ở scope ngoài (cùng dùng cho cột Severity ở /bug-log).
+  // Ô trống/giá trị lạ -> 'none': KHÔNG vẽ trong pie nhưng vẫn hiện thành ghi chú dưới chart
+  // (bỏ hẳn thì mất mẫu số, CTO tưởng tháng chỉ có ngần ấy bug).
   function sevCounts(list){
     var c = {}; SEV_ORDER.forEach(function(k){ c[k]=0; });
     list.forEach(function(b){ c[sevOf(b)]++; });
