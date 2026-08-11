@@ -4097,6 +4097,25 @@ window.__smSetCustom=function(t, key, val, onChanged){
 
   // ----- quản lý link Drive nguồn (admin): ✎ đổi link 1 file + modal CRUD list -----
   function driveLink(id){ return id ? ('https://drive.google.com/file/d/'+id+'/view') : ''; }
+  // Link Drive dạng /file/d/<id>/view mở ra VIEWER chỉ-xem (phải bấm thêm 1 nhịp mới sửa
+  // được). Nguồn bug log gần như luôn là bảng tính (Sheet native hoặc .xlsx trên Drive) —
+  // cả hai đều mở thẳng bằng URL Sheets /edit -> bấm là vào chế độ sửa luôn, giống modal
+  // nguồn ở /test-cases (link user dán vốn đã là .../edit).
+  var _NOT_SHEET=/\.(xls|ods|pdf|docx?|pptx?|txt|csv|zip)$/i;   // .xls cũ Sheets không mở /edit
+  function sheetEditLink(id){ return id ? ('https://docs.google.com/spreadsheets/d/'+id+'/edit') : ''; }
+  function isSheetName(name){ return !_NOT_SHEET.test((name||'').trim()); }
+  // URL để HIỂN THỊ + để nút "Mở" dùng. `u` = link user đang gõ (có thể rỗng/khác dạng).
+  function editUrlOf(u, id, name){
+    u=(u||'').trim();
+    var m=/\/d\/([A-Za-z0-9_-]{10,200})/.exec(u);
+    // chấp nhận cả id trần (user dán mỗi id) — cùng luật với extract_file_id ở server
+    var bare=/^[A-Za-z0-9_-]{10,200}$/.test(u);
+    var fid=(m && m[1]) || (bare ? u : '') || id || '';
+    if(!fid) return u;
+    if(/docs\.google\.com\/spreadsheets/.test(u)) return sheetEditLink(fid);   // đã là Sheets -> ép /edit
+    if(!u || bare || /drive\.google\.com/.test(u)) return isSheetName(name) ? sheetEditLink(fid) : driveLink(fid);
+    return u;   // link lạ (không phải Drive/Sheets) -> để nguyên, không đoán
+  }
   function saveSources(list, btn){
     // list = [{link, label}]; server rút file id + scan ngay. Lưu xong reload để thấy data.
     if(btn) btn.disabled=true;
@@ -4276,16 +4295,35 @@ window.__smSetCustom=function(t, key, val, onChanged){
   // "Quản lý link drive" — modal CRUD list link
   (function(){
     var ov=$('blSrcOv'), listEl=$('blSrcList'); if(!ov) return;
-    function rowHtml(label, link, service){
-      return '<div class="bl-src-row">'
-        +'<input type="text" class="bl-src-label" placeholder="Nhãn (tuỳ chọn)" value="'+esc(label||'')+'" style="width:140px;">'
-        +'<input type="text" class="bl-src-service" placeholder="Hậu tố (VD: FE)" value="'+esc(service||'')+'" style="width:110px;">'
-        +'<input type="text" class="bl-src-link" placeholder="Link Google Drive" value="'+esc(link||'')+'">'
-        +'<button type="button" class="del material-symbols-rounded ph-light ph-trash mi-sm" title="Xoá"></button></div>';
+    // Layout card giống modal "Quản lý link Google Sheet nguồn" ở /test-cases: mỗi nguồn
+    // = 1 card (nhãn + hậu tố ở hàng đầu, link + nút mở ở hàng dưới, meta ở đáy). Vẫn giữ
+    // class `.bl-src-row` + 3 input để collector của nút "Lưu & đồng bộ" không phải đổi.
+    function rowHtml(label, link, service, meta, name){
+      // data-name = tên file Drive -> nút "Mở" biết file có phải bảng tính không (editUrlOf)
+      return '<div class="bl-src-row" data-name="'+esc(name||'')+'">'
+        +'<div class="bl-src-item-head">'
+        +'<span class="material-symbols-rounded ph-light ph-table mi-sm"></span>'
+        +'<input type="text" class="bl-src-label" placeholder="Nhãn (VD: Bug DA6)" value="'+esc(label||'')+'">'
+        +'<input type="text" class="bl-src-service" placeholder="Hậu tố (VD: FE)" value="'+esc(service||'')+'">'
+        +'<button type="button" class="del material-symbols-rounded ph-light ph-trash mi-sm" title="Xoá link này"></button>'
+        +'</div>'
+        +'<div class="bl-src-item-row">'
+        +'<input type="text" class="bl-src-link" placeholder="Link Google Drive" value="'+esc(link||'')+'" spellcheck="false">'
+        +'<button type="button" class="btn btn-ghost bl-src-open" title="Mở link">'
+        +'<span class="material-symbols-rounded ph-light ph-arrow-square-out mi-sm"></span></button>'
+        +'</div>'
+        +(meta?'<div class="bl-src-item-meta">'+esc(meta)+'</div>':'')
+        +'</div>';
     }
     function renderList(){
       if(!SOURCES.length){ listEl.innerHTML='<div class="bl-src-empty">Chưa có link nào — bấm “Thêm link”.</div>'; return; }
-      listEl.innerHTML = SOURCES.map(function(s){ return rowHtml(s.label, driveLink(s.id), s.service); }).join('');
+      listEl.innerHTML = SOURCES.map(function(s){
+        var bits=[];
+        if(s.name) bits.push('File: '+s.name);
+        bits.push(BUGS.filter(function(b){ return b.fid===s.id; }).length+' bản ghi');
+        // hiện thẳng link /edit (không phải /view) -> copy ra ngoài cũng mở sẵn chế độ sửa
+        return rowHtml(s.label, editUrlOf('', s.id, s.name), s.service, bits.join(' · '), s.name);
+      }).join('');
     }
     function open(){ renderList(); ov.classList.add('open'); }
     function close(){ ov.classList.remove('open'); }
@@ -4296,7 +4334,18 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var add=$('blSrcAdd'); if(add) add.addEventListener('click', function(){
       var empty=listEl.querySelector('.bl-src-empty'); if(empty) listEl.innerHTML='';
       listEl.insertAdjacentHTML('beforeend', rowHtml('', '', '')); });
-    listEl.addEventListener('click', function(e){ var d=e.target.closest('.del'); if(!d) return;
+    listEl.addEventListener('click', function(e){
+      var op=e.target.closest('.bl-src-open');
+      if(op){
+        var row0=op.closest('.bl-src-row');
+        var u=((row0&&row0.querySelector('.bl-src-link').value)||'').trim();
+        // /view -> /edit: mở ra là sửa được ngay (link user tự dán cũng được chuẩn hoá)
+        u=editUrlOf(u, '', (row0&&row0.getAttribute('data-name'))||'');
+        if(/^https?:\/\//.test(u)) window.open(u,'_blank');
+        else toast('Link không hợp lệ', false);
+        return;
+      }
+      var d=e.target.closest('.del'); if(!d) return;
       var row=d.closest('.bl-src-row'); if(row) row.remove();
       if(!listEl.querySelector('.bl-src-row')) listEl.innerHTML='<div class="bl-src-empty">Chưa có link nào — bấm “Thêm link”.</div>'; });
     var sv=$('blSrcSave'); if(sv) sv.addEventListener('click', function(){
