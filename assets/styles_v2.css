@@ -1241,16 +1241,22 @@ html[data-theme="dark"] .bottom-toast {
   width:38px;height:38px;border-radius:var(--r-md);font-size:20px;display:flex;align-items:center;justify-content:center}
 .bl-src-edit:hover{background:var(--primary-tint);color:var(--primary)}
 /* quản lý list link drive (modal) */
-.bl-src-list{display:flex;flex-direction:column;gap:10px}
-.bl-src-row{display:flex;gap:8px;align-items:center}
-.bl-src-row input{flex:1;padding:9px 11px;border:1px solid var(--outline-variant);border-radius:var(--r-md);
-  font-size:13px;background:var(--surface);color:var(--on-surface)}
-.bl-src-row input.bl-src-label{flex:0 0 150px}
+.bl-src-list{display:flex;flex-direction:column;gap:10px;max-height:52vh;overflow-y:auto}
+/* mỗi nguồn = 1 card (layout đồng bộ với .tc-link-item ở /test-cases) */
+.bl-src-row{border:1px solid var(--divider);border-radius:var(--r-md);padding:10px 12px;background:var(--surface-low)}
+.bl-src-item-head{display:flex;align-items:center;gap:6px;margin-bottom:8px}
+.bl-src-item-row{display:flex;align-items:center;gap:6px}
+.bl-src-row input{flex:1;min-width:0;padding:7px 10px;border:1px solid var(--outline-variant);
+  border-radius:var(--r-md);font-family:inherit;font-size:13px;background:var(--surface);color:var(--on-surface)}
+.bl-src-row input.bl-src-label{flex:1 1 auto;font-weight:600}
+.bl-src-row input.bl-src-service{flex:0 0 140px}
 .bl-src-row input:focus{outline:none;border-color:var(--primary);background:var(--card)}
+.bl-src-item-row .btn{padding:6px 10px;white-space:nowrap;flex:0 0 auto}
+.bl-src-item-meta{margin-top:6px;font-size:11.5px;color:var(--on-surface-variant)}
 .bl-src-row .del{cursor:pointer;color:var(--outline);background:none;border:none;width:34px;height:34px;
   border-radius:var(--r-md);display:flex;align-items:center;justify-content:center;flex:0 0 auto}
 .bl-src-row .del:hover{background:var(--error-bg);color:var(--error)}
-.bl-src-empty{font-size:13px;color:var(--on-surface-variant);font-style:italic;padding:6px 0}
+.bl-src-empty{font-size:13px;color:var(--on-surface-variant);font-style:italic;padding:16px 4px;text-align:center}
 /* chip "file đang xem" trên thẻ nguồn */
 .bl-active-file{display:inline-flex;align-items:center;margin-top:6px;padding:3px 10px;border-radius:999px;
   font-size:12px;font-weight:600;background:var(--primary-tint);color:var(--primary)}
