@@ -198,6 +198,16 @@ Jira DC render `[~username]` thành mention + notify; backend đã parse format 
 Controller `mentionAutocomplete` (delegation `input` trên textarea id `^(dtTa|cmtTa)-`) phủ cả 3 drawer lẫn ô inline. Nguồn 2 tầng: roster QA (`window.__mentionUsers`) hiện ngay khi gõ "@"; **≥1 ký tự** → augment TOÀN BỘ user Jira qua `/search-people` (debounce 220ms, merge dedup, cap 10). Keydown bind **capture + stopPropagation** để Enter/Esc không lọt xuống drawer.
 ⚠ Phụ thuộc quyền **Browse Users** của tài khoản PAT chung — thiếu thì chỉ còn roster QA. Visible text là markup thô (giống editor wiki Jira), không map display→username lúc gửi để tránh sai attribution.
 
+### 87. Custom select `xsel` — thay popup `<select>` native toàn app *(2026-08-11)*
+Popup của `<select>` do OS vẽ → không style được: list trắng giữa theme tối, font hệ thống, không bo góc, lệch hẳn ngôn ngữ thị giác v2. Thay bằng **progressive enhancement dùng chung**, KHÔNG sửa 20 chỗ render `<select>` bên Python:
+- Module cuối `app_v2.js` (top-level IIFE riêng, ngoài scope shared → có `esc`/`fold` bản riêng) quét mọi `select`, bọc `.xsel` = trigger `.xsel-btn` + menu portal ra `<body>` (`position:fixed`, z-index 1400 → không bị `overflow` của card/bảng cắt, dùng được trong modal/drawer). `<select>` gốc **giữ trong DOM** (ẩn kiểu a11y) làm **nguồn sự thật** → mọi controller cũ đọc `.value`, gán `.innerHTML`, bắt `change` chạy y như trước; form native vẫn submit đúng.
+- Đồng bộ ngược 3 kênh vì gán thuộc tính KHÔNG sinh event: (a) `MutationObserver` childList → options build lại từ data (tester/dev/tháng/cây thư mục); (b) attribute `disabled`/`title`; (c) **override property `value`/`selectedIndex` per-element** qua descriptor gốc của `HTMLSelectElement.prototype`. Thêm `sel.focus()` → chuyển sang trigger (native đã ẩn).
+- Select sinh động (modal roadmap `mf-*`, `/docs`, palette) bắt bằng `MutationObserver` trên `body` (gộp theo rAF).
+- Menu: ô **tìm kiếm khi ≥10 option** (fold không dấu + `đ→d`, parity với `norm()` #39), bàn phím ↑/↓/Home/End/Enter/Esc, tự **lật lên** khi thiếu chỗ dưới, chọn xong `dispatchEvent('change')` **chỉ khi giá trị thực sự đổi**.
+- Style theo ngữ cảnh thay vì 1 kiểu duy nhất: `.bl-filter` (ghost, như select không viền cũ) · `.mfield`/`.tc-iwrap`/`.ef` (full-width field) · `.metric-filter` · `.set-input` · `.st-row` · `.bm-sel`. Wrapper mang thêm class `xsel-of-<class đầu của select>` để bám style cũ.
+⚠ Bỏ qua khi `multiple` / `size>1` / có `data-noxsel` → cần select native chỗ nào thì gắn `data-noxsel`.
+**Giới hạn**: inline `style="width:…"` đặt trên `<select>` không còn tác dụng (nằm trên native đã ẩn) — muốn đổi bề rộng phải style ở CSS cho `.xsel-btn`.
+
 ## Tab: Việc của tôi / lens cá nhân
 
 ### 17. Tab "Việc của tôi" (`/my-work`) — lens cá nhân cho admin
@@ -603,5 +613,7 @@ qa-dashboard/
 - Khi thêm/đổi cấu trúc: **tự ghi Decision mới** vào file này (số kế tiếp), không đợi user nhắc.
 
 ## Last Updated
+
+2026-08-11 — Thêm Decision #87 (custom select `xsel` thay popup `<select>` native toàn app).
 
 2026-08-10 — Dọn lại toàn bộ Decision: bỏ log verify/smoke, gộp #12 trùng, đưa #77 về đúng thứ tự, gom 13 decision chết/superseded vào bảng cuối, bổ sung 7 decision cho phần code chưa có tài liệu (KV store #78, Drive token #79, Test Case #80, Analytics #81, report Chat #82, API mobile #83, offline/snapshot #84), cập nhật File Map (package `core/render`, `core/routes`, module mới) + Current State + Known Limitations theo code thật.
