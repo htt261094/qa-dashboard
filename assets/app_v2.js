@@ -6209,6 +6209,218 @@ window.__smSetCustom=function(t, key, val, onChanged){
 
 })();   // ===== đóng IIFE ngoài cùng (shared scope) — bug-metrics block nằm TRONG để dùng $/esc/readJSON
 
+/* ===== Custom select `xsel` (Decision #87) =====================================
+   Popup của <select> native do OS vẽ -> không theme được (list trắng giữa nền tối, font hệ
+   thống, không bo góc). Ở đây nâng cấp TẠI CHỖ mọi <select> trên trang: dựng trigger + menu
+   tự vẽ, còn <select> gốc giữ nguyên trong DOM (ẩn) làm NGUỒN SỰ THẬT.
+   => Controller cũ đọc `sel.value`, gán `sel.innerHTML`, bắt 'change' đều chạy y như trước;
+      không phải sửa 20 chỗ render `<select>` bên Python.
+   Đồng bộ ngược 3 kênh: (a) MutationObserver childList -> options bị build lại từ data;
+   (b) attribute `disabled`; (c) override property `value`/`selectedIndex` per-element vì gán
+   thuộc tính KHÔNG sinh event nào để nghe. */
+(function(){
+  var VAL = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
+  var IDX = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'selectedIndex');
+  if(!VAL || !IDX) return;                        // trình duyệt lạ -> để native, không phá
+  var SEARCH_MIN = 10;                            // >= n option thì thêm ô tìm
+  var cur = null;                                 // api đang mở menu
+
+  function icon(name){ return '<span class="material-symbols-rounded ph-light ph-'+name+'"></span>'; }
+  function esc(s){ return (s==null?'':String(s))
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }   // module ngoài IIFE chung -> esc riêng
+  function fold(s){ return String(s||'').toLowerCase().normalize('NFD')
+    .replace(/[̀-ͯ]/g,'').replace(/đ/g,'d'); }  // NFD KHÔNG tách đ -> thay tay (#39)
+
+  function label(sel){ var o=sel.options[sel.selectedIndex]; return o ? o.textContent : ''; }
+
+  function sync(api){
+    api.lbl.textContent = label(api.sel);
+    api.btn.disabled = api.sel.disabled;
+    api.wrap.classList.toggle('disabled', api.sel.disabled);
+    api.btn.title = api.sel.title || api.lbl.textContent;
+    if(cur === api) fill(api);
+  }
+
+  // ---- menu ----
+  function fill(api, q){
+    var m=api.menu, sel=api.sel, html='', qq=fold(q||''), n=0;
+    Array.prototype.forEach.call(sel.children, function(node){
+      if(node.tagName==='OPTGROUP'){
+        var inner='';
+        Array.prototype.forEach.call(node.children, function(o){
+          var h=optHTML(o,qq); if(h){ n++; inner+=h; } });
+        if(inner) html += '<div class="xsel-grp">'+esc(node.label)+'</div>'+inner;
+      } else if(node.tagName==='OPTION'){
+        var h=optHTML(node,qq); if(h){ n++; html+=h; }
+      }
+    });
+    var body = api.body || m;
+    body.innerHTML = html || '<div class="xsel-empty">Không có mục nào khớp</div>';
+    if(!n) return;
+    var on = body.querySelector('.xsel-opt.on') || body.querySelector('.xsel-opt:not(.dis)');
+    setActive(api, on);
+  }
+  function optHTML(o, qq){
+    if(qq && fold(o.textContent).indexOf(qq)<0) return '';
+    return '<div class="xsel-opt'+(o.selected?' on':'')+(o.disabled?' dis':'')+'" data-v="'+esc(o.value)+'">'
+      + '<span class="t">'+esc(o.textContent)+'</span>'
+      + '<span class="material-symbols-rounded ph-light ph-check chk"></span></div>';
+  }
+  function setActive(api, el){
+    var body=api.body||api.menu;
+    body.querySelectorAll('.xsel-opt.active').forEach(function(x){ x.classList.remove('active'); });
+    if(el){ el.classList.add('active'); scrollIn(body, el); }
+  }
+  function scrollIn(box, el){
+    var t=el.offsetTop, b=t+el.offsetHeight;
+    if(t < box.scrollTop) box.scrollTop=t-4;
+    else if(b > box.scrollTop+box.clientHeight) box.scrollTop=b-box.clientHeight+4;
+  }
+
+  function place(api){
+    var r=api.btn.getBoundingClientRect(), m=api.menu;
+    m.style.minWidth=Math.max(r.width, 180)+'px';
+    m.style.maxHeight='';
+    var below=window.innerHeight-r.bottom-12, above=r.top-12;
+    var up = below < 220 && above > below;
+    m.classList.toggle('up', up);
+    m.style.maxHeight=Math.min(360, Math.max(160, up?above:below))+'px';
+    var h=m.offsetHeight, w=m.offsetWidth;
+    m.style.top = (up ? Math.max(8, r.top-6-h) : r.bottom+6)+'px';
+    m.style.left = Math.max(8, Math.min(r.left, window.innerWidth-w-8))+'px';
+  }
+
+  function open(api){
+    if(cur) close();
+    cur=api;
+    var m=document.createElement('div'); m.className='xsel-menu'; api.menu=m;
+    if(api.sel.options.length>=SEARCH_MIN){
+      var s=document.createElement('div'); s.className='xsel-search';
+      s.innerHTML=icon('magnifying-glass')+'<input type="text" placeholder="Tìm…" autocomplete="off">';
+      m.appendChild(s);
+      api.body=document.createElement('div'); m.appendChild(api.body);
+      api.q=s.querySelector('input');
+      api.q.addEventListener('input', function(){ fill(api, api.q.value); });
+    } else { api.body=null; api.q=null; }
+    document.body.appendChild(m);
+    fill(api);
+    place(api);
+    api.wrap.classList.add('open');
+    api.btn.setAttribute('aria-expanded','true');
+    if(api.q) api.q.focus(); else api.btn.focus();
+
+    m.addEventListener('mousedown', function(e){ e.preventDefault(); });  // giữ focus
+    m.addEventListener('click', function(e){
+      var o=e.target.closest('.xsel-opt'); if(!o || o.classList.contains('dis')) return;
+      pick(api, o.getAttribute('data-v'));
+    });
+    m.addEventListener('mousemove', function(e){
+      var o=e.target.closest('.xsel-opt'); if(o && !o.classList.contains('dis')) setActive(api, o);
+    });
+  }
+  function close(){
+    if(!cur) return;
+    var api=cur; cur=null;
+    if(api.menu && api.menu.parentNode) api.menu.parentNode.removeChild(api.menu);
+    api.menu=null; api.body=null; api.q=null;
+    api.wrap.classList.remove('open');
+    api.btn.setAttribute('aria-expanded','false');
+  }
+  function pick(api, v){
+    var sel=api.sel, changed = String(VAL.get.call(sel)) !== String(v);
+    VAL.set.call(sel, v);
+    close(); api.btn.focus(); sync(api);
+    if(changed) sel.dispatchEvent(new Event('change', {bubbles:true}));
+  }
+  function move(api, d){
+    var body=api.body||api.menu;
+    var list=Array.prototype.filter.call(body.querySelectorAll('.xsel-opt'), function(o){ return !o.classList.contains('dis'); });
+    if(!list.length) return;
+    var i=list.indexOf(body.querySelector('.xsel-opt.active'));
+    setActive(api, list[Math.max(0, Math.min(list.length-1, (i<0?0:i)+d))]);
+  }
+
+  // ---- dựng 1 select ----
+  function build(sel){
+    if(sel.__xsel || sel.multiple || sel.size>1 || sel.hasAttribute('data-noxsel')) return;
+    var wrap=document.createElement('div'); wrap.className='xsel';
+    if(sel.className) wrap.className += ' xsel-of-'+sel.className.split(/\s+/)[0];
+    sel.parentNode.insertBefore(wrap, sel);
+    wrap.appendChild(sel);
+    sel.classList.add('xsel-native'); sel.setAttribute('tabindex','-1'); sel.setAttribute('aria-hidden','true');
+    var btn=document.createElement('button');
+    btn.type='button'; btn.className='xsel-btn'; btn.setAttribute('aria-haspopup','listbox');
+    btn.setAttribute('aria-expanded','false');
+    btn.innerHTML='<span class="xsel-lbl"></span>'
+      +'<span class="material-symbols-rounded ph-light ph-caret-down xsel-car"></span>';
+    wrap.appendChild(btn);
+    var api={sel:sel, wrap:wrap, btn:btn, lbl:btn.querySelector('.xsel-lbl'), menu:null};
+    sel.__xsel=api;
+
+    btn.addEventListener('click', function(e){ e.preventDefault(); e.stopPropagation();
+      if(cur===api) close(); else open(api); });
+    btn.addEventListener('keydown', function(e){
+      if(cur!==api){
+        if(e.key==='ArrowDown'||e.key==='ArrowUp'||e.key==='Enter'||e.key===' '){ e.preventDefault(); open(api); }
+        return;
+      }
+      if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); close(); btn.focus(); }
+      else if(e.key==='ArrowDown'){ e.preventDefault(); move(api,1); }
+      else if(e.key==='ArrowUp'){ e.preventDefault(); move(api,-1); }
+      else if(e.key==='Home'){ e.preventDefault(); move(api,-999); }
+      else if(e.key==='End'){ e.preventDefault(); move(api,999); }
+      else if(e.key==='Enter'||(e.key==='Tab')){
+        var a=(api.body||api.menu).querySelector('.xsel-opt.active');
+        if(a){ e.preventDefault(); pick(api, a.getAttribute('data-v')); }
+      }
+    }, true);
+
+    // native đã ẩn -> code cũ gọi sel.focus() (vd auto-focus field đầu trong modal) sẽ rơi vào
+    // hư không; chuyển hướng sang trigger để bàn phím vẫn dùng được
+    sel.focus = function(){ btn.focus(); };
+    // (c) gán property KHÔNG sinh event -> chặn tại chỗ để nhãn khỏi lệch data
+    try{
+      Object.defineProperty(sel, 'value', {configurable:true,
+        get:function(){ return VAL.get.call(this); },
+        set:function(v){ VAL.set.call(this, v); sync(api); }});
+      Object.defineProperty(sel, 'selectedIndex', {configurable:true,
+        get:function(){ return IDX.get.call(this); },
+        set:function(v){ IDX.set.call(this, v); sync(api); }});
+    }catch(e){}
+    // (a)(b) options build lại / disabled đổi
+    new MutationObserver(function(){ sync(api); })
+      .observe(sel, {childList:true, subtree:true, attributes:true, attributeFilter:['disabled','title']});
+    sel.addEventListener('change', function(){ sync(api); });  // ai đó set rồi tự dispatch
+    sync(api);
+  }
+
+  function scan(root){
+    (root||document).querySelectorAll('select:not(.xsel-native)').forEach(build);
+  }
+  scan();
+  // Select sinh động (modal roadmap, cây thư mục /docs, palette…) -> bắt lúc chèn vào DOM
+  var pend=false;
+  new MutationObserver(function(muts){
+    if(pend) return;
+    for(var i=0;i<muts.length;i++){ if(muts[i].addedNodes.length){ pend=true;
+      requestAnimationFrame(function(){ pend=false; scan(); }); return; } }
+  }).observe(document.body, {childList:true, subtree:true});
+
+  // đóng khi bấm ra ngoài / cuộn / resize / Esc ở tầng document
+  document.addEventListener('mousedown', function(e){
+    if(!cur) return;
+    var t=e.target;
+    if(t && t.closest && (t.closest('.xsel-menu') || t.closest('.xsel')===cur.wrap)) return;
+    close();
+  }, true);
+  document.addEventListener('keydown', function(e){
+    if(cur && e.key==='Escape'){ e.stopPropagation(); var b=cur.btn; close(); b.focus(); }
+  }, true);
+  window.addEventListener('resize', close);
+  window.addEventListener('scroll', function(){ if(cur) place(cur); }, true);
+})();
+
 /* ===== Mobile sidebar off-canvas toggle (#navToggle / #navScrim) ===== */
 (function(){
   var app=document.querySelector('.app'); if(!app) return;
