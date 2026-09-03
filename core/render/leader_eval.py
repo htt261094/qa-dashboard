@@ -16,6 +16,10 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
 
     rows = []
     unique_statuses = set()
+    # {username: display name} của CHÍNH tập task đang hiển thị → dropdown lọc
+    # client-side (giống lọc Status), không cần gọi lại Jira.
+    unique_assignees = {}
+    has_unassigned = False
     for issue in tasks:
         f = issue.get('fields', {})
         st = (f.get('status') or {}).get('name') or ''
@@ -23,6 +27,10 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
             unique_statuses.add(st)
         asg_user = i_assignee(issue)
         asg_name = i_assignee_name(issue)
+        if asg_user:
+            unique_assignees.setdefault(asg_user, asg_name or asg_user)
+        else:
+            has_unassigned = True
         num_val = f.get(LEADER_EVAL_NUM_FIELD)
         num_str = str(num_val) if num_val is not None else ''
         text_val = f.get(LEADER_EVAL_TEXT_FIELD) or ''
@@ -43,6 +51,13 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
     status_opts = ''
     for st in sorted(unique_statuses):
         status_opts += f'<option value="{esc(st)}">{esc(st)}</option>'
+
+    asg_opts = ''
+    for u, n in sorted(unique_assignees.items(), key=lambda kv: kv[1].lower()):
+        asg_opts += f'<option value="{esc(u)}">{esc(n)}</option>'
+    # task chưa giao vẫn phải lọc ra được (data-assignee rỗng) — chỉ hiện khi có
+    if has_unassigned:
+        asg_opts += '<option value="__none__">— Chưa giao —</option>'
 
     table_html = f"""
     <div class="card">
@@ -116,12 +131,17 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
         /* Status + Assignee filters (combined) */
         var sf = document.getElementById('statusFilter');
         var ef = document.getElementById('evalStateFilter');
+        var af = document.getElementById('evalAsgFilter');
         function applyRowFilters() {
             var sv = sf ? sf.value : '';
             var ev = ef ? ef.value : '';
+            var av = af ? af.value : '';
             document.querySelectorAll('.eval-row').forEach(function(r) {
+                var ra = r.getAttribute('data-assignee') || '';
+                /* '__none__' = task chua giao (data-assignee rong) */
+                var aOk = !av || (av === '__none__' ? ra === '' : ra === av);
                 var ok = (!sv || r.getAttribute('data-status') === sv) &&
-                         (!ev || r.getAttribute('data-evaluated') === ev);
+                         (!ev || r.getAttribute('data-evaluated') === ev) && aOk;
                 if (ok) {
                     r.style.display = '';
                 } else {
@@ -130,10 +150,21 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
                     if (c) c.checked = false;
                 }
             });
+            updateVisCount();
             updateCount();
+        }
+        /* So trong tieu de = so dong DANG hien (co filter thi hien "hien/tong") */
+        function updateVisCount() {
+            var rows = document.querySelectorAll('.eval-row');
+            var vis = 0;
+            rows.forEach(function(r) { if (r.style.display !== 'none') vis++; });
+            var v = document.getElementById('evalVisCount');
+            if (v) v.textContent = (vis === rows.length) ? ('(' + vis + ')')
+                                                         : ('(' + vis + '/' + rows.length + ')');
         }
         if (sf) sf.addEventListener('change', applyRowFilters);
         if (ef) ef.addEventListener('change', applyRowFilters);
+        if (af) af.addEventListener('change', applyRowFilters);
 
         /* Check-all */
         var ca = document.getElementById('evalCheckAll');
@@ -230,12 +261,19 @@ def render_leader_eval_page(tasks, year, month, user=None, activities=None, cate
             <div class="section">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
                     <div style="display:flex; align-items:center; gap:16px;">
-                        <h3 style="margin:0;">Danh s\u00e1ch Task ({len(tasks)})</h3>
+                        <h3 style="margin:0;">Danh s\u00e1ch Task <span id="evalVisCount">({len(tasks)})</span></h3>
                         <div style="display:flex; align-items:center; gap:8px;">
                             <label style="font-size:13px; font-weight:600; color:var(--on-surface-variant);">L\u1ecdc Status:</label>
                             <select id="statusFilter" class="set-input" style="margin:0; padding:4px 28px 4px 8px; font-size:13px; width:160px;">
                                 <option value="">-- T\u1ea5t c\u1ea3 --</option>
                                 {status_opts}
+                            </select>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <label style="font-size:13px; font-weight:600; color:var(--on-surface-variant);">Assignee:</label>
+                            <select id="evalAsgFilter" class="set-input" style="margin:0; padding:4px 28px 4px 8px; font-size:13px; width:170px;">
+                                <option value="">-- Tất cả --</option>
+                                {asg_opts}
                             </select>
                         </div>
                         <div style="display:flex; align-items:center; gap:8px;">
