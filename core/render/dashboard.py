@@ -228,10 +228,13 @@ def build_dashboard_payload(data, cmap):
         })
 
     # Pill counts
-    n_todo = sum(1 for t in tasks if t['jira'] == 'TO DO' and not t['isNew'] and not t['overdue'])
+    # Bucket "New" đã bỏ khỏi UI (chỉ còn todo/progress/stuck/overdue/done) → task mới tạo
+    # KHÔNG bị loại khỏi To Do nữa, nếu không chúng rơi ra ngoài mọi bucket.
+    n_todo = sum(1 for t in tasks if t['jira'] == 'TO DO' and not t['overdue'])
     # "In Progress" = MỌI task active không phải TO DO (In Progress, PENDING, và bất kỳ
     # status active mới nào) → todo ∪ progress phủ trọn bucket active, không status nào lọt (issue #39).
     n_prog = sum(1 for t in tasks if t['active'] and t['jira'] != 'TO DO' and not t['stuck'] and not t['overdue'])
+    # Giữ lại count 'new' trong meta cho /api/dashboard (app Android) dù web không còn pill.
     n_new = sum(1 for t in tasks if t['isNew'])
     n_stuck = sum(1 for t in tasks if t['stuck'])
     n_over = sum(1 for t in tasks if t['overdue'])
@@ -295,7 +298,7 @@ def render_admin_v2(data, activities, cmap, user, bug_log_data=None,
 
     # Nguồn chân lý dùng chung với /api/dashboard (D3) — chỉ dựng markup từ payload thuần.
     tasks, meta, members, workload = build_dashboard_payload(data, cmap)
-    n_todo, n_prog, n_new = meta['todo'], meta['progress'], meta['new']
+    n_todo, n_prog = meta['todo'], meta['progress']
     n_stuck, n_over, n_done = meta['stuck'], meta['overdue'], meta['done']
 
     member_opts = '<div class="member-opt active" data-member="all">All Members</div>'
@@ -319,7 +322,6 @@ def render_admin_v2(data, activities, cmap, user, bug_log_data=None,
         '<div class="status-pills" id="statusPills">'
         f'<button class="pill-btn active" data-pill="todo">To Do <span class="pill-badge" id="count-todo">{n_todo}</span></button>'
         f'<button class="pill-btn" data-pill="progress">In Progress <span class="pill-badge" id="count-progress">{n_prog}</span></button>'
-        f'<button class="pill-btn" data-pill="new">New <span class="pill-badge" id="count-new">{n_new}</span></button>'
         f'<button class="pill-btn" data-pill="stuck">Stuck <span class="pill-badge" id="count-stuck">{n_stuck}</span></button>'
         f'<button class="pill-btn" data-pill="overdue">Overdue <span class="pill-badge" id="count-overdue">{n_over}</span></button>'
         f'<button class="pill-btn" data-pill="done">Done <span class="pill-badge" id="count-done">{n_done}</span></button>'

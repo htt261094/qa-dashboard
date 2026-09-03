@@ -1102,10 +1102,10 @@ window.__smSetCustom=function(t, key, val, onChanged){
       if(v==='CANCELLED') return 'b-critical'; return 'b-todo'; }
 
     function pillMatch(t){
-      if(curPill==='todo') return t.active && t.jira==='TO DO' && !t.isNew && !t.overdue;
+      // Bỏ bucket "New" (2026-08-26): task mới tạo phải nằm trong To Do, không thì rơi ra ngoài mọi bucket.
+      if(curPill==='todo') return t.active && t.jira==='TO DO' && !t.overdue;
       // In Progress = MỌI task active không phải TO DO (gồm status active mới) → không status nào lọt (issue #39)
       if(curPill==='progress') return t.active && t.jira!=='TO DO' && !t.stuck && !t.overdue;
-      if(curPill==='new') return t.isNew;
       if(curPill==='stuck') return t.stuck;
       if(curPill==='overdue') return t.overdue;
       if(curPill==='done') return t.jira.toUpperCase()==='DONE';
@@ -1135,7 +1135,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
       if(curPage>pages) curPage=pages; if(curPage<1) curPage=1;
       var start=(curPage-1)*PER_PAGE, slice=all.slice(start, start+PER_PAGE);
 
-      var label={todo:'To Do Tasks',progress:'In Progress Tasks',new:'New Tasks',
+      var label={todo:'To Do Tasks',progress:'In Progress Tasks',
                  stuck:'Stuck Tasks',overdue:'Overdue Tasks',done:'Done Tasks'};
       $('tableTitleText').innerHTML='<span class="material-symbols-rounded ph-light ph-clipboard-text"></span><span>'+(label[curPill]||'Tasks')+'</span>';
 
@@ -1174,13 +1174,12 @@ window.__smSetCustom=function(t, key, val, onChanged){
     }
 
     function updateCounts(){
-      var counts={todo:0,progress:0,'new':0,stuck:0,overdue:0,done:0};
+      var counts={todo:0,progress:0,stuck:0,overdue:0,done:0};
       TASKS.forEach(function(t){
         if(!memberMatch(t)||!searchMatch(t)) return;
-        if(t.isNew) counts['new']++;
         if(t.overdue) counts.overdue++;
         if(t.stuck) counts.stuck++;
-        if(t.active && t.jira==='TO DO' && !t.isNew && !t.overdue) counts.todo++;
+        if(t.active && t.jira==='TO DO' && !t.overdue) counts.todo++;
         if(t.active && t.jira!=='TO DO' && !t.stuck && !t.overdue) counts.progress++;
         if(t.jira.toUpperCase()==='DONE') counts.done++;
       });
@@ -1188,7 +1187,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
       // Chỉ áp khi KHÔNG lọc member/search (lọc thì đếm theo subset đang hiển thị).
       var _q=(($('searchInp')||{}).value||'').trim();
       if(curMember==='all' && !_q && DATA.meta && typeof DATA.meta.done==='number') counts.done=DATA.meta.done;
-      ['todo','progress','new','stuck','overdue','done'].forEach(function(k){
+      ['todo','progress','stuck','overdue','done'].forEach(function(k){
         var el=$('count-'+k); if(el) el.textContent=counts[k];
       });
     }
