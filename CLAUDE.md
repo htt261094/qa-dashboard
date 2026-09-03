@@ -450,7 +450,8 @@ Gom metric bug (số lượng theo dev/dự án, Valid & Rejected Bug Rate, Tỷ
 ### 71. Leader Eval (`/leader-eval`) — carry-over task active
 Chu kỳ: tháng T chấm việc tháng T-1 (mặc định mở ra tháng trước). JQL cũ dùng `"Leader đánh giá (Số)" is EMPTY` → coi "đã chấm" là VĨNH VIỄN, task dài hơi chấm kỳ trước bị giấu dù vẫn chạy.
 Giờ bám **đúng JQL dev cấp** (verify khớp 212/212): loại trừ DUY NHẤT `NOT ((statusCategory = Done OR status = PENDING) AND "Leader đánh giá (Số)" is not EMPTY)` → task active **luôn giữ, kể cả đã chấm**; chỉ rớt khi Done/PENDING + đã chấm. Bỏ mệnh đề assignee (khớp dev). Giữ window overlap tháng + category + `Leader in (...)`.
-Đã bỏ cả 2 dropdown assignee (thanh lọc + header bảng). Chấm điểm hàng loạt qua POST `/batch-eval` (admin).
+Chấm điểm hàng loạt qua POST `/batch-eval` (admin).
+**Bổ sung 2026-09-03 — lọc Assignee client-side**: dropdown `evalAsgFilter` cạnh lọc Status/Đánh giá, option build từ CHÍNH tập task đang render (`unique_assignees`, sort theo display name) chứ không phải roster QA — assignee ở đây là **dev**, roster QA sẽ thiếu. Lọc thuần client (`applyRowFilters` gộp 3 điều kiện), không round-trip Jira; row bị ẩn thì **bỏ tick** để `check-all`/`/batch-eval` không chạm task ngoài tầm nhìn. Option `__none__` = task chưa giao (`data-assignee` rỗng), chỉ render khi thật sự có. Param server `?assignee=` (`fetch_leader_eval_tasks`) vẫn còn, thu hẹp tập fetch — 2 lớp độc lập, không đụng nhau. Số ở tiêu đề `Danh sách Task` đổi theo filter (`updateVisCount` → `(hiện/tổng)` khi đang lọc) — trước là `len(tasks)` tĩnh nên lọc xong số vẫn đứng yên.
 
 ## Custom status & misc
 
@@ -630,6 +631,8 @@ qa-dashboard/
 - Khi thêm/đổi cấu trúc: **tự ghi Decision mới** vào file này (số kế tiếp), không đợi user nhắc.
 
 ## Last Updated
+
+2026-09-03 — Bổ sung lọc Assignee client-side ở `/leader-eval` (ghi vào Decision #71).
 
 2026-09-03 — Thêm Decision #89 (bỏ pill "New" ở dashboard, task mới nằm trong To Do).
 
