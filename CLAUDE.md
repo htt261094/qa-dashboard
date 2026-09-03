@@ -419,6 +419,8 @@ Data cũ đã migrate 1 lần (`*1H26 → *2H26`, map lấy authoritative từ J
 - `editable=True` cho **mọi QA đăng nhập** (không giới hạn admin).
 - Routes: `/tc-import`, `/tc-sync`, `/tc-sync-all`, `/tc-sheets`, `/tc-add-folder`, `/tc-rename-folder`, `/tc-delete-folder`, `/tc-link-task`, `/tc-update-link`.
 
+**Bổ sung 2026-09-03 — cap folder + thông báo lỗi import**: mỗi **sheet** import = 1 sub-folder tự sinh (`_apply_sheet_cases`) → số folder phình theo số sheet chứ không theo thao tác tay. `MAX_FOLDERS=100` cũ chạm trần ở 12 bộ / 87 sheet; import file ≥2 sheet mới → 101 folder → `valid_store` False → `save_testcases` False → UI báo **"Không lưu được (KV/local lỗi)"** dù KV hoàn toàn khoẻ (local-first #78 không bao giờ fail vì mạng). Nới `MAX_FOLDERS=1000` (payload gzip ~0.5MB, xa cap KV), thêm **check tường minh cap folder trong `import_cases`** (cạnh check `MAX_CASES`) và log lý do shape/cap ra stderr trong `save_testcases` — message chung không đủ để chẩn đoán.
+
 ### 42. Sync test case — LUÔN ghi đè kết quả theo file
 Smart Sync ban đầu giữ result chấm tay khi ô Result trong sheet trống. Từ 2026-07-16 user chốt **luôn ghi đè** cho MỌI sync (1 bộ / tất cả / link-modal): ô trống → `norun`. Checkbox tuỳ chọn đã gỡ; backend giữ flag `overwrite_results` nhưng client luôn gửi `True`. Lý do: user muốn hệ thống phản ánh file 100%.
 
@@ -631,6 +633,8 @@ qa-dashboard/
 - Khi thêm/đổi cấu trúc: **tự ghi Decision mới** vào file này (số kế tiếp), không đợi user nhắc.
 
 ## Last Updated
+
+2026-09-03 — Nới `MAX_FOLDERS` test case 100→1000 + báo lỗi cap tường minh (ghi vào Decision #80).
 
 2026-09-03 — Bổ sung lọc Assignee client-side ở `/leader-eval` (ghi vào Decision #71).
 
