@@ -460,6 +460,10 @@ Store: `{status:{KEY:{v:[labels],by,at}}, activity:[...]}`. **Mỗi task nhiều
 ⚠ Đổi/bỏ nhãn PHẢI giữ **key cũ** ở đâu semantic trùng — `values_of` lọc theo `_VALID`, đổi key = task đang gắn key đó rớt nhãn.
 Mỗi lần đổi ghi 1 event vào activity (cap 200, prune 14 ngày) → gộp vào block "Hoạt động".
 
+### 89. Bỏ pill "New" ở dashboard — task mới nằm trong To Do *(2026-09-03)*
+Pill `New` (`created == hôm nay`, stateless — nguồn còn lại sau #27) loại task mới khỏi bucket To Do (`!isNew`), nên task vừa tạo **rơi ra ngoài mọi bucket** khi user đang ở tab To Do → tưởng mất task. Bỏ hẳn pill; `todo` giờ = mọi task active `TO DO` không overdue.
+`meta['new']` **vẫn tính và trả trong payload** (`build_dashboard_payload`) để `/api/dashboard` (app Android) không breaking — chỉ web bỏ pill. ⚠ Twin: `pillMatch`/`updateCounts` trong `app_v2.js` phải khớp `n_todo` bên Python.
+
 ### 27. Dọn dead code `.last_seen.json` / snapshot-diff NEW badge
 Snapshot-diff vẫn chạy mỗi request nhưng **không còn được render** (QA controller không đọc `isNew`). Đã xoá `core/state.py`, `_build_view`, param `new_keys`/`first_run`, `STATE_FILE`.
 Cái "New" còn thấy là **nguồn KHÁC, giữ nguyên**: pill New ở `render_admin_v2` = `created == hôm nay` (stateless).
@@ -626,6 +630,8 @@ qa-dashboard/
 - Khi thêm/đổi cấu trúc: **tự ghi Decision mới** vào file này (số kế tiếp), không đợi user nhắc.
 
 ## Last Updated
+
+2026-09-03 — Thêm Decision #89 (bỏ pill "New" ở dashboard, task mới nằm trong To Do).
 
 2026-08-14 — Thêm Decision #88 (sau đồng bộ bug log = 2 popup song song: thay đổi file | dòng thiếu STT).
 
