@@ -1288,6 +1288,27 @@ html[data-theme="dark"] .bottom-toast {
 .bl-chg-new .mi-sm{color:#1e8e3e}
 .bl-chg-status .mi-sm{color:var(--primary)}
 .bl-chg-del .mi-sm{color:#d93025}
+/* popup "dòng thiếu STT" (#88) — hiện song song với popup thay đổi */
+.bl-miss-list{display:flex;flex-direction:column;gap:14px;margin-top:6px}
+.bl-miss-item{display:flex;align-items:flex-start;gap:9px;padding:8px 12px;font-size:13.5px;line-height:19px}
+.bl-miss-item + .bl-miss-item{border-top:1px solid var(--outline-variant)}
+.bl-miss-row{flex:0 0 auto;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums;
+  padding:2px 7px;border-radius:999px;background:var(--surface-low);color:var(--on-surface-variant);
+  border:1px solid var(--outline-variant)}
+.bl-miss-feat{color:var(--on-surface-variant)}
+/* 2 popup cạnh nhau: popup thiếu STT bỏ nền mờ riêng (dùng chung nền của popup 1) và chỉ
+   panel nhận click -> không có 2 lớp tối chồng nhau. */
+.bl-pop-modal{width:680px}
+body.bl-pair .bl-pop-modal{width:min(560px,46vw)}
+body.bl-pair #blChgOv{justify-content:flex-end;padding-right:calc(50% + 8px)}
+body.bl-pair #blMissOv{justify-content:flex-start;padding-left:calc(50% + 8px);
+  background:transparent;pointer-events:none;z-index:81}
+body.bl-pair #blMissOv .modal{pointer-events:auto}
+@media(max-width:1099px){   /* hẹp -> xếp trên/dưới thay vì cạnh nhau */
+  body.bl-pair .bl-pop-modal{width:min(680px,100%);max-height:44vh}
+  body.bl-pair #blChgOv{justify-content:center;align-items:flex-start;padding:12px 20px 0}
+  body.bl-pair #blMissOv{justify-content:center;align-items:flex-end;padding:0 20px 12px}
+}
 /* tab tháng */
 .bl-tabs{display:flex;gap:24px;border-bottom:1px solid var(--outline-variant);margin-bottom:20px;flex-wrap:wrap}
 .bl-tab{display:inline-flex;align-items:center;gap:7px;padding:0 2px 12px;font-size:15px;font-weight:600;color:var(--on-surface-variant);background:none;border:none;border-bottom:2px solid transparent;cursor:pointer;margin-bottom:-1px}

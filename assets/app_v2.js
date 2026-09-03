@@ -4141,7 +4141,12 @@ window.__smSetCustom=function(t, key, val, onChanged){
     return postJSON('/sync-bug-log', {}, 90000).then(function(j){
       if(j && j.ok){
         var changes=(j&&j.changes)||[];
+        var missing=(j&&j.missing)||[];
+        // 2 popup ĐỘC LẬP, hiện song song (#88): thay đổi file (đọc) vs dòng thiếu STT
+        // (phải sửa tay). Có cái nào thì hiện cái đó; không có cái nào -> reload như cũ.
+        if(missing.length) showBugMissing(missing, j.missing_total||missing.length);
         if(changes.length){ showBugChanges(changes, j.changed||changes.length); return true; }
+        if(missing.length) return true;   // chỉ có popup thiếu STT -> reload khi user đóng
         toast('Đã đồng bộ ✓ — không có thay đổi, đang tải lại', true);
         setTimeout(function(){ location.reload(); }, 900); return true;
       }
@@ -4188,27 +4193,96 @@ window.__smSetCustom=function(t, key, val, onChanged){
     if(sm) sm.textContent='Đồng bộ xong: '+(total||changes.length)+' thay đổi'
       +(changes.length<(total||0)?(' (hiện '+changes.length+' dòng đầu)'):'')+'.';
     ov.classList.add('open');
+    popOpen.chg=true; pairSync();
   }
+  // Popup 2 (#88): dòng ĐỦ THÔNG TIN nhưng CHƯA có STT. Không có STT = không có khoá diff
+  // -> dòng đó im lặng rơi khỏi mọi metric/bảng, popup 1 không bao giờ nêu được. Tách popup
+  // riêng vì đây là việc phải làm tay (mở file đánh lại STT), hiện SONG SONG với popup 1.
+  var missingRows = [];
+  function showBugMissing(list, total){
+    var ov=$('blMissOv'); if(!ov || !list.length) return;
+    missingRows = list;
+    var groups={}, order=[];
+    list.forEach(function(m){
+      var f=m.file||'(không rõ file)', s=m.sheet||'(không rõ sheet)', gk=f+' '+s;
+      if(!groups[gk]){ groups[gk]={file:f, sheet:s, items:[]}; order.push(gk); }
+      groups[gk].items.push(m);
+    });
+    var html='';
+    order.forEach(function(gk){
+      var g=groups[gk];
+      html+='<div class="bl-chg-grp"><div class="bl-chg-grp-h">'
+        +'<span class="material-symbols-rounded ph-light ph-file-text mi-sm"></span> '+esc(g.file)
+        +' <span class="bl-chg-sheet">› '+esc(g.sheet)+'</span></div>';
+      g.items.forEach(function(m){
+        var meta=[m.created, m.status, m.qa_pic?('QA: '+m.qa_pic):'', m.dev_pic?('Dev: '+m.dev_pic):'']
+          .filter(Boolean).join(' · ');
+        html+='<div class="bl-miss-item">'
+          +'<span class="bl-miss-row" title="Dòng trong file Excel">D'+esc(String(m.row||'?'))+'</span>'
+          +'<span class="bl-chg-txt">'+esc(m.summary||'')
+          +(m.feature?'<span class="bl-miss-feat"> ['+esc(m.feature)+']</span>':'')
+          +(meta?'<span class="bl-chg-who"><br>'+esc(meta)+'</span>':'')+'</span></div>';
+      });
+      html+='</div>';
+    });
+    var lst=$('blMissList'); if(lst) lst.innerHTML=html;
+    var sm=$('blMissSummary');
+    if(sm) sm.textContent=(total||list.length)+' dòng có đủ thông tin nhưng chưa đánh STT — '
+      +'chưa có STT thì bug KHÔNG vào bảng/metric. Mở file đánh lại STT rồi đồng bộ lại.'
+      +(list.length<(total||0)?(' (hiện '+list.length+' dòng đầu)'):'');
+    ov.classList.add('open');
+    popOpen.miss=true; pairSync();
+  }
+
   // ackWatermark != null => popup đang hiện là "thay đổi tích luỹ" (admin chưa xem): khi đóng
   // phải BÁO server đã xem (đẩy watermark) RỒI mới reload, để reload không popup lại y hệt.
   // null => popup đồng bộ tay (server đã đánh dấu đã xem trong /sync-bug-log) -> reload thẳng.
   var ackWatermark = null;
+  // 2 popup song song: reload CHỈ khi cả hai đã đóng (đóng popup này không được cướp mất
+  // popup kia). `.bl-pair` trên body = layout 2 panel cạnh nhau, 1 lớp nền mờ duy nhất.
+  var popOpen = { chg:false, miss:false };
+  function pairSync(){
+    document.body.classList.toggle('bl-pair', popOpen.chg && popOpen.miss);
+  }
+  function finishPops(){
+    if(popOpen.chg || popOpen.miss) return;
+    if(ackWatermark !== null){
+      var wm = ackWatermark; ackWatermark = null;
+      postJSON('/seen-bug-log-changes', { watermark: wm }, 10000)
+        .then(function(){ location.reload(); })
+        .catch(function(){ location.reload(); });   // soft-fail: chưa đẩy được -> lần sau popup lại
+      return;
+    }
+    location.reload();
+  }
   (function(){
     var ov=$('blChgOv'); if(!ov) return;
     function close(){
-      if(ackWatermark !== null){
-        var wm = ackWatermark; ackWatermark = null;
-        postJSON('/seen-bug-log-changes', { watermark: wm }, 10000)
-          .then(function(){ location.reload(); })
-          .catch(function(){ location.reload(); });   // soft-fail: chưa đẩy được -> lần sau popup lại
-        return;
-      }
-      location.reload();
+      ov.classList.remove('open'); popOpen.chg=false; pairSync(); finishPops();
     }
     var ok=$('blChgOk'), cl=$('blChgClose');
     if(ok) ok.addEventListener('click', close);
     if(cl) cl.addEventListener('click', close);
     ov.addEventListener('click', function(e){ if(e.target===ov) close(); });
+  })();
+  (function(){
+    var ov=$('blMissOv'); if(!ov) return;
+    function close(){
+      ov.classList.remove('open'); popOpen.miss=false; pairSync(); finishPops();
+    }
+    var ok=$('blMissOk'), cl=$('blMissClose'), cp=$('blMissCopy');
+    if(ok) ok.addEventListener('click', close);
+    if(cl) cl.addEventListener('click', close);
+    ov.addEventListener('click', function(e){ if(e.target===ov) close(); });
+    if(cp) cp.addEventListener('click', function(){
+      var txt=missingRows.map(function(m){
+        return [m.file||'', m.sheet||'', 'dòng '+(m.row||'?'), m.summary||''].join(' | ');
+      }).join('\n');
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(txt).then(function(){ toast('Đã sao chép ✓', true); })
+          .catch(function(){ toast('Không sao chép được', false); });
+      } else toast('Trình duyệt không cho sao chép', false);
+    });
   })();
 
   // Popup thay đổi TÍCH LUỸ từ các lần đồng bộ nền (admin chưa xem) — nêu mọi thay đổi

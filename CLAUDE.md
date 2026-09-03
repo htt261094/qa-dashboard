@@ -325,6 +325,19 @@ Seam duy nhất = `bug_log_store._scan_one(src, prev)`; downstream chỉ phụ t
 - UI `/analytics` có 6 card metric rỗng "Chờ dữ liệu Jira" (chốt layout trước).
 📌 Khi bật thật: cân nhắc dùng **Jira issue key** làm định danh bền → có thể BỎ toàn bộ logic fingerprint/carry vốn chỉ tồn tại vì Sheet thiếu ID ổn định.
 
+### 88. Sau đồng bộ = 2 popup song song (thay đổi file | dòng thiếu STT) *(2026-08-14)*
+Dòng bug **có đủ thông tin nhưng chưa đánh STT** rơi vào `unmapped` (#25/normalize) → không có khoá diff → không vào `bugs`, không vào activity, không vào bất kỳ metric nào. Trước đây chỉ còn lại con số `unmapped` trong log stderr → team không biết mà sửa. Giờ tách **2 popup hiện song song** sau mỗi lần sync:
+- **Popup 1** `#blChgOv` — thay đổi file (giữ nguyên hành vi cũ).
+- **Popup 2** `#blMissOv` — list dòng thiếu STT: file › sheet › **số dòng Excel** + mô tả + ngày/status/QA/dev, kèm nút "Sao chép danh sách".
+
+Chi tiết:
+- `_parse_sheet` gắn `rec['_row']` = **số dòng Excel thật** (`enumerate(rows[2:], start=3)`; `_read_rows` đã pad dòng trống nên chỉ số khớp file). `normalize` **pop `_row` khỏi bug**, chỉ đính vào entry `unmapped` → dict bug lưu cache/diff không đổi hình dạng.
+- "Đủ thông tin" (`bug_log_store._missing_id_rows`) = `reason=='no_stt'` **và** có `summary` **và** ≥1 field nghiệp vụ đã điền (`created`/`status_raw`/`qa_pic`/`dev_pic`/`severity`) → loại dòng ghi chú/spill. Dòng **trùng** STT (`dup_stt`) KHÔNG vào popup này (ca khác).
+- Lưu **per-file** (`files[fid]['missing']`, cap 60) → `scan()` gom từ MỌI file kể cả file Tầng-1 vừa skip, nên popup luôn nêu đủ hiện trạng chứ không chỉ file vừa đổi.
+- **CHỈ sheet tháng HIỆN TẠI** (`_sheet_ym(sheet, created) == now`): tháng cũ đã chốt/gửi report, nhắc lại chỉ làm nhiễu. Lọc lúc **dựng result**, KHÔNG lọc lúc lưu → sang tháng mới mà file bị Tầng-1 skip cũng không đọng lại dòng tháng trước. `_version` bump 4→5 (1 lượt re-parse để seed). `_light()` (property Jira ~32KB) **bỏ** `missing` — dựng lại được từ file.
+- Reload chỉ chạy khi **cả hai** popup đã đóng (`popOpen{chg,miss}` + `finishPops`) — đóng popup này không cướp mất popup kia; watermark "đã xem" vẫn ack đúng 1 lần.
+- Layout: body`.bl-pair` → 1 lớp nền mờ duy nhất (popup 2 `background:transparent; pointer-events:none`, panel `auto`), 2 panel chia đôi màn hình; <1100px thì xếp trên/dưới.
+
 ## Bug Log — metric & tồn đọng
 
 ### 49. Analytics bucket theo SHEET tháng (Tn), KHÔNG theo created date
@@ -613,6 +626,8 @@ qa-dashboard/
 - Khi thêm/đổi cấu trúc: **tự ghi Decision mới** vào file này (số kế tiếp), không đợi user nhắc.
 
 ## Last Updated
+
+2026-08-14 — Thêm Decision #88 (sau đồng bộ bug log = 2 popup song song: thay đổi file | dòng thiếu STT).
 
 2026-08-11 — Thêm Decision #87 (custom select `xsel` thay popup `<select>` native toàn app).
 

@@ -274,7 +274,7 @@ def _bug_log_source_modals():
         '<button type="button" class="btn btn-primary" id="blSrcSave">Lưu &amp; đồng bộ</button>'
         '</div></div></div>'
         # ----- popup tổng kết thay đổi sau đồng bộ (file/sheet/nội dung) -----
-        '<div class="overlay" id="blChgOv"><div class="modal" style="width:680px">'
+        '<div class="overlay" id="blChgOv"><div class="modal bl-pop-modal">'
         '<div class="modal-head"><span class="material-symbols-rounded ph-light ph-git-diff"></span>'
         '<h3>Thay đổi sau đồng bộ</h3>'
         '<button type="button" class="x material-symbols-rounded ph-light ph-x" id="blChgClose"></button></div>'
@@ -282,5 +282,19 @@ def _bug_log_source_modals():
         '<div id="blChgList" class="bl-chg-list"></div></div>'
         '<div class="modal-foot">'
         '<button type="button" class="btn btn-primary" id="blChgOk">Đóng &amp; tải lại</button>'
+        '</div></div></div>'
+        # ----- popup "dòng thiếu STT" (#88) — hiện SONG SONG với popup thay đổi -----
+        # Dòng đủ thông tin nhưng chưa đánh STT không có khoá diff -> rơi khỏi mọi metric.
+        # Tách popup riêng vì đây là việc phải-làm-tay (mở file đánh lại), khác bản chất với
+        # popup thay đổi (chỉ để đọc).
+        '<div class="overlay" id="blMissOv"><div class="modal bl-pop-modal">'
+        '<div class="modal-head"><span class="material-symbols-rounded ph-light ph-warning-circle"></span>'
+        '<h3>Dòng chưa có ID (STT)</h3>'
+        '<button type="button" class="x material-symbols-rounded ph-light ph-x" id="blMissClose"></button></div>'
+        '<div class="modal-body"><p class="modal-note" id="blMissSummary"></p>'
+        '<div id="blMissList" class="bl-miss-list"></div></div>'
+        '<div class="modal-foot">'
+        '<button type="button" class="btn btn-ghost" id="blMissCopy">Sao chép danh sách</button>'
+        '<button type="button" class="btn btn-primary" id="blMissOk">Đã hiểu</button>'
         '</div></div></div>'
     )

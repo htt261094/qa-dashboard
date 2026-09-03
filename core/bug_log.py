@@ -280,7 +280,10 @@ def _parse_sheet(name, rows):
 
     out = []
     last_func = ''
-    for row in rows[2:]:
+    # enumerate start=3: rows[0]=r1 tiêu đề, rows[1]=r2 header -> data bắt đầu ở dòng Excel 3.
+    # `_read_rows` chèn dòng rỗng cho row bị nhảy số nên chỉ số vẫn khớp dòng thật trong file
+    # -> `_row` dùng được để user mở file nhảy đúng dòng (popup "thiếu STT").
+    for row_no, row in enumerate(rows[2:], start=3):
         if not any(str(x).strip() for x in row):
             continue
         joined = ' '.join(str(x) for x in row if str(x).strip())
@@ -307,6 +310,7 @@ def _parse_sheet(name, rows):
             links = [ln.strip() for ln in re.split(r'[\r\n]+', rec['Ảnh']) if ln.strip()]
             rec['Ảnh'] = links
         rec['_sheet'] = name
+        rec['_row'] = row_no
         out.append(rec)
     return out
 
@@ -493,7 +497,7 @@ def normalize(rows, project='', service=''):
     parsed = []
     for idx, rec in enumerate(rows):
         month = str(rec.get('_sheet', '')).strip()
-        nrec = {_norm_header(k): v for k, v in rec.items() if k != '_sheet'}
+        nrec = {_norm_header(k): v for k, v in rec.items() if k not in ('_sheet', '_row')}
 
         # Phân loại theo cột "Bug": CHỈ dòng loại = 'Bug'/'bug' là bug. Ô trống hoặc giá trị
         # khác (Improvement, Task, nghiệp vụ mới, ...) -> KHÔNG phải bug. Sheet KHÔNG có cột
@@ -522,6 +526,7 @@ def normalize(rows, project='', service=''):
         bug['key'] = base_key if bug['bug_no'] else ''
         bug['_is_bug'] = is_bug
         bug['_idx'] = idx
+        bug['_row'] = rec.get('_row', 0)   # số dòng Excel — chỉ đi kèm unmapped (xem cuối hàm)
         parsed.append(bug)
 
     # ----- Phân loại lan theo NỘI DUNG: bản MỚI NHẤT thắng -----
@@ -570,10 +575,13 @@ def normalize(rows, project='', service=''):
 
     bugs, unmapped = [], []
     for b in parsed:
+        # `_row` chỉ có ý nghĩa cho unmapped (user phải mở file sửa đúng dòng) -> pop khỏi bug
+        # để dict bug lưu cache/diff không đổi hình dạng.
+        row_no = b.pop('_row', 0)
         if not b['bug_no']:
-            unmapped.append({**b, 'reason': 'no_stt'})
+            unmapped.append({**b, 'reason': 'no_stt', 'row': row_no})
         elif key_count[b['key']] > 1:
-            unmapped.append({**b, 'reason': 'dup_stt'})
+            unmapped.append({**b, 'reason': 'dup_stt', 'row': row_no})
         else:
             bugs.append(b)
     return {'bugs': bugs, 'unmapped': unmapped}

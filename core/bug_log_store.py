@@ -32,7 +32,8 @@ from jira_api import run_parallel
 # LWW của synced_* (sẽ làm tụt count). Chỉ đổi backend Jira->KV qua remote_get/remote_put, GIỮ
 # nguyên merge-before-write. KV value tới 25MB (Jira ~32KB) nên light-split ít khi cần nhưng giữ.
 from remote_store import remote_get as load_property, remote_put as save_property
-from bug_log import fetch_meta, fetch_content, normalize, project_from_filename, _redact
+from bug_log import (fetch_meta, fetch_content, normalize, project_from_filename,
+                     _redact, _sheet_ym)
 from bug_log_source import load_sources, provider_of
 from drive_token import has_drive_token, load_refresh_token
 
@@ -47,6 +48,8 @@ _STARTUP_DELAY = 20         # đợi server lên + đỡ chậm khởi động t
 _ACT_CAP = 200
 _ACT_PRUNE_DAYS = 14
 _PROP_MAX_BYTES = 30_000    # Jira property ~32KB; vượt -> chỉ sync bản nhẹ (không kèm bugs)
+_MISSING_CAP_FILE = 60      # cap dòng "thiếu STT" lưu per-file (giữ cache/property gọn)
+_MISSING_CAP_RESULT = 120   # cap gửi ra popup 1 lượt
 
 # scan() chạy từ daemon thread VÀ từ POST /sync-bug-log -> serialize để không đua ghi cache.
 _scan_lock = threading.Lock()
@@ -97,10 +100,13 @@ def _write_cache(data):
 
 
 def _light(data):
-    """Bản nhẹ cho Jira property khi full vượt ~32KB: bỏ `bugs` rows, giữ meta + activity."""
+    """Bản nhẹ cho Jira property khi full vượt ~32KB: bỏ `bugs` rows, giữ meta + activity.
+
+    Bỏ luôn `missing` (dòng thiếu STT, #88): nó chỉ phục vụ popup ngay sau scan và luôn dựng
+    lại được từ file — không đáng chiếm chỗ trong property vốn đã chật."""
     files = {}
     for fid, f in data.get('files', {}).items():
-        files[fid] = {k: v for k, v in f.items() if k != 'bugs'}
+        files[fid] = {k: v for k, v in f.items() if k not in ('bugs', 'missing')}
     return {'files': files, 'activity': data.get('activity', []),
             'reopen': data.get('reopen', {}),
             'metrics': data.get('metrics', {}),   # counts nhỏ -> giữ cả ở bản nhẹ
@@ -573,6 +579,42 @@ def _seed_current_reopens(reopen_map, cur_bugs):
     return changed
 
 
+def _missing_id_rows(unmapped, file_name):
+    """unmapped (từ normalize) -> danh sách dòng "đủ thông tin nhưng CHƯA có STT".
+
+    Vì sao tách riêng khỏi popup thay đổi: dòng thiếu STT KHÔNG có khoá diff nên không bao
+    giờ vào bugs/activity — nó im lặng rơi khỏi mọi metric. User cần thấy để mở file đánh
+    lại STT (Decision #88).
+
+    Lọc `reason == 'no_stt'` (dòng trùng STT là ca khác, không đưa vào đây) + "đủ thông
+    tin" = có `summary` (parse đã ép non-empty) VÀ ít nhất 1 field nghiệp vụ đã điền
+    (ngày / status gốc / QA / dev / severity) -> loại dòng ghi chú, dòng spill khi copy.
+    """
+    out = []
+    for b in unmapped:
+        if b.get('reason') != 'no_stt':
+            continue
+        if not str(b.get('summary') or '').strip():
+            continue
+        if not any(str(b.get(f) or '').strip()
+                   for f in ('created', 'status_raw', 'qa_pic', 'dev_pic', 'severity')):
+            continue
+        out.append({
+            'file': file_name or '',
+            'sheet': b.get('month', '') or '',
+            'row': int(b.get('row') or 0),
+            'summary': (str(b.get('summary') or '').strip())[:300],
+            'feature': str(b.get('feature') or '').strip()[:120],
+            'created': str(b.get('created') or '').strip()[:20],
+            'status': str(b.get('status') or '').strip()[:30],
+            'qa_pic': str(b.get('qa_pic') or '').strip()[:60],
+            'dev_pic': str(b.get('dev_pic') or '').strip()[:60],
+        })
+        if len(out) >= _MISSING_CAP_FILE:
+            break
+    return out
+
+
 def _prune_activity(activity):
     cutoff = (datetime.now() - timedelta(days=_ACT_PRUNE_DAYS)).isoformat()
     return [a for a in activity if a.get('when', '') >= cutoff][:_ACT_CAP]
@@ -618,7 +660,7 @@ def _scan_one(src, prev, force=False):
                      and prev.get('modifiedTime') == meta.get('modifiedTime')
                      and prev.get('md5Checksum') == meta.get('md5Checksum')
                      and 'bugs' in prev
-                     and prev.get('_version') == 4)
+                     and prev.get('_version') == 5)
         if unchanged:
             return {'fid': fid, 'unchanged': True, 'count': len(prev.get('bugs', {}))}
         # Tầng-2: chỉ tới đây mới tải + parse + normalize (file đã đổi). Truyền mimeType từ
@@ -649,7 +691,8 @@ def scan(force=False):
     Lỗi 1 file KHÔNG chặn file khác; lỗi chung -> giữ cache cũ."""
     with _scan_lock:
         result = {'ok': True, 'synced_at': '', 'count': 0, 'changed': 0,
-                  'unmapped': 0, 'errors': [], 'changes': []}
+                  'unmapped': 0, 'errors': [], 'changes': [],
+                  'missing': [], 'missing_total': 0}
         if not has_drive_token():
             result['ok'] = False
             result['errors'].append('Chưa kết nối Drive.')
@@ -707,12 +750,31 @@ def scan(force=False):
                 'bugs': cur_bugs,
                 'count': len(cur_bugs),
                 'unmapped': len(norm['unmapped']),
+                # Dòng "đủ thông tin nhưng thiếu STT" — lưu theo file để popup sau đồng bộ
+                # nêu được CẢ file mà Tầng-1 vừa skip (#88).
+                'missing': _missing_id_rows(norm['unmapped'], meta.get('name', '')),
                 'scanned_at': _now_iso(),
-                '_version': 4,   # 4: _lifecycle_status tin cột master (Reject→Rejected). 3: +status_raw
+                '_version': 5,   # 5: +missing (dòng thiếu STT). 4: _lifecycle_status tin cột master. 3: +status_raw
             }
             result['count'] += len(cur_bugs)
             result['unmapped'] += len(norm['unmapped'])
             dirty = True
+
+        # Dòng thiếu STT: gom từ MỌI file trong cache (kể cả file Tầng-1 vừa skip) để popup
+        # luôn nêu đủ hiện trạng, không chỉ file vừa đổi (#88). Sắp theo file rồi sheet/dòng
+        # cho khớp thứ tự user nhìn trong Excel.
+        # CHỈ tháng hiện tại: sheet tháng cũ đã chốt/đã gửi report, nhắc lại chỉ làm nhiễu —
+        # user chỉ đi đánh lại STT cho tháng đang chạy. Lọc ở ĐÂY (lúc dựng result) chứ không
+        # lúc lưu, để sang tháng mới file bị Tầng-1 skip không đọng lại dòng của tháng trước.
+        cur_ym = datetime.now().strftime('%Y-%m')
+        missing_all = []
+        for f in files.values():
+            for m in (f.get('missing') or []):
+                if _sheet_ym(m.get('sheet', ''), m.get('created', '')) == cur_ym:
+                    missing_all.append(m)
+        missing_all.sort(key=lambda m: (m.get('file', ''), m.get('sheet', ''), m.get('row', 0)))
+        result['missing_total'] = len(missing_all)
+        result['missing'] = missing_all[:_MISSING_CAP_RESULT]
 
         # Hướng A (#146): seed reopen cho bug đang ở Reopen nhưng thiếu entry (transition bị
         # lỡ / sau reset accumulator). Chạy trên MỌI bug hiện tại (gồm file Tầng-1 skip) ->
