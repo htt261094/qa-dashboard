@@ -40,7 +40,11 @@ import json
 
 TC_PROP = 'qa-dashboard-testcases'  # khoá KV / Jira property = kho sync chéo máy
 
-MAX_FOLDERS = 100
+# Cap folder: mỗi bộ (top-level) + MỖI SHEET của file là 1 sub-folder tự sinh lúc import
+# -> số folder phình theo số sheet chứ không theo thao tác tay của user. Cap 100 cũ chạm trần
+# ở 12 bộ / 87 sheet, và import vượt trần rơi vào valid_store -> báo 'Không lưu được (KV/local
+# lỗi)' đánh lừa. Nới 1000 (payload vẫn dưới cap KV vì value đã gzip).
+MAX_FOLDERS = 1000
 MAX_CASES = 50000           # chặn payload quá lớn (KV có hỗ trợ GZIP tự động nên mức 50k là an toàn)
 TC_RESULTS = ('pass', 'fail', 'impact', 'norun')
 TC_AUTO = ('y', 'n', 'na')   # Automated: đã có script / auto được nhưng chưa có / không thể auto
@@ -106,7 +110,18 @@ def load_testcases():
 
 def save_testcases(data):
     """Local-first: ghi local trước (luôn OK) rồi đẩy KV best-effort. True nếu data đã an
-    toàn ở local (kể cả khi KV/VPN down)."""
+    toàn ở local (kể cả khi KV/VPN down).
+
+    False chỉ xảy ra khi (a) shape sai/vượt cap (valid_store) hoặc (b) ghi file local fail —
+    KV down KHÔNG làm fail (chỉ đánh dirty). Log lý do ra stderr vì message trả cho UI là
+    chuỗi chung, không đủ để chẩn đoán."""
+    if not valid_store(data):
+        import sys
+        print(f"[ERROR] save_testcases: shape/cap invalid — folders="
+              f"{len(data.get('folders', [])) if isinstance(data, dict) else '?'}/{MAX_FOLDERS} "
+              f"cases={len(data.get('cases', [])) if isinstance(data, dict) else '?'}/{MAX_CASES}",
+              file=sys.stderr)
+        return False
     return synced_save(TC_PROP, data, _write_cache, valid_store)
 
 
@@ -682,6 +697,13 @@ def import_cases(folder_id, url, sheet, by_email='', _data=None, overwrite_resul
 
     if len(data['cases']) > MAX_CASES:
         return {'ok': False, 'msg': f'Vượt quá tối đa {MAX_CASES} test case toàn hệ thống.'}
+
+    # Mỗi sheet = 1 sub-folder tự sinh -> import file nhiều sheet có thể vượt cap folder.
+    # Check TƯỜNG MINH ở đây, nếu không sẽ rơi xuống valid_store trong save_testcases và
+    # trả về 'Không lưu được (KV/local lỗi)' — thông báo sai bản chất, user không biết đường sửa.
+    if len(data['folders']) > MAX_FOLDERS:
+        return {'ok': False, 'msg': f'Vượt quá tối đa {MAX_FOLDERS} thư mục toàn hệ thống '
+                                    f'(mỗi sheet import = 1 thư mục). Xoá bớt bộ/sheet cũ rồi thử lại.'}
 
     # Mirror Drive 100% (chỉ khi sync TOÀN FILE): sheet đã bị XOÁ / ĐỔI TÊN khỏi file thì
     # sub-folder + cases cũ của nó là "mồ côi" — sync cũ không đụng tới nên tồn mãi trong store
