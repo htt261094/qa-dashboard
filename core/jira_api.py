@@ -15,6 +15,9 @@ from config import (JIRA_URL, PAT, USERS, DEV_USERS, TASK_PTSP_TYPE_ID, actor_na
                     SNAPSHOT_CACHE_FILE, atomic_write, JIRA_MAX_CONCURRENT)
 from issues import parse_date, i_assignee, i_reporter
 from remote_store import remote_get, remote_put
+from status_overlay import (patch_data as _ov_patch_data,
+                            patch_issues as _ov_patch_issues,
+                            patch_status_map as _ov_patch_statuses)
 
 try:
     import requests
@@ -372,7 +375,11 @@ def fetch_activity_feed(days=7, cap=300, max_issues=120, scope_user=None, with_s
         block=block, force=force)
     if result is _SWR_NOT_READY:
         result = ([], {})                     # chưa có cache + không block -> feed rỗng tạm
-    return result if with_status else result[0]
+    if with_status:
+        # Decision #90: map status của feed cũng đi qua cache -> vá status vừa ghi, để poll
+        # 60s (#24) KHÔNG dội status cũ về bảng.
+        return (result[0], _ov_patch_statuses(dict(result[1] or {})))
+    return result[0]
 
 
 def _compute_activity_feed(days, cap, max_issues, scope_user):
@@ -822,7 +829,7 @@ def fetch_issue_detail(key):
     Task-PTSP cha). 1 call read-only + (nếu có parent) 1 call lấy dev. comments mới->cũ."""
     data = _jira_request(f'key = {key}', 1,
                          fields='summary,description,comment,status,assignee,duedate,updated,parent,created')
-    issues = data.get('issues') or []
+    issues = _ov_patch_issues(data.get('issues') or [])   # Decision #90
     if not issues:
         return {'key': key, 'summary': '', 'description': '', 'status': '',
                 'assignee': '', 'duedate': '', 'updated': '', 'devs': [], 'comments': []}
@@ -1012,8 +1019,10 @@ def fetch_all(scope_user=None, force=False):
     """
     if scope_user is not None and scope_user not in USERS and scope_user not in DEV_USERS:
         raise ValueError('unknown scope_user')
-    return _cached_swr(f'fetch_all:{scope_user}', lambda: _compute_fetch_all(scope_user),
-                       force=force)
+    # Decision #90: vá status vừa ghi (cache SWR / index Jira chưa kịp) trước khi caller render.
+    return _ov_patch_data(
+        _cached_swr(f'fetch_all:{scope_user}', lambda: _compute_fetch_all(scope_user),
+                    force=force))
 
 
 def _compute_fetch_all(scope_user):
@@ -1155,7 +1164,7 @@ def fetch_all_shared(fetched_by=None, force=False):
         with _cache_lock:
             entry = _cache.get(key)
         if entry and (time.monotonic() - entry[1]) < _CACHE_TTL:
-            return entry[0], False
+            return _ov_patch_data(entry[0]), False
     # L2 — snapshot KV còn tươi -> view thẳng, KHÔNG gọi Jira (tối ưu #1)
     snap = None
     try:
@@ -1172,20 +1181,22 @@ def fetch_all_shared(fetched_by=None, force=False):
     # force -> bỏ qua fresh-serve, đi thẳng live fetch (snap vẫn giữ để fallback offline).
     if not force and snap is not None and _snap_age(snap) < _CACHE_TTL:
         _cache_set(key, snap)
-        return snap, False
+        return _ov_patch_data(snap), False
     # cần data tươi -> live fetch full team
     try:
         data = _compute_fetch_all(None)
     except JiraAuthError:
         if snap is not None:
-            return snap, 'auth'              # PAT hết hạn -> snapshot cũ + banner "PAT hết hạn"
+            # PAT hết hạn -> snapshot cũ + banner "PAT hết hạn"
+            return _ov_patch_data(snap), 'auth'
         raise                                # không có snap -> trang lỗi (báo auth)
     except RuntimeError:
         if snap is not None:
-            return snap, True                # mất VPN -> snapshot cũ, read-only
+            return _ov_patch_data(snap), True     # mất VPN -> snapshot cũ, read-only
         raise                                # KV cũng trống -> trang lỗi như cũ
     data['fetched_by'] = fetched_by
     _cache_set(key, data)
+    _ov_patch_data(data)                     # Decision #90 (vá TRƯỚC khi đẩy snapshot)
     _write_snapshot_async(data)              # ghi KV nền + dedup hash (tối ưu #2)
     return data, False
 

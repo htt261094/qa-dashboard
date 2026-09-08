@@ -71,6 +71,22 @@ def do_transition(key, transition_id, pat):
         return False, _redact(f'Lỗi mạng: {e}', pat)
 
 
+def get_issue_status(key, pat):
+    """Đọc status hiện tại qua GET /issue/{key} (Decision #90).
+
+    KHÔNG đi qua `/search` nên KHÔNG dính lag index Lucene -> ngay sau transition đã trả
+    đúng status mới. Trả (ok, name)."""
+    try:
+        r = requests.get(f"{JIRA_URL}/rest/api/2/issue/{key}", headers=_headers(pat),
+                         params={'fields': 'status'}, timeout=_TIMEOUT)
+        if r.status_code != 200:
+            return False, _err_for(r.status_code, pat)
+        name = ((r.json().get('fields') or {}).get('status') or {}).get('name') or ''
+        return True, name
+    except requests.RequestException as e:
+        return False, _redact(f'Lỗi mạng: {e}', pat)
+
+
 def transition_to_status(key, target_name, pat):
     """Đổi sang status có TÊN = target_name, CHỈ KHI nó nằm trong transition khả dụng
     (workflow Jira). Không khớp -> (False, msg liệt kê status cho phép). Đây là điểm
