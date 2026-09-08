@@ -885,13 +885,16 @@ function smDoTransition(key, id, toName){
   var t=__sm.task, hooks=__sm.hooks; smClose();
   if(smInflight['t'+key]) return; smInflight['t'+key]=true;
   toast(key+': đang đổi status…', true);
-  postJSON('/do-transition', { key:key, id:id }, 20000).then(function(j){
+  // `to` gửi kèm để server chốt overlay status vừa ghi (Decision #90) khi nó không đọc
+  // lại được status từ Jira; `j.status` (server đọc lại thật) thắng nếu có.
+  postJSON('/do-transition', { key:key, id:id, to:toName }, 20000).then(function(j){
     smInflight['t'+key]=false; if(patToast(j)) return;
-    if(j.ok){ if(t){ t.jira=toName;
-        var can=(toName==='TO DO'||toName==='In Progress');
+    if(j.ok){ var st=(j.status||toName);
+      if(t){ t.jira=st;
+        var can=(st==='TO DO'||st==='In Progress');
         if(!can) t.customs=[]; t.canCustom=can; }
-      if(hooks && hooks.onChanged) hooks.onChanged('status', key, toName);
-      toast(key+' → '+toName+' ✓', true); }
+      if(hooks && hooks.onChanged) hooks.onChanged('status', key, st);
+      toast(key+' → '+st+' ✓', true); }
     else toast(j.msg||('Lỗi đổi status '+key), false);
   }).catch(function(){ smInflight['t'+key]=false; toast('Lỗi mạng khi đổi status', false); });
 }

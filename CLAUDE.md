@@ -467,6 +467,14 @@ Mỗi lần đổi ghi 1 event vào activity (cap 200, prune 14 ngày) → gộp
 Pill `New` (`created == hôm nay`, stateless — nguồn còn lại sau #27) loại task mới khỏi bucket To Do (`!isNew`), nên task vừa tạo **rơi ra ngoài mọi bucket** khi user đang ở tab To Do → tưởng mất task. Bỏ hẳn pill; `todo` giờ = mọi task active `TO DO` không overdue.
 `meta['new']` **vẫn tính và trả trong payload** (`build_dashboard_payload`) để `/api/dashboard` (app Android) không breaking — chỉ web bỏ pill. ⚠ Twin: `pillMatch`/`updateCounts` trong `app_v2.js` phải khớp `n_todo` bên Python.
 
+### 90. Overlay status vừa ghi — dashboard hiện ngay, không chờ Jira/cache bắt kịp *(2026-09-03, code: `core/status_overlay.py`)*
+Client đã vá tại chỗ sau transition (#24), nhưng mọi lần render SAU đó đọc lại status từ Jira và dính **2 tầng trễ**: (a) cache SWR `_CACHE_TTL=120s`/stale 900s + snapshot KV/đĩa (#84) → chuyển tab là ra status cũ; (b) **search index Jira lag vài giây** → F5 (`force=True`, bỏ qua cache) vẫn có thể trả status cũ. Triệu chứng: status "nhảy về" giá trị trước.
+- Store RAM per-process `{key: {status, at}}`. Ghi vào lúc `/do-transition` OK: status lấy **authoritative** bằng `jira_write.get_issue_status` (`GET /issue/{key}` — KHÔNG qua `/search` nên không lag index), fail thì dùng `to` client gửi kèm; response trả `status` để client dùng thay `toName`.
+- Áp ở **4 seam đọc**: `fetch_all` · `fetch_all_shared` (mọi đường trả L1/L2/L3/live/offline, vá TRƯỚC khi đẩy snapshot) · `fetch_activity_feed(with_status=True)` (map status của poll 60s — nếu không vá thì poll dội status cũ về bảng) · `fetch_issue_detail` (drawer).
+- **Hết hiệu lực** khi `updated` của issue `+2s >= at` (data đã bao gồm thao tác của mình, hoặc người khác đổi tiếp → tin Jira) hoặc quá `_TTL=900s` (backstop, khớp cửa sổ stale SWR). Feed không fetch `updated` → vòng đời do bucket + TTL quyết định.
+- Mutate issue dict **tại chỗ** (object nằm trong cache SWR) → mọi bản copy trong RAM thống nhất.
+**Ranh giới có chủ đích**: CHỈ status Jira (nhãn nội bộ đã là store local #21; duedate vẫn chỉ vá client-side). RAM per-process, KHÔNG sync chéo máy — trễ nằm ở cache/index của CHÍNH process đang serve. Chỉ ghi đè **tên** status, không dựng `statusCategory` (không code nào đọc field đó); count-only KPI (`done_total`/`created_week`/`resolved_week`) KHÔNG đổi theo overlay.
+
 ### 27. Dọn dead code `.last_seen.json` / snapshot-diff NEW badge
 Snapshot-diff vẫn chạy mỗi request nhưng **không còn được render** (QA controller không đọc `isNew`). Đã xoá `core/state.py`, `_build_view`, param `new_keys`/`first_run`, `STATE_FILE`.
 Cái "New" còn thấy là **nguồn KHÁC, giữ nguyên**: pill New ở `render_admin_v2` = `created == hôm nay` (stateless).
@@ -633,6 +641,8 @@ qa-dashboard/
 - Khi thêm/đổi cấu trúc: **tự ghi Decision mới** vào file này (số kế tiếp), không đợi user nhắc.
 
 ## Last Updated
+
+2026-09-03 — Thêm Decision #90 (overlay status vừa ghi: dashboard/poll/drawer hiện ngay status mới, không chờ cache SWR + index Jira).
 
 2026-09-03 — Nới `MAX_FOLDERS` test case 100→1000 + báo lỗi cap tường minh (ghi vào Decision #80).
 

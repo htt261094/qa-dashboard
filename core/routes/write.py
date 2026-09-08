@@ -19,9 +19,10 @@ import json
 from config import JIRA_URL
 from pat_store import load_user_pat
 from custom_status import set_custom_status, is_valid
-from jira_write import (get_transitions, do_transition, add_comment, create_subtask,
-                        create_subtasks, create_subtasks_multi, can_edit_duedate, set_duedate,
-                        get_editmeta_fields, update_issue)
+from status_overlay import record as record_status
+from jira_write import (get_transitions, do_transition, get_issue_status, add_comment,
+                        create_subtask, create_subtasks, create_subtasks_multi,
+                        can_edit_duedate, set_duedate, get_editmeta_fields, update_issue)
 
 
 class WriteMixin:
@@ -52,7 +53,19 @@ class WriteMixin:
                     self._reply_json(False, {'ok': False, 'msg': 'Thiếu transition id.'})
                     return
                 ok, msg = do_transition(key, tid, pat)
-                self._reply_json(ok, {'ok': ok, 'msg': msg})
+                res = {'ok': ok, 'msg': msg}
+                if ok:
+                    # Decision #90: chốt status MỚI ngay tại đây để mọi lần render sau
+                    # (cache SWR / snapshot / index Jira chưa kịp) không dội status cũ về.
+                    # Ưu tiên đọc lại từ Jira (GET /issue -> không lag index); fail thì
+                    # dùng tên đích client gửi kèm.
+                    sok, name = get_issue_status(key, pat)
+                    to = payload.get('to')
+                    new_st = name if (sok and name) else (to if isinstance(to, str) else '')
+                    if new_st:
+                        record_status(key, new_st)
+                        res['status'] = new_st
+                self._reply_json(ok, res)
             elif self.path == '/duedate-perm':
                 # UI gate: task này người đăng nhập có quyền sửa Due date trên Jira không?
                 ok, res = can_edit_duedate(key, pat)
