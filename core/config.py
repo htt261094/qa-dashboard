@@ -179,7 +179,9 @@ try:
 except ValueError:
     READY_PROD_MAX = 150
 
-# ----- Auth (qua Cloudflare Access; identity = header Cf-Access-Authenticated-User-Email) -----
+# ----- Auth (Google OAuth; identity = session cookie HMAC do app ký — Decision #15) -----
+# ⚠ KHÔNG còn tin header Cf-Access-Authenticated-User-Email: CF Access đã bỏ, tunnel plain
+# không strip header giả → tin nó = auth bypass (Decision #92, đã gỡ khỏi _user_email).
 # Email role ADMIN: được edit roadmap/tài liệu. Rỗng = không khoá (local dev).
 # Hỗ trợ NHIỀU admin (JIRA_ADMIN_EMAIL = danh sách email cách nhau dấu phẩy).
 # ADMIN_EMAIL giữ lại = phần tử đầu (tương thích ngược cho code cũ tham chiếu 1 email).

@@ -123,16 +123,20 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
     def _user_email(self):
         """Email người đăng nhập. Ưu tiên Bearer token (client mobile — D2 hướng C:
         cùng token HMAC self-contained như cookie web, chỉ khác đường chở), rồi session
-        cookie (web), rồi fallback Cloudflare header. '' nếu chưa login."""
+        cookie (web). '' nếu chưa login.
+
+        ⚠ KHÔNG tin header `Cf-Access-Authenticated-User-Email` (issue #44 khuyến nghị #3,
+        Decision #92): header đó chỉ đáng tin khi CÓ Cloudflare Access ngồi trước tự set +
+        strip header giả. Nhưng CF Access đã bị bỏ (Decision #15) — tunnel hiện tại là plain
+        cloudflared KHÔNG strip → client bịa header trần đi thẳng tới origin. Với AUTH bật,
+        `_authed()`/`_is_admin()` chỉ cần email hợp lệ (không đòi loopback) → set header =
+        thành admin, bypass toàn bộ Google OAuth. Identity CHỈ đến từ token HMAC do app ký."""
         auth = self.headers.get('Authorization', '')
         if auth.startswith('Bearer '):
             email = email_from_session(auth[7:].strip())
             if email:
                 return email
-        email = email_from_session(self._cookie(SESSION_COOKIE))
-        if email:
-            return email
-        return (self.headers.get('Cf-Access-Authenticated-User-Email') or '').strip().lower()
+        return email_from_session(self._cookie(SESSION_COOKIE)) or ''
 
     def _is_loopback(self):
         """TCP peer của request có phải loopback (127.0.0.0/8 hoặc ::1) không.
