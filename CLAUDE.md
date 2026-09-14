@@ -110,6 +110,11 @@ Golive trên `baokim-qa.com`; Cloudflare Access kẹt ở bước Activate Zero 
 ### 31. AUTH tắt = fail-closed (loopback-only)
 Trước: `AUTH_ENABLED=False` → mọi request là admin (fail-**open**) — quên creds / bind nhầm 0.0.0.0 là mất trắng. Giờ AUTH tắt → chỉ request từ **loopback** (`_is_loopback()` đọc `self.client_address[0]`, KHÔNG tin `X-Forwarded-For`) mới là admin, còn lại 403. AUTH bật → giữ nguyên. Server vẫn bind `127.0.0.1` (lớp 1); đây là defense-in-depth lớp 2.
 
+### 92. Gỡ tin header `Cf-Access-Authenticated-User-Email` — auth bypass *(2026-09-14, code: `qa_dashboard.py:_user_email`)*
+`_user_email` có nhánh fallback cuối tin **header trần** `Cf-Access-Authenticated-User-Email` do client gửi. Header đó CHỈ đáng tin khi **Cloudflare Access** ngồi trước tự set + strip header giả — nhưng CF Access đã bỏ (#15), tunnel hiện tại là **plain cloudflared KHÔNG strip**. Hệ quả: `curl -H "Cf-Access-Authenticated-User-Email: thanhht1@baokim.vn" .../settings` → thành **admin**, bypass toàn bộ Google OAuth (`_authed`/`_is_admin` khi AUTH bật chỉ cần email hợp lệ, không đòi loopback; email bịa vẫn qua `_domain_ok`). Là backdoor sống, không phải rủi ro lý thuyết — verify bằng curl trên origin.
+Fix: **bỏ hẳn** nhánh CF header → identity CHỈ từ Bearer token (mobile) hoặc session cookie, cả hai đều là **token HMAC do app ký** (`email_from_session`). Rủi ro gỡ = 0 vì không có CF Access nào set header đó hợp lệ nữa. Đây là phần còn sót của issue #44 (khuyến nghị #3 hoãn khi đóng #44 — chỉ làm fail-closed #31).
+**Ranh giới**: nếu sau này bật lại CF Access thật thì phải verify JWT `Cf-Access-Jwt-Assertion` (chữ ký), KHÔNG quay lại tin header trần.
+
 ### 45. Role "dev" (hẹp) — chỉ my-work + bug-log
 `DEV_EMAILS` (env `JIRA_DEV_EMAIL`) = người không phải QA, không admin. Allowlist `_DEV_GET_ALLOWED` / `_DEV_POST_ALLOWED` trong `do_GET`/`do_POST`: GET ngoài allowlist → redirect `/my-work`, POST → 403. Dev không nằm trong snapshot team nên `/my-work` fetch riêng `fetch_all(scope_user=<dev>)`; bug-log render `editable=False`. Sidebar chỉ 2 tab + chip role "Dev".
 ⚠ Local dev loopback = admin (#31) → test role dev phải login Google thật.
@@ -648,6 +653,8 @@ qa-dashboard/
 - Khi thêm/đổi cấu trúc: **tự ghi Decision mới** vào file này (số kế tiếp), không đợi user nhắc.
 
 ## Last Updated
+
+2026-09-14 — Thêm Decision #92 (gỡ tin header Cf-Access-Authenticated-User-Email: auth bypass, phần còn sót của issue #44).
 
 2026-09-14 — Thêm Decision #91 (sync test case đọc cột Round 1/2/3, lấy kết quả round mới nhất có dữ liệu).
 
