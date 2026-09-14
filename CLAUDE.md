@@ -421,6 +421,13 @@ Data cũ đã migrate 1 lần (`*1H26 → *2H26`, map lấy authoritative từ J
 
 **Bổ sung 2026-09-03 — cap folder + thông báo lỗi import**: mỗi **sheet** import = 1 sub-folder tự sinh (`_apply_sheet_cases`) → số folder phình theo số sheet chứ không theo thao tác tay. `MAX_FOLDERS=100` cũ chạm trần ở 12 bộ / 87 sheet; import file ≥2 sheet mới → 101 folder → `valid_store` False → `save_testcases` False → UI báo **"Không lưu được (KV/local lỗi)"** dù KV hoàn toàn khoẻ (local-first #78 không bao giờ fail vì mạng). Nới `MAX_FOLDERS=1000` (payload gzip ~0.5MB, xa cap KV), thêm **check tường minh cap folder trong `import_cases`** (cạnh check `MAX_CASES`) và log lý do shape/cap ra stderr trong `save_testcases` — message chung không đủ để chẩn đoán.
 
+### 91. Cột kết quả nhiều vòng test (Round 1/2/3) — lấy round MỚI NHẤT có dữ liệu *(2026-09-14)*
+Sheet test case thật có nhiều cột kết quả theo vòng chạy (`Round 1` · `Round 2` · `Round 3`, hoặc merged header `Result` + sub-header Round bên dưới, hoặc `Kết quả lần 2`/`Đợt 3`). `_find_header` cũ chỉ nhận cột nào khớp **đúng** synonym `result/kết quả/status…` → cột `Round 2`/`Round 3` không map được field nào → sync xong chỉ thấy kết quả round 1, round sau mất trắng.
+- `_round_no(cell)`: gỡ từ nhiễu (`result/status/actual/test/kết quả/thực tế`) rồi fullmatch `<round|lần|vòng|đợt> <số>` → số round; nhãn round trơn không số → 1; không phải round → `None`. `Automation Result` KHÔNG bị nhận nhầm (không có từ khoá round).
+- `_scan_result_cols` gom `{col_index: round_no}` cho cả hàng header lẫn 2 hàng sub-header; nhãn **có số round THẮNG** nhãn `Result` trơn ở cùng cột (ca merged header). `_order_result_cols` xếp theo `(round, vị trí cột)` → phần tử cuối = round mới nhất.
+- `cell()` duyệt **ngược** danh sách: **round cuối cùng có dữ liệu thắng**; round cuối bỏ trống thì lùi về round trước (QA chưa chạy lại thì vẫn giữ kết quả lần gần nhất). Trống hết → `result=''` → rơi vào nhánh giữ/ghi đè của `_apply_sheet_cases` (#42) như cũ.
+**Ranh giới**: chỉ đổi tầng ĐỌC header, hình dạng case (`result` 1 field) KHÔNG đổi → store/UI/donut/link không phải sửa. Không lưu "kết quả round nào" — muốn xem lịch sử vòng test thì phải mở file gốc.
+
 ### 42. Sync test case — LUÔN ghi đè kết quả theo file
 Smart Sync ban đầu giữ result chấm tay khi ô Result trong sheet trống. Từ 2026-07-16 user chốt **luôn ghi đè** cho MỌI sync (1 bộ / tất cả / link-modal): ô trống → `norun`. Checkbox tuỳ chọn đã gỡ; backend giữ flag `overwrite_results` nhưng client luôn gửi `True`. Lý do: user muốn hệ thống phản ánh file 100%.
 
@@ -641,6 +648,8 @@ qa-dashboard/
 - Khi thêm/đổi cấu trúc: **tự ghi Decision mới** vào file này (số kế tiếp), không đợi user nhắc.
 
 ## Last Updated
+
+2026-09-14 — Thêm Decision #91 (sync test case đọc cột Round 1/2/3, lấy kết quả round mới nhất có dữ liệu).
 
 2026-09-03 — Thêm Decision #90 (overlay status vừa ghi: dashboard/poll/drawer hiện ngay status mới, không chờ cache SWR + index Jira).
 

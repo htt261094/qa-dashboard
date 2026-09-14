@@ -293,42 +293,78 @@ def _norm_auto_result(v):
     return _RESULT_MAP.get(s, 'norun') if s else ''
 
 
+# Cột kết quả theo VÒNG TEST: sheet hay có "Round 1 / Round 2 / Round 3" (hoặc
+# "Kết quả lần 2", "Đợt 3"...). Round sau đè round trước; round cuối để TRỐNG thì lùi về
+# round gần nhất có dữ liệu (xem `cell()` trong parse_testcase_rows).
+_ROUND_WORDS = r'(?:round|lần|lan|vòng|vong|đợt|dot)'
+# Từ mang nghĩa "kết quả" bám quanh nhãn round -> gỡ ra để còn lại "<từ khoá round> <số>".
+_ROUND_NOISE = re.compile(
+    r'\b(?:result|results|status|actual|test|testing|kết quả|ket qua|thực tế|thuc te)\b')
+_ROUND_RE = re.compile(_ROUND_WORDS + r'\s*(\d{1,2})?$')
+
+
+def _round_no(c):
+    """'Round 2' / 'Kết quả lần 3' / 'Round-2 Result' -> 2/3. Không phải cột round -> None.
+    Nhãn round trơn (không số) -> 1."""
+    s = _ROUND_NOISE.sub(' ', _norm(c))
+    s = re.sub(r'\s+', ' ', re.sub(r'[#:\-.]', ' ', s)).strip()
+    m = _ROUND_RE.fullmatch(s)
+    if not m:
+        return None
+    return int(m.group(1)) if m.group(1) else 1
+
+
+def _scan_result_cols(norm_cells, result_cols):
+    """Gom mọi cột kết quả của 1 hàng header vào {col_index: round_no}.
+    Nhãn có số round THẮNG nhãn 'Result' trơn ở cùng cột (merged header 'Round 2' +
+    sub-header 'Result' -> vẫn xếp đúng thứ tự round)."""
+    for ci, c in enumerate(norm_cells):
+        rn = _round_no(c)
+        if rn is not None:
+            result_cols[ci] = rn
+        elif c in _HEADER_SYNONYMS['result']:
+            result_cols.setdefault(ci, 0)
+
+
+def _order_result_cols(result_cols):
+    """{ci: round} -> list ci xếp theo (round, vị trí cột) => phần tử CUỐI = round mới nhất."""
+    return sorted(result_cols, key=lambda ci: (result_cols[ci], ci))
+
+
 def _find_header(rows):
     """Tìm hàng tiêu đề + map {field: col_index}. Trả (header_row_idx, colmap) hoặc (None, {})."""
     for ridx, row in enumerate(rows[:20]):   # header thường ở đầu file
         norm_cells = [_norm(c) for c in row]
         colmap = {}
-        result_cols = []
+        result_cols = {}
+        _scan_result_cols(norm_cells, result_cols)
         for field, syns in _HEADER_SYNONYMS.items():
+            if field == 'result':
+                continue
             for ci, cell in enumerate(norm_cells):
                 if cell in syns:
-                    if field == 'result':
-                        if ci not in result_cols:
-                            result_cols.append(ci)
-                    elif field not in colmap:
+                    if field not in colmap:
                         colmap[field] = ci
-                        break
-        
+                    break
+
         if result_cols:
-            colmap['result'] = result_cols
+            colmap['result'] = _order_result_cols(result_cols)
 
         if sum(1 for f in _REQUIRED_FOR_HEADER if f in colmap) >= 2:
             # Check thêm dòng bên dưới (sub-header) cho các field còn thiếu (vd: 'result' của Round 1)
             for offset in (1, 2):
                 if ridx + offset < len(rows):
                     sub_norm_cells = [_norm(c) for c in rows[ridx + offset]]
+                    _scan_result_cols(sub_norm_cells, result_cols)
                     for field, syns in _HEADER_SYNONYMS.items():
-                        if field == 'result':
-                            for ci, cell in enumerate(sub_norm_cells):
-                                if cell in syns and ci not in result_cols:
-                                    result_cols.append(ci)
-                        elif field not in colmap:
-                            for ci, cell in enumerate(sub_norm_cells):
-                                if cell in syns:
-                                    colmap[field] = ci
-                                    break
+                        if field == 'result' or field in colmap:
+                            continue
+                        for ci, cell in enumerate(sub_norm_cells):
+                            if cell in syns:
+                                colmap[field] = ci
+                                break
             if result_cols:
-                colmap['result'] = sorted(result_cols)
+                colmap['result'] = _order_result_cols(result_cols)
             return ridx, colmap
     return None, {}
 
@@ -363,7 +399,8 @@ def parse_testcase_rows(rows):
             return ''
         
         if isinstance(ci, list):
-            # Lấy cột cuối cùng (bên phải nhất) có dữ liệu
+            # Cột kết quả nhiều vòng test (Round 1/2/3): duyệt NGƯỢC theo thứ tự round
+            # -> lấy round MỚI NHẤT có dữ liệu; round cuối bỏ trống thì lùi về round trước.
             for idx in reversed(ci):
                 if idx < len(row):
                     s = str(row[idx]).strip() if not isinstance(row[idx], str) else row[idx].strip()
