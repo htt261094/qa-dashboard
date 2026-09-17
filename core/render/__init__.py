@@ -26,7 +26,7 @@ from render.dashboard import (render_page, _bug_metrics_payload,
                               build_dashboard_payload)
 # Tài liệu training (tab /docs) tách sang render.docs; re-export để chỗ gọi
 # (qa_dashboard.py) không phải đổi import. See issue #107 / #86.
-from render.docs import render_docs_page
+from render.docs import render_docs_page, render_file_view_page
 # Roadmap v2 (tab /roadmap) tách sang render.roadmap; re-export để chỗ gọi
 # (qa_dashboard.py) không phải đổi import. See issue #108 / #86.
 from render.roadmap import render_roadmap_v2, render_public_roadmap_v2

@@ -6,8 +6,9 @@ client-side bởi controller `#docsData` trong app_v2.js.
 Tách từ render/__init__.py (issue #107 / #86). Zero behavior change — chỉ di
 chuyển định nghĩa, re-export ở __init__ để chỗ gọi không phải đổi import.
 """
-from render.base import _json_script
-from render.shell import _document_v2
+from issues import esc
+from render.base import _json_script, load_css_v2
+from render.shell import _document_v2, _FONTS_V2
 
 
 # ===== Tài liệu training (tab /docs): cây folder + link Google Drive =====
@@ -269,3 +270,48 @@ def render_docs_page(tree, editable=True, user=None, activities=None):
     content_inner += _json_script('docsData', tree)
 
     return _document_v2(content_inner, 'docs', user, activities, title='Tài liệu QA')
+
+
+# ===== Trang xem tài liệu TOÀN MÀN HÌNH (/file-view — nút "Mở tab mới", Decision #63) =====
+# Vì sao có trang riêng thay vì mở lại /docs?doc=: mở tab mới mà vẫn là app (sidebar +
+# overlay + nền mờ) thì chỉ là nhân bản trang đang đứng. Trang này chỉ có thanh tiêu đề
+# mỏng + nội dung, chiếm trọn viewport. Nội dung do route dựng sẵn (file_preview) và ĐÃ
+# esc — trang chỉ lo khung + theme + đổi sheet xlsx.
+def render_file_view_page(title, sub, body_html, download_url=''):
+    dl = (f'<a class="btn ghost fp-act" href="{esc(download_url)}" download>'
+          '<span class="material-symbols-rounded ph-light ph-download-simple"></span>Tải xuống</a>'
+          ) if download_url else ''
+    return f"""<!DOCTYPE html><html lang="vi"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{esc(title)}</title>
+<script>(function(){{try{{var t=localStorage.getItem('qa-theme');if(t)document.documentElement.setAttribute('data-theme',t);}}catch(e){{}}}})();</script>
+{_FONTS_V2}
+<style>{load_css_v2()}
+body{{margin:0;font-family:'Hanken Grotesk',system-ui,sans-serif;background:var(--canvas);color:var(--on-surface)}}
+.fv-page{{height:100vh;display:flex;flex-direction:column}}
+.fv-page .fp-head{{background:var(--card);box-shadow:var(--e1)}}
+.fv-page .fp-body{{flex:1;min-height:0;overflow:auto}}
+</style></head>
+<body class="fv-page">
+<header class="fp-head">
+  <span class="material-symbols-rounded ph-light ph-file fp-head-ic"></span>
+  <div class="fp-titles"><div class="fp-title">{esc(title)}</div><div class="fp-sub">{esc(sub)}</div></div>
+  {dl}
+</header>
+<main class="fp-body" id="fvBody">{body_html}</main>
+<script>
+// Đổi sheet xlsx — markup do file_preview dựng (không kèm script), giống listener trong app_v2.js
+document.getElementById('fvBody').addEventListener('click', function(e) {{
+  var tb = e.target.closest ? e.target.closest('.fp-xls-tab') : null;
+  if (!tb) return;
+  var box = tb.closest('.fp-xls'), id = tb.getAttribute('data-sheet');
+  if (!box) return;
+  box.querySelectorAll('.fp-xls-tab').forEach(function(b) {{ b.classList.toggle('active', b === tb); }});
+  box.querySelectorAll('.fp-xls-pane').forEach(function(p) {{
+    var on = p.getAttribute('data-sheet') === id;
+    p.classList.toggle('active', on);
+    if (on) {{ var w = p.querySelector('.fp-grid-wrap'); if (w) {{ w.scrollTop = 0; w.scrollLeft = 0; }} }}
+  }});
+}});
+</script>
+</body></html>"""

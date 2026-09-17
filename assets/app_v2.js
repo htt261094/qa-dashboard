@@ -2558,18 +2558,15 @@ window.__smSetCustom=function(t, key, val, onChanged){
   var FP_NATIVE_TAB = ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp'];
 
   // URL cho nút "Mở tab mới" / menu "Mở link". Khác `fpOpenUrl` (dùng cho src iframe):
-  // docx/xlsx/pptx/text/svg không có bản thô nào browser render được -> trỏ deep-link
-  // `/docs?doc=` (#67) để tab mới mở đúng viewer trong app, thay vì bắn attachment.
-  function fpTabUrl(u, docId) {
+  // docx/xlsx/pptx/text không có bản thô nào browser render được -> trỏ `/file-view`
+  // (trang xem TOÀN MÀN HÌNH, không sidebar/overlay) thay vì bắn attachment về máy.
+  function fpTabUrl(u) {
     u = u || '';
     if (!/^\/uploads\//i.test(u)) return u;             // link Drive: giữ URL Google
     var ext = fpExt('', u);
     if (/^html?$/.test(ext)) return fpOpenUrl(u);        // HTML -> /file-raw (sandbox, #65)
     if (FP_NATIVE_TAB.indexOf(ext) >= 0) return u;       // pdf/ảnh: browser render inline
-    if (!docId) return u;                                // không biết node -> đành giữ cũ
-    var pid = findParentFolderOfFile(DOC_TREE, docId, null);
-    return '/docs?' + (pid && pid !== 'root' ? 'folder=' + encodeURIComponent(pid) + '&' : '')
-      + 'doc=' + encodeURIComponent(docId);
+    return '/file-view?f=' + encodeURIComponent(decodeURIComponent(u.replace(/^\/uploads\//i, '')));
   }
 
   function fpClose() {
@@ -2609,7 +2606,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     if (dl) { dl.href = url; dl.style.display = local ? '' : 'none'; }
     // /uploads/ serve attachment với mọi định dạng ngoài pdf+ảnh -> tab mới KHÔNG được trỏ
     // thẳng vào đó (sẽ tải về). fpTabUrl chọn /file-raw | /uploads | deep-link viewer.
-    if (nt) nt.href = fpTabUrl(url, doc.id);
+    if (nt) nt.href = fpTabUrl(url);
     fpBody.innerHTML = '<div class="fp-loading"><div class="skel skel-line w60"></div>'
       + '<div class="skel skel-line w80"></div><div class="skel skel-block"></div></div>';
     fpOv.classList.add('open');
@@ -2821,7 +2818,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
   window.openLink = function() {
     var doc = findFileById(DOC_TREE, contextMenuSelectedId);
     var u = doc && safeDocUrl(doc.url);
-    if (u) window.open(fpTabUrl(u, doc && doc.id), '_blank');
+    if (u) window.open(fpTabUrl(u), '_blank');
   };
 
   window.copyDocLink = function() {
