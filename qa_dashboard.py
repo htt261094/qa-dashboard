@@ -450,6 +450,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         if path == '/file-preview':
             self._get_file_preview()   # nội dung dựng sẵn để xem trước trong app (#63)
             return
+        if path == '/file-view':
+            self._get_file_view()      # trang xem toàn màn hình cho "Mở tab mới" (#63)
+            return
         if path == '/file-raw':
             self._get_file_raw()       # HTML thô, sandbox, để nhúng iframe (#65)
             return

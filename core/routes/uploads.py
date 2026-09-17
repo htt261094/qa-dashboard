@@ -7,6 +7,7 @@ Gom các route file:
 - `_get_uploads(path)` — serve file trong uploads/ (GET /uploads/<filename>)
 - `_post_upload_file` — nhận upload multipart, lưu vào uploads/ (POST /upload-file, mọi QA authed)
 - `_get_file_preview` — JSON nội dung dựng sẵn để xem trước trong app (GET /file-preview)
+- `_get_file_view` — trang xem toàn màn hình cho nút "Mở tab mới" (GET /file-view)
 
 Mixin dùng các helper dùng chung định nghĩa ở Handler (resolve qua MRO):
 `self._is_admin()`, `self._json()`, `self.send_response()`, `self.send_header()`,
@@ -153,6 +154,63 @@ class UploadsMixin:
             'ok': ok, 'kind': kind,
             'html': html if ok else '', 'msg': '' if ok else html,
         }, ensure_ascii=False).encode('utf-8'))
+
+    def _get_file_view(self):
+        """GET /file-view?f=<filename> -> TRANG xem toàn màn hình (nút "Mở tab mới", #63).
+
+        Vì sao cần: `/uploads/` chỉ serve `inline` cho pdf + ảnh raster, còn lại ép
+        `attachment` (#70) -> mở tab mới là TẢI VỀ. Trang này bọc chính nội dung
+        `file_preview.preview_html` (docx/xlsx/pptx/text) trong 1 shell mỏng, không
+        sidebar/overlay -> đọc full viewport. HTML thì chuyển tiếp sang `/file-raw`
+        (sandbox #65), pdf/ảnh nhúng thẳng `/uploads/` vì browser render được.
+        """
+        import os
+        from urllib.parse import urlparse, parse_qs, unquote, quote
+        from render import render_file_view_page
+
+        q = parse_qs(urlparse(self.path).query)
+        name = os.path.basename(unquote((q.get('f') or [''])[0]))
+        if not name:
+            self.send_response(400)
+            self.end_headers()
+            return
+        target = (UPLOADS_DIR / name).resolve()
+        try:
+            inside = target.parent == UPLOADS_DIR.resolve()
+        except OSError:
+            inside = False
+        if not inside or not target.exists() or not target.is_file():
+            self.send_response(404)
+            self.end_headers()
+            return
+        ext = target.suffix.lower()
+        if ext in ('.html', '.htm'):
+            # HTML có route riêng render nguyên bản trong origin mờ — đừng nhúng 2 lớp.
+            self.send_response(302)
+            self.send_header('Location', '/file-raw?f=' + quote(name))
+            self.end_headers()
+            return
+        src = '/uploads/' + quote(name)
+        sub = (ext[1:].upper() + ' · lưu trên hệ thống') if ext else 'Lưu trên hệ thống'
+        if ext == '.pdf':
+            body = f'<iframe class="fp-frame" src="{src}#view=FitH"></iframe>'
+        elif ext in ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp'):
+            body = f'<div class="fp-img-wrap"><img class="fp-img" src="{src}" alt=""></div>'
+        else:
+            from file_preview import preview_html
+            ok, _kind, html = preview_html(target)
+            body = html if ok and html else (
+                '<div class="empty-state"><div class="es-title">'
+                + (html or 'Không xem trước được định dạng này')
+                + '</div><div class="es-hint">Dùng nút “Tải xuống” ở trên để mở bản gốc.</div></div>')
+        page = render_file_view_page(name, sub, body, download_url=src).encode('utf-8')
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Content-Length', str(len(page)))
+        self.end_headers()
+        self.wfile.write(page)
 
     def _get_file_raw(self):
         """GET /file-raw?f=<filename> -> nội dung HTML THÔ để nhúng iframe (Decision #65).
