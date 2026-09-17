@@ -250,6 +250,7 @@ Overlay `#fpOverlay` + `openDocPreview(doc)` chọn nhánh theo đuôi: PDF → 
 Route `/file-preview` chỉ đọc trong `UPLOADS_DIR` (`basename` + `resolve().parent` check).
 **xlsx hiển thị kiểu Excel**: tab sheet ở đáy + chỉ 1 pane hiện + thanh cột A/B/C sticky + cột số dòng sticky; đổi tab qua **delegated listener** (markup nhét bằng `innerHTML` nên không kèm `<script>` được). `.fp-grid-wrap` dùng `overflow-x:scroll` (ép thanh cuộn chiếm chỗ — Chrome/Windows overlay scrollbar ẩn tịt).
 **Giới hạn**: preview Office là bản gần đúng để đọc nhanh (mất font/màu/merge phức tạp, bỏ ảnh nhúng). `.doc/.xls/.ppt` cũ + `.zip` → empty-state.
+**Bổ sung 2026-09-17 — nút "Mở tab mới" không còn tải file về**: `/uploads/` chỉ serve `inline` cho **pdf + ảnh raster**, mọi loại khác ép `attachment` (#70) → nút "Mở tab mới" (và menu "Mở link") trỏ thẳng `/uploads/...` với docx/xlsx/pptx/text/svg là **tải file về**, không xem được gì. Tách `fpTabUrl(url, docId)` khỏi `fpOpenUrl` (cái sau vẫn chỉ dùng cho `src` iframe): html → `/file-raw` (#65) · pdf/ảnh → `/uploads/` (browser render inline) · **còn lại → deep-link `/docs?folder=&doc=<id>`** (#67) để tab mới mở đúng viewer trong app. KHÔNG serve docx/xlsx thô ra tab mới vì browser không render được — bản dựng bởi `file_preview` là thứ duy nhất xem được.
 
 ### 65. Xem file HTML trong app — iframe `/file-raw` sandbox
 KHÔNG parse lại HTML (bóc text ra `<pre>` là mất hết ý nghĩa) → để browser render nguyên bản, **cách ly bằng origin mờ**.
@@ -653,6 +654,8 @@ qa-dashboard/
 - Khi thêm/đổi cấu trúc: **tự ghi Decision mới** vào file này (số kế tiếp), không đợi user nhắc.
 
 ## Last Updated
+
+2026-09-17 — Nút “Mở tab mới” trong viewer tài liệu không còn tải file về (ghi vào Decision #63).
 
 2026-09-14 — Thêm Decision #92 (gỡ tin header Cf-Access-Authenticated-User-Email: auth bypass, phần còn sót của issue #44).
 
