@@ -455,8 +455,11 @@ def project_from_filename(filename):
     m = re.search(r'[A-Za-z]+\d+[A-Za-z0-9]*', base)
     if m:
         return m.group(0).upper()
-    parts = re.split(r'[\s_-]+', base)
-    return (parts[0] if parts else base).strip().upper()
+    # Không có mã dạng chữ+số -> tên dự án nhiều chữ ('Thu Hộ', 'Chi Hộ'): GIỮ CẢ CỤM,
+    # chỉ bỏ token năm. Trước chỉ lấy token đầu nên 'Bug Thu Hộ' ra 'THU' -> legend/bug id
+    # hiện sai tên dự án (Decision #93).
+    parts = [t for t in re.split(r'[\s_-]+', base) if t and not re.fullmatch(r'\d{2,4}', t)]
+    return (' '.join(parts) if parts else base).strip().upper()
 
 
 _T_SHEET_Y_NL = re.compile(r'^T(\d{1,2})(\d{4})$')   # 'T12026' -> 2026-01 (năm tường minh)
