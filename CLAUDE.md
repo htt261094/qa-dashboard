@@ -395,6 +395,11 @@ Server không phải đổi: `extract_file_id` bắt `/d/<id>` nên nuốt cả 
 Tách `filters_html` (3 dropdown lọc-xem, render cho **tất cả**) khỏi `link_widget` + checkbox column (giữ `editable`-only) → dev cũng lọc được. Dropdown build từ `monthScopeBugs()` (bug của tháng đang xem) chứ không phải mọi tháng.
 `core/xlsx_export.py` zero-dep (stdlib `zipfile` + XML `inlineStr`, KHÔNG openpyxl): client build rows từ bảng đang xem, POST `/export-bug-log` → server chốt header + `build_xlsx`. Rows chỉ là chuỗi hiển thị → không chạm Jira/Drive/PAT. Cap 20000 rows, cell ≤32767, lọc ký tự XML không hợp lệ.
 
+### 93. `project_from_filename` giữ nguyên tên dự án nhiều chữ *(2026-09-17)*
+Nhãn nguồn `Bug Thu Hộ` / `Bug Chi Hộ` không có mã dạng chữ+số → rơi vào nhánh fallback, mà nhánh đó chỉ lấy **token đầu** → project = `THU` / `CHI`. Sai hiện ở mọi chỗ đọc `bug['project']`: legend chart Analytics ("THU (7)"), pie, dropdown lọc, và bug id trong bảng `/bug-log`.
+Fallback giờ **join toàn bộ token** (bỏ token thuần số = năm) → `THU HỘ` / `CHI HỘ`. Nhánh mã chữ+số (`DA5`, `DA6`, `CVPS`…) đi trước nên không đổi; `Bug Retail` → `RETAIL`, `Autodebit` → `AUTODEBIT` giữ nguyên.
+**Đánh đổi**: project nằm trong khoá diff `{project}#{service}#{month}#{STT}` **và** fingerprint (#54) → 13 bug của 2 file này đổi khoá ở lần sync FORCE kế tiếp → 1 lượt activity giả "xoá bug + log bug". Không migrate vì không có link task nào của 2 file này (verify data thật) và reopen_map cũng trống. Tầng-1 metadata (#25) sẽ skip file không đổi → phải bấm **"Đồng bộ ngay"** (force) mới re-parse.
+
 ## Link bug/test-case ↔ task
 
 ### 37. Link bug↔task bền qua copy sheet — stamp fingerprint
@@ -654,6 +659,8 @@ qa-dashboard/
 - Khi thêm/đổi cấu trúc: **tự ghi Decision mới** vào file này (số kế tiếp), không đợi user nhắc.
 
 ## Last Updated
+
+2026-09-17 — Thêm Decision #93 (project_from_filename giữ tên dự án nhiều chữ: THU HỘ / CHI HỘ thay vì THU / CHI).
 
 2026-09-17 — Nút “Mở tab mới” trong viewer tài liệu mở trang `/file-view` toàn màn hình thay vì tải file về (ghi vào Decision #63).
 
