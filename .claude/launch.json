@@ -3,7 +3,7 @@
   "configurations": [
     {
       "name": "qa-dashboard",
-      "runtimeExecutable": "python",
+      "runtimeExecutable": ".venv\\Scripts\\python.exe",
       "runtimeArgs": ["qa_dashboard.py"],
       "port": 8090,
       "env": { "JIRA_PORT": "8090" }
