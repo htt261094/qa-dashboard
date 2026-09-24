@@ -32,7 +32,7 @@ class WriteMixin:
         pat = load_user_pat(self._user_email())
         if not pat:
             self._reply_json(False, {'ok': False, 'code': 'no_pat',
-                'msg': 'Bạn chưa cấu hình PAT. Vào ⚙ Cài đặt để thêm, rồi thử lại.'})
+                'msg': 'Bạn chưa cấu hình API token Jira. Vào ⚙ Cài đặt để thêm, rồi thử lại.'})
             return
         try:
             payload = self._read_json_body(20_000)
@@ -100,7 +100,13 @@ class WriteMixin:
                     fields['summary'] = s[:250]
                 assignee = payload.get('assignee')
                 if isinstance(assignee, str) and assignee.strip():
-                    fields['assignee'] = {'name': assignee.strip()}
+                    # Jira Cloud (#197): user-picker ghi bằng accountId.
+                    from jira_cloud import user_ref
+                    ref = user_ref(assignee.strip())
+                    if not ref:
+                        self._reply_json(False, {'ok': False, 'msg': f'Không tìm thấy tài khoản Jira của "{assignee.strip()}".'})
+                        return
+                    fields['assignee'] = ref
                 due = payload.get('duedate')
                 if isinstance(due, str):
                     d = due.strip()
@@ -129,7 +135,7 @@ class WriteMixin:
         pat = load_user_pat(self._user_email())
         if not pat:
             self._reply_json(False, {'ok': False, 'code': 'no_pat',
-                'msg': 'Bạn chưa cấu hình PAT. Vào ⚙ Cài đặt để thêm, rồi thử lại.'})
+                'msg': 'Bạn chưa cấu hình API token Jira. Vào ⚙ Cài đặt để thêm, rồi thử lại.'})
             return
         try:
             payload = self._read_json_body(20_000)
@@ -168,7 +174,7 @@ class WriteMixin:
         pat = load_user_pat(self._user_email())
         if not pat:
             self._reply_json(False, {'ok': False, 'code': 'no_pat',
-                'msg': 'Bạn chưa cấu hình PAT. Vào ⚙ Cài đặt để thêm, rồi thử lại.'})
+                'msg': 'Bạn chưa cấu hình API token Jira. Vào ⚙ Cài đặt để thêm, rồi thử lại.'})
             return
         try:
             payload = self._read_json_body(80_000)

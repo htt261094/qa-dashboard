@@ -1,7 +1,7 @@
 """Configuration: env loading, file paths, constants, and name helpers.
 
-Importing this module loads .env (or OS env vars) and validates that JIRA_URL/JIRA_PAT
-exist — exits with a clear message if not. Every other module imports from here.
+Importing this module loads .env (or OS env vars) and validates that JIRA_URL/JIRA_EMAIL/
+JIRA_API_TOKEN exist (Jira Cloud — #197) — exits with a clear message if not. Every other module imports from here.
 """
 import os
 import re
@@ -33,6 +33,7 @@ BUG_MONTHLY_FILE = SCRIPT_DIR / '.bug_monthly.json'      # snapshot status per-b
 BUG_TASK_LINK_FILE = SCRIPT_DIR / '.bug_task_link.json'  # cache link bug/test-case -> Jira task (#55)
 TESTCASE_FILE = SCRIPT_DIR / '.testcase_config.json'    # cache bộ test case import từ Drive (#152)
 TESTCASE_TASK_LINK_FILE = SCRIPT_DIR / '.testcase_task_link.json'  # cache link bộ test case -> Jira task (#155)
+JIRA_ACCOUNTS_FILE = SCRIPT_DIR / '.jira_accounts.json'  # cache map username <-> accountId Jira Cloud (#197)
 SNAPSHOT_CACHE_FILE = SCRIPT_DIR / '.snapshot_cache.json'  # L3 cache đĩa snapshot task (offline fallback, #137)
 TC_FILE = SCRIPT_DIR / '.tc_config.json'                   # test case folders + cases (persistence #152)
 UPLOADS_DIR = SCRIPT_DIR / 'uploads'   # file tài liệu upload (Decision #23) — ghi đè ở dưới nếu .env có UPLOADS_DIR
@@ -71,17 +72,24 @@ def atomic_write(path, text, encoding='utf-8'):
 # ----- Domain constants -----
 STUCK_DAYS = 5   # task In Progress/PENDING không đổi >= 5 ngày = "kẹt"
 
-# ----- Tạo Sub-task (id lấy từ createmeta Jira DC — instance-specific, KHÔNG đổi tuỳ tiện) -----
-SUBTASK_TYPE_ID = '10003'              # issuetype "Sub-task"
-TASK_PTSP_TYPE_ID = '10103'            # issuetype "Task-PTSP" (parent của sub-task QA)
-START_DATE_FIELD = 'customfield_10208'  # "Start date" (required khi tạo, default = hôm nay)
-LEADER_FIELD = 'customfield_10606'      # "Leader" (user-picker, optional)
-DEPARTMENT_FIELD = 'customfield_10213'  # "Department" (multi-checkbox) — auto-tick IT khi tạo sub-task
-BK_TEAM_FIELD = 'customfield_10214'     # "BK Team" (multi-checkbox) — auto-tick IT-QA khi tạo sub-task
-SUBTASK_DEPARTMENT_ID = '10123'         # option "IT" tick sẵn (Department)
-SUBTASK_BK_TEAM_ID = '10128'            # option "IT-QA" tick sẵn (BK Team)
-LEADER_EVAL_NUM_FIELD = 'customfield_10605'  # "Leader đánh giá (Số)" (number)
-LEADER_EVAL_TEXT_FIELD = 'customfield_10604' # "Leader đánh giá (Text)" (text)
+# ----- Tạo Sub-task (id lấy từ createmeta Jira CLOUD baokim.atlassian.net — #197) -----
+# Instance-specific, KHÔNG đổi tuỳ tiện. Dò lại bằng /rest/api/2/field + createmeta nếu migrate lần nữa.
+SUBTASK_TYPE_ID = '10008'              # issuetype "Sub-task" (loại mọi sub-task QA ở PSIT/DA* đang dùng)
+TASK_PTSP_TYPE_ID = '10348'            # issuetype "Task-PTSP" (parent của sub-task QA)
+START_DATE_FIELD = 'customfield_10305'  # "Start date (migrated)" (REQUIRED khi tạo — field 'Start date' 10015 mới của Cloud thì trống)
+LEADER_FIELD = 'customfield_10318'      # "Leader" (user-picker, optional)
+DEPARTMENT_FIELD = 'customfield_10315'  # "Department" (multi-checkbox) — auto-tick IT khi tạo sub-task
+BK_TEAM_FIELD = 'customfield_10306'     # "BK Team" (multi-checkbox) — auto-tick IT-QA khi tạo sub-task
+SUBTASK_DEPARTMENT_ID = '10314'         # option "IT" tick sẵn (Department)
+SUBTASK_BK_TEAM_ID = '10332'            # option "IT-QA" tick sẵn (BK Team)
+LEADER_EVAL_NUM_FIELD = 'customfield_10317'  # "Leader đánh giá (Số)" (number)
+LEADER_EVAL_TEXT_FIELD = 'customfield_10309' # "Leader đánh giá (text)" (text)
+
+
+def jql_cf(field_id):
+    """'customfield_10305' -> 'cf[10305]' — tham chiếu field trong JQL bằng ID (tên field trên
+    Cloud có bản trùng/'(migrated)' nên tham chiếu theo tên dễ trúng nhầm field rỗng)."""
+    return f"cf[{field_id.rsplit('_', 1)[-1]}]"
 
 DEFAULT_DISPLAY_NAMES = {
     'quangbm': 'Quang',
@@ -101,7 +109,7 @@ def _load_env():
             if line and not line.startswith('#') and '=' in line:
                 k, v = line.split('=', 1)
                 cfg[k.strip()] = v.strip().strip('"').strip("'")
-    for k in ('JIRA_URL', 'JIRA_PAT', 'JIRA_USERS', 'JIRA_PORT',
+    for k in ('JIRA_URL', 'JIRA_EMAIL', 'JIRA_API_TOKEN', 'JIRA_ACCOUNT_IDS', 'JIRA_USERS', 'JIRA_PORT',
               'JIRA_ADMIN_EMAIL', 'JIRA_ALLOWED_DOMAIN',
               'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'SESSION_SECRET',
               'PUBLIC_BASE_URL', 'BUG_LOG_POLL_SECONDS', 'BUG_LOG_JIRA_ENABLED',
@@ -129,16 +137,27 @@ try:
 except OSError:
     pass  # tạo lúc upload đầu tiên nếu ở đây fail (vd đường dẫn override chưa mount)
 
-if not CFG.get('JIRA_URL') or not CFG.get('JIRA_PAT'):
+# Jira Cloud (#197): auth = Basic base64(email:api_token) — KHÔNG còn PAT Bearer của Jira DC.
+if not (CFG.get('JIRA_URL') and CFG.get('JIRA_EMAIL') and CFG.get('JIRA_API_TOKEN')):
     if not OFFLINE:
-        print("ERROR: Thiếu JIRA_URL hoặc JIRA_PAT. Tạo file .env theo .env.example.", file=sys.stderr)
+        hint = (" (JIRA_PAT là của Jira DC cũ, Cloud dùng JIRA_EMAIL + JIRA_API_TOKEN)"
+                if CFG.get('JIRA_PAT') else '')
+        print("ERROR: Thiếu JIRA_URL / JIRA_EMAIL / JIRA_API_TOKEN" + hint +
+              ". Tạo file .env theo .env.example.", file=sys.stderr)
         sys.exit(1)
     # OFFLINE: không cần Jira -> giá trị dummy để các `from config import JIRA_URL, PAT` không vỡ.
     CFG.setdefault('JIRA_URL', 'http://offline.invalid')
-    CFG.setdefault('JIRA_PAT', 'offline')
+    CFG.setdefault('JIRA_EMAIL', 'offline@offline.invalid')
+    CFG.setdefault('JIRA_API_TOKEN', 'offline')
 
 JIRA_URL = CFG['JIRA_URL'].rstrip('/')
-PAT = CFG['JIRA_PAT']
+JIRA_EMAIL = CFG['JIRA_EMAIL'].strip()
+JIRA_API_TOKEN = CFG['JIRA_API_TOKEN'].strip()
+# Giữ tên `PAT` = token chung: nhiều module import nó để REDACT khỏi thông báo lỗi.
+PAT = JIRA_API_TOKEN
+# Override map username -> accountId (JSON {"quangbm": "712020:..."}). Chỉ cần khi privacy
+# setting Atlassian ẩn email -> không tự resolve được (xem jira_cloud).
+JIRA_ACCOUNT_IDS = CFG.get('JIRA_ACCOUNT_IDS', '').strip()
 USERS = [u.strip() for u in CFG.get('JIRA_USERS', 'quangbm,nhungnh,phuongct,tholt,thanhht1').split(',') if u.strip()]
 PORT = int(CFG.get('JIRA_PORT', '8080'))
 # ----- Bug Log: nhịp poll Drive (giây) của daemon scan (Decision #54). -----
@@ -359,7 +378,8 @@ def normalize_tester(raw):
 
 
 def actor_name(author_obj):
-    """Pretty name of a Jira actor: short name for QA team, else displayName/username."""
+    """Pretty name of a Jira actor: short name for QA team, else displayName/username.
+    Jira Cloud không có 'name' — jira_cloud.normalize gắn 'name' = local-part email (#197)."""
     a = author_obj or {}
     name = a.get('name', '')
     return DEFAULT_DISPLAY_NAMES.get(name, a.get('displayName') or name or '?')

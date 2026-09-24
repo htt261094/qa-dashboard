@@ -5,7 +5,7 @@ Vấn đề: sau khi đổi status thành công, client đã vá tại chỗ (#2
 SAU đó lại đọc lại status từ Jira, mà có 2 tầng trễ:
   1. cache SWR (`_CACHE_TTL=120s`, stale tới 900s) + snapshot KV/đĩa (#84) — chuyển tab
      hoặc máy khác mở là ra data cũ;
-  2. search index của Jira (`/rest/api/2/search`) lag vài giây sau transition — F5 ngay
+  2. search index của Jira (`/rest/api/2/search/jql`) lag vài giây sau transition — F5 ngay
      (force=True, bỏ qua cache) vẫn có thể trả status cũ.
 → user thấy trạng thái "nhảy về" giá trị cũ.
 

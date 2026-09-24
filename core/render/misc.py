@@ -55,34 +55,36 @@ def _render_drive_card(has_drive, auth_enabled):
 
 
 def render_settings_page(has_pat, user=None, has_drive=False, auth_enabled=False, activities=None):
-    status_line = ('<div class="set-state set-ok">✓ Bạn đã lưu PAT. Thao tác đổi status/comment sẽ ghi đúng tên bạn trên Jira.</div>'
+    # Jira Cloud (#197): API token Atlassian thay PAT Jira DC. PAT DC đã lưu tự bị coi là "chưa có".
+    status_line = ('<div class="set-state set-ok">✓ Bạn đã lưu API token Jira. Thao tác đổi status/comment sẽ ghi đúng tên bạn trên Jira.</div>'
                    if has_pat else
-                   '<div class="set-state set-none">⚠ Bạn chưa lưu PAT. Hiện thao tác (nếu có) sẽ mang tên tài khoản chung.</div>')
-    jira_base = esc(JIRA_URL)
+                   '<div class="set-state set-none">⚠ Bạn chưa lưu API token Jira Cloud (PAT của Jira cũ không còn dùng được). '
+                   'Thao tác ghi Jira sẽ bị từ chối tới khi có token.</div>')
     inner = (
         '<div class="page-head"><div>'
-        '<h2 class="page-title">⚙ Setting — Personal Access Token (PAT)</h2>'
-        '<div class="page-sub">PAT giúp dashboard thao tác Jira <strong>nhân danh chính bạn</strong>. '
-        'Mã được mã hoá (AES) trước khi lưu, không bao giờ lưu dạng thô.</div>'
+        '<h2 class="page-title">⚙ Setting — API token Jira Cloud</h2>'
+        '<div class="page-sub">API token giúp dashboard thao tác Jira <strong>nhân danh chính bạn</strong>. '
+        'Token được mã hoá (AES) trước khi lưu, không bao giờ lưu dạng thô.</div>'
         '</div></div>'
         f'<div class="set-wrap">{status_line}'
         '<div class="set-card">'
-        '<h2>1. Tạo PAT trên Jira</h2>'
+        '<h2>1. Tạo API token trên Atlassian</h2>'
         '<ol class="set-steps">'
-        f'<li>Mở <a href="{jira_base}/secure/ViewProfile.jspa" target="_blank" rel="noopener">Hồ sơ Jira của bạn</a> → '
-        '<b>Personal Access Tokens</b>.</li>'
-        '<li>Bấm <b>Create token</b>, đặt tên (vd "QA Workspace"), chọn thời hạn.</li>'
+        '<li>Mở <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank" rel="noopener">'
+        'Atlassian account → Security → API tokens</a> (đăng nhập bằng email công ty).</li>'
+        '<li>Bấm <b>Create API token</b> (loại thường, KHÔNG chọn "with scopes"), đặt tên (vd "QA Workspace"), chọn hạn dùng '
+        '(tối đa 1 năm — hết hạn thì quay lại đây dán token mới).</li>'
         '<li>Copy chuỗi token (chỉ hiện 1 lần).</li>'
         '</ol>'
         '<h2>2. Dán vào đây</h2>'
         '<div class="set-form">'
-        '<input type="password" id="patInput" class="set-input" placeholder="Dán PAT của bạn..." autocomplete="off" spellcheck="false">'
-        '<button type="button" id="patSave" class="set-btn">Lưu PAT</button>'
+        '<input type="password" id="patInput" class="set-input" placeholder="Dán API token của bạn..." autocomplete="off" spellcheck="false">'
+        '<button type="button" id="patSave" class="set-btn">Lưu token</button>'
         '<button type="button" id="patShow" class="set-btn ghost" title="Hiện/ẩn">👁</button>'
         '</div>'
-        + ('<button type="button" id="patDelete" class="set-link-del">Xoá PAT đã lưu</button>' if has_pat else '')
-        + '<p class="set-note">⚠ Token được verify thuộc đúng tài khoản của bạn (gọi <code>/myself</code>) trước khi lưu. '
-        'PAT của người khác sẽ bị từ chối.</p>'
+        + ('<button type="button" id="patDelete" class="set-link-del">Xoá token đã lưu</button>' if has_pat else '')
+        + '<p class="set-note">⚠ Token được verify cùng <b>email đăng nhập</b> của bạn (gọi <code>/myself</code>) trước khi lưu. '
+        'Token của người khác sẽ bị từ chối.</p>'
         '</div>'
         + '</div>'
     )
@@ -149,5 +151,5 @@ def render_error_page(msg):
 <style>{load_css()}</style></head>
 <body><div class="container"><header><h1>QA Workspace</h1></header>
 <div class="error"><strong>Lỗi pull data từ Jira:</strong><br>{esc(msg)}</div>
-<p style="color:#6b778c;margin-top:16px">Check JIRA_URL, JIRA_PAT trong file .env. F5 để retry.</p>
+<p style="color:#6b778c;margin-top:16px">Check JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN trong file .env. F5 để retry.</p>
 </div></body></html>"""

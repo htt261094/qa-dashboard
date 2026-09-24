@@ -7,6 +7,7 @@ gcp-service-account.json
 .custom_status.json
 .sync_meta.json
 .pat_store.json
+.jira_accounts.json
 .crypto_key
 .drive_token.json
 .bug_log_source.json

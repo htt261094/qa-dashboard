@@ -118,26 +118,28 @@ pip install -r requirements.txt
 
 ### 2. Tạo Jira Personal Access Token
 
-Login Jira Bảo Kim → avatar góc phải → **Profile** → **Personal Access Tokens** → **Create token**:
-- Name: `qa-workspace` · Expiry: theo policy
-- Quyền cần: **Browse Projects** (thêm quyền transition nếu muốn đổi status từ dashboard)
+Jira Bảo Kim đã chuyển sang **Jira Cloud** (`https://baokim.atlassian.net`, issue #197). Cloud không có PAT — dùng **API token Atlassian**:
+[id.atlassian.com → Security → API tokens](https://id.atlassian.com/manage-profile/security/api-tokens) → **Create API token** (loại thường, không chọn "with scopes"):
+- Name: `qa-workspace` · Expiry: tối đa 1 năm
 - Copy token (chỉ hiện 1 lần)
 
-> PAT này (trong `.env`) là **PAT chung** dùng để đọc. Mỗi QA còn có thể dán **PAT cá nhân** ở `/settings` để thao tác *ghi* (đổi status, comment, tạo sub-task) ghi đúng tên mình.
+> Token này (trong `.env`, kèm `JIRA_EMAIL` của chủ token) là **token chung** dùng để đọc. Mỗi QA còn có thể dán **API token cá nhân** ở `/settings` để thao tác *ghi* (đổi status, comment, tạo sub-task) ghi đúng tên mình.
 
 ### 3. Tạo file `.env`
 
 ```bash
 cp .env.example .env
-# Mở .env, điền JIRA_PAT (và phần OAuth nếu golive)
+# Mở .env, điền JIRA_EMAIL + JIRA_API_TOKEN (và phần OAuth nếu golive)
 ```
 
 Các biến chính (xem `.env.example` để đầy đủ + chú thích):
 
 | Biến | Ý nghĩa |
 |---|---|
-| `JIRA_URL` | `https://jira.baokim.vn:8443` (không có `/` cuối) |
-| `JIRA_PAT` | Personal Access Token (PAT chung, read-only) |
+| `JIRA_URL` | `https://baokim.atlassian.net` (không có `/` cuối) |
+| `JIRA_EMAIL` | email Atlassian của chủ token chung |
+| `JIRA_API_TOKEN` | API token chung (dùng để đọc) |
+| `JIRA_ACCOUNT_IDS` | (tùy chọn) JSON override username → accountId |
 | `JIRA_USERS` | username QA team, phân tách dấu phẩy |
 | `JIRA_PORT` | cổng local (mặc định 8080) |
 | `JIRA_ADMIN_EMAIL` | email role admin (sửa roadmap/docs, thấy tab admin) |
@@ -188,13 +190,14 @@ Roadmap/docs/dismiss/PAT/nhãn nội bộ sync qua Cloudflare KV nên xoá file 
 
 | Lỗi | Nguyên nhân | Fix |
 |---|---|---|
-| `401 PAT sai hoặc hết hạn` | Token sai/expired | Tạo PAT mới, update `.env` |
-| `403 PAT không đủ quyền` | Thiếu Browse Projects | PAT mới đủ scope |
+| `401 API token sai hoặc hết hạn` | Token sai/expired, hoặc `JIRA_EMAIL` không phải chủ token | Tạo token mới, update `.env` |
+| `403 API token không đủ quyền` | Tài khoản thiếu Browse Projects | Xin quyền cho tài khoản chủ token |
+| `Không tìm thấy tài khoản Jira Cloud cho "x"` | Không resolve được accountId (email bị ẩn) | Khai `JIRA_ACCOUNT_IDS` trong `.env` |
 | `Port đang bị chiếm` | Process khác dùng 8080 | Đổi `JIRA_PORT` |
 | `Network error` | Không vào được Jira | Check VPN/Tailscale/kết nối nội bộ |
 | Trống không có task | JQL ra 0 issue | Check `JIRA_USERS` đúng username |
 | Bị đá về `/login` liên tục | OAuth chưa cấu hình đúng | Check `GOOGLE_*` + redirect URI khớp |
-| Đổi status báo "chưa cấu hình PAT" | Chưa dán PAT cá nhân | Vào `/settings` dán PAT cá nhân |
+| Đổi status báo "chưa cấu hình API token" | Chưa dán token cá nhân (PAT Jira cũ không còn hiệu lực) | Vào `/settings` dán API token Jira Cloud |
 | Bugs trống / không sync | Chưa kết nối Drive / chưa khai báo file nguồn | `/bug-log` → kết nối Drive + thêm file nguồn |
 
 ---

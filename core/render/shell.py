@@ -159,15 +159,17 @@ def _settings_modal_v2(user=None):
         '<div class="modal-head"><span class="material-symbols-rounded ph-light ph-gear-six"></span>'
         '<h3>Setting</h3>'
         '<button type="button" class="x material-symbols-rounded ph-light ph-x" id="setClose"></button></div>'
-        '<div class="modal-body"><p class="modal-note">Thêm Personal Access Token để thao tác Jira '
-        '(đổi status, comment) nhân danh chính bạn. Token được mã hoá khi lưu, không hiển thị lại.</p>'
-        '<div class="field"><label>Personal Access Token</label>'
-        '<div class="inp-wrap"><input type="password" id="patInp" placeholder="Dán PAT của bạn vào đây..." autocomplete="off" spellcheck="false">'
+        '<div class="modal-body"><p class="modal-note">Thêm API token Jira Cloud để thao tác Jira '
+        '(đổi status, comment) nhân danh chính bạn. Tạo tại '
+        '<a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank" rel="noopener">'
+        'id.atlassian.com → Security → API tokens</a>. Token được mã hoá khi lưu, không hiển thị lại.</p>'
+        '<div class="field"><label>API token Jira</label>'
+        '<div class="inp-wrap"><input type="password" id="patInp" placeholder="Dán API token của bạn vào đây..." autocomplete="off" spellcheck="false">'
         '<button type="button" class="eye material-symbols-rounded ph-light ph-eye mi-sm" id="patShowBtn"></button></div></div>'
         + drive +
         '</div>'
         '<div class="modal-foot">'
-        '<button type="button" class="btn btn-danger" id="patDelBtn">Xoá PAT</button>'
+        '<button type="button" class="btn btn-danger" id="patDelBtn">Xoá token</button>'
         '<button type="button" class="btn btn-ghost" id="setCancel">Huỷ</button>'
         '<button type="button" class="btn btn-primary" id="patSaveBtn">Lưu</button>'
         '</div></div></div>'
@@ -267,17 +269,17 @@ def _stale_banner(note):
 
 
 def _auth_banner(note, is_admin=False):
-    """Banner khi PAT chung hết hạn/thu hồi (Jira coi request là vô danh). Tách khỏi OFFLINE
+    """Banner khi API token chung hết hạn/thu hồi (Jira coi request là vô danh). Tách khỏi OFFLINE
     để khỏi đánh lừa thành lỗi mạng. Admin được chỉ dẫn cách sửa; QA chỉ báo + nhờ admin."""
-    fix = ('Cập nhật <b>JIRA_PAT</b> trong <code>.env</code> bằng token mới '
-           '(Jira → Personal Access Tokens → Create token) rồi restart server.'
+    fix = ('Cập nhật <b>JIRA_API_TOKEN</b> trong <code>.env</code> bằng token mới '
+           '(id.atlassian.com → Security → API tokens → Create API token) rồi restart server.'
            if is_admin else 'Báo admin cấp lại token để khôi phục.')
     return (
         '<div style="background:#fdecea;border:1px solid #e57373;color:#7a1c12;'
         'border-radius:10px;padding:10px 14px;margin:0 0 16px;font-size:13px;'
         'display:flex;gap:8px;align-items:center">'
         '<span style="font-size:16px">🔑</span><span>'
-        f'<b>PAT Jira hết hạn</b> — {esc(note)}. {fix} '
+        f'<b>API token Jira hết hạn</b> — {esc(note)}. {fix} '
         'Đang hiển thị dữ liệu lưu tạm (read-only).'
         '</span></div>')
 

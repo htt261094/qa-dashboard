@@ -1378,7 +1378,7 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             text_val = payload.get('text_val')
             pat = load_user_pat(self._user_email())
             if not pat:
-                self._json(400, json.dumps({'ok': False, 'msg': 'Bạn chưa cấu hình PAT. Vào ⚙ Cài đặt để thêm.'}).encode('utf-8'))
+                self._json(400, json.dumps({'ok': False, 'msg': 'Bạn chưa cấu hình API token Jira. Vào ⚙ Cài đặt để thêm.'}).encode('utf-8'))
                 return
             from jira_write import batch_update_evaluations
             ok, msg = batch_update_evaluations(keys, num_val, text_val, pat)
@@ -1687,6 +1687,15 @@ def main():
     print("  Ctrl+C để stop\n")
 
     start_bug_log_scheduler()   # daemon thread poll Drive 10p (no-op nếu chưa kết nối Drive)
+
+    # Jira Cloud (#197): resolve trước accountId cho roster (cache .jira_accounts.json) ở nền
+    # -> request đầu tiên không phải chờ N call /user/search. No-op khi đã có cache.
+    import threading
+    from config import OFFLINE, DEV_USERS
+    if not OFFLINE:
+        from jira_cloud import warm_accounts
+        threading.Thread(target=lambda: warm_accounts(list(USERS) + sorted(DEV_USERS)),
+                         daemon=True).start()
 
     try:
         # ThreadingHTTPServer (issue #129): mỗi request 1 thread → 1 request chạm Jira

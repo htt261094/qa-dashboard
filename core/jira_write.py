@@ -1,10 +1,12 @@
-"""Ghi lên Jira NHÂN DANH từng QA — dùng PAT cá nhân của họ (KHÔNG dùng PAT chung),
+"""Ghi lên Jira NHÂN DANH từng QA — dùng API token cá nhân của họ (KHÔNG dùng token chung),
 nên lịch sử Jira ghi đúng tên người thao tác (attribution).
 
-Tách khỏi jira_api (vốn đọc bằng PAT chung + session chia sẻ): mỗi call ở đây gắn
-PAT riêng truyền vào. PAT luôn redact trong mọi thông báo lỗi (OPSEC).
+Tách khỏi jira_api (vốn đọc bằng token chung + session chia sẻ): mỗi call ở đây gắn
+credential riêng truyền vào. Jira Cloud (#197): tham số `pat` giữ tên cũ cho caller nhưng giờ
+là credential 'email:api_token' (Basic auth) do pat_store trả về. Luôn redact trong mọi thông
+báo lỗi (OPSEC). User-picker ghi bằng accountId, mention '[~username]' -> '[~accountid:X]'.
 
-Layer: config -> (this). Caller (handler) tự lấy PAT qua pat_store rồi truyền vào.
+Layer: config -> jira_cloud -> (this). Caller (handler) tự lấy credential qua pat_store.
 """
 import re
 
@@ -15,6 +17,8 @@ from config import (JIRA_URL, SUBTASK_TYPE_ID,
                     DEPARTMENT_FIELD, BK_TEAM_FIELD,
                     SUBTASK_DEPARTMENT_ID, SUBTASK_BK_TEAM_ID,
                     LEADER_EVAL_NUM_FIELD, LEADER_EVAL_TEXT_FIELD)
+from jira_cloud import (basic_auth, split_cred, canon_status, user_ref,
+                        mentions_to_accounts)
 
 _TIMEOUT = 20
 
@@ -22,20 +26,28 @@ _TIMEOUT = 20
 def _err_for(status, pat):
     """Thông báo tiếng Việt theo HTTP status của thao tác ghi."""
     if status == 401:
-        return 'PAT của bạn sai hoặc đã hết hạn — vào Cài đặt dán lại.'
+        return 'API token Jira của bạn sai hoặc đã hết hạn — vào Cài đặt dán lại.'
     if status == 403:
-        return 'PAT không đủ quyền thực hiện thao tác này trên Jira.'
+        return 'Tài khoản Jira của bạn không đủ quyền thực hiện thao tác này.'
     if status == 404:
         return 'Không tìm thấy task (hoặc bạn không có quyền xem).'
     return f'Jira trả lỗi {status}.'
 
 
 def _redact(msg, pat):
-    return msg.replace(pat, '<REDACTED>') if pat and isinstance(msg, str) else msg
+    if not pat or not isinstance(msg, str):
+        return msg
+    _, token = split_cred(pat)
+    for secret in (pat, token):
+        if secret:
+            msg = msg.replace(secret, '<REDACTED>')
+    return msg
 
 
 def _headers(pat):
-    return {'Authorization': f'Bearer {pat}', 'Accept': 'application/json',
+    """`pat` = credential 'email:api_token' (Jira Cloud Basic auth, #197)."""
+    email, token = split_cred(pat)
+    return {'Authorization': basic_auth(email or '', token or ''), 'Accept': 'application/json',
             'Content-Type': 'application/json'}
 
 
@@ -50,7 +62,7 @@ def get_transitions(key, pat):
         out = []
         for t in r.json().get('transitions', []):
             to = (t.get('to') or {}).get('name') or t.get('name') or '?'
-            out.append({'id': str(t.get('id')), 'to': to})
+            out.append({'id': str(t.get('id')), 'to': canon_status(to)})   # tên DC (#197)
         return True, out
     except requests.RequestException as e:
         return False, _redact(f'Lỗi mạng: {e}', pat)
@@ -82,7 +94,7 @@ def get_issue_status(key, pat):
         if r.status_code != 200:
             return False, _err_for(r.status_code, pat)
         name = ((r.json().get('fields') or {}).get('status') or {}).get('name') or ''
-        return True, name
+        return True, canon_status(name)
     except requests.RequestException as e:
         return False, _redact(f'Lỗi mạng: {e}', pat)
 
@@ -138,10 +150,17 @@ def _create_one_subtask(project_key, parent_key, summary, duedate, start_date,
         DEPARTMENT_FIELD: [{'id': SUBTASK_DEPARTMENT_ID}],
         BK_TEAM_FIELD: [{'id': SUBTASK_BK_TEAM_ID}],
     }
+    # Cloud (#197): user-picker ghi bằng accountId, không còn {'name': username}.
     if assignee:
-        fields['assignee'] = {'name': assignee}
+        ref = user_ref(assignee)
+        if not ref:
+            return False, f'Không tìm thấy tài khoản Jira của "{assignee}".'
+        fields['assignee'] = ref
     if leader:
-        fields[LEADER_FIELD] = {'name': leader}
+        ref = user_ref(leader)
+        if not ref:
+            return False, f'Không tìm thấy tài khoản Jira của leader "{leader}".'
+        fields[LEADER_FIELD] = ref
     try:
         r = requests.post(f"{JIRA_URL}/rest/api/2/issue",
                           headers=_headers(pat), json={'fields': fields}, timeout=_TIMEOUT)
@@ -164,8 +183,8 @@ def create_subtask(parent_key, summary, duedate, start_date,
                    assignee=None, leader=None, pat=None):
     """Tạo Sub-task QA dưới 1 Task-PTSP, NHÂN DANH chủ PAT (reporter = người đăng nhập).
 
-    Field bắt buộc (theo createmeta): summary, duedate, start_date (customfield_10208).
-    assignee/leader optional (user-picker -> {'name': username}).
+    Field bắt buộc (theo createmeta Cloud): summary, duedate, start_date (START_DATE_FIELD).
+    assignee/leader optional (username nội bộ -> {'accountId': ...} qua jira_cloud).
     Trả (True, '<KEY mới>') hoặc (False, '<thông báo lỗi tiếng Việt>')."""
     summary = (summary or '').strip()
     if not summary:
@@ -366,13 +385,14 @@ def update_issue(key, fields, pat):
 
 
 def add_comment(key, body, pat):
-    """Thêm comment THẬT (ghi tên chủ PAT). Trả (ok, msg)."""
+    """Thêm comment THẬT (ghi tên chủ token). Trả (ok, msg)."""
     body = (body or '').strip()
     if not body:
         return False, 'Comment rỗng.'
     try:
         r = requests.post(f"{JIRA_URL}/rest/api/2/issue/{key}/comment",
-                          headers=_headers(pat), json={'body': body}, timeout=_TIMEOUT)
+                          headers=_headers(pat), json={'body': mentions_to_accounts(body)},
+                          timeout=_TIMEOUT)
         if r.status_code in (200, 201):
             return True, 'Đã gửi comment lên Jira.'
         return False, _err_for(r.status_code, pat)
