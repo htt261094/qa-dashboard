@@ -121,6 +121,7 @@ SUPERSEDES Decision #2 (Bearer PAT). Công ty chuyển sang `https://baokim.atla
 - **Token cá nhân (#20)**: lưu credential `email:token` (chính là cặp Basic) đã mã hoá; user chỉ dán token, email = email login. Verify = `/myself` bằng Basic(email login, token) → Cloud buộc email khớp chủ token nên thành công = đúng người (bỏ so username/local-part). PAT DC cũ trong kho (không có `email:`) → `load_user_pat` trả None → UI nhắc dán lại, không migrate.
 - 429 (rate limit Cloud) → retry theo `Retry-After` (cap 10s, 2 lần) ngay trong `_request_short_connect`.
 - Project key GIỮ NGUYÊN sau migrate (DA52H26, PSIT2H26…) → link bug/testcase ↔ task trong KV không trượt, không phải migrate.
+- **Migrate CHƯA XONG (2026-09-25)**: IT mới chuyển đủ screen cho DA52H26/DA62H26/DA72H26/DA102H26/PSIT2H26 — CRS/D8TN/DAIT2026/DEMOIT/SIT* thiếu field custom trên màn tạo sub-task, AM/PT/PTSP dùng type sub-task khác → tạo sub-task ở đó Jira trả 400. Cố ý CHƯA làm createmeta-aware (cấu hình còn đổi). Khi IT báo xong: chạy `scripts/jira_cloud_probe.py` (chỉ đọc) đối chiếu field/type/option/createmeta với config rồi mới quyết.
 **Giới hạn**: privacy ẩn email → người đó không resolve được → khai `JIRA_ACCOUNT_IDS`. Changelog assignee của người ngoài roster chưa từng gặp hiện `accountid:<id>` trong `from/to` (UI vẫn hiện displayName qua `fromString/toString`). API token Cloud hết hạn tối đa 1 năm → banner đỏ "API token hết hạn" (#84 `'auth'`). Offline mode (#84) giữ làm fallback dù Cloud không cần VPN.
 
 ### 92. Gỡ tin header `Cf-Access-Authenticated-User-Email` — auth bypass *(2026-09-14, code: `qa_dashboard.py:_user_email`)*
@@ -654,7 +655,7 @@ qa-dashboard/
 │   └── routes/              ← oauth · uploads · write (mixin cho handler)
 │
 ├── assets/  app_v2.js · styles_v2.css (UI v2) · styles.css (chỉ error page)
-├── scripts/ run_monthly_report.ps1 / .sh
+├── scripts/ run_monthly_report.ps1 / .sh · jira_cloud_probe.py (dò config Jira Cloud vs config.py — #94)
 ├── docs/    ghi chú kỹ thuật rời
 │
 │   ── gitignore (sinh lúc chạy) ──
