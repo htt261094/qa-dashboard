@@ -473,7 +473,7 @@ function skelComments(){
   var ACTS=[
     {label:'Tạo Sub-task', icon:'add_task', run:function(){ var b=$('createSubBtn'); if(b) b.click(); }},
     {label:'Đổi giao diện sáng / tối', icon:'contrast', run:function(){ var b=$('themeBtn'); if(b) b.click(); }},
-    {label:'Cài đặt PAT / Drive', icon:'key', run:function(){ var o=$('setOverlay'); if(o) o.classList.add('open'); }},
+    {label:'Cài đặt API token / Drive', icon:'key', run:function(){ var o=$('setOverlay'); if(o) o.classList.add('open'); }},
     isAdmin?{label:'Sync bug log ngay', icon:'sync', run:function(){
       toast('Đang sync bug log…', true);
       postJSON('/sync-bug-log', {}, 60000).then(function(j){
@@ -609,22 +609,22 @@ function skelComments(){
     else { inp.type='password'; show.className='eye material-symbols-rounded mi-sm ph-light ph-eye'; } });
   var save=$('patSaveBtn');
   if(save) save.addEventListener('click', function(){
-    var v=(inp.value||'').trim(); if(!v){ toast('Chưa nhập PAT', false); return; }
+    var v=(inp.value||'').trim(); if(!v){ toast('Chưa nhập API token', false); return; }
     save.disabled=true;
     postJSON('/save-pat', { pat:v }, 20000).then(function(j){
-      save.disabled=false; toast(j.msg || (j.ok?'Đã lưu PAT':'Lỗi lưu PAT'), j.ok);
+      save.disabled=false; toast(j.msg || (j.ok?'Đã lưu token':'Lỗi lưu token'), j.ok);
       if(j.ok){ inp.value=''; close(); }
-    }).catch(function(){ save.disabled=false; toast('Lỗi mạng khi lưu PAT', false); }); });
+    }).catch(function(){ save.disabled=false; toast('Lỗi mạng khi lưu token', false); }); });
   var del=$('patDelBtn');
   if(del) del.addEventListener('click', function(){
-    confirmModal({title:'Xoá PAT', message:'Xoá PAT đã lưu? Thao tác Jira sẽ không còn ghi tên bạn.', confirmText:'Xoá PAT'}).then(function(ok){ if(!ok) return;
+    confirmModal({title:'Xoá API token', message:'Xoá API token đã lưu? Thao tác Jira sẽ không còn ghi tên bạn.', confirmText:'Xoá token'}).then(function(ok){ if(!ok) return;
     fetch('/delete-pat', { method:'POST' }).then(function(r){ return r.json(); })
-      .then(function(j){ toast(j.ok?'Đã xoá PAT':'Lỗi xoá', j.ok); if(j.ok) close(); })
+      .then(function(j){ toast(j.ok?'Đã xoá token':'Lỗi xoá', j.ok); if(j.ok) close(); })
       .catch(function(){ toast('Lỗi mạng', false); }); }); });
 })();
 // popup nhắc PAT khi server trả no_pat
 function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov) ov.classList.add('open');
-  toast(j.msg || 'Cần PAT để thao tác Jira', false); return true; } return false; }
+  toast(j.msg || 'Cần API token Jira để thao tác', false); return true; } return false; }
 
 // ---------- Đổi Due date theo QUYỀN Jira (ghi bằng PAT cá nhân) — bảng + drawer, dùng chung ----------
 // DUE_PERM[key]: true = được sửa · false = không được · 'no_pat' = chưa có PAT · 'loading'/undefined.
@@ -710,7 +710,7 @@ document.addEventListener('click', function(e){
     var key=a.getAttribute('data-key'), cur=a.getAttribute('data-due')||'';
     cell.innerHTML='<span class="due-loading">…</span>';
     ensureDuePerm(key, function(perm){
-      if(perm==='no_pat'){ patToast({code:'no_pat', msg:'Cần PAT để đổi hạn — vào ⚙ Cài đặt'}); dueAfterChange(key, !!cell.closest('#drawer')); return; }
+      if(perm==='no_pat'){ patToast({code:'no_pat', msg:'Cần API token Jira để đổi hạn — vào ⚙ Cài đặt'}); dueAfterChange(key, !!cell.closest('#drawer')); return; }
       if(perm!==true){ toast('Bạn không có quyền đổi hạn task này trên Jira', false); dueAfterChange(key, !!cell.closest('#drawer')); return; }
       if(document.body.contains(cell)) dueEditor(cell, key, cur);
     });
@@ -834,7 +834,7 @@ function smRender(t, jiraState){
   var cur={}; (t.customs||[]).forEach(function(v){ cur[v]=1; });
   var h='<div class="smenu-grp">Status Jira</div>';
   if(jiraState===null) h+='<div style="padding:6px 14px"><div class="skel skel-line w80"></div><div class="skel skel-line w60"></div></div>';
-  else if(jiraState.code==='no_pat') h+='<div class="smenu-note" data-sm="nopat"><span class="material-symbols-rounded ph-light ph-lock mi-sm"></span>Cần PAT để đổi status Jira — bấm để thêm</div>';
+  else if(jiraState.code==='no_pat') h+='<div class="smenu-note" data-sm="nopat"><span class="material-symbols-rounded ph-light ph-lock mi-sm"></span>Cần API token Jira để đổi status — bấm để thêm</div>';
   else if(!jiraState.ok) h+='<div class="smenu-note muted"><span class="material-symbols-rounded ph-light ph-warning-circle mi-sm"></span>'+esc(jiraState.msg||'Lỗi tải status')+'</div>';
   else if(!jiraState.transitions.length) h+='<div class="smenu-note muted"><span class="material-symbols-rounded ph-light ph-info mi-sm"></span>Không có bước chuyển khả dụng</div>';
   else jiraState.transitions.forEach(function(tr){
@@ -938,18 +938,18 @@ window.__smSetCustom=function(t, key, val, onChanged){
   var input=$('patInput'); if(!input) return;   // chỉ chạy trên trang /settings
   var saveBtn=$('patSave'), showBtn=$('patShow'), delBtn=$('patDelete');
   if(saveBtn) saveBtn.addEventListener('click', function(){
-    var pat=(input.value||'').trim(); if(!pat){ toast('Chưa nhập PAT', false); return; }
+    var pat=(input.value||'').trim(); if(!pat){ toast('Chưa nhập API token', false); return; }
     saveBtn.disabled=true;
     postJSON('/save-pat', { pat:pat }, 20000).then(function(j){
-      saveBtn.disabled=false; toast(j.msg || (j.ok?'Đã lưu PAT':'Lỗi lưu PAT'), j.ok);
+      saveBtn.disabled=false; toast(j.msg || (j.ok?'Đã lưu token':'Lỗi lưu token'), j.ok);
       if(j.ok){ input.value=''; setTimeout(function(){ location.reload(); }, 1500); }
-    }).catch(function(){ saveBtn.disabled=false; toast('Lỗi mạng khi lưu PAT', false); }); });
+    }).catch(function(){ saveBtn.disabled=false; toast('Lỗi mạng khi lưu token', false); }); });
   if(showBtn) showBtn.addEventListener('click', function(){
     input.type = input.type==='password' ? 'text' : 'password'; });
   if(delBtn) delBtn.addEventListener('click', function(){
-    confirmModal({title:'Xoá PAT', message:'Xoá PAT đã lưu? Sau đó thao tác Jira sẽ không còn ghi tên bạn.', confirmText:'Xoá PAT'}).then(function(ok){ if(!ok) return;
+    confirmModal({title:'Xoá API token', message:'Xoá API token đã lưu? Sau đó thao tác Jira sẽ không còn ghi tên bạn.', confirmText:'Xoá token'}).then(function(ok){ if(!ok) return;
     fetch('/delete-pat', { method:'POST' }).then(function(r){ return r.json(); })
-      .then(function(j){ toast(j.ok?'Đã xoá PAT':'Lỗi xoá', j.ok);
+      .then(function(j){ toast(j.ok?'Đã xoá token':'Lỗi xoá', j.ok);
         if(j.ok) setTimeout(function(){ location.reload(); }, 1200); })
       .catch(function(){ toast('Lỗi mạng', false); }); }); });
   var driveDc=$('driveDisconnect');

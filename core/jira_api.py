@@ -1,6 +1,8 @@
 """Jira REST API access: search, count, changelog authors, and the per-refresh bucket fetch.
 
-PAT is read from config and never logged: network errors are redacted before raising.
+Jira Cloud (#197): auth Basic email+API token chung (config); mọi response đi qua
+jira_cloud.normalize (username/status/mention về hình dạng DC); JQL user -> accountId.
+Token never logged: network errors are redacted before raising.
 """
 import sys
 import json
@@ -11,8 +13,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
 from config import (JIRA_URL, PAT, USERS, DEV_USERS, TASK_PTSP_TYPE_ID, actor_name,
-                    LEADER_EVAL_NUM_FIELD, LEADER_EVAL_TEXT_FIELD, OFFLINE,
+                    LEADER_EVAL_NUM_FIELD, LEADER_EVAL_TEXT_FIELD, LEADER_FIELD,
+                    START_DATE_FIELD, jql_cf, OFFLINE,
                     SNAPSHOT_CACHE_FILE, atomic_write, JIRA_MAX_CONCURRENT)
+from jira_cloud import (auth_headers as _cloud_headers, normalize, jql_user, jql_users,
+                        username_of, canon_status)
 from issues import parse_date, i_assignee, i_reporter
 from remote_store import remote_get, remote_put
 from status_overlay import (patch_data as _ov_patch_data,
@@ -121,13 +126,22 @@ def _request_short_connect(method, url, **kw):
         # Jira đã biết là down -> đừng tốn 22s nữa. Raise đúng loại để caller xử lý như lỗi mạng.
         raise requests.exceptions.ConnectionError("Jira circuit open (đang cooldown sau lỗi kết nối)")
     with _jira_gate:
-        try:
-            resp = _orig_request(method, url, **kw)
-        except _CONN_ERRORS:
-            _breaker_record(False)
-            raise
-        except requests.RequestException:
-            raise                       # lỗi khác (vd HTTP) -> không đụng breaker
+        for attempt in range(3):
+            try:
+                resp = _orig_request(method, url, **kw)
+            except _CONN_ERRORS:
+                _breaker_record(False)
+                raise
+            except requests.RequestException:
+                raise                       # lỗi khác (vd HTTP) -> không đụng breaker
+            # Jira Cloud có rate limit (#197): 429 -> chờ theo Retry-After (cap 10s) rồi thử lại.
+            if resp.status_code != 429 or attempt == 2:
+                break
+            try:
+                wait = float(resp.headers.get('Retry-After') or 1)
+            except ValueError:
+                wait = 1.0
+            time.sleep(min(max(wait, 0.5), 10))
         _breaker_record(True)
         return resp
 
@@ -286,35 +300,59 @@ def run_parallel(jobs):
     return results
 
 
+def _check_resp(resp):
+    """Map HTTP status -> exception chung cho search/count. Trả resp nếu OK."""
+    if resp.status_code == 401:
+        reset_username_cache()         # token chung có thể đã đổi/thu hồi -> vứt memoize (issue #131)
+        raise JiraAuthError("Jira 401 — API token sai hoặc hết hạn")
+    if resp.status_code == 403:
+        raise RuntimeError("Jira 403 — API token không đủ quyền")
+    # Token chết -> request bị coi vô danh -> query field reporter/assignee trả 400
+    # "cannot be viewed by anonymous users" (KHÔNG phải 401). Bắt riêng để báo đúng.
+    if resp.status_code == 400 and 'anonymous' in resp.text.lower():
+        reset_username_cache()
+        raise JiraAuthError("Jira 400 — API token hết hạn (request bị coi là vô danh)")
+    if resp.status_code == 400:
+        try:
+            msgs = resp.json().get('errorMessages') or []
+        except ValueError:
+            msgs = []
+        raise RuntimeError('Jira 400 — JQL lỗi: ' + ('; '.join(msgs)[:300] or resp.text[:200]))
+    resp.raise_for_status()
+    return resp
+
+
+# Cloud (#197): /rest/api/2/search đã bị GỠ (410) -> /rest/api/2/search/jql. Khác biệt:
+# phân trang bằng nextPageToken (không startAt), KHÔNG trả `total`, mỗi trang tối đa ~100
+# issue (ít hơn khi expand=changelog) -> lặp trang tới khi đủ max_results hoặc isLast.
+# Giữ v2 (không lên v3) vì v2 trả comment/description dạng wiki string, không phải ADF.
+_PAGE_MAX = 100
+
+
 def _jira_request(jql, max_results, fields=_DEFAULT_FIELDS, expand=None):
-    params = {'jql': jql, 'fields': fields, 'maxResults': max_results}
-    if expand:
-        params['expand'] = expand
+    issues = []
+    token = None
     try:
-        resp = _SESSION.get(
-            f"{JIRA_URL}/rest/api/2/search",
-            headers={'Authorization': f'Bearer {PAT}', 'Accept': 'application/json'},
-            params=params,
-            timeout=30,
-        )
-        if resp.status_code == 401:
-            reset_username_cache()         # PAT chung có thể đã đổi/thu hồi -> vứt username memoize (issue #131)
-            raise JiraAuthError("Jira 401 — PAT sai hoặc hết hạn")
-        if resp.status_code == 403:
-            raise RuntimeError("Jira 403 — PAT không đủ quyền")
-        # PAT chết -> request bị coi vô danh -> query field reporter/assignee trả 400
-        # "cannot be viewed by anonymous users" (KHÔNG phải 401). Bắt riêng để báo đúng.
-        if resp.status_code == 400 and 'anonymous' in resp.text.lower():
-            reset_username_cache()
-            raise JiraAuthError("Jira 400 — PAT hết hạn (request bị coi là vô danh)")
-        resp.raise_for_status()
-        return resp.json()
-    except JiraAuthError:
-        raise                              # auth -> KHÔNG đụng breaker/pool (Jira vẫn với tới)
+        while len(issues) < max_results:
+            params = {'jql': jql, 'fields': fields,
+                      'maxResults': min(_PAGE_MAX, max_results - len(issues))}
+            if expand:
+                params['expand'] = expand
+            if token:
+                params['nextPageToken'] = token
+            resp = _check_resp(_SESSION.get(f"{JIRA_URL}/rest/api/2/search/jql",
+                                            headers=_auth_headers(), params=params, timeout=30))
+            page = resp.json()
+            issues.extend(page.get('issues') or [])
+            token = page.get('nextPageToken')
+            if page.get('isLast', True) or not token or not page.get('issues'):
+                break
+    except RuntimeError:
+        raise                              # auth/JQL (JiraAuthError là RuntimeError) -> KHÔNG đụng pool
     except requests.RequestException as e:
-        reset_pool()                       # pool có thể nhiễm socket chết (VPN flip) -> dọn cho request kế
-        msg = str(e).replace(PAT, '<REDACTED>')
-        raise RuntimeError(f"Network error: {msg}")
+        reset_pool()                       # pool có thể nhiễm socket chết (mạng flip) -> dọn cho request kế
+        raise RuntimeError(f"Network error: {str(e).replace(PAT, '<REDACTED>')}")
+    return {'issues': normalize(issues[:max_results])}
 
 
 def jira_search(jql, max_results=300, fields=_DEFAULT_FIELDS):
@@ -322,8 +360,20 @@ def jira_search(jql, max_results=300, fields=_DEFAULT_FIELDS):
 
 
 def jira_count(jql):
-    """Cheap count: maxResults=0 returns only the total, no issue payload."""
-    return _jira_request(jql, 0, fields='summary').get('total', 0)
+    """Cheap count (#197): search/jql không trả `total` -> POST /search/approximate-count.
+    'Approximate' = có thể trễ vài giây so với index — đủ cho KPI (Done / Vào-Ra tuần).
+    JQL không được có ORDER BY."""
+    try:
+        resp = _check_resp(_SESSION.post(
+            f"{JIRA_URL}/rest/api/2/search/approximate-count",
+            headers=_auth_headers({'Content-Type': 'application/json'}),
+            data=json.dumps({'jql': jql}), timeout=30))
+        return int(resp.json().get('count') or 0)
+    except RuntimeError:
+        raise
+    except requests.RequestException as e:
+        reset_pool()
+        raise RuntimeError(f"Network error: {str(e).replace(PAT, '<REDACTED>')}")
 
 
 # ===== Activity feed (kéo thẳng từ Jira changelog — device-independent) =====
@@ -391,10 +441,11 @@ def _compute_activity_feed(days, cap, max_issues, scope_user):
         # (PM đổi duedate, người khác comment...). Assignee/reporter thường auto-watch
         # nên watcher là superset. watcher=<người khác> có thể vướng "Manage Watchers"
         # permission của PAT chung -> fallback assignee/reporter để feed không vỡ.
-        who = f"watcher = {scope_user}"
-        fallback = f"(assignee = {scope_user} OR reporter = {scope_user})"
+        su = jql_user(scope_user)
+        who = f"watcher = {su}"
+        fallback = f"(assignee = {su} OR reporter = {su})"
     else:
-        user_list = ', '.join(USERS)
+        user_list = jql_users(USERS)
         who = f"(assignee in ({user_list}) OR reporter in ({user_list}))"
     _flds = 'summary,status,assignee,reporter,issuetype,created,comment'
 
@@ -451,9 +502,9 @@ def _compute_activity_feed(days, cap, max_issues, scope_user):
                                    or to_key == author_obj.get('name')
                                    or (to_str and to_str == author_obj.get('displayName'))):
                         continue
-                    # Jira DC: from/to = user KEY (account mới = "JIRAUSER10220" ẩn danh),
-                    # fromString/toString = tên hiển thị. Resolve qua actor_name để QA ra tên
-                    # ngắn (key == username) và người khác ra displayName, KHÔNG lòi key thô.
+                    # Cloud: from/to = accountId, normalize (#197) đã đổi sang username nếu biết
+                    # (còn lại 'accountid:<id>'); fromString/toString = tên hiển thị. Resolve qua
+                    # actor_name để QA ra tên ngắn, người khác ra displayName, KHÔNG lòi id thô.
                     a['old'] = (actor_name({'name': it.get('from'), 'displayName': it.get('fromString')})
                                 if it.get('from') else 'Chưa giao')
                     a['new'] = (actor_name({'name': to_key, 'displayName': to_str})
@@ -464,7 +515,8 @@ def _compute_activity_feed(days, cap, max_issues, scope_user):
             if not cc or cc < start:
                 continue
             raw = c.get('body') or ''
-            # Mention = body chứa token [~username] của người đang xem (Jira DC markup).
+            # Mention = body chứa token [~username] của người đang xem (Cloud '[~accountid:X]'
+            # đã được normalize đổi về '[~username]' — #197).
             mention = bool(scope_user) and f'[~{scope_user}]'.lower() in raw.lower()
             acts.append({'id': f"{key}#cmt#{c.get('id')}", 'kind': 'comment', 'key': key,
                          'summary': summary, 'author': actor_name(c.get('author')),
@@ -559,7 +611,7 @@ def _qa_task_index():
     cached, hit = _cache_get('qa_task_index')
     if hit:
         return cached
-    jql = f"assignee in ({','.join(USERS)}) ORDER BY updated DESC"
+    jql = f"assignee in ({jql_users(USERS)}) ORDER BY updated DESC"
     issues = _jira_request(jql, 1000, fields='summary,project,assignee,status').get('issues', [])
     idx = []
     for i in issues:
@@ -589,25 +641,29 @@ def search_qa_tasks(query, limit=20):
 
 
 def search_people(query, limit=30):
-    """Tìm user Jira theo username/tên hiển thị (dropdown Leader + @-mention comment).
-    Read-only, PAT chung. Trả [{name, display}] (chỉ user active). Cho phép query 1 ký tự
-    (dùng cho @-mention: gõ 1 chữ đã tìm toàn bộ user Jira)."""
+    """Tìm user Jira theo tên/email (dropdown Leader + @-mention comment).
+    Read-only, token chung. Trả [{name, display}] (chỉ người thật, active). Cho phép query
+    1 ký tự (dùng cho @-mention: gõ 1 chữ đã tìm toàn bộ user Jira).
+    Cloud (#197): `name` = username nội bộ (local-part email) hoặc 'accountid:<id>' nếu email bị
+    ẩn — cả 2 dạng jira_cloud đều dịch được sang accountId khi ghi mention/Leader."""
     q = (query or '').strip()
     if len(q) < 1:
         return []
     try:
         r = _SESSION.get(f"{JIRA_URL}/rest/api/2/user/search", headers=_auth_headers(),
-                         params={'username': q, 'maxResults': limit}, timeout=15)
+                         params={'query': q, 'maxResults': limit}, timeout=15)
         r.raise_for_status()
         users = r.json()
     except requests.RequestException as e:
         raise RuntimeError(f"Network error: {str(e).replace(PAT, '<REDACTED>')}")
     out = []
     for u in users or []:
-        if u.get('active') is False:
+        if u.get('active') is False or u.get('accountType') not in (None, 'atlassian'):
+            continue                          # bỏ app/bot (accountType 'app'/'customer')
+        name = username_of(u)
+        if not name:
             continue
-        out.append({'name': u.get('name') or u.get('key') or '',
-                    'display': u.get('displayName') or u.get('name') or ''})
+        out.append({'name': name, 'display': u.get('displayName') or name})
     return out
 
 
@@ -735,7 +791,7 @@ def _last_transition_to(issue, status_name):
     for h in (issue.get('changelog', {}) or {}).get('histories', []):
         for it in h.get('items', []):
             fid = it.get('fieldId') or it.get('field') or ''
-            if fid == 'status' and (it.get('toString') or '') == status_name:
+            if fid == 'status' and (it.get('toString') or '') == canon_status(status_name):
                 author_obj, when = (h.get('author') or {}), h.get('created')
     return author_obj, when
 
@@ -866,14 +922,12 @@ _USERNAME_LOCK = threading.Lock()
 
 
 def _auth_headers(extra=None):
-    h = {'Authorization': f'Bearer {PAT}', 'Accept': 'application/json'}
-    if extra:
-        h.update(extra)
-    return h
+    """Header token CHUNG (Basic email:api_token — Jira Cloud #197)."""
+    return _cloud_headers(extra=extra)
 
 
 def reset_username_cache():
-    """Vứt username memoize (gọi khi gặp 401 từ call dùng PAT chung -> PAT có thể đã đổi)."""
+    """Vứt accountId memoize (gọi khi gặp 401 từ call dùng token chung -> token có thể đã đổi)."""
     global _USERNAME, _USERNAME_AT
     with _USERNAME_LOCK:
         _USERNAME = None
@@ -888,7 +942,8 @@ def _current_username():
         try:
             r = _SESSION.get(f"{JIRA_URL}/rest/api/2/myself", headers=_auth_headers(), timeout=15)
             r.raise_for_status()
-            _USERNAME = r.json().get('name') or r.json().get('key')
+            # Cloud (#197): user property định danh bằng accountId, không còn username.
+            _USERNAME = r.json().get('accountId')
             _USERNAME_AT = time.time()
         except requests.RequestException as e:
             raise RuntimeError(f"Network error: {str(e).replace(PAT, '<REDACTED>')}")
@@ -949,7 +1004,7 @@ def load_property(key, default=None):
         raise RuntimeError('offline')   # ngắt mọi call Jira -> caller fallback cache local
     try:
         r = _SESSION.get(f"{JIRA_URL}/rest/api/2/user/properties/{key}",
-                         headers=_auth_headers(), params={'username': _current_username()}, timeout=15)
+                         headers=_auth_headers(), params={'accountId': _current_username()}, timeout=15)
         if r.status_code == 404:
             return default
         r.raise_for_status()
@@ -965,23 +1020,24 @@ def save_property(key, value):
     try:
         r = _SESSION.put(f"{JIRA_URL}/rest/api/2/user/properties/{key}",
                          headers=_auth_headers({'Content-Type': 'application/json'}),
-                         params={'username': _current_username()}, data=json.dumps(value), timeout=15)
+                         params={'accountId': _current_username()}, data=json.dumps(value), timeout=15)
         r.raise_for_status()
     except requests.RequestException as e:
         raise RuntimeError(f"Network error: {str(e).replace(PAT, '<REDACTED>')}")
 
 
-def verify_pat(candidate_pat):
-    """Gọi /myself bằng PAT ứng viên -> trả Jira username (field 'name') nếu hợp lệ, None nếu sai/hết hạn.
-    Dùng để xác thực PAT thuộc đúng người trước khi lưu. KHÔNG đụng _SESSION (header Auth khác)."""
-    if not candidate_pat or not isinstance(candidate_pat, str):
+def verify_user_token(email, token):
+    """Gọi /myself bằng Basic (email, token) ứng viên -> email Jira của chủ token nếu hợp lệ,
+    None nếu sai/hết hạn. Basic auth Cloud buộc email khớp chủ token -> gọi thành công với
+    email login = token chắc chắn là của người đó (#197). KHÔNG đụng _SESSION (header khác)."""
+    if not email or not token:
         return None
     try:
         r = requests.get(f"{JIRA_URL}/rest/api/2/myself",
-                         headers={'Authorization': f'Bearer {candidate_pat}', 'Accept': 'application/json'},
-                         timeout=15)
+                         headers=_cloud_headers(email, token), timeout=15)
         if r.status_code == 200:
-            return r.json().get('name') or r.json().get('key')
+            me = r.json()
+            return (me.get('emailAddress') or email).strip().lower()
         return None
     except requests.RequestException:
         return None
@@ -1028,10 +1084,11 @@ def fetch_all(scope_user=None, force=False):
 def _compute_fetch_all(scope_user):
     """5 call Jira (3 search + 2 count) song song. KHÔNG cache (wrapper SWR lo)."""
     if scope_user:
-        a_clause = f'assignee = {scope_user}'
-        rep_clause = f'reporter = {scope_user}'
+        su = jql_user(scope_user)
+        a_clause = f'assignee = {su}'
+        rep_clause = f'reporter = {su}'
     else:
-        user_list = ', '.join(USERS)
+        user_list = jql_users(USERS)
         a_clause = f'assignee in ({user_list})'
         rep_clause = f'reporter in ({user_list})'
     data = run_parallel({
@@ -1253,15 +1310,16 @@ def fetch_leader_eval_tasks(category, leader, sel_assignees, year, month):
     #   - task Done/PENDING mà CHƯA chấm → giữ (cần đánh giá).
     #   - task Done/PENDING ĐÃ chấm → bỏ (xong + đã chấm).
     parts.append('NOT ((statusCategory = Done OR status = PENDING) '
-                 'AND "Leader đánh giá (Số)" is not EMPTY)')
+                 f'AND {jql_cf(LEADER_EVAL_NUM_FIELD)} is not EMPTY)')
     # Window: overlap tháng đang chấm (start <= cuối tháng AND due >= đầu tháng).
-    parts.append(f'("Start date" <= "{end_str}" AND duedate >= "{start_str}")')
+    # Cloud (#197): field theo ID — tên "Start date" trên Cloud là field MỚI (trống), data
+    # nằm ở "Start date (migrated)"; "Leader" cũng tham chiếu theo ID cho chắc.
+    parts.append(f'({jql_cf(START_DATE_FIELD)} <= "{end_str}" AND duedate >= "{start_str}")')
 
     if leader:
-        parts.append(f'Leader in ("{leader}")')
+        parts.append(f'{jql_cf(LEADER_FIELD)} in ({jql_user(leader)})')
     if sel_assignees:
-        incl = ', '.join(f'"{a}"' for a in sel_assignees)
-        parts.append(f'assignee in ({incl})')
+        parts.append(f'assignee in ({jql_users(sel_assignees)})')
 
     jql = " AND ".join(parts) + " ORDER BY priority DESC, updated DESC"
     fields = f"{_DEFAULT_FIELDS},{LEADER_EVAL_NUM_FIELD},{LEADER_EVAL_TEXT_FIELD},project"

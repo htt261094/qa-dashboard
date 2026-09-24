@@ -20,7 +20,7 @@ Custom HTML dashboard cho team QA Bảo Kim, pull data live từ Jira qua REST A
 ## Architecture
 
 ```
-[Browser / app Android] ←HTTP→ [Python qa_dashboard.py] ←REST+PAT→ [Jira Bảo Kim :8443]
+[Browser / app Android] ←HTTP→ [Python qa_dashboard.py] ←REST+API token→ [Jira Cloud baokim.atlassian.net]
                                 (localhost:8080)        ←REST+OAuth→ [Google Drive]
                                                         ←REST+token→ [Cloudflare KV]
 ```
@@ -31,11 +31,13 @@ Custom HTML dashboard cho team QA Bảo Kim, pull data live từ Jira qua REST A
 ## Domain Context — Jira Bảo Kim
 
 ### Instance
-- URL: `https://jira.baokim.vn:8443` · Data Center 10.7.3 (NOT Cloud, NOT Server)
-- Auth: PAT via `Authorization: Bearer <token>` (DC 10.x) · REST `/rest/api/2/search`
+- URL: `https://baokim.atlassian.net` · **Jira Cloud** (chuyển từ Data Center 10.7.3 `jira.baokim.vn:8443` — Decision #94)
+- Auth: `Authorization: Basic base64(email:api_token)` · REST `/rest/api/2/search/jql` (search cũ đã bị gỡ, trả 410)
+- Identity = `accountId` (không còn username) → dịch ở biên qua `core/jira_cloud.py`, app vẫn dùng username nội bộ
 
 ### Workflow statuses (CHÍNH XÁC theo case + spacing)
 `TO DO` · `In Progress` · `PENDING` · `DONE` · `CANCELLED` (+ `READY PRODUCTION` bên task dev)
+⚠ Đây là tên **sau khi `jira_cloud.canon_status` chuẩn hoá** — Cloud trả `To Do`/`Done`/`Pending`, changelog migrate giữ `TO DO`/`DONE`. Code Python/JS so tên DC ở trên (Decision #94).
 
 Status categories (filter an toàn hơn tên status): `new` → TO DO · `indeterminate` → In Progress/PENDING · `done` → DONE/CANCELLED
 
@@ -69,9 +71,6 @@ Hiền THƯỜNG là reporter task QA team được giao (cô tạo rồi assign
 
 ### 1. `http.server` stdlib thay vì Flask
 Giảm deps, user không phải cài nhiều. Đánh đổi: không auto-reload/routing decorator. KHÔNG đề xuất chuyển Flask/FastAPI.
-
-### 2. Bearer auth, KHÔNG Basic auth
-Jira DC 10.x dùng PAT `Authorization: Bearer`. KHÔNG `email:api_token` Base64 (Cloud convention), KHÔNG cookie auth.
 
 ### 13. Session keep-alive + call Jira song song
 `requests.Session` dùng chung (`jira_api._SESSION`) tái dùng kết nối TLS; `run_parallel(jobs)` (ThreadPoolExecutor cap 8) chạy các call độc lập đồng thời, re-raise lỗi đầu tiên → handler render trang lỗi như cũ. Áp trong `fetch_all` (5 call) và ở handler (`fetch_all ‖ feed ‖ dismissed`). Pool lồng nhau → đỉnh ~7-8 request đồng thời tới Jira, chấp nhận được (I/O-bound).
@@ -109,6 +108,20 @@ Golive trên `baokim-qa.com`; Cloudflare Access kẹt ở bước Activate Zero 
 
 ### 31. AUTH tắt = fail-closed (loopback-only)
 Trước: `AUTH_ENABLED=False` → mọi request là admin (fail-**open**) — quên creds / bind nhầm 0.0.0.0 là mất trắng. Giờ AUTH tắt → chỉ request từ **loopback** (`_is_loopback()` đọc `self.client_address[0]`, KHÔNG tin `X-Forwarded-For`) mới là admin, còn lại 403. AUTH bật → giữ nguyên. Server vẫn bind `127.0.0.1` (lớp 1); đây là defense-in-depth lớp 2.
+
+### 94. Chuyển Jira Data Center → Jira Cloud — dịch ở biên *(2026-09-25, issue #197, code: `core/jira_cloud.py`)*
+SUPERSEDES Decision #2 (Bearer PAT). Công ty chuyển sang `https://baokim.atlassian.net`. 3 khác biệt gốc, mọi thứ khác kéo theo:
+1. **Auth** = `Basic base64(email:api_token)`. `.env`: `JIRA_EMAIL` + `JIRA_API_TOKEN` (thay `JIRA_PAT`; config vẫn export `PAT` = token chung vì nhiều module import để redact). Token classic (không scoped) → gọi thẳng site URL.
+2. **Identity = accountId**, không còn `name`. Chọn **dịch ở biên**, KHÔNG đổi khoá nội bộ: app vẫn dùng username (= local-part email) → mọi store (custom_status, task_link, testcase_link, pat_store, dismissed, KV) giữ nguyên, 0 migrate.
+   - ĐỌC: `normalize()` duyệt mọi response search → gắn `name`/`key` = username vào user object (từ `emailAddress`, fallback map; không có email → `accountid:<id>`), đổi `from`/`to` của changelog assignee sang username, đổi mention `[~accountid:X]` → `[~username]` trong body/description. Nhờ vậy `i_*`, `actor_name`, #34, #60, cờ mention #9, JS (twin) **không đổi**.
+   - GHI/JQL: `jql_user`/`jql_users` (JQL `assignee in ("<accountId>")`), `user_ref` (payload `{'accountId':…}` cho assignee/Leader), `mentions_to_accounts` (comment). Map username↔accountId resolve lazy qua `/user/search?query=<u>@<domain>`, cache `.jira_accounts.json` (gitignore), override env `JIRA_ACCOUNT_IDS`, warm nền lúc khởi động. `jql_users` bỏ qua người không resolve được, chỉ raise khi không ai resolve được (JQL user lạ = Cloud trả 400).
+3. **Search**: `/rest/api/2/search` bị gỡ (410) → `/rest/api/2/search/jql` phân trang `nextPageToken` (không `total`, ≤100/trang); `jira_count` → `POST /rest/api/2/search/approximate-count` (KPI Done/Vào-Ra tuần có thể trễ vài giây). Giữ **v2** (không lên v3) vì v2 trả comment/description dạng wiki string, v3 là ADF.
+- **Tên status**: `canon_status` đưa `To Do/Done/Pending/Canceled` về tên DC ở MỌI chỗ đọc (status object, changelog, transitions, `get_issue_status`) → ~40 chỗ so sánh Python + JS giữ nguyên. Status lạ giữ nguyên.
+- **Field id đổi hết** (config): sub-task `10008`, Task-PTSP `10348`, Start date = `customfield_10305` "Start date (migrated)" (REQUIRED; field "Start date" 10015 mới của Cloud trống), Leader `10318`, Department `10315`(IT=`10314`), BK Team `10306`(IT-QA=`10332`), điểm `10317`, text `10309`. JQL tham chiếu field qua `jql_cf()` (`cf[10305]`) vì tên field trên Cloud có bản trùng.
+- **Token cá nhân (#20)**: lưu credential `email:token` (chính là cặp Basic) đã mã hoá; user chỉ dán token, email = email login. Verify = `/myself` bằng Basic(email login, token) → Cloud buộc email khớp chủ token nên thành công = đúng người (bỏ so username/local-part). PAT DC cũ trong kho (không có `email:`) → `load_user_pat` trả None → UI nhắc dán lại, không migrate.
+- 429 (rate limit Cloud) → retry theo `Retry-After` (cap 10s, 2 lần) ngay trong `_request_short_connect`.
+- Project key GIỮ NGUYÊN sau migrate (DA52H26, PSIT2H26…) → link bug/testcase ↔ task trong KV không trượt, không phải migrate.
+**Giới hạn**: privacy ẩn email → người đó không resolve được → khai `JIRA_ACCOUNT_IDS`. Changelog assignee của người ngoài roster chưa từng gặp hiện `accountid:<id>` trong `from/to` (UI vẫn hiện displayName qua `fromString/toString`). API token Cloud hết hạn tối đa 1 năm → banner đỏ "API token hết hạn" (#84 `'auth'`). Offline mode (#84) giữ làm fallback dù Cloud không cần VPN.
 
 ### 92. Gỡ tin header `Cf-Access-Authenticated-User-Email` — auth bypass *(2026-09-14, code: `qa_dashboard.py:_user_email`)*
 `_user_email` có nhánh fallback cuối tin **header trần** `Cf-Access-Authenticated-User-Email` do client gửi. Header đó CHỈ đáng tin khi **Cloudflare Access** ngồi trước tự set + strip header giả — nhưng CF Access đã bỏ (#15), tunnel hiện tại là **plain cloudflared KHÔNG strip**. Hệ quả: `curl -H "Cf-Access-Authenticated-User-Email: thanhht1@baokim.vn" .../settings` → thành **admin**, bypass toàn bộ Google OAuth (`_authed`/`_is_admin` khi AUTH bật chỉ cần email hợp lệ, không đòi loopback; email bịa vẫn qua `_domain_ok`). Là backdoor sống, không phải rủi ro lý thuyết — verify bằng curl trên origin.
@@ -503,6 +516,7 @@ Cái "New" còn thấy là **nguồn KHÁC, giữ nguyên**: pill New ở `rende
 
 | # | Nội dung | Trạng thái |
 |---|---|---|
+| 2 | Bearer PAT auth (Jira DC), cấm Basic | ⛔ SUPERSEDED bởi #94 (Jira Cloud: Basic email+API token) |
 | 3 | Auto-refresh 15 phút + activity pending tích luỹ | ❌ chết cùng UI cũ (`app.js` đã xoá). UI v2 chưa từng có auto-reload; notification theo #24 |
 | 7 | State file `.last_seen.json` (snapshot + pending) | ❌ gỡ hẳn — xem #27 |
 | 8 / 8b / 8c | Tab "Báo cáo tuần" (`/report`) + cây tiến độ theo line | ❌ xoá khỏi dự án 2026-06-08 |
@@ -568,7 +582,8 @@ KHÔNG được:
 - KHÔNG đề xuất rewrite sang React/Vue/Svelte — user explicit chọn server-side render
 - KHÔNG thêm dep (Flask/openpyxl/PyJWT/framework) — minimal-deps là quyết định
 - KHÔNG thêm tracking/analytics
-- KHÔNG hardcode PAT, dù để test
+- KHÔNG hardcode API token, dù để test
+- KHÔNG gọi `/rest/api/2/search` (Cloud đã gỡ) hay JQL/payload bằng username trần — đi qua `jira_cloud` (#94)
 - KHÔNG đề xuất database — JSON + KV là intentional
 - KHÔNG breaking change file structure mà không hỏi (user có thể đã setup Scheduled Task/alias)
 - KHÔNG renumber Decision (số được tham chiếu trong comment code)
@@ -615,11 +630,12 @@ qa-dashboard/
 ├── core/
 │   ├── config.py            ← env, paths, USERS/PORT/role, field ids, canon_key, atomic_write
 │   ├── issues.py            ← accessor i_* + helper (parse_date, is_stuck, esc, status_class, issue_link)
-│   ├── jira_api.py          ← Jira REST bằng PAT chung: search/count, fetch_all(+shared snapshot), activity feed, SWR cache, run_parallel, ready-prod gaps, leader-eval. PAT redact ở đây.
+│   ├── jira_cloud.py        ← lớp biên Jira Cloud: Basic auth, map username↔accountId, normalize response, canon status, mention (#94)
+│   ├── jira_api.py          ← Jira REST bằng token chung: search/count, fetch_all(+shared snapshot), activity feed, SWR cache, run_parallel, ready-prod gaps, leader-eval. PAT redact ở đây.
 │   ├── auth.py              ← Google OAuth + session cookie HMAC (#15)
 │   ├── crypto_util.py       ← Fernet at-rest (#20)
-│   ├── pat_store.py         ← PAT cá nhân {email: enc} (#20)
-│   ├── jira_write.py        ← ghi Jira bằng PAT cá nhân: transition/comment/duedate/sub-task (#20,#57,#77)
+│   ├── pat_store.py         ← API token cá nhân {email: enc('email:token')} (#20, #94)
+│   ├── jira_write.py        ← ghi Jira bằng API token cá nhân: transition/comment/duedate/sub-task (#20,#57,#77)
 │   ├── custom_status.py     ← nhãn overlay + activity (#21)
 │   ├── remote_store.py      ← kho sync chéo máy Cloudflare KV, local-first (#78)
 │   ├── drive_token.py       ← refresh token Drive của admin, mã hoá (#79)
@@ -642,7 +658,7 @@ qa-dashboard/
 ├── docs/    ghi chú kỹ thuật rời
 │
 │   ── gitignore (sinh lúc chạy) ──
-├── .env · .crypto_key · .drive_token.json · .pat_store.json · .sync_meta.json
+├── .env · .crypto_key · .drive_token.json · .pat_store.json · .jira_accounts.json · .sync_meta.json
 ├── .docs_config.json · .roadmap_config.json · .custom_status.json · .tc_config.json
 ├── .bug_log*.json · .bug_monthly.json · .bug_task_link.json · .testcase_*.json · .snapshot_cache.json
 ├── uploads/ · reports/ · gcp-service-account.json
@@ -650,7 +666,7 @@ qa-dashboard/
 
 ## Coding Conventions
 
-- **Layer, KHÔNG vòng lặp import**: `config` → `issues` → `{crypto_util, remote_store}` → `jira_api` → `{pat_store, drive_token, jira_write, custom_status, docs, roadmap, bug_log*, task_link, testcase_*}` → `render` → `qa_dashboard`. Import lazy (trong hàm) khi buộc phải đi ngược.
+- **Layer, KHÔNG vòng lặp import**: `config` → `issues` → `{crypto_util, remote_store, jira_cloud}` → `jira_api` → `{pat_store, drive_token, jira_write, custom_status, docs, roadmap, bug_log*, task_link, testcase_*}` → `render` → `qa_dashboard`. Import lazy (trong hàm) khi buộc phải đi ngược.
 - `from X import (tên cụ thể)`, không `import *`.
 - Section comment: `# ===== SECTION NAME =====`
 - Accessor issue field dùng prefix `i_`.
@@ -659,6 +675,8 @@ qa-dashboard/
 - Khi thêm/đổi cấu trúc: **tự ghi Decision mới** vào file này (số kế tiếp), không đợi user nhắc.
 
 ## Last Updated
+
+2026-09-25 — Thêm Decision #94 (chuyển Jira DC → Jira Cloud: Basic auth API token, dịch accountId ở biên, search/jql, field id mới). #2 chuyển vào bảng decision chết.
 
 2026-09-17 — Thêm Decision #93 (project_from_filename giữ tên dự án nhiều chữ: THU HỘ / CHI HỘ thay vì THU / CHI).
 

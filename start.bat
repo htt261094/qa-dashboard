@@ -16,7 +16,7 @@ if not defined PY (
 
 rem 2. Kiem tra .env
 if not exist ".env" (
-  echo [LOI] Thieu file .env. Copy .env.example thanh .env roi dien JIRA_URL va JIRA_PAT.
+  echo [LOI] Thieu file .env. Copy .env.example thanh .env roi dien JIRA_URL, JIRA_EMAIL va JIRA_API_TOKEN.
   goto :end
 )
 
