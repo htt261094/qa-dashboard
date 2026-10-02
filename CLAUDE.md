@@ -117,7 +117,7 @@ Trước: `AUTH_ENABLED=False` → mọi request là admin (fail-**open**) — q
 
 ### 97. Dashboard dùng riêng 1 người — gỡ tracking người khác + dashboard team / roadmap / test case / đánh giá / API mobile *(2026-10-02)*
 User chốt (sau #96): dashboard là **của riêng mình**, không quản lý team qua đây nữa, bỏ app Android.
-- **Roster** `config.USERS = [SELF_USER]` — **bỏ qua `JIRA_USERS` trong `.env`** để không vô tình kéo lại task người khác. Mọi JQL `assignee/reporter in (USERS)` (bucket, activity feed #9, QA gate #60, warm accountId) tự thu về task của mình; không phải sửa từng chỗ.
+- **Roster** `config.USERS = [SELF_USER]` — **bỏ qua `JIRA_USERS` trong `.env`** để không vô tình kéo lại task người khác. Mọi JQL `assignee/reporter in (USERS)` (bucket, activity feed #9, warm accountId) tự thu về task của mình; không phải sửa từng chỗ.
 - **Gỡ trang**: dashboard team `/` (`render_admin_v2`, workload #5, pill/KPI admin, card Metric Bug) → `/` redirect `/my-work` · Roadmap `/roadmap` + `/public/roadmap` (#12) · Test Case `/test-cases` + mọi `/tc-*` (#80/#42/#44/#55/#64/#91) · Đánh giá `/leader-eval` + `/batch-eval` (#71) · API mobile `/api/*` + `/.well-known/assetlinks.json` + Bearer token + OAuth `state.app`/`APP_REDIRECT` (#83) · role dev `JIRA_DEV_EMAIL` (#45). Module xoá: `roadmap.py`, `testcase_store.py`, `testcase_link.py`, `render/{roadmap,testcase,leader_eval}.py`; `build_dashboard_payload`/`build_analytics_payload`/`_cross_metrics` cũng đi theo (chỉ phục vụ API).
 - **Ăn theo**: drawer bỏ mục "Bộ test case liên quan"; bảng Việc của tôi bỏ cờ `hasTc` + note "🔗 x/y task đã link bộ test case"; Analytics bỏ 4 card Test Coverage / Execution / Bug Density / Automation Coverage (đều dựa test case). CSS: gỡ rule mà class/id chỉ còn ở code đã xoá (so source HEAD vs sau khi xoá).
 - `/my-work` giờ là trang chính, **admin-only → 403** (không redirect về `/` vì `/` lại redirect về `/my-work` → vòng lặp).
@@ -192,10 +192,6 @@ Chọn short-poll thay SSE vì SSE buộc giữ kết nối lâu (thời điểm
 ### 34. Chuông ẩn noti do CHÍNH người login gây ra
 `_drop_own_activities(merged, email)` loại activity mà `by == username` hoặc `author == display_name`, gọi ở cả `_bell_activities` và render `/`.
 ⚠ **Ranh giới có chủ đích**: CHỈ lọc danh sách notification. Phần `tasks` patch (#24) KHÔNG đụng → tự đổi status vẫn thấy bảng cập nhật ngay. ĐỪNG "sửa gọn" bằng cách lọc ở nguồn feed.
-
-### 60. Cổng QA gate — READY PRODUCTION mà thiếu sub-task QA
-Kịch bản sai quy trình: task cha (dev) chuyển `READY PRODUCTION` khi chưa có sub-task QA nào (né ghi nhận story point). `_compute_ready_prod_gaps` (SWR cache): quét task ở status đó (cap `READY_PROD_MAX=150`), lấy sub-task theo lô `parent in (...)`, task nào không có sub-task thoả `[QA]*` **và** assignee ∈ USERS → vi phạm. **Chỉ báo khi người chuyển trạng thái cũng là QA** (đúng kịch bản; dev chuyển thì không báo). Activity id `<KEY>#qa-gate` → dismiss được, sửa xong tự biến mất. Best-effort: `block=False`, lỗi → `[]`, không bao giờ treo chuông.
-Scope: admin thấy hết, QA/dev chỉ thấy gap do chính mình gây. Config: `READY_PROD_STATUS` / `READY_PROD_PROJECTS` / `READY_PROD_MAX`.
 
 ## UI v2 & tương tác
 
@@ -489,6 +485,7 @@ Cái "New" còn thấy là **nguồn KHÁC, giữ nguyên**: pill New ở `rende
 | 71 | Leader Eval (`/leader-eval`, `/batch-eval`) | ❌ gỡ — #97 |
 | 80 / 42 / 44 / 55 / 64 / 91 | Tab Test Case: store/import/sync Drive, mirror sheet, repo panel, độ phủ automation, cột Round | ❌ gỡ — #97 (data `.tc_config.json`/`.testcase_*.json` + KV giữ nguyên) |
 | 83 | API JSON `/api/*` cho app Android + App Links + Bearer token | ❌ gỡ cùng app — #97 |
+| 60 | Cổng QA gate — chuông "chuyển READY PRODUCTION nhưng CHƯA có sub-task QA" (`fetch_ready_prod_gaps`, `READY_PROD_*`) | ❌ gỡ hẳn 2026-10-02 theo yêu cầu user (noti cũ 86 ngày, không còn giá trị khi dashboard dùng riêng — #97) |
 | 89 | Bỏ pill "New" ở dashboard team | ❌ dashboard team đã gỡ — #97 |
 | 52 | Tạo nhiều sub-task dưới 1 cha (textarea mỗi dòng 1 sub-task) | ⛔ mở rộng bởi #58 (assignee từng dòng) + #77 (nhiều cha) |
 
@@ -525,7 +522,7 @@ KHÔNG được:
 - Viewer tài liệu inline (PDF/ảnh/Office/text/HTML sandbox), folder Quy Trình dạng tab
 
 ### Known Limitations
-- Pagination cap cứng: active 300 · new24 50 · done 500 · activity feed 120 issue/7 ngày · READY PRODUCTION 150 (#38).
+- Pagination cap cứng: active 300 · new24 50 · done 500 · activity feed 120 issue/7 ngày (#38).
 - No HTTPS ở tầng app — server bind `127.0.0.1`; mặc định LOCAL_ONLY (#96) chặn mọi request qua tunnel → chỉ dùng được trên máy host.
 - Display name mặc định hardcode trong `DEFAULT_DISPLAY_NAMES` (override qua env `JIRA_DISPLAY_NAMES` JSON).
 - Data bảng/KPI chỉ tươi khi F5 (trừ status + nhãn nội bộ, xem #24).
@@ -631,6 +628,8 @@ qa-dashboard/
 - Khi thêm/đổi cấu trúc: **tự ghi Decision mới** vào file này (số kế tiếp), không đợi user nhắc.
 
 ## Last Updated
+
+2026-10-02 — Gỡ cổng QA gate (#60 → bảng decision chết): chuông không còn noti READY PRODUCTION thiếu sub-task QA.
 
 2026-10-02 — Thêm Decision #97 (dashboard dùng riêng 1 người: roster = SELF_USER, gỡ dashboard team / roadmap / test case / leader eval / API mobile / role dev). #5/#12/#17/#45/#71/#80/#42/#44/#55/#64/#91/#83/#89 chuyển vào bảng decision chết.
 

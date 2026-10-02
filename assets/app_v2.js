@@ -915,8 +915,8 @@ window.__smSetCustom=function(t, key, val, onChanged){
   var localRead={};   // id đã dismiss tại máy này phiên này -> giữ "đã đọc" kể cả khi poll trả về trước lúc Jira property kịp sync
   var seenIds={};     // mọi id từng thấy -> phát hiện mục MỚI giữa 2 lần poll để toast
   var KIND_IC={created:'fiber_new', comment:'chat_bubble', status:'swap_horiz', assignee:'person_add',
-               duedate:'event', priority:'bolt', summary:'edit', custom_status:'sell', qa_missing:'warning'};
-  function kindCls(n){ if(n.kind==='qa_missing') return 'k-warn'; if(n.mention) return 'k-mention';
+               duedate:'event', priority:'bolt', summary:'edit', custom_status:'sell'};
+  function kindCls(n){ if(n.mention) return 'k-mention';
     if(n.kind==='status') return 'k-status'; if(n.kind==='duedate') return 'k-due'; return ''; }
   function minsAgo(when){ if(!when) return 9e9; var t=Date.parse(when); if(isNaN(t)) return 9e9;
     return Math.max(0, Math.round((Date.now()-t)/60000)); }
@@ -935,7 +935,6 @@ window.__smSetCustom=function(t, key, val, onChanged){
         if(nv.indexOf('✕')===0) return w+' gỡ nhãn '+k+': '+esc(nv.replace(/^✕\s*/,''));
         if(nv.indexOf('—')===0) return w+' gỡ nhãn '+k;
         return w+' gắn nhãn '+k+': '+esc(nv); }
-      case 'qa_missing': return (n.author?w+' chuyển ':'')+k+' → <b>'+esc(n.new||'')+'</b> nhưng CHƯA có sub-task QA';
       default: return w+' cập nhật '+k;
     } }
   function visible(){
@@ -947,8 +946,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     list.innerHTML = l.length ? l.map(function(n){
       var ic=KIND_IC[n.kind]||'notifications';
       var av=avById(n.author||'?');
-      var rsn = n.kind==='qa_missing' ? '<span class="nrsn warn">Nhắc quy trình</span>'
-              : n.mention ? '<span class="nrsn mention">Được nhắc</span>'
+      var rsn = n.mention ? '<span class="nrsn mention">Được nhắc</span>'
                           : '<span class="nrsn watch">Đang theo dõi</span>';
       var snip = n.body ? '<div class="nsnip">"'+esc(n.body)+'"</div>' : '';
       var unreadCls = n.is_unread ? ' unread' : '';

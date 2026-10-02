@@ -34,7 +34,7 @@ from bug_backlog import fingerprint as bug_fingerprint, load_backlog
 from jira_api import (fetch_all_shared, scope_data, fetch_activity_feed, load_dismissed,
                       dismiss_activities, run_parallel, fetch_issue_detail,
                       search_parent_tasks, search_people, search_qa_tasks, global_search,
-                      fetch_subtasks, fetch_ready_prod_gaps)
+                      fetch_subtasks)
 from docs import load_docs, save_docs, valid_tree, ensure_process_folder
 from pat_store import save_user_pat, has_pat, delete_user_pat
 from custom_status import (load_bundle, load_overlay, values_of,
@@ -288,9 +288,6 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
                                                     force=force),
                 'dismissed': lambda: load_dismissed(email),
                 'custom': lambda: load_bundle(scope, ACTIVITY_DAYS),
-                # Cổng QA gate (Decision #60): task cha READY PRODUCTION thiếu sub-task QA.
-                # Best-effort (block=False bên trong) -> không bao giờ raise / treo chuông.
-                'gaps': lambda: fetch_ready_prod_gaps(force=force),
             })
         except RuntimeError:
             # Jira không với tới được -> chuông RỖNG, KHÔNG kéo sập cả trang. Các tab không
@@ -310,14 +307,6 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
                 overlay.pop(k, None)
         merged = sorted(feed + cust_act, key=lambda a: a.get('when') or '', reverse=True)
         merged = _drop_own_activities(merged, email)
-        # QA-gate alerts trộn SAU _drop_own_activities (chủ đích: KHÔNG lọc bỏ dù chính QA gây
-        # ra — đó chính là người cần được nhắc). Scope: admin thấy hết; QA/dev chỉ thấy cái do
-        # CHÍNH họ chuyển trạng thái (author_user == scope) để khỏi spam cả team.
-        gaps = res.get('gaps') or []
-        if scope is not None:
-            gaps = [g for g in gaps if g.get('author_user') == scope]
-        if gaps:
-            merged = sorted(merged + gaps, key=lambda a: a.get('when') or '', reverse=True)
         for a in merged:
             a['is_unread'] = a['id'] not in dismissed
         if not with_patch:

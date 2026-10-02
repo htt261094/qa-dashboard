@@ -165,20 +165,6 @@ try:
     JIRA_MAX_CONCURRENT = min(64, max(1, int(CFG.get('JIRA_MAX_CONCURRENT', '12'))))
 except ValueError:
     JIRA_MAX_CONCURRENT = 12
-# ----- Cổng QA gate: task cha ở READY PRODUCTION mà THIẾU sub-task QA (Decision #60) -----
-# Bối cảnh: QA có quyền chuyển task cha (dev) sang trạng thái chuẩn bị production. Sai quy
-# trình (ảnh hưởng tính story point) = chuyển trạng thái TRƯỚC, tạo sub-task QA SAU -> tại
-# thời điểm chuyển, list sub-task chưa có task QA nào. Cảnh báo vào chuông để nhắc.
-# Status ĐÚNG CASE Jira (cực nhạy hoa/thường + khoảng trắng, vd 'READY PRODUCTION' all-caps).
-READY_PROD_STATUS = CFG.get('READY_PROD_STATUS', 'READY PRODUCTION').strip()
-# Lọc theo project key (comma-sep). RỖNG = quét TOÀN instance (user chốt 2026-07-24).
-READY_PROD_PROJECTS = [p.strip() for p in CFG.get('READY_PROD_PROJECTS', '').split(',') if p.strip()]
-# Trần số task cha quét mỗi lần (chống flood chuông + giới hạn cost call changelog). Clamp [1,300].
-try:
-    READY_PROD_MAX = min(300, max(1, int(CFG.get('READY_PROD_MAX', '150'))))
-except ValueError:
-    READY_PROD_MAX = 150
-
 # ----- Auth (Google OAuth; identity = session cookie HMAC do app ký — Decision #15) -----
 # ⚠ KHÔNG còn tin header Cf-Access-Authenticated-User-Email: CF Access đã bỏ, tunnel plain
 # không strip header giả → tin nó = auth bypass (Decision #92, đã gỡ khỏi _user_email).
