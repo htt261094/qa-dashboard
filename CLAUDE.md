@@ -114,6 +114,13 @@ Golive trên `baokim-qa.com`; Cloudflare Access kẹt ở bước Activate Zero 
 ### 31. AUTH tắt = fail-closed (loopback-only)
 Trước: `AUTH_ENABLED=False` → mọi request là admin (fail-**open**) — quên creds / bind nhầm 0.0.0.0 là mất trắng. Giờ AUTH tắt → chỉ request từ **loopback** (`_is_loopback()` đọc `self.client_address[0]`, KHÔNG tin `X-Forwarded-For`) mới là admin, còn lại 403. AUTH bật → giữ nguyên. Server vẫn bind `127.0.0.1` (lớp 1); đây là defense-in-depth lớp 2.
 
+### 96. LOCAL_ONLY — dashboard chỉ phục vụ chính máy host *(2026-10-02, code: `qa_dashboard.py:_local_only_ok`)*
+User chốt dashboard thành **của riêng mình**: không dùng trên điện thoại, đã bỏ app Android. Server bind `127.0.0.1` từ trước nên LAN không vào được, nhưng **tunnel cloudflared** (`baokim-qa.com`) cũng tới app từ `127.0.0.1` → `_is_loopback()` không phân biệt được người ngồi trước máy với người trên internet.
+- `config.LOCAL_ONLY` (env `LOCAL_ONLY`, **mặc định BẬT**, `0/false/no` để tắt). Gate `_local_only_ok()` chạy **đầu tiên** ở `do_GET`/`do_POST` (trước cả `/login`, `/public/roadmap`, `assetlinks`), 3 điều kiện: (1) peer TCP loopback; (2) KHÔNG mang header tunnel (`Cf-Connecting-IP`/`Cf-Ray`/`Cf-Visitor`/`Cdn-Loop`/`X-Forwarded-For` — Cloudflare edge + cloudflared luôn gắn, browser gõ localhost không bao giờ gửi); (3) `Host` ∈ `localhost`/`127.0.0.1`/`[::1]` (chặn DNS rebinding). Thiếu 1 → 403.
+- **Giữ Google OAuth** (không tắt AUTH): tắt AUTH thì identity rỗng → PAT tra theo key `'local'` thay vì email → mất token cá nhân đã lưu. Thay vào đó LOCAL_ONLY **bỏ qua `PUBLIC_BASE_URL`** (domain chết khi tắt tunnel) → redirect_uri suy từ Host = `http://localhost:<PORT>/oauth/callback` (đã đăng ký sẵn, #15). Suy từ Host an toàn vì gate (3) đã ép Host loopback. `APP_REDIRECT` cũng bị bỏ.
+- Gate ở app là lớp chặn **dù tunnel lỡ còn chạy**; tắt tunnel cloudflared là việc của user (ngoài app).
+**Ranh giới**: phải mở bằng `http://localhost:8080` (KHÔNG `127.0.0.1`) vì Google chỉ nhận redirect URI đã đăng ký. Report tháng (#82/#95, port 8077, `localhost`) không ảnh hưởng. Muốn mở lại domain: `LOCAL_ONLY=0` + bật tunnel — `PUBLIC_BASE_URL` trong `.env` vẫn còn nguyên.
+
 ### 94. Chuyển Jira Data Center → Jira Cloud — dịch ở biên *(2026-09-25, issue #197, code: `core/jira_cloud.py`)*
 SUPERSEDES Decision #2 (Bearer PAT). Công ty chuyển sang `https://baokim.atlassian.net`. 3 khác biệt gốc, mọi thứ khác kéo theo:
 1. **Auth** = `Basic base64(email:api_token)`. `.env`: `JIRA_EMAIL` + `JIRA_API_TOKEN` (thay `JIRA_PAT`; config vẫn export `PAT` = token chung vì nhiều module import để redact). Token classic (không scoped) → gọi thẳng site URL.
@@ -574,7 +581,7 @@ KHÔNG được:
 
 ### Known Limitations
 - Pagination cap cứng: active 300 · new24 50 · done 500 · activity feed 120 issue/7 ngày · READY PRODUCTION 150. Team mở rộng thì phải tăng (issue #38).
-- No HTTPS ở tầng app — TLS do cloudflared lo; server bind `127.0.0.1`.
+- No HTTPS ở tầng app — server bind `127.0.0.1`; mặc định LOCAL_ONLY (#96) chặn mọi request qua tunnel → chỉ dùng được trên máy host.
 - Display name mặc định hardcode trong `DEFAULT_DISPLAY_NAMES` (override qua env `JIRA_DISPLAY_NAMES` JSON).
 - Data bảng/KPI chỉ tươi khi F5 (trừ status + nhãn nội bộ, xem #24).
 - Nhiều công thức là **twin Python↔JS** — sửa 1 bên phải sửa bên kia (danh sách ở #47/#49/#54/#64/#75/#76/#81/#85).
@@ -680,6 +687,8 @@ qa-dashboard/
 - Khi thêm/đổi cấu trúc: **tự ghi Decision mới** vào file này (số kế tiếp), không đợi user nhắc.
 
 ## Last Updated
+
+2026-10-02 — Thêm Decision #96 (LOCAL_ONLY: dashboard chỉ phục vụ chính máy host, chặn request qua tunnel cloudflared).
 
 2026-10-02 — Thêm Decision #95 (gỡ snapshot L2/L3 + chế độ OFFLINE/`bug_log_offline.py` vì Jira Cloud không cần VPN). #84 chuyển vào bảng decision chết.
 

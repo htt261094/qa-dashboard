@@ -20,7 +20,7 @@ from urllib.parse import urlparse, parse_qs
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'core'))
 
 from config import (JIRA_URL, USERS, PORT, ADMIN_EMAIL, ADMIN_EMAILS, ALLOWED_DOMAIN,
-                    AUTH_ENABLED, SELF_USER, PUBLIC_BASE_URL, DEV_EMAILS,
+                    AUTH_ENABLED, SELF_USER, PUBLIC_BASE_URL, DEV_EMAILS, LOCAL_ONLY,
                     APP_LINK_PACKAGE, APP_LINK_FINGERPRINT,
                     display_name, username_from_email, canon_key)
 from auth import (SESSION_COOKIE, SESSION_TTL, email_from_session,
@@ -153,6 +153,30 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         if mapped is not None:
             ip = mapped
         return ip.is_loopback
+
+    # Header mà Cloudflare edge / cloudflared LUÔN gắn cho request đi qua tunnel. Browser gõ
+    # thẳng localhost không bao giờ gửi -> có mặt = request đến từ internet (Decision #96).
+    _TUNNEL_HEADERS = ('Cf-Connecting-IP', 'Cf-Ray', 'Cf-Visitor', 'Cdn-Loop', 'X-Forwarded-For')
+    _LOCAL_HOSTS = ('localhost', '127.0.0.1', '[::1]')
+
+    def _local_only_ok(self):
+        """LOCAL_ONLY (Decision #96): chỉ cho request từ CHÍNH máy host.
+
+        3 điều kiện, thiếu 1 là chặn:
+        (1) peer TCP là loopback — chặn máy khác trong LAN (bind 127.0.0.1 đã là lớp 1);
+        (2) không mang header tunnel — tunnel cloudflared cũng tới từ 127.0.0.1 nên (1) KHÔNG
+            phân biệt được, phải nhận diện qua header Cloudflare gắn;
+        (3) Host là localhost/127.0.0.1/[::1] — chặn DNS rebinding (trang web lạ trỏ domain
+            của nó về 127.0.0.1 để browser của chính bạn gọi vào app)."""
+        if not LOCAL_ONLY:
+            return True
+        if not self._is_loopback():
+            return False
+        if any(self.headers.get(h) for h in self._TUNNEL_HEADERS):
+            return False
+        host = (self.headers.get('Host') or '').strip().lower()
+        name = host if host.endswith(']') else host.rsplit(':', 1)[0]
+        return name in self._LOCAL_HOSTS
 
     def _authed(self):
         """Request có được phép vào không.
@@ -406,6 +430,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         # Dispatch mỏng: gate auth/domain rồi route tới method _get_* / _do_*.
         # Giữ NGUYÊN thứ tự kiểm tra path (zero behavior change — B0/#111).
         path = urlparse(self.path).path
+        if not self._local_only_ok():   # Decision #96: chặn mọi thứ ngoài chính máy này
+            self._forbidden()
+            return
         # Fail-closed (issue #44): AUTH tắt => toàn server chỉ phục vụ loopback. Request
         # từ máy khác (quên set GOOGLE_*, bind nhầm, đổi tunnel) -> 403 thay vì thành admin.
         if not AUTH_ENABLED and not self._is_loopback():
@@ -1064,7 +1091,7 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         # Dispatch mỏng: gate auth/domain rồi route tới method _post_* / _handle_*.
         # Giữ NGUYÊN thứ tự kiểm tra path (zero behavior change — B0b/#112).
         # Fail-closed (issue #44): AUTH tắt + không loopback -> 403 (đã gộp trong _authed).
-        if not self._authed() or not self._domain_ok():
+        if not self._local_only_ok() or not self._authed() or not self._domain_ok():
             self._json(403, b'{"ok":false,"err":"forbidden"}')
             return
         path = urlparse(self.path).path
@@ -1683,6 +1710,8 @@ def main():
     if not AUTH_ENABLED:
         print("  ⚠  AUTH TẮT (chưa set GOOGLE_CLIENT_ID/SECRET) — chỉ phục vụ", file=sys.stderr)
         print("     loopback (127.0.0.1). Mọi request local = ADMIN. KHÔNG expose ra ngoài.", file=sys.stderr)
+    if LOCAL_ONLY:
+        print("  🔒 LOCAL_ONLY: chỉ phục vụ chính máy này (localhost) — request qua tunnel bị 403.")
     print("  Ctrl+C để stop\n")
 
     start_bug_log_scheduler()   # daemon thread poll Drive 10p (no-op nếu chưa kết nối Drive)
