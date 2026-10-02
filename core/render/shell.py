@@ -158,6 +158,15 @@ def _settings_modal_v2(user=None):
         '<div class="inp-wrap"><input type="password" id="patInp" placeholder="Dán API token của bạn vào đây..." autocomplete="off" spellcheck="false">'
         '<button type="button" class="eye material-symbols-rounded ph-light ph-eye mi-sm" id="patShowBtn"></button></div></div>'
         + drive +
+        # Thông báo desktop (Decision #103) — quyền do browser giữ theo origin, state ở localStorage.
+        '<div class="set-drive" id="setNotifSect">'
+        '<label class="set-drive-lbl"><span class="material-symbols-rounded ph-light ph-bell-ringing mi-sm"></span> '
+        'Thông báo desktop</label>'
+        '<p class="modal-note">Hiện thông báo của Windows khi có noti mới (được nhắc, đổi status, comment) '
+        'lúc bạn KHÔNG đang xem dashboard. Giữ ít nhất 1 tab dashboard mở (có thể thu nhỏ).</p>'
+        '<div class="set-drive-state" id="setNotifState"></div>'
+        '<div class="set-drive-acts"><button type="button" class="btn btn-ghost" id="setNotifBtn">Bật thông báo</button></div>'
+        '</div>'
         '</div>'
         '<div class="modal-foot">'
         '<button type="button" class="btn btn-danger" id="patDelBtn">Xoá token</button>'

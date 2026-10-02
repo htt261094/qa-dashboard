@@ -465,6 +465,8 @@ function skelComments(){
     {label:'Tạo Sub-task', icon:'add_task', run:function(){ var b=$('createSubBtn'); if(b) b.click(); }},
     {label:'Đổi giao diện sáng / tối', icon:'contrast', run:function(){ var b=$('themeBtn'); if(b) b.click(); }},
     {label:'Cài đặt API token / Drive', icon:'key', run:function(){ var o=$('setOverlay'); if(o) o.classList.add('open'); }},
+    {label:'Bật / tắt thông báo desktop', icon:'notifications', run:function(){ var d=window.__desktopNotif; if(!d) return;
+      if(d.on()) d.disable(); else d.enable(); }},
     isAdmin?{label:'Sync bug log ngay', icon:'sync', run:function(){
       toast('Đang sync bug log…', true);
       postJSON('/sync-bug-log', {}, 60000).then(function(j){
@@ -563,6 +565,25 @@ function skelComments(){
     if(i!==active){ active=i; render(); }
   });
   ov.addEventListener('mousedown', function(e){ if(e.target===ov) closePal(); });
+})();
+
+// ---------- toggle thông báo desktop trong modal Setting (Decision #103) ----------
+(function(){
+  var btn=$('setNotifBtn'), st=$('setNotifState'); if(!btn) return;
+  function refresh(){
+    var d=window.__desktopNotif, perm=window.Notification?Notification.permission:'unsupported';
+    var on=!!(d && d.on());
+    btn.textContent=on?'Tắt thông báo':'Bật thông báo';
+    st.textContent = perm==='unsupported' ? 'Trình duyệt không hỗ trợ.'
+      : perm==='denied' ? '⚠ Trình duyệt đang chặn — bấm ổ khoá cạnh thanh địa chỉ → Thông báo → Cho phép.'
+      : on ? '✓ Đang bật.' : 'Đang tắt.';
+    st.className='set-drive-state'+(on?' ok':(perm==='denied'?' warn':''));
+  }
+  btn.addEventListener('click', function(){ var d=window.__desktopNotif; if(!d) return;
+    if(d.on()){ d.disable(); refresh(); } else d.enable().then(refresh); });
+  // __desktopNotif định nghĩa ở module chuông (chạy SAU module này) -> refresh khi mở modal
+  document.addEventListener('click', function(e){ if(e.target.closest('#pmSettings')) setTimeout(refresh, 0); });
+  setTimeout(refresh, 0);
 })();
 
 // ---------- settings PAT modal ----------
@@ -1045,20 +1066,84 @@ window.__smSetCustom=function(t, key, val, onChanged){
   NOTIFS.forEach(function(n){ seenIds[n.id]=1; });   // baseline embed lúc load -> không toast giả lần poll đầu
   function applyFeed(acts){
     if(!Array.isArray(acts)) return;
-    var freshUnread=0;
+    var freshUnread=0, freshIds={};
     acts.forEach(function(n){
       if(localRead[n.id]) n.is_unread=false;          // dismiss local thắng (Jira property có thể chưa kịp sync)
-      if(!seenIds[n.id]){ seenIds[n.id]=1; if(n.is_unread) freshUnread++; }
+      if(!seenIds[n.id]){ seenIds[n.id]=1; if(n.is_unread){ freshUnread++; freshIds[n.id]=1; } }
     });
     NOTIFS = acts;
     render();
+    fireDesktop(acts.filter(function(n){ return n.is_unread && freshIds[n.id]; }));
     if(freshUnread>0){ toast('🔔 '+freshUnread+' thông báo mới', true);
       // pulse chuông khi có unread MỚI (không pulse khi chỉ re-render)
       if(dot){ dot.classList.remove('pulse'); void dot.offsetWidth; dot.classList.add('pulse'); }
     }
   }
+  // --------- thông báo desktop (Decision #103) ---------
+  // Chỉ 1 tab "leader" (Web Lock) được poll khi ẩn + bắn Notification -> nhiều tab KHÔNG bắn trùng,
+  // tab ẩn còn lại vẫn nghỉ như cũ (đỡ tải Jira). Chỉ bắn khi KHÔNG tab dashboard nào đang focus
+  // (đang nhìn thì đã có toast + chuông). Id đã bắn lưu localStorage -> reload không bắn lại.
+  var isLeader=false;
+  try{ if(navigator.locks) navigator.locks.request('qa-notif-leader', function(){
+    isLeader=true; return new Promise(function(){}); }); }catch(_){}
+  function lsGet(k){ try{ return localStorage.getItem(k); }catch(_){ return null; } }
+  function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(_){} }
+  function desktopOn(){ return lsGet('qa-desktop-notif')==='1' && window.Notification
+    && Notification.permission==='granted'; }
+  window.addEventListener('focus', function(){ lsSet('qa-focus','1'); });
+  window.addEventListener('blur', function(){ lsSet('qa-focus','0'); });
+  if(document.hasFocus()) lsSet('qa-focus','1');
+  window.addEventListener('pagehide', function(){ if(document.hasFocus()) lsSet('qa-focus','0'); });
+  // cờ 'qa-focus' chung mọi tab: tab nào đang focus thì '1' (blur/đóng -> '0'); leader đọc cờ này
+  // để biết bạn có đang nhìn MỘT tab dashboard nào đó không, kể cả khi chính leader đang ẩn.
+  function anyFocused(){ return document.hasFocus() || lsGet('qa-focus')==='1'; }
+  function plain(html){ var d=document.createElement('div'); d.innerHTML=html; return d.textContent||''; }
+  function fireDesktop(items){
+    if(!isLeader || !desktopOn() || anyFocused() || !items.length) return;
+    var shown={}; try{ shown=JSON.parse(lsGet('qa-notif-shown')||'{}')||{}; }catch(_){}
+    var now=Date.now(), fresh=items.filter(function(n){ return !shown[n.id]; });
+    fresh.forEach(function(n){ shown[n.id]=now; });
+    Object.keys(shown).forEach(function(k){ if(now-shown[k]>14*864e5) delete shown[k]; });
+    var keys=Object.keys(shown); if(keys.length>500) keys.sort(function(a,b){ return shown[a]-shown[b]; })
+      .slice(0, keys.length-500).forEach(function(k){ delete shown[k]; });
+    lsSet('qa-notif-shown', JSON.stringify(shown));
+    if(!fresh.length) return;
+    function open(n){ return function(){ try{ window.focus(); }catch(_){}
+      if(n){ postJSON('/dismiss', { ids:[n.id] }, 20000).catch(function(){}); markRead([n.id]);
+        if(window.__openDetail) window.__openDetail(n.key); }
+      this.close(); }; }
+    try{
+      if(fresh.length>3){
+        var nb=new Notification('QA Workspace · '+fresh.length+' thông báo mới', {
+          body: fresh.slice(0,3).map(function(n){ return plain(ntext(n)); }).join('\n')+'\n…', tag:'qa-batch' });
+        nb.onclick=open(null);
+      } else fresh.forEach(function(n){
+        var x=new Notification((n.mention?'🔔 Được nhắc · ':'')+(n.key||'QA Workspace'), {
+          body: plain(ntext(n))+(n.body?'\n“'+n.body+'”':''), tag:n.id });
+        x.onclick=open(n);
+      });
+    }catch(_){}
+  }
+  window.__desktopNotif={
+    on: function(){ return desktopOn(); },
+    wanted: function(){ return lsGet('qa-desktop-notif')==='1'; },
+    enable: function(){
+      if(!window.Notification){ toast('Trình duyệt không hỗ trợ thông báo desktop', false); return Promise.resolve(false); }
+      return Promise.resolve(Notification.requestPermission()).then(function(p){
+        if(p==='granted'){ lsSet('qa-desktop-notif','1'); toast('Đã bật thông báo desktop ✓', true);
+          // đánh dấu đã thấy mọi noti hiện có -> không bắn dồn cả lô cũ ngay sau khi bật
+          var shown={}; NOTIFS.forEach(function(n){ shown[n.id]=Date.now(); });
+          lsSet('qa-notif-shown', JSON.stringify(shown)); return true; }
+        toast(p==='denied' ? 'Trình duyệt đang CHẶN thông báo cho localhost — mở biểu tượng ổ khoá cạnh thanh địa chỉ để cho phép'
+                           : 'Chưa cấp quyền thông báo', false);
+        return false; });
+    },
+    disable: function(){ lsSet('qa-desktop-notif','0'); toast('Đã tắt thông báo desktop', true); }
+  };
+
   function poll(){
-    if(document.hidden) return;                        // tab ẩn -> bỏ qua, đỡ tải Jira
+    // tab ẩn -> bỏ qua, đỡ tải Jira; trừ tab leader khi bật thông báo desktop (#103)
+    if(document.hidden && !(isLeader && desktopOn())) return;
     getJSON('/activity-feed', 20000).then(function(j){
       if(j && j.ok){ applyFeed(j.activities);
         // Vá status Jira + nhãn nội bộ vào bảng/drawer (Decision #24), KHÔNG reload trang.

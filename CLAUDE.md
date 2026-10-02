@@ -470,6 +470,14 @@ Client đã vá tại chỗ sau transition (#24), nhưng mọi lần render SAU 
 - Mutate issue dict **tại chỗ** (object nằm trong cache SWR) → mọi bản copy trong RAM thống nhất.
 **Ranh giới có chủ đích**: CHỈ status Jira (nhãn nội bộ đã là store local #21; duedate vẫn chỉ vá client-side). RAM per-process, KHÔNG sync chéo máy — trễ nằm ở cache/index của CHÍNH process đang serve. Chỉ ghi đè **tên** status, không dựng `statusCategory` (không code nào đọc field đó); count-only KPI (`done_total`/`created_week`/`resolved_week`) KHÔNG đổi theo overlay.
 
+### 103. Thông báo desktop (Notification API) cho noti mới *(2026-10-02, issue #198, code: module chuông `app_v2.js`)*
+Mở rộng #24, không thêm endpoint: dùng chính `/activity-feed`. Bật/tắt ở modal Setting (`#setNotifSect`) hoặc palette; quyền do browser giữ theo origin (`localhost` là secure context), cờ bật ở `localStorage qa-desktop-notif`.
+- **Leader 1 tab** qua Web Lock `qa-notif-leader` (giữ tới khi tab đóng, tab khác tự lên thay): CHỈ leader được poll khi tab ẩn (#24 vốn bỏ qua tab ẩn — tab ẩn khác vẫn nghỉ) và CHỈ leader bắn → nhiều tab không trùng.
+- **Không bắn khi bạn đang nhìn**: cờ chung `qa-focus` (focus → `1`, blur/pagehide → `0`) + `document.hasFocus()`. Noti tới lúc đang focus bị bỏ hẳn (đã có toast + chuông), không dồn lại bắn sau.
+- Dedup: `seenIds` (mới giữa 2 poll) + `qa-notif-shown` (id đã bắn, prune 14 ngày / cap 500) → reload không bắn lại. Lúc bật, mọi noti đang có bị đánh dấu đã bắn (không xả cả lô cũ). >3 mục/lần → 1 thông báo gộp `tag:'qa-batch'`.
+- Click thông báo → focus cửa sổ + `/dismiss` + mở drawer.
+**Giới hạn**: cần ít nhất 1 tab dashboard đang mở (có thể thu nhỏ); browser throttle timer tab ẩn ~1′ nên trễ ≤ ~2′. Browser chặn quyền thì UI chỉ hướng dẫn mở lại (không xin lại được bằng code). Browser pane của Claude desktop luôn `denied` — test bằng mock `Notification`.
+
 ### 102. Trang "Hôm nay" (`/today`) = trang chính *(2026-10-02, issue #198, code: `core/render/today.py`)*
 Bảng Việc của tôi trả lời "tôi có gì" chứ không trả lời "hôm nay làm gì trước". `/today` gom từ **đúng bundle của `/my-work`** (`_my_work_bundle` — 0 call Jira thêm): KPI + các nhóm **Quá hạn → Đến hạn hôm nay → Được nhắc chưa đọc → Kẹt ≥5 ngày → 7 ngày tới → Đang có ghi chú (#101)**.
 - `build_today_groups` thuần (test được): mỗi task active vào **đúng 1 nhóm** theo ưu tiên overdue > today > stuck > upcoming > noted; Done/Cancelled bỏ. Mention = activity chuông `mention && is_unread` (đã lọc noti do chính mình gây ra #34).
@@ -548,7 +556,7 @@ KHÔNG được:
 - Server `ThreadingHTTPServer` + Google OAuth login, chỉ phục vụ localhost (LOCAL_ONLY #96), chỉ tracking task của chính chủ (#97)
 - Hôm nay (`/today`, `/` redirect về đây — #102), Việc của tôi (`/my-work`), Tài liệu (`/docs`), Bug Log (`/bug-log`), Analytics (`/analytics`), Cài đặt (`/settings`)
 - Ghi Jira bằng PAT cá nhân: đổi status, comment (@-mention), đổi due date, tạo sub-task hàng loạt nhiều cha
-- Custom status overlay, ghi chú riêng theo task (#101), notification short-poll 60s, command palette Ctrl+K
+- Custom status overlay, ghi chú riêng theo task (#101), notification short-poll 60s + thông báo desktop (#103), command palette Ctrl+K
 - Auto-login chính chủ khi mở từ localhost (#98), autostart lúc logon (#99)
 - Bug Log sync từ Drive (Sheet native + xlsx), metric + freeze tháng, export Excel
 - Viewer tài liệu inline (PDF/ảnh/Office/text/HTML sandbox), folder Quy Trình dạng tab
@@ -660,6 +668,8 @@ qa-dashboard/
 - Khi thêm/đổi cấu trúc: **tự ghi Decision mới** vào file này (số kế tiếp), không đợi user nhắc.
 
 ## Last Updated
+
+2026-10-02 — Issue #198 (productivity dashboard dùng riêng): #98 auto-login + chặn CSRF POST · #99 autostart lúc logon · #100 gỡ phần tự gửi report tháng (Analytics giữ nguyên; #82 → bảng chết) · #101 ghi chú riêng theo task · #102 trang Hôm nay làm trang chính · #103 thông báo desktop.
 
 2026-10-02 — Gỡ cổng QA gate (#60 → bảng decision chết): chuông không còn noti READY PRODUCTION thiếu sub-task QA.
 
