@@ -4,7 +4,7 @@ styles.css is still inlined by render_error_page. All assets load per-render (in
 All render_* functions return HTML fragments; render_page assembles the full document.
 
 Sau A7 (#110/#86) đây là **package thuần re-export**: mọi định nghĩa đã tách ra
-các module con (base/shell/misc/dashboard/docs/roadmap/bug_log/leader_eval). Giữ
+các module con (base/shell/misc/dashboard/docs/bug_log/analytics). Giữ
 import lại ở đây để chỗ gọi (qa_dashboard.py, scripts) không phải đổi import.
 """
 # Shared low-level helpers extracted to render.base; re-exported so existing callers
@@ -19,27 +19,14 @@ from render.shell import (_FONTS_V2, _AV_CLS, _avatar, _conn_error_card,
 # chỗ gọi (qa_dashboard.py) không phải đổi import. See issue #105 / #86.
 from render.misc import (render_403, _render_drive_card, render_settings_page,
                          render_error_page, render_shell_error, render_login_page)
-# Dashboard v2 (admin team-wide + QA personal lens + render_page dispatcher) tách
-# sang render.dashboard; re-export để chỗ gọi không phải đổi import. See issue #106 / #86.
-from render.dashboard import (render_page, _bug_metrics_payload,
-                              render_admin_v2, render_qa_v2, build_my_work_payload,
-                              build_dashboard_payload)
+# Lens cá nhân "Việc của tôi" (render.dashboard) — dashboard team đã gỡ (Decision #97).
+from render.dashboard import render_qa_v2, build_my_work_payload
 # Tài liệu training (tab /docs) tách sang render.docs; re-export để chỗ gọi
 # (qa_dashboard.py) không phải đổi import. See issue #107 / #86.
 from render.docs import render_docs_page, render_file_view_page
-# Roadmap v2 (tab /roadmap) tách sang render.roadmap; re-export để chỗ gọi
-# (qa_dashboard.py) không phải đổi import. See issue #108 / #86.
-from render.roadmap import render_roadmap_v2, render_public_roadmap_v2
 # Bug Log v2 (tab /bug-log) tách sang render.bug_log; re-export để chỗ gọi
 # (qa_dashboard.py) không phải đổi import. See issue #109 / #86.
 from render.bug_log import (render_bug_log_v2, _bug_log_source_modals,
                             build_bug_log_payload)
 # Analytics v2 (tab /analytics) — gom metric bug + Valid Bug Rate. See issue #158.
-# build_analytics_payload = JSON metric đã tính sẵn cho /api/analytics (E0.4/#12, D3).
-from render.analytics import render_analytics_v2, build_analytics_payload
-# Test Case v2 (tab /test-cases) — khung UI quản lý test case. See issue #157 / epic #151.
-from render.testcase import render_testcase_v2
-# Đánh giá Task QA cho Leader (tab /leader-eval) tách sang render.leader_eval;
-# re-export để chỗ gọi không phải đổi import. See issue #110 / #86 (A7).
-from render.leader_eval import render_leader_eval_page
-
+from render.analytics import render_analytics_v2

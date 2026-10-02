@@ -32,11 +32,11 @@ SRV_PID=$!
 cleanup() { kill "$SRV_PID" 2>/dev/null; wait "$SRV_PID" 2>/dev/null; }
 trap cleanup EXIT
 
-# 3. Đợi server sẵn sàng (tối đa ~40s). Probe route PUBLIC (assetlinks: không gate login,
+# 3. Đợi server sẵn sàng (tối đa ~40s). Probe route PUBLIC (/login: không gate login,
 #    không gọi Jira) — /analytics khi AUTH bật sẽ redirect sang login.
 ready=0
 for _ in $(seq 1 40); do
-  if curl -fsS -o /dev/null "http://localhost:$PORT/.well-known/assetlinks.json"; then ready=1; break; fi
+  if curl -fsS -o /dev/null "http://localhost:$PORT/login"; then ready=1; break; fi
   # Server chết sớm (vd thiếu dep) -> khỏi đợi đủ 40s.
   kill -0 "$SRV_PID" 2>/dev/null || break
   sleep 1

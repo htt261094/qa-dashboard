@@ -23,7 +23,6 @@ SCRIPT_DIR = Path(__file__).resolve().parent.parent
 ASSETS_DIR = SCRIPT_DIR / 'assets'
 ENV_FILE = SCRIPT_DIR / '.env'
 DOCS_FILE = SCRIPT_DIR / '.docs_config.json'
-ROADMAP_FILE = SCRIPT_DIR / '.roadmap_config.json'
 SYNC_META_FILE = SCRIPT_DIR / '.sync_meta.json'         # dirty-flag per key (remote_store flush)
 PAT_CACHE_FILE = SCRIPT_DIR / '.pat_store.json'         # cache map {email: enc_pat} (ĐÃ mã hoá)
 DRIVE_TOKEN_FILE = SCRIPT_DIR / '.drive_token.json'      # cache refresh token (mã hoá) fallback
@@ -31,10 +30,7 @@ BUG_LOG_SOURCE_FILE = SCRIPT_DIR / '.bug_log_source.json'  # cache file Drive ng
 BUG_LOG_FILE = SCRIPT_DIR / '.bug_log.json'              # cache snapshot bug log (fallback + render nhanh)
 BUG_MONTHLY_FILE = SCRIPT_DIR / '.bug_monthly.json'      # snapshot status per-bug chốt theo tháng (tồn đọng vs mới, hướng B)
 BUG_TASK_LINK_FILE = SCRIPT_DIR / '.bug_task_link.json'  # cache link bug/test-case -> Jira task (#55)
-TESTCASE_FILE = SCRIPT_DIR / '.testcase_config.json'    # cache bộ test case import từ Drive (#152)
-TESTCASE_TASK_LINK_FILE = SCRIPT_DIR / '.testcase_task_link.json'  # cache link bộ test case -> Jira task (#155)
 JIRA_ACCOUNTS_FILE = SCRIPT_DIR / '.jira_accounts.json'  # cache map username <-> accountId Jira Cloud (#197)
-TC_FILE = SCRIPT_DIR / '.tc_config.json'                   # test case folders + cases (persistence #152)
 UPLOADS_DIR = SCRIPT_DIR / 'uploads'   # file tài liệu upload (Decision #23) — ghi đè ở dưới nếu .env có UPLOADS_DIR
 
 def atomic_write(path, text, encoding='utf-8'):
@@ -81,8 +77,6 @@ DEPARTMENT_FIELD = 'customfield_10315'  # "Department" (multi-checkbox) — auto
 BK_TEAM_FIELD = 'customfield_10306'     # "BK Team" (multi-checkbox) — auto-tick IT-QA khi tạo sub-task
 SUBTASK_DEPARTMENT_ID = '10314'         # option "IT" tick sẵn (Department)
 SUBTASK_BK_TEAM_ID = '10332'            # option "IT-QA" tick sẵn (BK Team)
-LEADER_EVAL_NUM_FIELD = 'customfield_10317'  # "Leader đánh giá (Số)" (number)
-LEADER_EVAL_TEXT_FIELD = 'customfield_10309' # "Leader đánh giá (text)" (text)
 
 
 def jql_cf(field_id):
@@ -108,13 +102,12 @@ def _load_env():
             if line and not line.startswith('#') and '=' in line:
                 k, v = line.split('=', 1)
                 cfg[k.strip()] = v.strip().strip('"').strip("'")
-    for k in ('JIRA_URL', 'JIRA_EMAIL', 'JIRA_API_TOKEN', 'JIRA_ACCOUNT_IDS', 'JIRA_USERS', 'JIRA_PORT',
+    for k in ('JIRA_URL', 'JIRA_EMAIL', 'JIRA_API_TOKEN', 'JIRA_ACCOUNT_IDS', 'JIRA_PORT',
               'JIRA_ADMIN_EMAIL', 'JIRA_ALLOWED_DOMAIN',
               'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'SESSION_SECRET',
               'PUBLIC_BASE_URL', 'LOCAL_ONLY', 'BUG_LOG_POLL_SECONDS', 'BUG_LOG_JIRA_ENABLED',
               'JIRA_MAX_CONCURRENT',
-              'CF_ACCOUNT_ID', 'CF_KV_NAMESPACE_ID', 'CF_API_TOKEN', 'UPLOADS_DIR',
-              'APP_REDIRECT', 'APP_LINK_PACKAGE', 'APP_LINK_FINGERPRINT'):
+              'CF_ACCOUNT_ID', 'CF_KV_NAMESPACE_ID', 'CF_API_TOKEN', 'UPLOADS_DIR'):
         if os.environ.get(k):
             cfg[k] = os.environ[k]
     return cfg
@@ -147,7 +140,6 @@ PAT = JIRA_API_TOKEN
 # Override map username -> accountId (JSON {"quangbm": "712020:..."}). Chỉ cần khi privacy
 # setting Atlassian ẩn email -> không tự resolve được (xem jira_cloud).
 JIRA_ACCOUNT_IDS = CFG.get('JIRA_ACCOUNT_IDS', '').strip()
-USERS = [u.strip() for u in CFG.get('JIRA_USERS', 'quangbm,nhungnh,phuongct,tholt,thanhht1').split(',') if u.strip()]
 PORT = int(CFG.get('JIRA_PORT', '8080'))
 # ----- Bug Log: nhịp poll Drive (giây) của daemon scan (Decision #54). -----
 # Default 600s (10 phút). Nhờ Tầng-1 metadata-first, mỗi poll khi không file nào đổi chỉ
@@ -198,11 +190,10 @@ ADMIN_EMAIL = list(ADMIN_EMAILS)[0] if ADMIN_EMAILS else ''
 # Username Jira của chính admin (cho tab "My work" — task của riêng mình). Local dev (chưa
 # login) fallback về đây. Default = thanhht1 (acting manager). Override qua .env nếu cần.
 SELF_USER = CFG.get('JIRA_SELF_USER', 'thanhht1').strip()
-# Email role "dev" (KHÔNG phải QA trong USERS, KHÔNG phải admin): CHỈ thấy tab "Việc của tôi"
-# (task assignee = chính họ) + Bug Log (read-only). Comma-sep trong .env JIRA_DEV_EMAIL.
-# DEV_USERS = local-part tương ứng -> cho phép scope fetch_all/feed theo username của dev.
-DEV_EMAILS = {e.strip() for e in CFG.get('JIRA_DEV_EMAIL', '').lower().split(',')} - {''}
-DEV_USERS = {e.split('@')[0] for e in DEV_EMAILS}
+# Roster Jira được tracking = CHỈ chính chủ (Decision #97): dashboard dùng riêng 1 người, mọi
+# JQL "assignee/reporter in (USERS)" chỉ còn task của mình. Bỏ qua JIRA_USERS trong .env (nếu
+# còn sót) để không vô tình kéo lại task người khác. Role dev (JIRA_DEV_EMAIL) đã gỡ cùng lúc.
+USERS = [SELF_USER] if SELF_USER else []
 # Domain được phép vào (vd 'baokim.vn'). Rỗng = không chặn domain ở app (để Cloudflare lo).
 ALLOWED_DOMAIN = CFG.get('JIRA_ALLOWED_DOMAIN', '').strip().lstrip('@').lower()
 
@@ -231,19 +222,6 @@ if LOCAL_ONLY:
     # http://localhost:<PORT>/oauth/callback đã đăng ký sẵn — Decision #15). An toàn khi suy
     # từ Host vì gate LOCAL_ONLY đã ép Host là loopback.
     PUBLIC_BASE_URL = ''
-
-# ----- App Android (D2 hướng C: server-brokered token handoff) -----
-# APP_REDIRECT = URL App Link app đăng ký để nhận token sau OAuth (vd
-# 'https://baokim-qa.com/app/auth'). _do_callback redirect về đây kèm '#token=<jwt>' khi
-# state đánh dấu client=app. Bỏ trống => luồng mobile tắt (web hoạt động như cũ).
-# APP_LINK_PACKAGE = applicationId app (vd 'vn.baokim.qa') cho /.well-known/assetlinks.json.
-APP_REDIRECT = CFG.get('APP_REDIRECT', '').strip()
-if LOCAL_ONLY:
-    APP_REDIRECT = ''   # app Android đã bỏ — không giao token qua App Link
-APP_LINK_PACKAGE = CFG.get('APP_LINK_PACKAGE', '').strip()
-# SHA-256 cert fingerprint(s) của signing key app, phân tách dấu phẩy (debug + release +
-# Play App Signing nếu có). Phục vụ /.well-known/assetlinks.json để Google verify App Link.
-APP_LINK_FINGERPRINT = [f.strip() for f in CFG.get('APP_LINK_FINGERPRINT', '').split(',') if f.strip()]
 
 # ----- Cloudflare Workers KV = kho sync chéo máy KHÔNG cần VPN (thay Jira property) -----
 # Cả 3 giá trị có mặt => KV_ENABLED: remote_store dùng KV làm kho chung (reachable qua

@@ -1,20 +1,20 @@
 """UI v2 (Stitch) shell — sidebar / topbar / modals / `_document_v2`.
 
-Shared chrome wrapping every v2 page (dashboard QA, my-work, roadmap, docs,
-bug-log, leader-eval, settings). Page submodules call `_document_v2` to assemble
+Shared chrome wrapping every v2 page (my-work, docs, bug-log, analytics,
+settings). Page submodules call `_document_v2` to assemble
 the full document. Assets inline per-render via render.base. See issue #104 / #86.
 """
 import json
 from datetime import datetime
 
-from config import JIRA_URL, USERS, DEV_EMAILS, display_name, username_from_email
+from config import JIRA_URL, USERS, display_name, username_from_email
 from custom_status import CUSTOM_STATUSES
 from issues import esc
 
 from render.base import load_css_v2, load_js_v2, _json_script
 
 
-# ===== UI v2 (Stitch) — shell sidebar dùng cho dashboard QA + roadmap
+# ===== UI v2 (Stitch) — shell sidebar dùng chung mọi trang
 # ===================================================================
 _FONTS_V2 = (
     '<link rel="preconnect" href="https://fonts.googleapis.com">'
@@ -55,8 +55,7 @@ def render_sidebar_v2(active, user):
     email = user[0] if (user and user[0]) else ''
 
     # Phosphor: nav mặc định light; tab đang active dùng fill (đậm nét) thay cho FILL 1 của Material.
-    _ph_nav = {'space_dashboard': 'squares-four', 'person': 'user', 'star': 'star', 'map': 'map-trifold',
-               'bug_report': 'bug-beetle', 'checklist': 'list-checks', 'monitoring': 'chart-line-up',
+    _ph_nav = {'person': 'user', 'bug_report': 'bug-beetle', 'monitoring': 'chart-line-up',
                'description': 'file-text'}
 
     def lnk(href, key, icon, label):
@@ -65,27 +64,16 @@ def render_sidebar_v2(active, user):
         ph = _ph_nav.get(icon, icon)
         return (f'<a{cls} href="{href}"><span class="material-symbols-rounded ph-{wt} ph-{ph}"></span> {label}</a>')
 
-    is_dev = bool(email) and email in DEV_EMAILS and not is_admin
-    if is_dev:
-        # Role dev (tạm thời): chỉ 2 tab. Trang chính = "Việc của tôi".
-        nav = lnk('/my-work', 'mywork', 'person', 'Việc của tôi')
-        nav += lnk('/bug-log', 'buglog', 'bug_report', 'Bugs')
-    else:
-        nav = lnk('/', 'dashboard', 'space_dashboard', 'Dashboard')
-        if is_admin:
-            nav += lnk('/my-work', 'mywork', 'person', 'Việc của tôi')
-            nav += lnk('/leader-eval', 'leadereval', 'star', 'Đánh giá')
-        nav += lnk('/roadmap', 'roadmap', 'map', 'Roadmap')
-        nav += lnk('/bug-log', 'buglog', 'bug_report', 'Bugs')
-        nav += lnk('/test-cases', 'testcases', 'checklist', 'Test Case')
-        nav += lnk('/analytics', 'analytics', 'monitoring', 'Analytics')
-        nav += lnk('/docs', 'docs', 'description', 'Tài liệu')
+    # Dashboard dùng riêng 1 người (Decision #97): chỉ còn lens cá nhân + bug/tài liệu.
+    nav = lnk('/my-work', 'mywork', 'person', 'Việc của tôi')
+    nav += lnk('/bug-log', 'buglog', 'bug_report', 'Bugs')
+    nav += lnk('/analytics', 'analytics', 'monitoring', 'Analytics')
+    nav += lnk('/docs', 'docs', 'description', 'Tài liệu')
 
     uname = username_from_email(email) if (email and '@' in email) else None
     short = display_name(uname) if uname else (email.split('@')[0] if '@' in email else 'Local')
     init = (short[:2] or 'ME').upper()
     role = ('<span class="role-chip admin">Admin</span>' if is_admin
-            else '<span class="role-chip">Dev</span>' if is_dev
             else '<span class="role-chip">Chỉ xem</span>')
     sub = esc(email) if email else 'Local dev'
     logout = ('<div class="sep"></div>'
@@ -274,7 +262,7 @@ def _auth_banner(note, is_admin=False):
 
 def _document_v2(content_inner, active, user, activities, title='QA Suite',
                  stale=False, stale_note=''):
-    """Shell sidebar Material-3 cho dashboard QA + roadmap. Inline styles_v2.css + app_v2.js.
+    """Shell sidebar Material-3 dùng chung mọi trang. Inline styles_v2.css + app_v2.js.
     `activities` = feed (đã lọc dismissed) cho chuông notif (embed JSON #qaNotif).
     stale='auth' -> token Jira chung hết hạn, đang phục vụ bản RAM cũ: banner đỏ."""
     if stale == 'auth':
@@ -303,30 +291,3 @@ def _document_v2(content_inner, active, user, activities, title='QA Suite',
 <script>{load_js_v2()}</script>
 </body></html>"""
 
-
-def _document_public_v2(content_inner, title='QA Suite'):
-    return f"""<!DOCTYPE html>
-<html lang="vi"><head><meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{esc(title)}</title>
-{_FONTS_V2}
-<script>(function(){{try{{var t=localStorage.getItem('qa-theme');if(t)document.documentElement.setAttribute('data-theme',t);}}catch(e){{}}}})();</script>
-<style>{load_css_v2()}
-.public-main {{ padding: 20px; max-width: 1200px; margin: 0 auto; }}
-.public-brand {{ margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--bdr); display: flex; align-items: center; justify-content: space-between; }}
-.public-brand h2 {{ margin: 0; font-size: 20px; color: var(--fg); }}
-.public-brand button {{ background: transparent; border: none; cursor: pointer; color: var(--fg2); display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; }}
-.public-brand button:hover {{ background: var(--bg3); color: var(--fg); }}
-</style></head>
-<body>
-<div class="app public-app">
-<div class="main public-main">
-<div class="public-brand">
-    <h2>{esc(title)}</h2>
-    <button class="iconbtn" onclick="document.documentElement.setAttribute('data-theme', document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'); localStorage.setItem('qa-theme', document.documentElement.getAttribute('data-theme'))"><span class="material-symbols-rounded ph-light ph-moon"></span></button>
-</div>
-<div class="content">{content_inner}</div>
-</div>
-</div>
-<script>{load_js_v2()}</script>
-</body></html>"""

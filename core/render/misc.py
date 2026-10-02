@@ -91,12 +91,12 @@ def render_settings_page(has_pat, user=None, has_drive=False, auth_enabled=False
     return _document_v2(inner, 'settings', user, activities or [], title='Cài đặt — QA Workspace')
 
 
-def render_shell_error(active='dashboard', user=None,
+def render_shell_error(active='mywork', user=None,
                        msg='Không thể kết nối tới Jira. Vui lòng thử lại.',
                        title='QA Workspace'):
     """Lỗi GIỮ NGUYÊN skeleton v2 (sidebar + topbar) — chỉ phần nội dung cần Jira
     đổi sang thông báo lỗi. Dùng khi Jira timeout/không với tới ở các route fetch
-    Jira (`/`, /my-work, /leader-eval, /settings). Khác render_error_page (trang
+    Jira (/my-work, /settings). Khác render_error_page (trang
     trắng, mất chrome). Chuông notif rỗng (`[]`) vì Jira đang down."""
     inner = (
         '<div class="page-head"><div>'

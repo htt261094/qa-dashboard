@@ -20,8 +20,7 @@ from urllib.parse import urlparse, parse_qs
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'core'))
 
 from config import (JIRA_URL, USERS, PORT, ADMIN_EMAIL, ADMIN_EMAILS, ALLOWED_DOMAIN,
-                    AUTH_ENABLED, SELF_USER, PUBLIC_BASE_URL, DEV_EMAILS, LOCAL_ONLY,
-                    APP_LINK_PACKAGE, APP_LINK_FINGERPRINT,
+                    AUTH_ENABLED, SELF_USER, PUBLIC_BASE_URL, LOCAL_ONLY,
                     display_name, username_from_email, canon_key)
 from auth import (SESSION_COOKIE, SESSION_TTL, email_from_session,
                   session_status, make_session_token)
@@ -32,48 +31,21 @@ from bug_log_store import (scan as bug_log_scan, start_scheduler as start_bug_lo
 from bug_log_source import load_sources, save_sources, extract_file_id, MAX_SOURCES
 from task_link import load_links, set_task_links, tasks_of, fp_of
 from bug_backlog import fingerprint as bug_fingerprint, load_backlog
-from testcase_link import (load_links as tc_load_links, set_folder_links as tc_set_folder_links,
-                           folders_for_task as tc_folders_for_task)
-from jira_api import (fetch_all, fetch_all_shared, scope_data, fetch_activity_feed, load_dismissed,
+from jira_api import (fetch_all_shared, scope_data, fetch_activity_feed, load_dismissed,
                       dismiss_activities, run_parallel, fetch_issue_detail,
                       search_parent_tasks, search_people, search_qa_tasks, global_search,
                       fetch_subtasks, fetch_ready_prod_gaps)
 from docs import load_docs, save_docs, valid_tree, ensure_process_folder
-from roadmap import load_roadmap, save_roadmap, valid_roadmap
-from testcase_store import (load_testcases, fetch_sheets as tc_fetch_sheets,
-                            import_cases as tc_import_cases, add_folder as tc_add_folder,
-                            delete_folder as tc_delete_folder, rename_folder as tc_rename_folder,
-                            update_import_url as tc_update_import_url)
-from pat_store import save_user_pat, has_pat, delete_user_pat, load_user_pat
+from pat_store import save_user_pat, has_pat, delete_user_pat
 from custom_status import (load_bundle, load_overlay, values_of,
                            clear_labels_for_done)
-from render import (render_page, render_qa_v2, render_docs_page,
-                    render_roadmap_v2, render_public_roadmap_v2, render_bug_log_v2, render_analytics_v2,
-                    render_testcase_v2, render_settings_page, render_error_page,
-                    render_403, render_shell_error, build_my_work_payload,
-                    build_bug_log_payload, build_analytics_payload,
-                    build_dashboard_payload)
+from render import (render_qa_v2, render_docs_page, render_bug_log_v2, render_analytics_v2,
+                    render_settings_page, render_error_page, render_403, render_shell_error)
 from routes.oauth import OAuthMixin
 from routes.write import WriteMixin
 from routes.uploads import UploadsMixin
 
 ACTIVITY_DAYS = 7  # cửa sổ activity feed kéo từ Jira changelog
-
-# Role "dev" (tạm thời) chỉ được chạm các path này. GET khác -> redirect /my-work; POST
-# khác -> 403. Gồm 2 trang chính + endpoint phụ trợ để 2 trang đó hoạt động (chuông poll,
-# drawer detail, tìm task/bug cho palette, quản lý PAT cá nhân của chính họ).
-_DEV_GET_ALLOWED = frozenset({
-    '/my-work', '/my-work.html', '/api/my-work', '/bug-log', '/bug-log.html',
-    '/api/bug-log', '/api/analytics',
-    '/settings', '/settings.html', '/has-pat', '/has-drive',
-    '/activity-feed', '/issue-comments', '/global-search', '/search-bugs',
-})
-_DEV_POST_ALLOWED = frozenset({
-    '/dismiss', '/save-pat', '/delete-pat',
-    '/jira-transitions', '/do-transition', '/add-comment',
-    '/duedate-perm', '/set-duedate', '/edit-perms', '/update-issue', '/export-bug-log',
-})
-
 
 def _drop_own_activities(merged, email):
     """Bỏ khỏi chuông các noti do CHÍNH người đang login gây ra (tự tạo task/đổi status/
@@ -121,9 +93,8 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         return f'{proto}://{host}'
 
     def _user_email(self):
-        """Email người đăng nhập. Ưu tiên Bearer token (client mobile — D2 hướng C:
-        cùng token HMAC self-contained như cookie web, chỉ khác đường chở), rồi session
-        cookie (web). '' nếu chưa login.
+        """Email người đăng nhập, từ session cookie. '' nếu chưa login. (Bearer token cho
+        app Android đã gỡ cùng app — Decision #97.)
 
         ⚠ KHÔNG tin header `Cf-Access-Authenticated-User-Email` (issue #44 khuyến nghị #3,
         Decision #92): header đó chỉ đáng tin khi CÓ Cloudflare Access ngồi trước tự set +
@@ -131,11 +102,6 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         cloudflared KHÔNG strip → client bịa header trần đi thẳng tới origin. Với AUTH bật,
         `_authed()`/`_is_admin()` chỉ cần email hợp lệ (không đòi loopback) → set header =
         thành admin, bypass toàn bộ Google OAuth. Identity CHỈ đến từ token HMAC do app ký."""
-        auth = self.headers.get('Authorization', '')
-        if auth.startswith('Bearer '):
-            email = email_from_session(auth[7:].strip())
-            if email:
-                return email
         return email_from_session(self._cookie(SESSION_COOKIE)) or ''
 
     def _is_loopback(self):
@@ -209,7 +175,7 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         return email.endswith('@' + ALLOWED_DOMAIN)
 
     def _is_admin(self):
-        """Role admin = được edit roadmap/tài liệu. Local (chưa login) -> admin (chính bạn),
+        """Role admin = chính chủ dashboard. Local (chưa login) -> admin (chính bạn),
         nhưng CHỈ khi request đến từ loopback (fail-closed, issue #44)."""
         email = self._user_email()
         if not email or not ADMIN_EMAILS:
@@ -217,19 +183,12 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             return (not AUTH_ENABLED) and self._is_loopback()
         return email in ADMIN_EMAILS
 
-    def _is_dev(self):
-        """Role "dev" (tạm thời): email trong DEV_EMAILS. Không phải QA/admin — chỉ được
-        xem "Việc của tôi" (task của chính họ) + Bug Log (read-only)."""
-        email = self._user_email()
-        return bool(email) and email in DEV_EMAILS and not self._is_admin()
-
     def _activity_scope(self):
-        """Username để scope feed/overlay cho người đang xem. None = admin (cả team).
-        QA -> username_from_email; dev (không trong USERS) -> local-part email."""
+        """Username để scope feed/overlay cho người đang xem. None = admin (= roster, mà roster
+        giờ chỉ còn chính chủ — Decision #97); người khác -> username_from_email."""
         if self._is_admin():
             return None
-        email = self._user_email()
-        return username_from_email(email) or (email.split('@')[0] if self._is_dev() else None)
+        return username_from_email(self._user_email())
 
     def _user_ctx(self):
         """(email, is_admin) cho nav chip; None khi chưa login (local dev)."""
@@ -299,44 +258,6 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
                 'severity': b.get('severity', ''),
                 'status': b.get('status', ''),
                 'module': b.get('feature', ''),
-            })
-        return out
-
-    def _testcases_for_task(self, task_key):
-        """Chiều ngược của testcase_link: list BỘ test case ĐÃ LINK tới `task_key`,
-        cho drawer detail. Mỗi bộ kèm tên + đếm case (gồm folder con) + breakdown
-        pass/fail. Lỗi -> [] (drawer vẫn mở, chỉ thiếu mục test case)."""
-        try:
-            fids = tc_folders_for_task(task_key)
-        except Exception:
-            return []
-        if not fids:
-            return []
-        try:
-            data = load_testcases() or {}
-        except Exception:
-            return []
-        folders = data.get('folders') or []
-        cases = data.get('cases') or []
-        by_id = {f.get('id'): f for f in folders}
-        # con theo cha (để gộp case của folder con vào bộ gốc, như casesIn ở UI)
-        children = {}
-        for f in folders:
-            p = f.get('parent_id')
-            if p:
-                children.setdefault(p, []).append(f.get('id'))
-        out = []
-        for fid in fids:
-            folder = by_id.get(fid)
-            if not folder:
-                continue
-            allowed = {fid} | set(children.get(fid, []))
-            sub = [c for c in cases if c.get('folder') in allowed]
-            n_pass = sum(1 for c in sub if c.get('result') == 'pass')
-            n_fail = sum(1 for c in sub if c.get('result') == 'fail')
-            out.append({
-                'id': fid, 'name': folder.get('name', fid),
-                'count': len(sub), 'pass': n_pass, 'fail': n_fail,
             })
         return out
 
@@ -447,12 +368,6 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         if path == '/logout':
             self._do_logout()
             return
-        if path == '/public/roadmap':
-            self._get_public_roadmap()
-            return
-        if path == '/.well-known/assetlinks.json':
-            self._get_assetlinks()   # public: Google verify App Link app (D2 hướng C)
-            return
         if not self._authed():
             self._redirect('/login')
             return
@@ -460,10 +375,6 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             self._forbidden()
             return
         self._maybe_refresh_session()   # sliding session (#161): gia hạn cookie khi đang dùng
-        # ----- Role dev (tạm thời): chỉ /my-work + /bug-log + endpoint phụ trợ. Path khác -> /my-work -----
-        if self._is_dev() and path not in _DEV_GET_ALLOWED:
-            self._redirect('/my-work')
-            return
         # ----- Drive connect (admin-only) — sau gate authed/domain -----
         if path == '/drive/connect':
             self._do_drive_connect()
@@ -483,38 +394,17 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         if path == '/file-raw':
             self._get_file_raw()       # HTML thô, sandbox, để nhúng iframe (#65)
             return
-        if path == '/api/my-work':
-            self._get_api_my_work()   # JSON cho client mobile (E0.2, android #6)
-            return
-        if path == '/api/bug-log':
-            self._get_api_bug_log()   # JSON bug log cho client mobile (E0.4, android #12)
-            return
-        if path == '/api/analytics':
-            self._get_api_analytics()  # JSON metric analytics cho client mobile (E0.4, android #12)
-            return
-        if path == '/api/dashboard':
-            self._get_api_dashboard()   # JSON dashboard team admin (E0.3, android #8)
-            return
         if path in ('/my-work', '/my-work.html'):
             self._get_my_work()
             return
-        if path.startswith('/leader-eval'):
-            self._get_leader_eval()
-            return
         if path in ('/docs', '/docs.html'):
             self._get_docs()
-            return
-        if path in ('/roadmap', '/roadmap.html'):
-            self._get_roadmap()
             return
         if path in ('/bug-log', '/bug-log.html'):
             self._get_bug_log()
             return
         if path in ('/analytics', '/analytics.html'):
             self._get_analytics()
-            return
-        if path in ('/test-cases', '/test-cases.html'):
-            self._get_test_cases()
             return
         if path == '/issue-comments':
             self._get_issue_comments()
@@ -546,43 +436,23 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         if path == '/search-people':
             self._get_search_people()
             return
-        if path == '/tc-sheets':
-            self._get_tc_sheets()
-            return
         if path in ('/settings', '/settings.html'):
             self._get_settings()
             return
-        if path not in ('/', '/index.html'):
-            self.send_response(404)
-            self.end_headers()
+        if path in ('/', '/index.html'):
+            self._redirect('/my-work')   # dashboard team đã gỡ (Decision #97)
             return
-        self._get_dashboard()
+        self.send_response(404)
+        self.end_headers()
 
     # ===== GET route handlers (trích từ do_GET — B0/#111) =====
     # _get_uploads -> routes/uploads.py (UploadsMixin, B3/#115)
 
-    def _get_assetlinks(self):
-        """Digital Asset Links cho App Links app Android (D2 hướng C). Google fetch công khai
-        URL này để xác thực app sở hữu domain -> app bắt được redirect token an toàn (scheme
-        không bị app khác cướp). Trả [] khi chưa cấu hình (App Links chỉ fail-đóng, web vẫn chạy)."""
-        links = []
-        if APP_LINK_PACKAGE and APP_LINK_FINGERPRINT:
-            links = [{
-                'relation': ['delegate_permission/common.handle_all_urls'],
-                'target': {
-                    'namespace': 'android_app',
-                    'package_name': APP_LINK_PACKAGE,
-                    'sha256_cert_fingerprints': APP_LINK_FINGERPRINT,
-                },
-            }]
-        self._json(200, json.dumps(links).encode('utf-8'))
-
     def _get_my_work(self):
-        # Việc của tôi = lens cá nhân của admin (task của chính mình) HOẶC của dev (role
-        # tạm thời — đây là trang chính của họ). QA thường KHÔNG cần (dashboard `/` của họ
-        # đã auto-scope về chính họ) -> đá về dashboard.
-        if not (self._is_admin() or self._is_dev()):
-            self._redirect('/')
+        # Việc của tôi = trang chính (Decision #97). Chỉ chính chủ (admin) — `/` giờ redirect
+        # về đây nên KHÔNG redirect ngược về `/` (sẽ thành vòng lặp).
+        if not self._is_admin():
+            self._forbidden()
             return
         try:
             data, overlay, bell, stale = self._my_work_bundle(self._wants_fresh())
@@ -595,21 +465,12 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
                                 nav_active='mywork', stale=stale))
 
     def _my_work_bundle(self, fresh):
-        """Fetch + scope snapshot cho lens "Việc của tôi" — dùng chung web (`/my-work`)
-        và mobile (`/api/my-work`). Trả `(data, overlay, bell, stale)`. Raise RuntimeError
-        khi Jira down (caller tự render lỗi phù hợp HTML/JSON). overlay/bell degrade mềm
+        """Fetch + scope snapshot cho lens "Việc của tôi". Trả `(data, overlay, bell, stale)`.
+        Raise RuntimeError khi Jira down (caller tự render lỗi). overlay/bell degrade mềm
         (KV/chuông fail -> None/[]) như hành vi cũ."""
-        if self._is_dev():
-            # Dev không nằm trong USERS -> snapshot team không có task họ. Fetch riêng theo
-            # username (JQL assignee = <dev>, lọc server-side nên không lộ task người khác).
-            scope = self._user_email().split('@')[0]
-            data = fetch_all(scope_user=scope, force=fresh)   # RuntimeError -> caller
-            stale = False
-        else:
-            scope = self._self_username()
-            # data full team (cache SWR dùng chung) rồi scope về chính admin.
-            full, stale = fetch_all_shared(force=fresh)
-            data = scope_data(full, scope)
+        scope = self._self_username()
+        full, stale = fetch_all_shared(force=fresh)
+        data = scope_data(full, scope)
         # overlay nhãn custom qua KV; chuông notif qua Jira -> có thể fail (degrade mềm).
         try:
             overlay, _cust_act = load_bundle(scope, ACTIVITY_DAYS)
@@ -621,144 +482,6 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             bell = []
         return data, overlay, bell, stale
 
-    def _get_api_my_work(self):
-        """JSON lens "Việc của tôi" cho client mobile (E0.2, android #6). Cùng data/scope/
-        overlay/bell như web `/my-work`, chỉ đổi output HTML -> json.dumps (D3: 1 nguồn chân
-        lý — payload thuần dựng bởi build_my_work_payload, buckets/pager do client). Auth
-        (Bearer) + gate role dev đã xử ở do_GET."""
-        if not (self._is_admin() or self._is_dev()):
-            self._json(403, b'{"ok":false,"error":"forbidden"}')
-            return
-        try:
-            data, overlay, bell, stale = self._my_work_bundle(self._wants_fresh())
-        except RuntimeError:
-            self._json(503, b'{"ok":false,"error":"jira_unavailable"}')
-            return
-        tasks, meta, n_linked, n_total = build_my_work_payload(data, overlay)
-        # sort theo hạn tăng dần; task chưa đặt hạn ('' ) xuống cuối (ISO date -> so sánh chuỗi ok).
-        tasks.sort(key=lambda t: (not t['due'], t['due']))
-        self._json(200, json.dumps({
-            'ok': True, 'stale': stale,
-            'tasks': tasks, 'meta': meta,
-            'tcLinked': {'linked': n_linked, 'total': n_total},
-            'activities': bell,
-        }, ensure_ascii=False).encode('utf-8'))
-
-    def _get_api_bug_log(self):
-        """JSON bug log cho client mobile (E0.4, android #12). Cùng nguồn cache (Excel/Drive +
-        task_link) như web `/bug-log`, chỉ đổi output HTML -> json.dumps (D3: 1 nguồn chân lý —
-        payload thuần dựng bởi build_bug_log_payload). Đọc cache local/KV, KHÔNG gọi Jira.
-        Mở cho MỌI role đã authed; dev = read-only (editable=false, backend enforce ghi). Auth
-        (Bearer) + gate role dev đã xử ở do_GET."""
-        try:
-            res = run_parallel({'bug': load_bug_log, 'links': load_links,
-                                'sources': load_sources})
-        except RuntimeError:
-            self._json(503, b'{"ok":false,"error":"bug_log_unavailable"}')
-            return
-        (bugs, month_list, sources_shaped, _src_files,
-         synced_disp, _synced, reopen) = build_bug_log_payload(res['bug'], res['links'],
-                                                               res['sources'])
-        self._json(200, json.dumps({
-            'ok': True, 'editable': not self._is_dev(),
-            'bugs': bugs, 'months': month_list,
-            'sources': sources_shaped, 'reopen': reopen,
-            'syncedAt': synced_disp,
-        }, ensure_ascii=False).encode('utf-8'))
-
-    def _get_api_analytics(self):
-        """JSON metric analytics cho client mobile (E0.4, android #12). Đẩy toàn bộ math đang ở
-        JS (Valid Bug Rate/Reopen/chart dev/backlog T-1/cross-metric + dedup fingerprint) về
-        backend (D3 — app chỉ chọn tháng + hiển thị). Đọc cache local/KV, KHÔNG gọi Jira. KHÁC
-        bug-log: dev KHÔNG xem được analytics (khớp web — /analytics ngoài _DEV_GET_ALLOWED) ->
-        403. Auth (Bearer) đã xử ở do_GET."""
-        if self._is_dev():
-            self._json(403, b'{"ok":false,"error":"forbidden"}')
-            return
-        try:
-            res = run_parallel({'bug': load_bug_log, 'tc': load_testcases,
-                                'links': load_links, 'tc_links': tc_load_links,
-                                'backlog': load_backlog})
-        except RuntimeError:
-            self._json(503, b'{"ok":false,"error":"bug_log_unavailable"}')
-            return
-        payload = build_analytics_payload(res['bug'], testcases=res['tc'],
-                                          links=res['links'], tc_links=res['tc_links'],
-                                          backlog=res['backlog'])
-        self._json(200, json.dumps({'ok': True, **payload},
-                                   ensure_ascii=False).encode('utf-8'))
-    def _get_api_dashboard(self):
-        """JSON dashboard team admin cho client mobile (E0.3, android #8). Cùng data/scope/
-        overlay/bell như web `/` admin (render_admin_v2), chỉ đổi output HTML -> json.dumps
-        (D3: 1 nguồn chân lý — payload thuần dựng bởi build_dashboard_payload; pill/filter/pager
-        do client). Team-wide -> ADMIN only (D5, Dashboard = ADMIN). 403 nếu không phải admin,
-        503 khi Jira down + KV trống."""
-        if not self._is_admin():
-            self._json(403, b'{"ok":false,"error":"forbidden"}')
-            return
-        fresh = self._wants_fresh()
-        try:
-            # data full team (cache SWR dùng chung). scope=None -> team-wide.
-            full, stale = fetch_all_shared(force=fresh)
-        except RuntimeError:
-            self._json(503, b'{"ok":false,"error":"jira_unavailable"}')
-            return
-        data = scope_data(full, None)
-        # overlay nhãn custom qua KV; chuông notif qua Jira -> có thể fail (degrade mềm).
-        try:
-            overlay, _cust = load_bundle(None, ACTIVITY_DAYS)
-        except RuntimeError:
-            overlay = None
-        try:
-            bell = self._bell_activities(force=fresh)
-        except RuntimeError:
-            bell = []
-        tasks, meta, members, workload = build_dashboard_payload(data, overlay)
-        self._json(200, json.dumps({
-            'ok': True, 'stale': stale,
-            'tasks': tasks, 'meta': meta,
-            'members': members, 'workload': workload,
-            'activities': bell,
-        }, ensure_ascii=False).encode('utf-8'))
-
-    def _get_leader_eval(self):
-        if not self._is_admin():
-            self._redirect('/')
-            return
-        q = parse_qs(urlparse(self.path).query)
-        month_str = (q.get('month') or [''])[0]
-        category = (q.get('category') or [''])[0]
-        leader = (q.get('leader') or [''])[0]
-        sel_assignees = q.get('assignee', [])
-
-        def _prev_month():
-            now = datetime.now()
-            y, m = now.year, now.month - 1
-            if m == 0:
-                y, m = y - 1, 12
-            return y, m
-        if not month_str:
-            y, m = _prev_month()
-            month_str = f"{y}-{m:02d}"
-        try:
-            y, m = map(int, month_str.split('-'))
-        except ValueError:
-            y, m = _prev_month()
-        try:
-            from jira_api import fetch_leader_eval_tasks, fetch_project_categories
-            res = run_parallel({
-                'tasks': lambda: fetch_leader_eval_tasks(category, leader, sel_assignees, y, m),
-                'categories': fetch_project_categories,
-                'bell': self._bell_activities,
-            })
-            from render import render_leader_eval_page
-            self._html(render_leader_eval_page(res['tasks'], y, m, user=self._user_ctx(), activities=res['bell'],
-                                               categories=res['categories'],
-                                               sel_category=category, sel_leader=leader, sel_assignees=sel_assignees))
-        except RuntimeError:
-            self._html(render_shell_error('leadereval', self._user_ctx(),
-                                          title='Đánh giá — QA Workspace'))
-
     def _get_docs(self):
         # tài liệu training: load song song tài liệu và chuông notif (đồng nhất mọi tab)
         try:
@@ -767,41 +490,10 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             tree, changed = ensure_process_folder(res['docs'])
             if changed and self._authed():
                 save_docs(tree)
-            # editable=True -> MỌI QA đăng nhập được upload/tạo thư mục/sửa (như Test Case).
-            # Dev bị chặn tự nhiên: /docs không trong _DEV_GET_ALLOWED.
+            # editable=True -> người đăng nhập được upload/tạo thư mục/sửa.
             self._html(render_docs_page(tree, editable=True,
                                         user=self._user_ctx(), activities=res['bell']))
         except RuntimeError as e:
-            self._html(render_error_page(str(e)))
-
-    def _get_test_cases(self):
-        # Quản lý Test Case (#152/#157): nạp store (KV sync chéo máy, fallback cache) +
-        # chuông notif (đồng nhất mọi tab). editable=True -> MỌI QA đăng nhập được
-        # import/sửa (user chốt #152), không giới hạn admin.
-        try:
-            res = run_parallel({'tc': load_testcases, 'bell': self._bell_activities,
-                                'links': tc_load_links})
-            data, bell, links = res['tc'], res['bell'], res['links']
-        except RuntimeError:
-            data, bell, links = None, [], {}
-        self._html(render_testcase_v2(data=data, editable=True, links=links,
-                                      user=self._user_ctx(), activities=bell))
-
-    def _get_roadmap(self):
-        # roadmap team (UI v2): roadmap + chuông notif (đồng nhất mọi tab) song song
-        try:
-            res = run_parallel({'roadmap': load_roadmap, 'bell': self._bell_activities})
-            self._html(render_roadmap_v2(res['roadmap'], editable=self._is_admin(),
-                                         user=self._user_ctx(), activities=res['bell']))
-        except RuntimeError as e:
-            self._html(render_error_page(str(e)))
-
-    def _get_public_roadmap(self):
-        # Standalone public roadmap (view mode only, no auth required)
-        try:
-            roadmap = load_roadmap()
-            self._html(render_public_roadmap_v2(roadmap))
-        except Exception as e:
             self._html(render_error_page(str(e)))
 
     def _get_bug_log(self):
@@ -821,7 +513,7 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
                 except Exception:   # noqa: BLE001 — popup là phụ trợ, lỗi -> bỏ qua
                     pending = None
             self._html(render_bug_log_v2(res['bug'], res['links'],
-                                         editable=not self._is_dev(),
+                                         editable=True,
                                          user=self._user_ctx(), activities=res['bell'],
                                          sources=res['sources'], pending=pending))
         except RuntimeError as e:
@@ -829,27 +521,17 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
 
     def _get_analytics(self):
         # Analytics (#158): gom metric bug (Valid Bug Rate + chart dev/dự án + reopen).
-        # Nguồn = cache bug_log_store, testcase_store, links (KHÔNG gọi Jira search) + chuông notif.
+        # Nguồn = cache bug_log_store + backlog (KHÔNG gọi Jira search) + chuông notif.
         try:
-            from core.testcase_store import load_testcases
-            from core.testcase_link import load_links as tc_load_links
-            from core.task_link import load_links
-            from bug_backlog import load_backlog
             res = run_parallel({
                 'bug': load_bug_log,
                 'bell': self._bell_activities,
-                'tc': load_testcases,
-                'links': load_links,
-                'tc_links': tc_load_links,
                 'backlog': load_backlog,
             })
             self._html(render_analytics_v2(
                 res['bug'],
                 user=self._user_ctx(),
                 activities=res['bell'],
-                testcases=res['tc'],
-                links=res['links'],
-                tc_links=res['tc_links'],
                 backlog=res['backlog']
             ))
         except RuntimeError as e:
@@ -867,11 +549,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             # Jira detail + bug đã link tới task (chiều ngược task_link) song song.
             res = run_parallel({'detail': lambda: fetch_issue_detail(key),
                                 'bugs': lambda: self._bugs_for_task(key),
-                                'testcases': lambda: self._testcases_for_task(key),
                                 'overlay': lambda: load_overlay()})
             detail = res['detail']
             detail['bugs'] = res['bugs']
-            detail['testcases'] = res['testcases']
             # Nhãn nội bộ (custom status overlay) — để drawer mở từ noti (task ngoài
             # bucket TASKS) vẫn hiện nhãn thay vì '—' (đồng nhất với click từ bảng).
             detail['customs'] = values_of((res['overlay'] or {}).get(key))
@@ -971,17 +651,6 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         except RuntimeError:
             self._json(400, b'{"ok":false}')
 
-    def _get_tc_sheets(self):
-        # Import test case (#152): dán link Drive -> liệt kê sheet để chọn tab.
-        # Tải file 1 lần (Sheet native -> export xlsx); token redact trong bug_log.
-        url = (parse_qs(urlparse(self.path).query).get('url') or [''])[0]
-        try:
-            self._json(200, json.dumps({'ok': True, **tc_fetch_sheets(url)},
-                                       ensure_ascii=False).encode('utf-8'))
-        except RuntimeError as e:
-            self._json(400, json.dumps({'ok': False, 'msg': str(e)},
-                                       ensure_ascii=False).encode('utf-8'))
-
     def _get_settings(self):
         # Cài đặt PAT cá nhân (mã hoá khi lưu) — thao tác Jira ghi đúng tên người dùng
         try:
@@ -992,67 +661,6 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         except RuntimeError:
             self._html(render_shell_error('settings', self._user_ctx(),
                                           title='Cài đặt — QA Workspace'))
-
-    def _get_dashboard(self):
-        email = self._user_email()  # dismiss tách theo người đăng nhập
-        # admin/local -> scope None (xem cả team); QA thường -> scope = username của họ
-        if self._is_admin():
-            scope = None
-        else:
-            scope = username_from_email(email)
-            if scope is None:   # non-admin không khớp QA nào -> không cho xem data team
-                self._html(render_shell_error(
-                    'dashboard', self._user_ctx(),
-                    msg="Tài khoản của bạn chưa được gắn với QA nào trong hệ thống. "
-                        "Liên hệ admin (Thành) để cấp quyền."))
-                return
-        # Block KHÔNG cần Jira (bug-metric / roadmap-alert) — load riêng, đọc cache local khi
-        # Jira hỏng (load_bug_log/load_roadmap tự fallback cache, KHÔNG raise). Tách khỏi try
-        # Jira để khi Jira down vẫn render được các block này (chỉ vùng task báo lỗi).
-        buglog = load_bug_log()
-        roadmap = load_roadmap()
-        # Task data full team qua cache SWR dùng chung (fetch_all_shared) -> scope_data lọc theo
-        # người xem. stale='auth' -> token chung hết hạn, đang phục vụ bản RAM cũ + banner.
-        fresh = self._wants_fresh()   # F5 -> ép data tươi; click chuyển tab -> SWR nhanh
-        try:
-            full, stale = fetch_all_shared(force=fresh)
-        except RuntimeError:
-            # Jira không với tới -> không có gì hiện vùng task (skeleton + lỗi).
-            self._html(render_page(None, [], ACTIVITY_DAYS,
-                                   roadmap_data=roadmap, user=self._user_ctx(),
-                                   custom_overlay=None, bug_log_data=buglog, jira_error=True))
-            return
-        data = scope_data(full, scope)
-        # nhãn custom qua KV; feed/dismissed có thể fail -> chuông rỗng.
-        try:
-            overlay, cust_act = load_bundle(scope, ACTIVITY_DAYS)
-        except RuntimeError:
-            overlay, cust_act = None, []
-        try:
-            # CHÚ Ý: phải GIỐNG _bell_activities() (nguồn chuông cho /my-work,/docs,/roadmap)
-            # để notif đồng nhất mọi tab — `/` canonical nên tự tính tại đây (đỡ fetch 2 lần).
-            res = run_parallel({
-                # block=False (#160): bell best-effort, không treo `/` chờ changelog khi Jira chậm.
-                'feed': lambda: fetch_activity_feed(days=ACTIVITY_DAYS, scope_user=scope,
-                                                    block=False, force=fresh),
-                'dismissed': lambda: load_dismissed(email),
-                'gaps': lambda: fetch_ready_prod_gaps(force=fresh),   # QA-gate (Decision #60)
-            })
-            feed, dismissed, gaps = res['feed'], res['dismissed'], res.get('gaps') or []
-        except RuntimeError:
-            feed, dismissed, gaps = [], {}, []   # Jira lỗi -> chuông rỗng, trang vẫn render
-        merged = sorted(feed + cust_act, key=lambda a: a.get('when') or '', reverse=True)
-        merged = _drop_own_activities(merged, email)
-        # QA-gate alerts: KHÔNG drop-own; QA/dev chỉ thấy cái do chính họ gây (xem _bell_activities).
-        if scope is not None:
-            gaps = [g for g in gaps if g.get('author_user') == scope]
-        if gaps:
-            merged = sorted(merged + gaps, key=lambda a: a.get('when') or '', reverse=True)
-        for a in merged:
-            a['is_unread'] = a['id'] not in dismissed
-        self._html(render_page(data, merged, ACTIVITY_DAYS,
-                               roadmap_data=roadmap, user=self._user_ctx(),
-                               custom_overlay=overlay, bug_log_data=buglog, stale=stale))
 
     def _emit_pending_cookies(self):
         """Gắn Set-Cookie đã stash (sliding session #161). An toàn gọi nhiều lần (chỉ có khi
@@ -1095,10 +703,6 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             self._json(403, b'{"ok":false,"err":"forbidden"}')
             return
         path = urlparse(self.path).path
-        # Role dev (tạm thời): chỉ được POST các thao tác của chính họ (PAT + task riêng).
-        if self._is_dev() and path not in _DEV_POST_ALLOWED:
-            self._json(403, b'{"ok":false,"err":"forbidden"}')
-            return
         if path == '/dismiss':
             self._post_dismiss()
             return
@@ -1139,41 +743,11 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         if path == '/create-subtasks':
             self._handle_create_subtasks()
             return
-        if path == '/batch-eval':
-            self._post_batch_eval()
-            return
         if path == '/upload-file':
             self._post_upload_file()
             return
         if path == '/save-docs':
             self._post_save_docs()
-            return
-        if path == '/save-roadmap':
-            self._post_save_roadmap()
-            return
-        if path == '/tc-add-folder':
-            self._post_tc_add_folder()
-            return
-        if path == '/tc-rename-folder':
-            self._post_tc_rename_folder()
-            return
-        if path == '/tc-delete-folder':
-            self._post_tc_delete_folder()
-            return
-        if path == '/tc-import':
-            self._post_tc_import()
-            return
-        if path == '/tc-link-task':
-            self._post_tc_link_task()
-            return
-        if path == '/tc-update-link':
-            self._post_tc_update_link()
-            return
-        if path == '/tc-sync':
-            self._post_tc_sync()
-            return
-        if path == '/tc-sync-all':
-            self._post_tc_sync_all()
             return
         self.send_response(404)
         self.end_headers()
@@ -1392,31 +966,10 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         else:
             self._json(400, b'{"ok":false}')
 
-    def _post_batch_eval(self):
-        if not self._is_admin():
-            self._json(403, b'{"ok":false,"err":"forbidden"}')
-            return
-        try:
-            length = int(self.headers.get('Content-Length', 0))
-            payload = json.loads(self.rfile.read(length).decode('utf-8'))
-            keys = payload.get('keys', [])
-            num_val = payload.get('num_val')
-            text_val = payload.get('text_val')
-            pat = load_user_pat(self._user_email())
-            if not pat:
-                self._json(400, json.dumps({'ok': False, 'msg': 'Bạn chưa cấu hình API token Jira. Vào ⚙ Cài đặt để thêm.'}).encode('utf-8'))
-                return
-            from jira_write import batch_update_evaluations
-            ok, msg = batch_update_evaluations(keys, num_val, text_val, pat)
-            self._json(200 if ok else 400, json.dumps({'ok': ok, 'msg': msg}).encode('utf-8'))
-        except Exception as e:
-            self._json(400, json.dumps({'ok': False, 'msg': str(e)}).encode('utf-8'))
-
     # _post_upload_file -> routes/uploads.py (UploadsMixin, B3/#115)
 
     def _post_save_docs(self):
-        # Mở cho MỌI QA authed (khớp editable=True ở render). Dev bị chặn tự nhiên:
-        # /save-docs không trong _DEV_POST_ALLOWED.
+        # Mở cho người đăng nhập (khớp editable=True ở render).
         if not self._authed():
             self._json(403, b'{"ok":false,"err":"forbidden"}')
             return
@@ -1431,265 +984,7 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             ok = False
         self._json(200 if ok else 400, b'{"ok":true}' if ok else b'{"ok":false}')
 
-    def _post_save_roadmap(self):
-        if not self._is_admin():
-            self._json(403, b'{"ok":false,"err":"forbidden"}')
-            return
-        ok = False
-        try:
-            length = int(self.headers.get('Content-Length', 0))
-            if 0 < length <= 1_000_000:
-                payload = json.loads(self.rfile.read(length).decode('utf-8'))
-                if valid_roadmap(payload):
-                    ok = save_roadmap(payload)
-        except (ValueError, json.JSONDecodeError, OSError):
-            ok = False
-        self._json(200 if ok else 400, b'{"ok":true}' if ok else b'{"ok":false}')
-
     # ===== Test Case (#152) — MỌI QA authed được sửa (do_POST đã gate authed/domain) =====
-    def _post_tc_add_folder(self):
-        out, err = None, ''
-        try:
-            payload = self._read_json_body(10_000)
-            name = payload.get('name') if isinstance(payload, dict) else None
-            if not isinstance(name, str):
-                err = 'Thiếu tên thư mục.'
-            else:
-                ok, res = tc_add_folder(name)
-                if ok:
-                    out = res
-                else:
-                    err = res
-        except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
-            err = 'Lỗi xử lý yêu cầu.'
-        if out is None:
-            self._json(400, json.dumps({'ok': False, 'msg': err or 'Lỗi'},
-                                       ensure_ascii=False).encode('utf-8'))
-            return
-        self._json(200, json.dumps({'ok': True, 'folders': out.get('folders', [])},
-                                   ensure_ascii=False).encode('utf-8'))
-
-    def _post_tc_delete_folder(self):
-        out, err = None, ''
-        try:
-            payload = self._read_json_body(10_000)
-            fid = payload.get('id') if isinstance(payload, dict) else None
-            if not isinstance(fid, str):
-                err = 'Thiếu id thư mục.'
-            else:
-                ok, res = tc_delete_folder(fid)
-                if ok:
-                    out = res
-                else:
-                    err = res
-        except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
-            err = 'Lỗi xử lý yêu cầu.'
-        if out is None:
-            self._json(400, json.dumps({'ok': False, 'msg': err or 'Lỗi'},
-                                       ensure_ascii=False).encode('utf-8'))
-            return
-        self._json(200, json.dumps({'ok': True, 'folders': out.get('folders', [])},
-                                   ensure_ascii=False).encode('utf-8'))
-
-    def _post_tc_rename_folder(self):
-        out, err = None, ''
-        try:
-            payload = self._read_json_body(10_000)
-            fid = payload.get('id') if isinstance(payload, dict) else None
-            name = payload.get('name') if isinstance(payload, dict) else None
-            if not isinstance(fid, str) or not isinstance(name, str):
-                err = 'Thiếu id hoặc tên thư mục.'
-            else:
-                ok, res = tc_rename_folder(fid, name)
-                if ok:
-                    out = res
-                else:
-                    err = res
-        except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
-            err = 'Lỗi xử lý yêu cầu.'
-        if out is None:
-            self._json(400, json.dumps({'ok': False, 'msg': err or 'Lỗi'},
-                                       ensure_ascii=False).encode('utf-8'))
-            return
-        self._json(200, json.dumps({'ok': True, 'folders': out.get('folders', [])},
-                                   ensure_ascii=False).encode('utf-8'))
-
-    def _post_tc_import(self):
-        # Import test case -> mỗi sheet GHI ĐÈ 1 sub-folder cùng tên (giữ result cũ theo id).
-        # Body: {url, sheet, folder}. sheet rỗng = import cả file (bỏ qua sheet template).
-        # Tải + parse trong store; token redact trong bug_log.
-        res = {'ok': False, 'msg': 'Lỗi xử lý yêu cầu.'}
-        try:
-            payload = self._read_json_body(20_000)
-            if isinstance(payload, dict):
-                url = str(payload.get('url') or '')
-                sheet = str(payload.get('sheet') or '')
-                folder = str(payload.get('folder') or '')
-                res = tc_import_cases(folder, url, sheet, by_email=self._user_email())
-        except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
-            res = {'ok': False, 'msg': 'Lỗi xử lý yêu cầu.'}
-        except Exception:   # noqa: BLE001 — phòng lỗi lạ; store đã redact token
-            res = {'ok': False, 'msg': 'Lỗi không xác định khi import.'}
-        self._json(200 if res.get('ok') else 400,
-                   json.dumps(res, ensure_ascii=False).encode('utf-8'))
-
-    def _post_tc_link_task(self):
-        # Liên kết / gỡ link 1 BỘ test case (folder) <-> Jira task (#155).
-        # Mở cho MỌI QA authed (khớp editable=True). Lưu app-side, không ghi Jira.
-        # Body: {folder, task (str|list[str]), op ('add'|'remove'|'clear')}.
-        out = None
-        try:
-            payload = self._read_json_body(50_000)
-            if isinstance(payload, dict):
-                folder = payload.get('folder', '')
-                task = payload.get('task', '')
-                op = payload.get('op', 'add')
-                task_ok = isinstance(task, str) or (
-                    isinstance(task, list) and all(isinstance(x, str) for x in task))
-                if isinstance(folder, str) and task_ok and op in ('add', 'remove', 'clear'):
-                    task = task[:50] if isinstance(task, list) else task
-                    out = tc_set_folder_links(self._user_email(), folder, task, op)
-        except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
-            out = None
-        if out is not None:
-            self._json(200, json.dumps({'ok': True, 'tasks': out}).encode('utf-8'))
-        else:
-            self._json(400, b'{"ok":false}')
-
-    def _post_tc_update_link(self):
-        # Đổi link Google Sheet nguồn đã lưu của 1 bộ (imports[folder].url).
-        # CHỈ cập nhật metadata, không re-import. Admin-only (sửa cấu hình nguồn).
-        if not self._is_admin():
-            self._json(403, b'{"ok":false,"msg":"Chi quan ly moi sua duoc."}')
-            return
-        out, err = None, ''
-        try:
-            payload = self._read_json_body(20_000)
-            folder = payload.get('folder') if isinstance(payload, dict) else None
-            url = payload.get('url') if isinstance(payload, dict) else None
-            if not isinstance(folder, str) or not isinstance(url, str):
-                err = 'Thiếu folder hoặc url.'
-            else:
-                ok, res = tc_update_import_url(folder, url)
-                if ok:
-                    out = res
-                else:
-                    err = res
-        except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
-            err = 'Lỗi xử lý yêu cầu.'
-        if out is None:
-            self._json(400, json.dumps({'ok': False, 'msg': err or 'Lỗi'},
-                                       ensure_ascii=False).encode('utf-8'))
-            return
-        self._json(200, json.dumps({'ok': True, 'imports': out.get('imports', {})},
-                                   ensure_ascii=False).encode('utf-8'))
-
-    def _post_tc_sync(self):
-        res = {'ok': False, 'msg': 'Lỗi xử lý yêu cầu.'}
-        try:
-            payload = self._read_json_body(20_000)
-            if isinstance(payload, dict):
-                folder = str(payload.get('folder') or '')
-                overwrite = bool(payload.get('overwrite_results'))
-                from core.testcase_store import load_testcases
-                data = load_testcases()
-                imports_info = data.get('imports', {}).get(folder)
-                if not imports_info:
-                    res = {'ok': False, 'msg': 'Không tìm thấy thông tin link Google Sheet cũ để đồng bộ.'}
-                else:
-                    url = imports_info.get('url', '')
-                    sheet = imports_info.get('sheet', '')
-                    if sheet == '(toàn bộ file)':
-                        sheet = ''
-                    res = tc_import_cases(folder, url, sheet, by_email=self._user_email(),
-                                          overwrite_results=overwrite)
-        except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
-            res = {'ok': False, 'msg': 'Lỗi xử lý yêu cầu.'}
-        except Exception:   # noqa: BLE001
-            res = {'ok': False, 'msg': 'Lỗi không xác định khi đồng bộ.'}
-        self._json(200 if res.get('ok') else 400,
-                   json.dumps(res, ensure_ascii=False).encode('utf-8'))
-
-    def _post_tc_sync_all(self):
-        # Đồng bộ lại TẤT CẢ bộ test case đã import từ Google Sheet (lặp qua data['imports']).
-        # Mỗi folder re-import bằng url+sheet đã lưu; gom kết quả tổng hợp.
-        res = {'ok': False, 'msg': 'Lỗi xử lý yêu cầu.'}
-        try:
-            payload = self._read_json_body(20_000)
-            overwrite = bool(isinstance(payload, dict) and payload.get('overwrite_results'))
-            from core.testcase_store import load_testcases, save_testcases
-            data = load_testcases()
-            imports = data.get('imports', {}) or {}
-            folder_name = {f.get('id'): f.get('name', f.get('id'))
-                           for f in data.get('folders', [])}
-            if not imports:
-                res = {'ok': False, 'msg': 'Chưa có bộ test case nào được import từ '
-                                           'Google Sheet để đồng bộ.'}
-            else:
-                ok_folders, fail_lines, missing_lines = 0, [], []
-                total_count = 0
-                removed_lines, removed_cases_total = [], 0
-                # Load 1 lần / save 1 lần: mỗi bộ chỉ download+parse+apply lên `data`
-                # chung (KHÔNG tự save toàn store mỗi bộ -> tránh timeout khi nhiều bộ).
-                for folder, info in list(imports.items()):
-                    url = (info or {}).get('url', '')
-                    sheet = (info or {}).get('sheet', '')
-                    if sheet == '(toàn bộ file)':
-                        sheet = ''
-                    name = folder_name.get(folder, folder)
-                    if not url:
-                        fail_lines.append(f'• "{name}": thiếu link Google Sheet đã lưu')
-                        continue
-                    try:
-                        r = tc_import_cases(folder, url, sheet,
-                                            by_email=self._user_email(), _data=data,
-                                            overwrite_results=overwrite)
-                    except (RuntimeError, OSError) as e:
-                        fail_lines.append(f'• "{name}": {e}')
-                        continue
-                    if r.get('ok'):
-                        ok_folders += 1
-                        total_count += r.get('count', 0)
-                        rm = r.get('removed_sheets') or []
-                        if rm:
-                            removed_cases_total += r.get('removed_cases', 0)
-                            preview = ', '.join(f'"{s}"' for s in rm[:8])
-                            more = f' …(+{len(rm) - 8})' if len(rm) > 8 else ''
-                            removed_lines.append(
-                                f'• "{name}": {len(rm)} sheet '
-                                f'({r.get("removed_cases", 0)} test case) — {preview}{more}')
-                        for s, miss in r.get('missing_sheets', []):
-                            preview = ', '.join(str(x) for x in miss[:10])
-                            more = f' …(+{len(miss) - 10})' if len(miss) > 10 else ''
-                            missing_lines.append(
-                                f'• "{name}" › sheet "{s}": {len(miss)} dòng thiếu ID '
-                                f'(dòng {preview}{more})')
-                    else:
-                        fail_lines.append(f'• "{name}": {r.get("msg", "lỗi không rõ")}')
-                if ok_folders and not save_testcases(data):
-                    res = {'ok': False, 'msg': 'Đồng bộ xong nhưng KHÔNG lưu được '
-                                               '(KV/local lỗi). Thử lại.'}
-                else:
-                    msg = f'Đã đồng bộ {ok_folders}/{len(imports)} bộ · {total_count} test case.'
-                    if removed_lines:
-                        msg += (f'\n\nĐã dọn {removed_cases_total} test case của sheet '
-                                f'không còn trong file (mirror Drive):\n'
-                                + '\n'.join(removed_lines))
-                    if missing_lines:
-                        msg += '\n\nCác dòng thiếu ID (đã bỏ qua):\n' + '\n'.join(missing_lines)
-                    if fail_lines:
-                        msg += '\n\nMột số bộ lỗi:\n' + '\n'.join(fail_lines)
-                    res = {'ok': ok_folders > 0, 'msg': msg,
-                           'synced': ok_folders, 'total': len(imports),
-                           'removed_cases': removed_cases_total,
-                           'missing_id_rows': bool(missing_lines)}
-        except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
-            res = {'ok': False, 'msg': 'Lỗi xử lý yêu cầu.'}
-        except Exception:   # noqa: BLE001 — store đã redact token
-            res = {'ok': False, 'msg': 'Lỗi không xác định khi đồng bộ.'}
-        self._json(200 if res.get('ok') else 400,
-                   json.dumps(res, ensure_ascii=False).encode('utf-8'))
-
     def _json(self, status, body):
         self.send_response(status)
         self.send_header('Content-Type', 'application/json')
@@ -1719,9 +1014,8 @@ def main():
     # Jira Cloud (#197): resolve trước accountId cho roster (cache .jira_accounts.json) ở nền
     # -> request đầu tiên không phải chờ N call /user/search. No-op khi đã có cache.
     import threading
-    from config import DEV_USERS
     from jira_cloud import warm_accounts
-    threading.Thread(target=lambda: warm_accounts(list(USERS) + sorted(DEV_USERS)),
+    threading.Thread(target=lambda: warm_accounts(list(USERS)),
                      daemon=True).start()
 
     try:

@@ -22,9 +22,9 @@ Dự án hoạt động theo mô hình Server-Side Rendering (SSR) thuần, kế
 
 1. **Jira API là Source of Truth**: Dữ liệu chính (Task, Status, Assignee, Changelog) được pull trực tiếp từ Jira thông qua REST API sử dụng PAT chung (chỉ có quyền đọc).
 2. **Local Cache & Cloudflare KV Sync**: 
-   - Một số dữ liệu phụ trợ không nằm trong trường chuẩn của Jira (Roadmap, Docs, Custom Status, Test Case link, Bug log link) được lưu vào *Cloudflare KV* để đồng bộ chéo máy giữa các thành viên.
-   - Khi render trang, server fetch Jira API + đọc Local Cache (thường lưu dưới dạng các file `.json` ẩn như `.roadmap_config.json`, `.bug_log.json`).
-   - Nếu Jira bị lỗi hoặc không có mạng, các tính năng không phụ thuộc trực tiếp vào trạng thái Jira Task (như xem list Tài liệu, Roadmap) vẫn render được nhờ Local Cache (Offline fallback).
+   - Một số dữ liệu phụ trợ không nằm trong trường chuẩn của Jira (Docs, Custom Status, Bug log link) được lưu vào *Cloudflare KV* để đồng bộ chéo máy giữa các thành viên.
+   - Khi render trang, server fetch Jira API + đọc Local Cache (thường lưu dưới dạng các file `.json` ẩn như `.docs_config.json`, `.bug_log.json`).
+   - Nếu Jira bị lỗi hoặc không có mạng, các tính năng không phụ thuộc trực tiếp vào trạng thái Jira Task (như xem list Tài liệu, Bug Log) vẫn render được nhờ Local Cache (Offline fallback).
 3. **Real-time Notifications**: Giao diện không dùng Websocket mà sử dụng kỹ thuật *Short-Polling*. Mỗi 60 giây client sẽ gọi background API `/activity-feed`, pull changelog mới nhất và dùng DOM manipulation để hiển thị badge/toast/status mới trực tiếp trên UI.
 
 ---
@@ -44,7 +44,7 @@ Hệ thống hỗ trợ 2 mode hoạt động:
      3. Server đổi Code lấy Access Token, xác nhận Email thuộc `JIRA_ALLOWED_DOMAIN`.
      4. Server tạo **Session Cookie ký HMAC** (chống giả mạo, dùng khoá `SESSION_SECRET`) với thời hạn nhất định (TTL) và gắn vào browser, redirect về `/`.
    - **Sliding Session**: Khi cookie hết nửa thời gian sống, server cấp mới lại (gia hạn) để user không bị gián đoạn (kick out) giữa chừng khi đang làm việc.
-   - **Phân quyền Admin**: Role Admin được xác định qua email khai báo tại biến môi trường `JIRA_ADMIN_EMAIL`. Admin có thêm các quyền: Edit Roadmap, thêm Docs, quản lý Drive Token, và xem tab "Việc của tôi" (My Work) ở level đánh giá team.
+   - **Phân quyền Admin**: Role Admin được xác định qua email khai báo tại biến môi trường `JIRA_ADMIN_EMAIL`. Admin = chính chủ dashboard: xem "Việc của tôi", quản lý Drive Token. (Server chỉ phục vụ localhost — `LOCAL_ONLY`.)
 
 ---
 
@@ -64,9 +64,8 @@ Kiến trúc chia module theo layer rõ ràng, không vòng lặp import (circul
 | **`drive_token.py`** | Xử lý Auth và lưu/đọc Refresh Token của hệ thống Google Drive. |
 | **`bug_log_store.py`** / **`bug_log.py`** | Background thread (10 phút/lần) kéo file XLSX từ Drive về. Module này parse dữ liệu bugs từ các sheet, diff sự thay đổi để tạo notif và cache file local. |
 | **`bug_log_source.py`** | Quản lý danh sách các file/URL Google Sheets đang được link vào Dashboard làm nguồn bug log. |
-| **`roadmap.py`** / **`docs.py`** | Module quản lý tài liệu nội bộ và Roadmap QA. Sync dữ liệu 2 chiều giữa JSON local cache và Cloudflare KV. |
-| **`testcase_store.py`** | Kho lưu trữ Test Case tập trung. Xử lý tạo, xoá, đổi tên cấu trúc thư mục Test Case, import dữ liệu bulk từ Google Sheets. Cache tại local và Cloudflare KV. |
-| **`task_link.py`** / **`testcase_link.py`** | Quản lý mapping Link giữa (Bug log) ↔ (Jira Task) và (Testcase Folder) ↔ (Jira Task). Để khi mở task trên Jira/Dashboard có thể thấy thông tin bug/testcase tương ứng ngay trong Drawer. |
+| **`docs.py`** | Module quản lý tài liệu nội bộ. Sync dữ liệu 2 chiều giữa JSON local cache và Cloudflare KV. |
+| **`task_link.py`** | Quản lý mapping Link (Bug log) ↔ (Jira Task), để drawer task hiện bug liên quan. |
 | **`custom_status.py`** | Xử lý "Nhãn Nội Bộ" (Overlay Status) để gán cho task Jira (VD: *Chờ QA*, *Đã Test*). Dữ liệu này không ghi thật vào Status của Jira mà lưu qua Cloudflare KV. |
 | **`monthly_reporter_chat_app.py`** | Một script tool đứng riêng để tự sinh và báo cáo SLA tháng lên Google Chat thông qua Playwright headless. |
 | **`render.py`** | Module phụ trách toàn bộ Logic Server-Side Rendering (SSR). Map các components lại với nhau và trả ra HTML hoàn chỉnh có gắn string templates. |
@@ -80,28 +79,25 @@ Tái cấu trúc folder (issue #85): code lõi trong `core/`, asset tĩnh trong 
 
 Điều hướng qua **sidebar** bên trái (UI v2). Profile chip dưới sidebar có menu **Cài đặt PAT** + **Đăng xuất**.
 
-| Route | Tab | Mô tả | Ai xem được |
-|---|---|---|---|
-| `/` | **Dashboard** | Vận hành live. Admin thấy lens quản lý toàn team (workload matrix, donut, KPI Vào/Ra, activity feed). QA thường thấy **lens cá nhân** tự scope về mình. | Mọi người |
-| `/my-work` | **Việc của tôi** | Lens cá nhân của admin (task của chính mình), UI hệt QA member. | Chỉ admin (QA → đá về `/`) |
-| `/leader-eval` | **Đánh giá** | Đánh giá task QA theo tháng (lọc category/leader/assignee). | Chỉ admin |
-| `/roadmap` | **Roadmap** | Giai đoạn › mục › sub-task, status/%/hạn; cảnh báo hạn ≤2 tuần đẩy lên dashboard. | Mọi người xem; chỉ admin sửa |
-| `/bug-log` | **Bugs** | Bug log đồng bộ từ file `.xlsx` trên Google Drive + tự liên kết bug ↔ Jira task. | Mọi người (đã đăng nhập) |
-| `/test-cases` | **Test Cases**| Kho lưu trữ Test Case tập trung. Cấu trúc cây thư mục. Chức năng import từ Google Sheet. Tự liên kết Test Case Folder ↔ Jira task. | Mọi người |
-| `/docs` | **Tài liệu** | Cây thư mục + link Google Drive + **upload file thật** cho tài liệu training. | Mọi người xem; chỉ admin sửa |
-| `/analytics` | **Thống Kê**| Thống kê metric dự án (Valid Bug Rate, Tỉ lệ Reopen, Lỗi theo tính năng).| Mọi người |
-| `/settings` | **Cài đặt** | Đặt PAT cá nhân (mã hoá khi lưu) để thao tác ghi Jira đúng tên người. Admin có thêm nút kết nối Google Drive API. | Mọi người |
+| Route | Tab | Mô tả |
+|---|---|---|
+| `/` | — | Redirect về `/my-work`. |
+| `/my-work` | **Việc của tôi** | Task Jira của chính chủ (`JIRA_SELF_USER`): tabs Active/Quá hạn/Kẹt, KPI, drawer chi tiết. |
+| `/bug-log` | **Bugs** | Bug log đồng bộ từ file `.xlsx`/Google Sheet trên Drive + liên kết bug ↔ Jira task. |
+| `/analytics` | **Analytics** | Valid/Rejected Bug Rate, bug theo dev/dự án + severity, Tỷ lệ Reopen, tồn đọng (nguồn report tháng CTO). |
+| `/docs` | **Tài liệu** | Cây thư mục + link Google Drive + upload file, viewer inline, folder Quy Trình. |
+| `/settings` | **Cài đặt** | API token Jira cá nhân (mã hoá khi lưu) + kết nối Google Drive. |
+
+Dashboard dùng riêng 1 người, chỉ chạy trên máy host (`LOCAL_ONLY`). Dashboard team, Roadmap, Test Case, Đánh giá leader và API cho app Android đã gỡ (CLAUDE.md Decision #96/#97).
 
 ## Features chính
 
-- **KPI cards** + **Workload matrix** Assignee × Status, badge QUÁ TẢI/OK/NHẸ (ngưỡng ≥15 / 5–14 / ≤4)
-- **Overdue tính theo ngày làm việc** (T2–T6, bỏ T7/CN); metric "kẹt ≥5 ngày" + "Vào/Ra tuần"
+- **KPI cards** cá nhân: Active · Quá hạn · Kẹt ≥5 ngày · Due tuần này · Done
+- **Overdue tính theo ngày làm việc** (T2–T6, bỏ T7/CN)
 - **Activity feed** dựng từ Jira changelog (status/assignee/duedate/priority/comment/tạo mới); tên người hiển thị đúng (QA = tên ngắn, người ngoài = display name); dismiss đồng bộ chéo máy qua Cloudflare KV.
 - **Notification real-time** — short-poll `/activity-feed` mỗi 60s (tự dừng khi tab ẩn), cập nhật chuông + toast + status/nhãn nội bộ của task **mà KHÔNG reload trang**. (Thay cho cơ chế auto-refresh 15 phút của UI cũ.) Data bảng/KPI/donut vẫn chỉ tươi khi **F5 thủ công**.
-- **Highlight task mới** phát sinh giữa 2 lần refresh (badge NEW cam)
-- **Filter theo người** (assignee/reporter) — client-side, nhớ qua localStorage
 - **Đổi status + gán nhãn nội bộ** (8 nhãn: Dev fix bug, Chờ BA confirm, …) ngay trên dashboard, ghi Jira **bằng PAT cá nhân** → đúng tên người
-- **Tạo QA sub-task** dưới Task-PTSP từ modal (auto-fill `[QA]` + Leader Hiền)
+- **Tạo QA sub-task** dưới bất kỳ task cha (nhiều cha / 1 lần, auto-fill `[QA]`)
 - **Bug log từ Drive**: background thread poll file `.xlsx` mỗi 10 phút, normalize + diff, link bug ↔ Jira task
 - Mọi key Jira là hyperlink → mở thẳng task / drawer chi tiết. UTF-8 tiếng Việt.
 
@@ -139,10 +135,9 @@ Các biến chính (xem `.env.example` để đầy đủ + chú thích):
 | `JIRA_EMAIL` | email Atlassian của chủ token chung |
 | `JIRA_API_TOKEN` | API token chung (dùng để đọc) |
 | `JIRA_ACCOUNT_IDS` | (tùy chọn) JSON override username → accountId |
-| `JIRA_USERS` | username QA team, phân tách dấu phẩy |
 | `JIRA_PORT` | cổng local (mặc định 8080) |
-| `JIRA_ADMIN_EMAIL` | email role admin (sửa roadmap/docs, thấy tab admin) |
-| `JIRA_SELF_USER` | username admin cho `/my-work` (mặc định `thanhht1`) |
+| `JIRA_ADMIN_EMAIL` | email chính chủ (role admin) |
+| `JIRA_SELF_USER` | username Jira duy nhất được tracking (mặc định `thanhht1`) |
 | `JIRA_ALLOWED_DOMAIN` | domain được phép login (vd `baokim.vn`) |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | bật khi golive → bắt đăng nhập Google |
 | `SESSION_SECRET` | khoá ký session cookie (bắt buộc khi bật OAuth): `python -c "import secrets;print(secrets.token_urlsafe(48))"` |
@@ -173,9 +168,8 @@ Mở browser: `http://localhost:8080/`
 
 | Muốn đổi | Cách |
 |---|---|
-| Danh sách user track | Sửa `JIRA_USERS` trong `.env`, restart |
+| User được track | Sửa `JIRA_SELF_USER` trong `.env`, restart |
 | Display name | `config.py` → `DEFAULT_DISPLAY_NAMES` (hoặc env `JIRA_DISPLAY_NAMES` JSON) |
-| Ngưỡng QUÁ TẢI (15/5/4) | `render.py` → workload render |
 | Ngưỡng "kẹt" (5 ngày) | `config.py` → `STUCK_DAYS` |
 | Nhãn nội bộ (custom status) | `custom_status.py` → `CUSTOM_STATUSES` |
 | Field id tạo sub-task | `config.py` → `SUBTASK_TYPE_ID` / `TASK_PTSP_TYPE_ID` / `START_DATE_FIELD` / `LEADER_FIELD` |
@@ -183,7 +177,7 @@ Mở browser: `http://localhost:8080/`
 
 ## Reset state
 
-Roadmap/docs/dismiss/PAT/nhãn nội bộ sync qua Cloudflare KV nên xoá file cache local không mất data (Cloudflare KV là source of truth cho metadata phụ trợ, file local chỉ là cache fallback).
+Docs/dismiss/PAT/nhãn nội bộ sync qua Cloudflare KV nên xoá file cache local không mất data (Cloudflare KV là source of truth cho metadata phụ trợ, file local chỉ là cache fallback).
 
 ## Troubleshooting
 
@@ -194,7 +188,7 @@ Roadmap/docs/dismiss/PAT/nhãn nội bộ sync qua Cloudflare KV nên xoá file 
 | `Không tìm thấy tài khoản Jira Cloud cho "x"` | Không resolve được accountId (email bị ẩn) | Khai `JIRA_ACCOUNT_IDS` trong `.env` |
 | `Port đang bị chiếm` | Process khác dùng 8080 | Đổi `JIRA_PORT` |
 | `Network error` | Không vào được Jira | Check kết nối internet / status.atlassian.com |
-| Trống không có task | JQL ra 0 issue | Check `JIRA_USERS` đúng username |
+| Trống không có task | JQL ra 0 issue | Check `JIRA_SELF_USER` đúng username |
 | Bị đá về `/login` liên tục | OAuth chưa cấu hình đúng | Check `GOOGLE_*` + redirect URI khớp |
 | Đổi status báo "chưa cấu hình API token" | Chưa dán token cá nhân (PAT Jira cũ không còn hiệu lực) | Vào `/settings` dán API token Jira Cloud |
 | Bugs trống / không sync | Chưa kết nối Drive / chưa khai báo file nguồn | `/bug-log` → kết nối Drive + thêm file nguồn |
