@@ -10,9 +10,6 @@ Dependencies (xem `requirements.txt`):
 |---|---|
 | `requests` | gọi Jira REST + Google OAuth/userinfo |
 | `cryptography` | mã hoá at-rest PAT cá nhân + token Drive (Fernet) |
-| `python-dotenv` | đọc `.env` |
-| `google-api-python-client` · `google-auth` | đọc file bug-log `.xlsx` trên Google Drive (tab Bugs) |
-| `playwright` | tooling phụ (`monthly_reporter_chat_app.py`), KHÔNG cần cho dashboard chính |
 
 ---
 
@@ -67,7 +64,6 @@ Kiến trúc chia module theo layer rõ ràng, không vòng lặp import (circul
 | **`docs.py`** | Module quản lý tài liệu nội bộ. Sync dữ liệu 2 chiều giữa JSON local cache và Cloudflare KV. |
 | **`task_link.py`** | Quản lý mapping Link (Bug log) ↔ (Jira Task), để drawer task hiện bug liên quan. |
 | **`custom_status.py`** | Xử lý "Nhãn Nội Bộ" (Overlay Status) để gán cho task Jira (VD: *Chờ QA*, *Đã Test*). Dữ liệu này không ghi thật vào Status của Jira mà lưu qua Cloudflare KV. |
-| **`monthly_reporter_chat_app.py`** | Một script tool đứng riêng để tự sinh và báo cáo SLA tháng lên Google Chat thông qua Playwright headless. |
 | **`render.py`** | Module phụ trách toàn bộ Logic Server-Side Rendering (SSR). Map các components lại với nhau và trả ra HTML hoàn chỉnh có gắn string templates. |
 | **`routes/`** | Chứa `oauth.py`, `write.py`, `uploads.py` là các Mixins Class để tách nhỏ logic xử lý HTTP route khỏi file `qa_dashboard.py` khổng lồ. |
 
@@ -84,7 +80,7 @@ Tái cấu trúc folder (issue #85): code lõi trong `core/`, asset tĩnh trong 
 | `/` | — | Redirect về `/my-work`. |
 | `/my-work` | **Việc của tôi** | Task Jira của chính chủ (`JIRA_SELF_USER`): tabs Active/Quá hạn/Kẹt, KPI, drawer chi tiết. |
 | `/bug-log` | **Bugs** | Bug log đồng bộ từ file `.xlsx`/Google Sheet trên Drive + liên kết bug ↔ Jira task. |
-| `/analytics` | **Analytics** | Valid/Rejected Bug Rate, bug theo dev/dự án + severity, Tỷ lệ Reopen, tồn đọng (nguồn report tháng CTO). |
+| `/analytics` | **Analytics** | Valid/Rejected Bug Rate, bug theo dev/dự án + severity, Tỷ lệ Reopen, tồn đọng. |
 | `/docs` | **Tài liệu** | Cây thư mục + link Google Drive + upload file, viewer inline, folder Quy Trình. |
 | `/settings` | **Cài đặt** | API token Jira cá nhân (mã hoá khi lưu) + kết nối Google Drive. |
 
@@ -200,7 +196,6 @@ Docs/dismiss/PAT/nhãn nội bộ sync qua Cloudflare KV nên xoá file cache lo
 Khi setup cron, launchd plist, alias hay shortcut, **đừng trỏ thẳng vào module con** (chúng có thể bị move khi tái cấu trúc folder — như issue #85 đã move mọi thứ vào `core/`/`scripts/`). Quy ước:
 
 - **Chạy dashboard** → luôn gọi entry ở root: `python3 /Users/thanhht/qa-dashboard/qa_dashboard.py` (hoặc `start.command`/`start.bat`). Đây là API ổn định, không bao giờ move.
-- **Script tiện ích** → nằm trong `scripts/` (vd `run_monthly_report.sh`). Job phải `cd <root>` rồi gọi `scripts/<tên>`.
-- **Tool định kỳ** (`monthly_reporter_chat_app.py`) → nằm trong `core/`. Job phải `cd <root>` rồi gọi `core/<tên>.py` (cwd phải là root để đọc đúng `.env` + `gcp-service-account.json`).
+- **Script tiện ích** → nằm trong `scripts/` (vd `install_autostart.ps1`). Job phải `cd <root>` rồi gọi `scripts/<tên>`.
 
-Daemon hiện có trên host Mac (audit issue #88): `com.qa.dashboard` (→ `qa_dashboard.py` root, OK), `com.qa.cloudflared`, `com.qa.socks` (không trỏ module Python), và 1 crontab chạy `core/monthly_reporter_chat_app.py --cron` cuối tháng.
+Daemon hiện có trên host Mac (audit issue #88): `com.qa.dashboard` (→ `qa_dashboard.py` root, OK), `com.qa.cloudflared`, `com.qa.socks` (không trỏ module Python).
