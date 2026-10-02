@@ -7,7 +7,8 @@ the full document. Assets inline per-render via render.base. See issue #104 / #8
 import json
 from datetime import datetime
 
-from config import JIRA_URL, USERS, display_name, username_from_email
+from config import (JIRA_URL, USERS, LOCAL_AUTOLOGIN, OWNER_EMAIL, display_name,
+                    username_from_email)
 from custom_status import CUSTOM_STATUSES
 from issues import esc
 
@@ -55,7 +56,7 @@ def render_sidebar_v2(active, user):
     email = user[0] if (user and user[0]) else ''
 
     # Phosphor: nav mặc định light; tab đang active dùng fill (đậm nét) thay cho FILL 1 của Material.
-    _ph_nav = {'person': 'user', 'bug_report': 'bug-beetle', 'monitoring': 'chart-line-up',
+    _ph_nav = {'today': 'sun-horizon', 'person': 'user', 'bug_report': 'bug-beetle', 'monitoring': 'chart-line-up',
                'description': 'file-text'}
 
     def lnk(href, key, icon, label):
@@ -65,7 +66,8 @@ def render_sidebar_v2(active, user):
         return (f'<a{cls} href="{href}"><span class="material-symbols-rounded ph-{wt} ph-{ph}"></span> {label}</a>')
 
     # Dashboard dùng riêng 1 người (Decision #97): chỉ còn lens cá nhân + bug/tài liệu.
-    nav = lnk('/my-work', 'mywork', 'person', 'Việc của tôi')
+    nav = lnk('/today', 'today', 'today', 'Hôm nay')   # trang chính (Decision #102)
+    nav += lnk('/my-work', 'mywork', 'person', 'Việc của tôi')
     nav += lnk('/bug-log', 'buglog', 'bug_report', 'Bugs')
     nav += lnk('/analytics', 'analytics', 'monitoring', 'Analytics')
     nav += lnk('/docs', 'docs', 'description', 'Tài liệu')
@@ -78,7 +80,8 @@ def render_sidebar_v2(active, user):
     sub = esc(email) if email else 'Local dev'
     logout = ('<div class="sep"></div>'
               '<a class="danger" href="/logout"><span class="material-symbols-rounded ph-light ph-sign-out mi-sm"></span> Đăng xuất</a>'
-              ) if email else ''
+              ) if (email and not (LOCAL_AUTOLOGIN and email == OWNER_EMAIL)) else ''
+    # Auto-login chính chủ (Decision #98): đăng xuất xong vẫn tự vào lại -> ẩn nút cho khỏi lừa.
     return (
         '<aside class="sidebar" id="sidebar">'
         '<div class="brand"><h1>QA Workspace</h1></div>'
@@ -155,6 +158,15 @@ def _settings_modal_v2(user=None):
         '<div class="inp-wrap"><input type="password" id="patInp" placeholder="Dán API token của bạn vào đây..." autocomplete="off" spellcheck="false">'
         '<button type="button" class="eye material-symbols-rounded ph-light ph-eye mi-sm" id="patShowBtn"></button></div></div>'
         + drive +
+        # Thông báo desktop (Decision #103) — quyền do browser giữ theo origin, state ở localStorage.
+        '<div class="set-drive" id="setNotifSect">'
+        '<label class="set-drive-lbl"><span class="material-symbols-rounded ph-light ph-bell-ringing mi-sm"></span> '
+        'Thông báo desktop</label>'
+        '<p class="modal-note">Hiện thông báo của Windows khi có noti mới (được nhắc, đổi status, comment) '
+        'lúc bạn KHÔNG đang xem dashboard. Giữ ít nhất 1 tab dashboard mở (có thể thu nhỏ).</p>'
+        '<div class="set-drive-state" id="setNotifState"></div>'
+        '<div class="set-drive-acts"><button type="button" class="btn btn-ghost" id="setNotifBtn">Bật thông báo</button></div>'
+        '</div>'
         '</div>'
         '<div class="modal-foot">'
         '<button type="button" class="btn btn-danger" id="patDelBtn">Xoá token</button>'

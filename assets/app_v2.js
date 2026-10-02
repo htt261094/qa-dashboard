@@ -122,6 +122,52 @@ function bugSectionHtml(d){
   return '<div class="dt-sec-title">Bug liên quan ('+bugs.length+')</div><div class="dt-bugs">'+rows+'</div>';
 }
 
+// ---------- ghi chú riêng theo task (Decision #101) — drawer mọi trang ----------
+// NOTE_TXT[key] = bản đang có ở client (đã gõ/đã lưu) -> drawer render lại (poll 60s, đổi status)
+// KHÔNG làm mất chữ đang gõ. Lần đầu lấy từ detail.note (/issue-comments). Chỉ chính chủ.
+var NOTE_TXT={}, NOTE_AT={};
+function noteSectionHtml(key, d){
+  if(!window.__isAdmin || !d) return '';
+  if(NOTE_TXT[key]===undefined){ NOTE_TXT[key]=(d.note&&d.note.t)||''; NOTE_AT[key]=(d.note&&d.note.at)||''; }
+  var at=NOTE_AT[key] ? 'Đã lưu '+esc(NOTE_AT[key].slice(0,16).replace('T',' ')) : 'Chỉ mình bạn thấy · tự lưu';
+  return '<div class="dt-sec-title">Ghi chú riêng</div>'
+    +'<div class="dt-note"><textarea class="dt-note-ta" data-note-key="'+esc(key)+'" rows="3" maxlength="5000" '
+    +'placeholder="Checklist, lý do đang chờ, link Chat… (không đẩy lên Jira)">'+esc(NOTE_TXT[key])+'</textarea>'
+    +'<div class="dt-note-st" id="noteSt-'+esc(key)+'">'+at+'</div></div>';
+}
+(function(){
+  var timers={};
+  function save(key){
+    clearTimeout(timers[key]); delete timers[key];
+    var txt=NOTE_TXT[key]||'', st=$('noteSt-'+key);
+    if(st) st.textContent='Đang lưu…';
+    postJSON('/set-note', { key:key, text:txt }, 15000).then(function(j){
+      var el=$('noteSt-'+key);
+      if(j && j.ok){ NOTE_AT[key]=(j.note&&j.note.at)||'';
+        if(el) el.textContent=NOTE_AT[key]?('Đã lưu '+NOTE_AT[key].slice(0,16).replace('T',' ')):'Đã xoá ghi chú';
+        if(window.__applyNotePatch) window.__applyNotePatch(key, !!(txt.trim())); }
+      else if(el) el.textContent='⚠ Không lưu được — thử gõ lại';
+    }).catch(function(){ var el=$('noteSt-'+key); if(el) el.textContent='⚠ Lỗi mạng — chưa lưu'; });
+  }
+  document.addEventListener('input', function(e){
+    var ta=e.target; if(!ta.classList || !ta.classList.contains('dt-note-ta')) return;
+    var key=ta.getAttribute('data-note-key'); NOTE_TXT[key]=ta.value;
+    var st=$('noteSt-'+key); if(st) st.textContent='Chưa lưu…';
+    clearTimeout(timers[key]); timers[key]=setTimeout(function(){ save(key); }, 900);
+  });
+  // blur = lưu ngay (đóng drawer/chuyển trang không mất chữ của 900ms cuối)
+  document.addEventListener('focusout', function(e){
+    var ta=e.target; if(!ta.classList || !ta.classList.contains('dt-note-ta')) return;
+    var key=ta.getAttribute('data-note-key'); if(timers[key]) save(key);
+  });
+  window.addEventListener('pagehide', function(){
+    Object.keys(timers).forEach(function(key){
+      try{ fetch('/set-note', { method:'POST', keepalive:true,
+        headers:{'Content-Type':'application/json'}, body:JSON.stringify({key:key, text:NOTE_TXT[key]||''}) }); }catch(_){}
+    });
+  });
+})();
+
 // ---------- toast (stack queue, max 3, giữ nguyên signature toast(msg, ok)) ----------
 function toast(msg, ok){
   var wrap=$('toastWrap');
@@ -409,6 +455,7 @@ function skelComments(){
   var BUG_CLS={ 'New':'st-open','Fixing':'st-fixing','Fixed':'st-fixed','Reopen':'st-reopen',
                 'Rejected':'st-rejected','Closed':'st-closed' };
   var NAV=[
+    {label:'Hôm nay', href:'/today', icon:'sun-horizon'},
     {label:'Việc của tôi', href:'/my-work', icon:'person'},
     {label:'Bug Log', href:'/bug-log', icon:'bug_report'},
     {label:'Analytics', href:'/analytics', icon:'monitoring'},
@@ -418,6 +465,8 @@ function skelComments(){
     {label:'Tạo Sub-task', icon:'add_task', run:function(){ var b=$('createSubBtn'); if(b) b.click(); }},
     {label:'Đổi giao diện sáng / tối', icon:'contrast', run:function(){ var b=$('themeBtn'); if(b) b.click(); }},
     {label:'Cài đặt API token / Drive', icon:'key', run:function(){ var o=$('setOverlay'); if(o) o.classList.add('open'); }},
+    {label:'Bật / tắt thông báo desktop', icon:'notifications', run:function(){ var d=window.__desktopNotif; if(!d) return;
+      if(d.on()) d.disable(); else d.enable(); }},
     isAdmin?{label:'Sync bug log ngay', icon:'sync', run:function(){
       toast('Đang sync bug log…', true);
       postJSON('/sync-bug-log', {}, 60000).then(function(j){
@@ -516,6 +565,25 @@ function skelComments(){
     if(i!==active){ active=i; render(); }
   });
   ov.addEventListener('mousedown', function(e){ if(e.target===ov) closePal(); });
+})();
+
+// ---------- toggle thông báo desktop trong modal Setting (Decision #103) ----------
+(function(){
+  var btn=$('setNotifBtn'), st=$('setNotifState'); if(!btn) return;
+  function refresh(){
+    var d=window.__desktopNotif, perm=window.Notification?Notification.permission:'unsupported';
+    var on=!!(d && d.on());
+    btn.textContent=on?'Tắt thông báo':'Bật thông báo';
+    st.textContent = perm==='unsupported' ? 'Trình duyệt không hỗ trợ.'
+      : perm==='denied' ? '⚠ Trình duyệt đang chặn — bấm ổ khoá cạnh thanh địa chỉ → Thông báo → Cho phép.'
+      : on ? '✓ Đang bật.' : 'Đang tắt.';
+    st.className='set-drive-state'+(on?' ok':(perm==='denied'?' warn':''));
+  }
+  btn.addEventListener('click', function(){ var d=window.__desktopNotif; if(!d) return;
+    if(d.on()){ d.disable(); refresh(); } else d.enable().then(refresh); });
+  // __desktopNotif định nghĩa ở module chuông (chạy SAU module này) -> refresh khi mở modal
+  document.addEventListener('click', function(e){ if(e.target.closest('#pmSettings')) setTimeout(refresh, 0); });
+  setTimeout(refresh, 0);
 })();
 
 // ---------- settings PAT modal ----------
@@ -998,20 +1066,84 @@ window.__smSetCustom=function(t, key, val, onChanged){
   NOTIFS.forEach(function(n){ seenIds[n.id]=1; });   // baseline embed lúc load -> không toast giả lần poll đầu
   function applyFeed(acts){
     if(!Array.isArray(acts)) return;
-    var freshUnread=0;
+    var freshUnread=0, freshIds={};
     acts.forEach(function(n){
       if(localRead[n.id]) n.is_unread=false;          // dismiss local thắng (Jira property có thể chưa kịp sync)
-      if(!seenIds[n.id]){ seenIds[n.id]=1; if(n.is_unread) freshUnread++; }
+      if(!seenIds[n.id]){ seenIds[n.id]=1; if(n.is_unread){ freshUnread++; freshIds[n.id]=1; } }
     });
     NOTIFS = acts;
     render();
+    fireDesktop(acts.filter(function(n){ return n.is_unread && freshIds[n.id]; }));
     if(freshUnread>0){ toast('🔔 '+freshUnread+' thông báo mới', true);
       // pulse chuông khi có unread MỚI (không pulse khi chỉ re-render)
       if(dot){ dot.classList.remove('pulse'); void dot.offsetWidth; dot.classList.add('pulse'); }
     }
   }
+  // --------- thông báo desktop (Decision #103) ---------
+  // Chỉ 1 tab "leader" (Web Lock) được poll khi ẩn + bắn Notification -> nhiều tab KHÔNG bắn trùng,
+  // tab ẩn còn lại vẫn nghỉ như cũ (đỡ tải Jira). Chỉ bắn khi KHÔNG tab dashboard nào đang focus
+  // (đang nhìn thì đã có toast + chuông). Id đã bắn lưu localStorage -> reload không bắn lại.
+  var isLeader=false;
+  try{ if(navigator.locks) navigator.locks.request('qa-notif-leader', function(){
+    isLeader=true; return new Promise(function(){}); }); }catch(_){}
+  function lsGet(k){ try{ return localStorage.getItem(k); }catch(_){ return null; } }
+  function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(_){} }
+  function desktopOn(){ return lsGet('qa-desktop-notif')==='1' && window.Notification
+    && Notification.permission==='granted'; }
+  window.addEventListener('focus', function(){ lsSet('qa-focus','1'); });
+  window.addEventListener('blur', function(){ lsSet('qa-focus','0'); });
+  if(document.hasFocus()) lsSet('qa-focus','1');
+  window.addEventListener('pagehide', function(){ if(document.hasFocus()) lsSet('qa-focus','0'); });
+  // cờ 'qa-focus' chung mọi tab: tab nào đang focus thì '1' (blur/đóng -> '0'); leader đọc cờ này
+  // để biết bạn có đang nhìn MỘT tab dashboard nào đó không, kể cả khi chính leader đang ẩn.
+  function anyFocused(){ return document.hasFocus() || lsGet('qa-focus')==='1'; }
+  function plain(html){ var d=document.createElement('div'); d.innerHTML=html; return d.textContent||''; }
+  function fireDesktop(items){
+    if(!isLeader || !desktopOn() || anyFocused() || !items.length) return;
+    var shown={}; try{ shown=JSON.parse(lsGet('qa-notif-shown')||'{}')||{}; }catch(_){}
+    var now=Date.now(), fresh=items.filter(function(n){ return !shown[n.id]; });
+    fresh.forEach(function(n){ shown[n.id]=now; });
+    Object.keys(shown).forEach(function(k){ if(now-shown[k]>14*864e5) delete shown[k]; });
+    var keys=Object.keys(shown); if(keys.length>500) keys.sort(function(a,b){ return shown[a]-shown[b]; })
+      .slice(0, keys.length-500).forEach(function(k){ delete shown[k]; });
+    lsSet('qa-notif-shown', JSON.stringify(shown));
+    if(!fresh.length) return;
+    function open(n){ return function(){ try{ window.focus(); }catch(_){}
+      if(n){ postJSON('/dismiss', { ids:[n.id] }, 20000).catch(function(){}); markRead([n.id]);
+        if(window.__openDetail) window.__openDetail(n.key); }
+      this.close(); }; }
+    try{
+      if(fresh.length>3){
+        var nb=new Notification('QA Workspace · '+fresh.length+' thông báo mới', {
+          body: fresh.slice(0,3).map(function(n){ return plain(ntext(n)); }).join('\n')+'\n…', tag:'qa-batch' });
+        nb.onclick=open(null);
+      } else fresh.forEach(function(n){
+        var x=new Notification((n.mention?'🔔 Được nhắc · ':'')+(n.key||'QA Workspace'), {
+          body: plain(ntext(n))+(n.body?'\n“'+n.body+'”':''), tag:n.id });
+        x.onclick=open(n);
+      });
+    }catch(_){}
+  }
+  window.__desktopNotif={
+    on: function(){ return desktopOn(); },
+    wanted: function(){ return lsGet('qa-desktop-notif')==='1'; },
+    enable: function(){
+      if(!window.Notification){ toast('Trình duyệt không hỗ trợ thông báo desktop', false); return Promise.resolve(false); }
+      return Promise.resolve(Notification.requestPermission()).then(function(p){
+        if(p==='granted'){ lsSet('qa-desktop-notif','1'); toast('Đã bật thông báo desktop ✓', true);
+          // đánh dấu đã thấy mọi noti hiện có -> không bắn dồn cả lô cũ ngay sau khi bật
+          var shown={}; NOTIFS.forEach(function(n){ shown[n.id]=Date.now(); });
+          lsSet('qa-notif-shown', JSON.stringify(shown)); return true; }
+        toast(p==='denied' ? 'Trình duyệt đang CHẶN thông báo cho localhost — mở biểu tượng ổ khoá cạnh thanh địa chỉ để cho phép'
+                           : 'Chưa cấp quyền thông báo', false);
+        return false; });
+    },
+    disable: function(){ lsSet('qa-desktop-notif','0'); toast('Đã tắt thông báo desktop', true); }
+  };
+
   function poll(){
-    if(document.hidden) return;                        // tab ẩn -> bỏ qua, đỡ tải Jira
+    // tab ẩn -> bỏ qua, đỡ tải Jira; trừ tab leader khi bật thông báo desktop (#103)
+    if(document.hidden && !(isLeader && desktopOn())) return;
     getJSON('/activity-feed', 20000).then(function(j){
       if(j && j.ok){ applyFeed(j.activities);
         // Vá status Jira + nhãn nội bộ vào bảng/drawer (Decision #24), KHÔNG reload trang.
@@ -1081,7 +1213,8 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var cnt = nc ? '<span class="cmt-count">'+nc+'</span>' : '';
     return '<tr'+(t.overdue?' class="overdue-row"':'')+' data-key="'+esc(t.key)+'">'
       +'<td><a class="key" href="'+esc(t.jiraUrl)+'" target="_blank">'+esc(t.key)+'</a></td>'
-      +'<td class="title clickable" data-act="detail" data-key="'+esc(t.key)+'">'+esc(t.summary)+'</td>'
+      +'<td class="title clickable" data-act="detail" data-key="'+esc(t.key)+'">'+esc(t.summary)
+      +(t.hasNote?' <span class="note-ic material-symbols-rounded ph-light ph-note-pencil mi-xs" title="Có ghi chú riêng"></span>':'')+'</td>'
       +'<td class="status-cell"><div class="stat-wrap"><span class="badge '+jiraCls(t.jira)+'">'+esc(t.jira)+'</span>'
       +'<button class="caret material-symbols-rounded ph-light ph-caret-down mi-sm" data-act="smenu" data-key="'+esc(t.key)+'"></button></div>'+chipHTML(t)+'</td>'
       +'<td><span class="assignee"><span class="av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span> '+esc(t.assignee.name)+'</span></td>'
@@ -1222,6 +1355,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
       +'<div class="lbl">Cảnh báo</div><div class="val">'+flags+'</div></div>'
       +'<div class="dt-sec-title">Mô tả</div><div class="dt-desc">'+desc+'</div>'
       +bugSectionHtml(DETAIL[t.key])
+      +noteSectionHtml(t.key, DETAIL[t.key])
       +'<div class="dt-cmts"><div class="dt-sec-title">Bình luận ('+(list&&list.length||0)+')</div>'
       +'<div class="cmt-panel"><div class="cmt-history">'+hist+'</div>'
       +'<div class="cmt-box"><textarea id="dtTa-'+esc(t.key)+'" placeholder="Viết bình luận... (gõ @ để nhắc người)"></textarea>'
@@ -1288,6 +1422,10 @@ window.__smSetCustom=function(t, key, val, onChanged){
     }
   };
   window.__rerenderRows=renderRows;
+  window.__applyNotePatch=function(key, has){
+    var t=TASKS.filter(function(x){ return x.key===key; })[0];
+    if(t && !!t.hasNote!==has){ t.hasNote=has; renderRows(); }
+  };
 
   setFilter('all');
 })();
@@ -1344,6 +1482,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
       +'<div class="lbl">Cảnh báo</div><div class="val">'+flags+'</div></div>'
       +'<div class="dt-sec-title">Mô tả</div><div class="dt-desc">'+desc+'</div>'
       +bugSectionHtml(DETAIL[t.key])
+      +noteSectionHtml(t.key, DETAIL[t.key])
       +'<div class="dt-cmts"><div class="dt-sec-title">Bình luận ('+(list&&list.length||0)+')</div>'
       +'<div class="cmt-panel"><div class="cmt-history">'+hist+'</div>'
       +'<div class="cmt-box"><textarea id="dtTa-'+esc(t.key)+'" placeholder="Viết bình luận... (gõ @ để nhắc người)"></textarea>'
@@ -1382,6 +1521,20 @@ window.__smSetCustom=function(t, key, val, onChanged){
         if(j.ok){ (COMMENTS[key]=COMMENTS[key]||[]).push({author:'Bạn', when:new Date().toISOString(), body:v});
           if(CUR[key]) renderDrawer(CUR[key]); toast('Đã gửi comment ✓', true); }
         else toast(j.msg||'Lỗi gửi comment', false); }).catch(function(){ toast('Lỗi mạng', false); }); }
+  });
+})();
+
+// ================= HÔM NAY (guard #todayPage — Decision #102) =================
+// Trang không có #rows -> drawer là SHARED DRAWER ở trên. Hàng mention: mở + đánh dấu đã đọc.
+(function(){
+  var page=$('todayPage'); if(!page) return;
+  page.addEventListener('click', function(e){
+    if(e.target.closest('a[href]')) return;              // key -> mở Jira tab mới như bình thường
+    var row=e.target.closest('[data-today-open]'); if(!row) return;
+    var key=row.getAttribute('data-today-open'), id=row.getAttribute('data-actid');
+    if(id){ postJSON('/dismiss', { ids:[id] }, 20000).catch(function(){});
+      row.classList.add('read'); }
+    if(key && window.__openDetail) window.__openDetail(key);
   });
 })();
 

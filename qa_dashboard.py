@@ -15,13 +15,23 @@ from datetime import datetime
 from http.cookies import SimpleCookie
 from urllib.parse import urlparse, parse_qs
 
+# Chạy bằng pythonw (autostart lúc logon — Decision #99) thì KHÔNG có console: sys.stdout/stderr
+# = None -> log_message/print(file=sys.stderr) raise AttributeError mỗi request. Đổ cả 2 ra
+# reports/dashboard.log (append, line-buffered) để còn đọc được log khi chạy ẩn.
+if sys.stdout is None or sys.stderr is None:
+    _logdir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'reports')
+    os.makedirs(_logdir, exist_ok=True)
+    _logf = open(os.path.join(_logdir, 'dashboard.log'), 'a', encoding='utf-8', buffering=1)
+    sys.stdout = sys.stdout or _logf
+    sys.stderr = sys.stderr or _logf
+
 # Core modules live in ./core/ (issue #85). Add it to sys.path so sibling-style
 # imports (`from config import ...`) keep working unchanged.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'core'))
 
 from config import (JIRA_URL, USERS, PORT, ADMIN_EMAIL, ADMIN_EMAILS, ALLOWED_DOMAIN,
                     AUTH_ENABLED, SELF_USER, PUBLIC_BASE_URL, LOCAL_ONLY,
-                    display_name, username_from_email, canon_key)
+                    LOCAL_AUTOLOGIN, OWNER_EMAIL, display_name, username_from_email, canon_key)
 from auth import (SESSION_COOKIE, SESSION_TTL, email_from_session,
                   session_status, make_session_token)
 from drive_token import has_drive_token, delete_drive_token
@@ -39,7 +49,8 @@ from docs import load_docs, save_docs, valid_tree, ensure_process_folder
 from pat_store import save_user_pat, has_pat, delete_user_pat
 from custom_status import (load_bundle, load_overlay, values_of,
                            clear_labels_for_done)
-from render import (render_qa_v2, render_docs_page, render_bug_log_v2, render_analytics_v2,
+from task_notes import load_notes, note_for
+from render import (render_qa_v2, render_today_v2, render_docs_page, render_bug_log_v2, render_analytics_v2,
                     render_settings_page, render_error_page, render_403, render_shell_error)
 from routes.oauth import OAuthMixin
 from routes.write import WriteMixin
@@ -102,7 +113,34 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         cloudflared KHÔNG strip → client bịa header trần đi thẳng tới origin. Với AUTH bật,
         `_authed()`/`_is_admin()` chỉ cần email hợp lệ (không đòi loopback) → set header =
         thành admin, bypass toàn bộ Google OAuth. Identity CHỈ đến từ token HMAC do app ký."""
-        return email_from_session(self._cookie(SESSION_COOKIE)) or ''
+        email = email_from_session(self._cookie(SESSION_COOKIE))
+        if email:
+            return email
+        # Auto-login chính chủ (Decision #98): đã qua gate LOCAL_ONLY = người ngồi trước máy.
+        # An toàn chỉ vì MỌI POST còn qua _same_origin_ok (bỏ cookie = mất lớp SameSite chống CSRF).
+        if self._autologin_ok():
+            return OWNER_EMAIL
+        return ''
+
+    def _autologin_ok(self):
+        return bool(LOCAL_AUTOLOGIN and OWNER_EMAIL and self._local_only_ok())
+
+    def _same_origin_ok(self):
+        """Chống CSRF cho POST (Decision #98). Browser luôn gắn `Sec-Fetch-Site`/`Origin` cho POST
+        cross-site — trang web lạ đang mở (hoặc HTML upload chạy trong iframe sandbox /file-raw,
+        origin 'null') POST tới localhost sẽ mang Host=localhost nên gate LOCAL_ONLY KHÔNG chặn
+        được. Trước đây cookie SameSite=Lax che; auto-login không cần cookie nên phải chặn ở đây.
+        Thiếu cả 2 header (curl/script local) -> cho qua: tiến trình trên chính máy nằm ngoài
+        mô hình đe doạ (nó đọc được .env rồi)."""
+        sfs = (self.headers.get('Sec-Fetch-Site') or '').strip().lower()
+        if sfs and sfs not in ('same-origin', 'none'):
+            return False
+        origin = self.headers.get('Origin')
+        if origin is not None:
+            host = (self.headers.get('Host') or '').strip().lower()
+            if urlparse(origin.strip()).netloc.lower() != host or not host:
+                return False
+        return True
 
     def _is_loopback(self):
         """TCP peer của request có phải loopback (127.0.0.0/8 hoặc ::1) không.
@@ -349,6 +387,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             self._forbidden()
             return
         if path == '/login':
+            if self._autologin_ok():          # Decision #98: chính chủ khỏi login
+                self._redirect('/')
+                return
             self._do_login()
             return
         if path == '/oauth/callback':
@@ -382,6 +423,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             return
         if path == '/file-raw':
             self._get_file_raw()       # HTML thô, sandbox, để nhúng iframe (#65)
+            return
+        if path in ('/today', '/today.html'):
+            self._get_today()          # trang chính (Decision #102)
             return
         if path in ('/my-work', '/my-work.html'):
             self._get_my_work()
@@ -429,7 +473,7 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             self._get_settings()
             return
         if path in ('/', '/index.html'):
-            self._redirect('/my-work')   # dashboard team đã gỡ (Decision #97)
+            self._redirect('/today')     # trang chính = Hôm nay (Decision #102)
             return
         self.send_response(404)
         self.end_headers()
@@ -444,17 +488,32 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             self._forbidden()
             return
         try:
-            data, overlay, bell, stale = self._my_work_bundle(self._wants_fresh())
+            data, overlay, bell, stale, notes = self._my_work_bundle(self._wants_fresh())
         except RuntimeError:
             self._html(render_shell_error('mywork', self._user_ctx(),
                                           title='Việc của tôi — QA Workspace'))
             return
         # UI hệt QA member (render_qa_v2), chỉ highlight tab "Việc của tôi" ở sidebar
         self._html(render_qa_v2(data, bell, overlay, self._user_ctx(),
-                                nav_active='mywork', stale=stale))
+                                nav_active='mywork', stale=stale, notes=notes))
+
+    def _get_today(self):
+        # Hôm nay (Decision #102) = cùng bundle với Việc của tôi, chỉ khác cách gom nhóm.
+        # Admin-only như /my-work; KHÔNG redirect về `/` khi 403 (`/` lại redirect về đây).
+        if not self._is_admin():
+            self._forbidden()
+            return
+        try:
+            data, overlay, bell, stale, notes = self._my_work_bundle(self._wants_fresh())
+        except RuntimeError:
+            self._html(render_today_v2(None, self._bell_activities(), None, self._user_ctx(),
+                                       jira_error=True))
+            return
+        self._html(render_today_v2(data, bell, overlay, self._user_ctx(),
+                                   notes=notes, stale=stale))
 
     def _my_work_bundle(self, fresh):
-        """Fetch + scope snapshot cho lens "Việc của tôi". Trả `(data, overlay, bell, stale)`.
+        """Fetch + scope snapshot cho lens "Việc của tôi". Trả `(data, overlay, bell, stale, notes)`.
         Raise RuntimeError khi Jira down (caller tự render lỗi). overlay/bell degrade mềm
         (KV/chuông fail -> None/[]) như hành vi cũ."""
         scope = self._self_username()
@@ -469,7 +528,11 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             bell = self._bell_activities(force=fresh)
         except RuntimeError:
             bell = []
-        return data, overlay, bell, stale
+        try:
+            notes = load_notes()
+        except Exception:   # noqa: BLE001 — ghi chú là phụ trợ, lỗi kho -> bảng vẫn hiện
+            notes = {}
+        return data, overlay, bell, stale, notes
 
     def _get_docs(self):
         # tài liệu training: load song song tài liệu và chuông notif (đồng nhất mọi tab)
@@ -538,12 +601,15 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             # Jira detail + bug đã link tới task (chiều ngược task_link) song song.
             res = run_parallel({'detail': lambda: fetch_issue_detail(key),
                                 'bugs': lambda: self._bugs_for_task(key),
-                                'overlay': lambda: load_overlay()})
+                                'overlay': lambda: load_overlay(),
+                                'notes': lambda: load_notes() if self._is_admin() else {}})
             detail = res['detail']
             detail['bugs'] = res['bugs']
             # Nhãn nội bộ (custom status overlay) — để drawer mở từ noti (task ngoài
             # bucket TASKS) vẫn hiện nhãn thay vì '—' (đồng nhất với click từ bảng).
             detail['customs'] = values_of((res['overlay'] or {}).get(key))
+            # Ghi chú riêng (Decision #101) — chỉ chính chủ; drawer mọi trang đọc từ đây.
+            detail['note'] = note_for(key, res['notes']) if res['notes'] else None
             self._json(200, json.dumps({'ok': True, 'detail': detail}).encode('utf-8'))
         except RuntimeError:
             self._json(400, b'{"ok":false,"msg":"loi"}')
@@ -688,7 +754,8 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         # Dispatch mỏng: gate auth/domain rồi route tới method _post_* / _handle_*.
         # Giữ NGUYÊN thứ tự kiểm tra path (zero behavior change — B0b/#112).
         # Fail-closed (issue #44): AUTH tắt + không loopback -> 403 (đã gộp trong _authed).
-        if not self._local_only_ok() or not self._authed() or not self._domain_ok():
+        if (not self._local_only_ok() or not self._same_origin_ok()
+                or not self._authed() or not self._domain_ok()):
             self._json(403, b'{"ok":false,"err":"forbidden"}')
             return
         path = urlparse(self.path).path
@@ -721,6 +788,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             return
         if path == '/set-custom-status':
             self._post_set_custom_status()
+            return
+        if path == '/set-note':
+            self._post_set_note()      # routes/write.py (Decision #101)
             return
         if path in ('/jira-transitions', '/do-transition', '/add-comment',
                          '/duedate-perm', '/set-duedate', '/edit-perms', '/update-issue'):
@@ -996,6 +1066,13 @@ def main():
         print("     loopback (127.0.0.1). Mọi request local = ADMIN. KHÔNG expose ra ngoài.", file=sys.stderr)
     if LOCAL_ONLY:
         print("  🔒 LOCAL_ONLY: chỉ phục vụ chính máy này (localhost) — request qua tunnel bị 403.")
+    if LOCAL_AUTOLOGIN:
+        if OWNER_EMAIL:
+            print("  🔓 LOCAL_AUTOLOGIN: tự đăng nhập chính chủ — khỏi login Google.")
+        else:
+            print("  ⚠  LOCAL_AUTOLOGIN bật nhưng không xác định được email chính chủ "
+                  "(JIRA_ADMIN_EMAIL có nhiều email, không có <JIRA_SELF_USER>@<domain>) — vẫn login Google.",
+                  file=sys.stderr)
     print("  Ctrl+C để stop\n")
 
     start_bug_log_scheduler()   # daemon thread poll Drive 10p (no-op nếu chưa kết nối Drive)

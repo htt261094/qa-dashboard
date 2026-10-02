@@ -6,7 +6,7 @@ Context cho Claude Code khi làm việc trên project này.
 
 Custom HTML dashboard **dùng riêng cho 1 người** (`thanhht1`, chạy trên chính máy host — Decision #96/#97), pull data live từ Jira qua REST API + đọc bug log từ Google Drive. Thay cho Jira native dashboard (xấu, buggy, không merge cell, không conditional formatting).
 
-**User là Acting QA Manager.** Từ 2026-10-02 dashboard chỉ còn việc của chính user (Việc của tôi · Bug Log · Analytics · Tài liệu) + report tháng cho CTO; dashboard team, roadmap, test case, đánh giá leader, app Android đã gỡ (#97).
+**User là Acting QA Manager.** Từ 2026-10-02 dashboard chỉ còn việc của chính user (Việc của tôi · Bug Log · Analytics · Tài liệu); dashboard team, roadmap, test case, đánh giá leader, app Android đã gỡ (#97). Phần tự gửi report tháng cho CTO cũng đã gỡ (#100) — Analytics vẫn giữ nguyên để xem số.
 
 ## Tech Stack
 
@@ -73,6 +73,13 @@ Hiền THƯỜNG là reporter task QA team được giao (cô tạo rồi assign
 ### 1. `http.server` stdlib thay vì Flask
 Giảm deps, user không phải cài nhiều. Đánh đổi: không auto-reload/routing decorator. KHÔNG đề xuất chuyển Flask/FastAPI.
 
+### 99. Autostart lúc logon — Scheduled Task + pythonw *(2026-10-02, issue #198, code: `scripts/install_autostart.ps1`)*
+2 task cho user hiện tại: **"QA Dashboard"** (AtLogOn → `pythonw.exe qa_dashboard.py`, restart 3 lần/1′, không giới hạn thời gian chạy, `-AllowStartIfOnBatteries -DontStopIfGoingOnBatteries` — thiếu là Windows bỏ qua trigger im lặng khi chạy pin) + **"QA Dashboard Window"** (AtLogOn, trễ 20s → Edge/Chrome `--app=http://localhost:<PORT>/`, cửa sổ riêng). Kèm shortcut Desktop. `-Uninstall` gỡ sạch, `-NoWindow` bỏ task cửa sổ.
+- Python ưu tiên **`.venv\Scripts\pythonw.exe`** của repo: Python hệ thống trên máy này THIẾU `cryptography` → server chết ngay lúc import. Script check `import requests, cryptography` trước khi đăng ký.
+- pythonw không có console → `sys.stdout/stderr = None` → `log_message` crash mỗi request. Entry tự đổ cả 2 ra `reports/dashboard.log` (line-buffered) khi phát hiện `None`.
+- `.ps1` **ASCII-only** (PS 5.1 đọc file không-BOM theo ANSI). URL phải `localhost` (không `127.0.0.1`) vì OAuth redirect URI (#96).
+- ⚠ **User tự chạy** trong terminal của họ: `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install_autostart.ps1` — đừng chạy qua Claude Code (container MSIX, xem CLAUDE.md user-level).
+
 ### 13. Session keep-alive + call Jira song song
 `requests.Session` dùng chung (`jira_api._SESSION`) tái dùng kết nối TLS; `run_parallel(jobs)` (ThreadPoolExecutor cap 8) chạy các call độc lập đồng thời, re-raise lỗi đầu tiên → handler render trang lỗi như cũ. Áp trong `fetch_all` (5 call) và ở handler (`fetch_all ‖ feed ‖ dismissed`). Pool lồng nhau → đỉnh ~7-8 request đồng thời tới Jira, chấp nhận được (I/O-bound).
 
@@ -100,7 +107,7 @@ SUPERSEDES #84. Jira Cloud (#94) đi qua internet công cộng, không còn VPN/
 - **Giữ `'auth'`**: token chung hết hạn (`JiraAuthError`) → phục vụ bản RAM cuối cùng (bất kể tuổi) + banner đỏ "API token hết hạn"; chưa có bản RAM (vừa restart) → trang lỗi. Return vẫn là `(data, stale)` với `stale ∈ {False, 'auth'}`; `/api/*` giữ key `stale` cho app Android.
 - **Bỏ read-only**: gỡ `window.__stale` + guard `JIRA_WRITE` trong `postJSON` — write dùng token cá nhân nên token chung chết không chặn ghi.
 - **Bỏ chế độ OFFLINE**: xoá `bug_log_offline.py`, `start-bug-log-offline.bat`, `config.OFFLINE` (+ dummy Jira creds) và các nhánh `if OFFLINE` trong `jira_api`/`jira_cloud`/`qa_dashboard.main`.
-- **Report tháng** (`scripts/run_monthly_report.{ps1,sh}`): dựng `qa_dashboard.py` (thay `bug_log_offline.py`) trên port riêng 8077; reporter vào `/analytics` bằng cookie phiên admin ký `SESSION_SECRET` (đã có sẵn). Probe sẵn sàng bằng `/.well-known/assetlinks.json` (public, không gọi Jira) vì `/analytics` redirect login khi AUTH bật.
+- **Report tháng** *(đã gỡ — #100)* (`scripts/run_monthly_report.{ps1,sh}`): dựng `qa_dashboard.py` (thay `bug_log_offline.py`) trên port riêng 8077; reporter vào `/analytics` bằng cookie phiên admin ký `SESSION_SECRET` (đã có sẵn). Probe sẵn sàng bằng `/.well-known/assetlinks.json` (public, không gọi Jira) vì `/analytics` redirect login khi AUTH bật.
 **Giữ nguyên có chủ đích** (bảo vệ khi mạng/Jira chập chờn nói chung, không riêng VPN): connect-timeout 5s, circuit breaker #160, retry + `reset_pool`, chuông best-effort `block=False`, KV local-first #78 (kho sync, không phải tính năng VPN).
 
 ## Auth & phân quyền
@@ -120,9 +127,8 @@ User chốt (sau #96): dashboard là **của riêng mình**, không quản lý t
 - **Roster** `config.USERS = [SELF_USER]` — **bỏ qua `JIRA_USERS` trong `.env`** để không vô tình kéo lại task người khác. Mọi JQL `assignee/reporter in (USERS)` (bucket, activity feed #9, warm accountId) tự thu về task của mình; không phải sửa từng chỗ.
 - **Gỡ trang**: dashboard team `/` (`render_admin_v2`, workload #5, pill/KPI admin, card Metric Bug) → `/` redirect `/my-work` · Roadmap `/roadmap` + `/public/roadmap` (#12) · Test Case `/test-cases` + mọi `/tc-*` (#80/#42/#44/#55/#64/#91) · Đánh giá `/leader-eval` + `/batch-eval` (#71) · API mobile `/api/*` + `/.well-known/assetlinks.json` + Bearer token + OAuth `state.app`/`APP_REDIRECT` (#83) · role dev `JIRA_DEV_EMAIL` (#45). Module xoá: `roadmap.py`, `testcase_store.py`, `testcase_link.py`, `render/{roadmap,testcase,leader_eval}.py`; `build_dashboard_payload`/`build_analytics_payload`/`_cross_metrics` cũng đi theo (chỉ phục vụ API).
 - **Ăn theo**: drawer bỏ mục "Bộ test case liên quan"; bảng Việc của tôi bỏ cờ `hasTc` + note "🔗 x/y task đã link bộ test case"; Analytics bỏ 4 card Test Coverage / Execution / Bug Density / Automation Coverage (đều dựa test case). CSS: gỡ rule mà class/id chỉ còn ở code đã xoá (so source HEAD vs sau khi xoá).
-- `/my-work` giờ là trang chính, **admin-only → 403** (không redirect về `/` vì `/` lại redirect về `/my-work` → vòng lặp).
-- Script report tháng probe `/login` thay `assetlinks` (đã gỡ).
-**Giữ nguyên có chủ đích**: Bug Log + Analytics vẫn đủ bug cả team (nguồn report CTO — user chọn); Tài liệu; tạo sub-task (#22/#57/#58/#77 — dropdown QA giờ chỉ còn mình); custom status #21; chuông #24.
+- `/my-work` giờ là trang chính *(từ #102 trang chính là `/today`, `/` redirect về đó)*, **admin-only → 403** (không redirect về `/` vì `/` lại redirect về `/my-work` → vòng lặp).
+**Giữ nguyên có chủ đích**: Bug Log + Analytics vẫn đủ bug cả team (user chọn); Tài liệu; tạo sub-task (#22/#57/#58/#77 — dropdown QA giờ chỉ còn mình); custom status #21; chuông #24.
 **Data KHÔNG xoá**: `.roadmap_config.json`, `.tc_config.json`, `.testcase_*.json` + key KV tương ứng vẫn nằm nguyên — chỉ gỡ code. Muốn khôi phục: revert commit của #97. `remote_store` không còn ai đọc các key đó.
 
 ### 96. LOCAL_ONLY — dashboard chỉ phục vụ chính máy host *(2026-10-02, code: `qa_dashboard.py:_local_only_ok`)*
@@ -130,7 +136,13 @@ User chốt dashboard thành **của riêng mình**: không dùng trên điện 
 - `config.LOCAL_ONLY` (env `LOCAL_ONLY`, **mặc định BẬT**, `0/false/no` để tắt). Gate `_local_only_ok()` chạy **đầu tiên** ở `do_GET`/`do_POST` (trước cả `/login`, `/public/roadmap`, `assetlinks`), 3 điều kiện: (1) peer TCP loopback; (2) KHÔNG mang header tunnel (`Cf-Connecting-IP`/`Cf-Ray`/`Cf-Visitor`/`Cdn-Loop`/`X-Forwarded-For` — Cloudflare edge + cloudflared luôn gắn, browser gõ localhost không bao giờ gửi); (3) `Host` ∈ `localhost`/`127.0.0.1`/`[::1]` (chặn DNS rebinding). Thiếu 1 → 403.
 - **Giữ Google OAuth** (không tắt AUTH): tắt AUTH thì identity rỗng → PAT tra theo key `'local'` thay vì email → mất token cá nhân đã lưu. Thay vào đó LOCAL_ONLY **bỏ qua `PUBLIC_BASE_URL`** (domain chết khi tắt tunnel) → redirect_uri suy từ Host = `http://localhost:<PORT>/oauth/callback` (đã đăng ký sẵn, #15). Suy từ Host an toàn vì gate (3) đã ép Host loopback. (`APP_REDIRECT` đã gỡ hẳn ở #97.)
 - Gate ở app là lớp chặn **dù tunnel lỡ còn chạy**; tắt tunnel cloudflared là việc của user (ngoài app).
-**Ranh giới**: phải mở bằng `http://localhost:8080` (KHÔNG `127.0.0.1`) vì Google chỉ nhận redirect URI đã đăng ký. Report tháng (#82/#95, port 8077, `localhost`) không ảnh hưởng. Muốn mở lại domain: `LOCAL_ONLY=0` + bật tunnel — `PUBLIC_BASE_URL` trong `.env` vẫn còn nguyên.
+**Ranh giới**: phải mở bằng `http://localhost:8080` (KHÔNG `127.0.0.1`) vì Google chỉ nhận redirect URI đã đăng ký. Muốn mở lại domain: `LOCAL_ONLY=0` + bật tunnel — `PUBLIC_BASE_URL` trong `.env` vẫn còn nguyên.
+
+### 98. Auto-login chính chủ + chặn CSRF cho mọi POST *(2026-10-02, issue #198, code: `qa_dashboard.py:_user_email/_same_origin_ok`)*
+Dashboard 1 người, đã có LOCAL_ONLY (#96) → login Google chỉ là thao tác thừa. Request **đã qua `_local_only_ok`** + không có session cookie → identity = `config.OWNER_EMAIL` (= `<SELF_USER>@<ALLOWED_DOMAIN>` nếu nằm trong `JIRA_ADMIN_EMAIL`, else admin duy nhất; nhiều admin không đoán được → `''` = tắt, KHÔNG chọn bừa vì `ADMIN_EMAILS` là set). Identity vẫn là **email** (không phải `'local'`) → API token cá nhân lưu theo email (#20) dùng tiếp, 0 migrate.
+- `config.LOCAL_AUTOLOGIN` = `LOCAL_ONLY and AUTH_ENABLED` và env `LOCAL_AUTOLOGIN` không phải `0/false/no` (mặc định BẬT). `/login` → redirect `/`; sidebar ẩn "Đăng xuất" (đăng xuất xong vẫn tự vào lại).
+- ⚠ **Bỏ cookie = mất lớp SameSite=Lax chống CSRF**: trang web lạ đang mở (hoặc HTML upload chạy trong iframe sandbox `/file-raw` #65, origin `null`) POST tới `localhost:8080` mang `Host: localhost` → gate #96 KHÔNG chặn. Nên `do_POST` thêm `_same_origin_ok()` chạy **trước** `_authed`: `Sec-Fetch-Site` có mặt mà ∉ {`same-origin`,`none`} → 403; `Origin` có mặt mà netloc ≠ `Host` (gồm `null`) → 403. Thiếu cả 2 header (curl/script local) → cho qua: tiến trình trên chính máy ngoài mô hình đe doạ (đọc được `.env` rồi). Áp **cả khi tắt auto-login** (defense-in-depth).
+**Ranh giới**: GET không cần check — đọc cross-origin bị CORS chặn, DNS rebinding đã bị Host check (#96); GET có side-effect duy nhất (`/drive/connect`, `/oauth/drive-callback`) cần state HMAC nên không giả được. Cookie phiên vẫn thắng nếu có (report/test cũ vẫn chạy).
 
 ### 94. Chuyển Jira Data Center → Jira Cloud — dịch ở biên *(2026-09-25, issue #197, code: `core/jira_cloud.py`)*
 SUPERSEDES Decision #2 (Bearer PAT). Công ty chuyển sang `https://baokim.atlassian.net`. 3 khác biệt gốc, mọi thứ khác kéo theo:
@@ -363,16 +375,16 @@ Số tháng đã đóng cứ trôi mỗi khi team sửa/copy sheet → lệch s�
 Reopen giữ semantics **RAW** (không dedup) — dedup mẫu số mà không dedup tử số sẽ méo tỷ lệ; freeze chỉ chặn trôi. ⚠ Reopen denom lệch có chủ đích so với chart/valid (dedup).
 `CHART_V` phải khớp giữa Python (`_CHART_V`) và JS (`frozenFor`) — lệch là nhánh frozen **inert** (đã từng dính, mọi tháng rơi về LIVE).
 
-### 69. Freeze CHỦ ĐỘNG sau khi report gửi CTO
+### 69. Freeze CHỦ ĐỘNG sau khi report gửi CTO *(hook tự gọi đã gỡ cùng reporter — #100)*
 Freeze thụ động (#47) chỉ chốt ở lần scan chót của tháng, không trùng lúc gửi report. `freeze_month(month, live, reopen_map)` ghi cả 3 kho (`months` / `carry` / `chart` + `_frozen`, `frozen_at`) rồi đăng ký `frozen[month]`; `archive()` **bỏ qua mọi tháng có trong `frozen`** (kể cả khi bump `_CHART_V`).
-Hook trong `monthly_reporter_chat_app.py` ngay SAU khi Chat gửi thành công và **CHỈ khi `USE_REAL`** (run TEST không freeze). Cờ `--no-freeze` để tắt. Soft-fail.
+~~Hook trong `monthly_reporter_chat_app.py` sau khi Chat gửi thành công~~ — gỡ ở #100. `freeze_month` giờ KHÔNG còn caller tự động (gọi tay khi cần chốt số); tháng đã có trong `frozen` vẫn được `archive()` để yên như cũ.
 **Gỡ freeze**: xoá entry tháng đó trong `frozen` của `.bug_monthly.json` **và** KV/property, hoặc gọi lại `freeze_month` để ghi đè.
 
 ### 75. Tồn đọng = SHEET-BASED (đọc thẳng sheet tháng, đếm dòng theo created)
 SUPERSEDES định nghĩa fingerprint/carry của #33/#36/#46/#62/#68 cho **read-path tồn đọng/mới**.
 Bối cảnh: màn Bug và màn Analytics đo 2 định nghĩa khác nhau nên lệch số. User chốt workflow: cuối tháng bê bug chưa xong sang sheet tháng mới, **GIỮ NGUYÊN ngày created** → chính việc bê sang sheet đã là "freeze" tự nhiên, không cần fingerprint/carry.
 Định nghĩa thống nhất — trong sheet tháng T, **đếm DÒNG**: `created < tháng-sheet` = **tồn đọng** (status mở = còn treo; Closed/Reject = đã xử lý); `created >= tháng-sheet` = **mới phát sinh** (Closed = đã fix). `total = còn treo + đã xử lý`. KHÔNG dedup (dòng trùng đếm 2 → tín hiệu dọn sheet).
-Sửa ở **3 nơi phải parity**: `prev_month_backlog` (Python, cho report CTO) ↔ `computeBacklog` (JS, dải chart) ↔ `splitGroups` (JS, tab Bug).
+Sửa ở **3 nơi phải parity**: `prev_month_backlog` (Python) ↔ `computeBacklog` (JS, dải chart) ↔ `splitGroups` (JS, tab Bug).
 KHÔNG đụng: Valid Bug Rate + Reopen (vẫn dedup fp + freeze), `task_link` fingerprint.
 **Điểm yếu duy nhất**: phụ thuộc team giữ nguyên ngày created khi bê bug — reset về mùng 1 là tồn đọng tụt về 0.
 
@@ -386,11 +398,11 @@ Dùng chung cho: chart dedup (#47), `task_link` (#37/#50/#51). `bug_backlog.fing
 Thanh 2 tab (badge số), bảng chỉ hiện nhóm đang chọn; pager/count/check-all/export Excel đều tính trên nhóm đang xem. State nhớ `localStorage qa-buglog-grp`; nhóm rỗng → **auto lùi sang nhóm còn lại nhưng KHÔNG ghi lại localStorage** (về tháng có tồn đọng thì trở lại tab cũ).
 Phân loại theo #75 (created < tháng của tab). ⚠ **Khác chart "Tồn đọng T-1"**: bug tab tính mọi tháng cũ hơn, không lọc status, không dedup → số có thể ≠ chart. Có chủ đích.
 
-### 85. Pie chart Severity ở Analytics + đưa vào report tháng
+### 85. Pie chart Severity ở Analytics
 Thang severity trong file bug log gõ LẪN 2 kiểu chữ cho cùng 1 mức → user chốt quy về **3 mức**: `Major = High` · `Normal = Medium` · `Minor = Low` (Blocker/Critical nếu có gom vào Major). Ô trống / giá trị lạ (`Minior` sai chính tả đã map, còn lại) → `none` **KHÔNG vẽ trong pie** nhưng vẫn hiện thành ghi chú "Chưa phân loại: n/N bug" — bỏ hẳn thì mất mẫu số, CTO tưởng tháng chỉ có ngần ấy bug. **Mẫu số % của pie = bug đã phân loại**, không phải tổng bug tháng.
 Tập bug = **y hệt biểu đồ cột** (dòng trong sheet tháng T **và** created trong T — #75) → tổng 2 chart luôn khớp. Tính **LIVE mọi tháng** (không đụng freeze #47/#69 — freeze chỉ áp Valid Bug Rate + Reopen).
-Pie render **vào trong `#anMetricCharts`** (không tách card riêng) để tự lọt vào ảnh PNG/PDF mà `monthly_reporter_chat_app.py` chụp gửi CTO; text Chat thêm block "🎚 Mức độ nghiêm trọng" đọc từ `severity_counts()`.
-Vẽ bằng **SVG `<path>` arc**, KHÔNG `conic-gradient` — html2canvas không render conic → ảnh gửi CTO sẽ trắng.
+Pie render **vào trong `#anMetricCharts`** (không tách card riêng) — vốn để lọt vào ảnh PNG/PDF reporter chụp gửi CTO (reporter đã gỡ — #100; `severity_counts()` Python giữ nguyên, hiện không còn caller).
+Vẽ bằng **SVG `<path>` arc**, KHÔNG `conic-gradient` — html2canvas (nút xuất ảnh/PDF) không render conic.
 ⚠ Twin Python↔JS: `_SEV_MAP`/`_SEV_ORDER`/`_SEV_PIE`/`_sev_bucket` (`bug_backlog.py`) ↔ `SEV_MAP`/`SEV_ORDER`/`SEV_PIE`/`sevOf` (`app_v2.js`).
 **Bổ sung 2026-08-10 — cột Severity ở bảng `/bug-log`**: thêm cột giữa Ngày và Trạng thái, badge 3 mức cùng bảng màu với pie (đọc chéo 2 màn không lệch). `none` (ô trống / giá trị lạ trong file) hiện `—` mờ, title kèm giá trị thô để biết file gõ gì — KHÔNG ép về Normal. Export Excel thêm cột tương ứng (HEADERS 7 → 8 cột, `none` → ô rỗng). Dropdown **lọc theo severity** (`blSevFilter`) cùng hàng với lọc tester/dev/link — option CỐ ĐỊNH (thang là hằng số, không build từ data), gồm cả "Chưa phân loại". `.bl-table{min-width:1120px}` vì 10 cột làm browser bóp cột "Liên kết Task" xuống ~60px (chữ gãy 3 dòng) — để wrapper `overflow-x:auto` cuộn ngang thay vì bóp. Hằng số `SEV_*` + `sevOf` trong `app_v2.js` đã **hoist ra scope chung** (cạnh `pagerHTML`) vì giờ dùng ở 2 controller (bug-log + analytics) — đừng khai báo lại bản copy trong IIFE.
 
@@ -429,14 +441,18 @@ Jira đổi key khi chuyển kỳ (`DA51H26→DA52H26`), số issue giữ nguyê
 ⚠ Twin `canonKey` trong `app_v2.js` — sửa 1 bên phải sửa bên kia. Chỉ dùng để **so khớp**, không dùng để ghi (store vẫn lưu key thật).
 Data cũ đã migrate 1 lần (`*1H26 → *2H26`, map lấy authoritative từ Jira, backup `.bak-*`).
 
-## Analytics & Report
+## Analytics
 
 ### 81. Tab "Analytics" (`/analytics`) *(ghi bổ sung 2026-08-10; issue #158)*
 Gom metric bug (số lượng theo dev/dự án, Valid & Rejected Bug Rate, Tỷ lệ Reopen, dải tồn đọng) + card placeholder metric Jira (#61). (Coverage automation/test case + `build_analytics_payload` cho API đã gỡ — #97.) Data embed trong `<script id="analyticsData">`, controller tính client-side → đổi tháng/scope không gọi server.
-⚠ Nhiều công thức là **twin Python↔JS** (`_reopen_table`↔`renderReopen`, `_valid_counts`↔`renderValid`, `_month_of`↔`monthOf`, `prev_month_backlog`↔`computeBacklog`) vì cùng số phải ra ở cả report CTO lẫn UI.
+⚠ Nhiều công thức là **twin Python↔JS** (`_reopen_table`↔`renderReopen`, `_valid_counts`↔`renderValid`, `_month_of`↔`monthOf`, `prev_month_backlog`↔`computeBacklog`) (từng phục vụ cả report CTO lẫn UI — reporter gỡ ở #100, twin giữ nguyên vì Analytics/report tay vẫn đọc cùng số).
 
-### 82. Report tháng gửi CTO qua Google Chat *(ghi bổ sung 2026-08-10)*
-`core/monthly_reporter_chat_app.py` — gửi **Google Chat webhook**, KHÔNG email. Chạy qua Scheduled Task Windows (`scripts/run_monthly_report.ps1`), cần `gcp-service-account.json` + `GOOGLE_CHAT_SPACE_ID`. `--real`/`--cron` = gửi thật + freeze tháng (#69); mặc định là run TEST.
+### 100. Gỡ phần tự GỬI report tháng cho CTO *(2026-10-02, issue #198)*
+SUPERSEDES #82. User chốt bỏ việc bắn report tháng tự động; **Analytics giữ nguyên 100%** (trang, chart, twin công thức, freeze data).
+- Xoá `core/monthly_reporter_chat_app.py`, `scripts/run_monthly_report.{ps1,sh}`, `docs/report-reopen-bug.md`.
+- `requirements.txt` chỉ còn `requests` + `cryptography`: `playwright`/`python-dotenv`/`google-api-python-client`/`google-auth` chỉ reporter dùng (Drive bug log đi bằng `requests`).
+- `bug_backlog.freeze_month`/`severity_counts`/`prev_month_backlog` **giữ** (Analytics đã nói để nguyên; hiện không còn caller Python ngoài chính module) — đừng "dọn dead code" mà không hỏi.
+- Scheduled Task "QA Monthly Report CTO" không tồn tại trên máy dựng lại (2026-09-14) → không có gì để gỡ. `GOOGLE_CHAT_SPACE_ID` trong `.env` + `gcp-service-account.json` ở root nằm thừa, xoá tay nếu muốn (vẫn gitignore).
 
 ## Custom status & misc
 
@@ -453,6 +469,28 @@ Client đã vá tại chỗ sau transition (#24), nhưng mọi lần render SAU 
 - **Hết hiệu lực** khi `updated` của issue `+2s >= at` (data đã bao gồm thao tác của mình, hoặc người khác đổi tiếp → tin Jira) hoặc quá `_TTL=900s` (backstop, khớp cửa sổ stale SWR). Feed không fetch `updated` → vòng đời do bucket + TTL quyết định.
 - Mutate issue dict **tại chỗ** (object nằm trong cache SWR) → mọi bản copy trong RAM thống nhất.
 **Ranh giới có chủ đích**: CHỈ status Jira (nhãn nội bộ đã là store local #21; duedate vẫn chỉ vá client-side). RAM per-process, KHÔNG sync chéo máy — trễ nằm ở cache/index của CHÍNH process đang serve. Chỉ ghi đè **tên** status, không dựng `statusCategory` (không code nào đọc field đó); count-only KPI (`done_total`/`created_week`/`resolved_week`) KHÔNG đổi theo overlay.
+
+### 103. Thông báo desktop (Notification API) cho noti mới *(2026-10-02, issue #198, code: module chuông `app_v2.js`)*
+Mở rộng #24, không thêm endpoint: dùng chính `/activity-feed`. Bật/tắt ở modal Setting (`#setNotifSect`) hoặc palette; quyền do browser giữ theo origin (`localhost` là secure context), cờ bật ở `localStorage qa-desktop-notif`.
+- **Leader 1 tab** qua Web Lock `qa-notif-leader` (giữ tới khi tab đóng, tab khác tự lên thay): CHỈ leader được poll khi tab ẩn (#24 vốn bỏ qua tab ẩn — tab ẩn khác vẫn nghỉ) và CHỈ leader bắn → nhiều tab không trùng.
+- **Không bắn khi bạn đang nhìn**: cờ chung `qa-focus` (focus → `1`, blur/pagehide → `0`) + `document.hasFocus()`. Noti tới lúc đang focus bị bỏ hẳn (đã có toast + chuông), không dồn lại bắn sau.
+- Dedup: `seenIds` (mới giữa 2 poll) + `qa-notif-shown` (id đã bắn, prune 14 ngày / cap 500) → reload không bắn lại. Lúc bật, mọi noti đang có bị đánh dấu đã bắn (không xả cả lô cũ). >3 mục/lần → 1 thông báo gộp `tag:'qa-batch'`.
+- Click thông báo → focus cửa sổ + `/dismiss` + mở drawer.
+**Giới hạn**: cần ít nhất 1 tab dashboard đang mở (có thể thu nhỏ); browser throttle timer tab ẩn ~1′ nên trễ ≤ ~2′. Browser chặn quyền thì UI chỉ hướng dẫn mở lại (không xin lại được bằng code). Browser pane của Claude desktop luôn `denied` — test bằng mock `Notification`.
+
+### 102. Trang "Hôm nay" (`/today`) = trang chính *(2026-10-02, issue #198, code: `core/render/today.py`)*
+Bảng Việc của tôi trả lời "tôi có gì" chứ không trả lời "hôm nay làm gì trước". `/today` gom từ **đúng bundle của `/my-work`** (`_my_work_bundle` — 0 call Jira thêm): KPI + các nhóm **Quá hạn → Đến hạn hôm nay → Được nhắc chưa đọc → Kẹt ≥5 ngày → 7 ngày tới → Đang có ghi chú (#101)**.
+- `build_today_groups` thuần (test được): mỗi task active vào **đúng 1 nhóm** theo ưu tiên overdue > today > stuck > upcoming > noted; Done/Cancelled bỏ. Mention = activity chuông `mention && is_unread` (đã lọc noti do chính mình gây ra #34).
+- `/` redirect `/today`; sidebar + palette có mục "Hôm nay" đầu tiên. Admin-only (403, không redirect — tránh vòng lặp với `/`).
+- Click hàng → **shared drawer** (trang không có `#rows`, #18); hàng mention bấm vào = `/dismiss` + mở drawer. Server-render, KHÔNG nhận patch poll (#24) → tươi khi F5 như KPI.
+⚠ `_jira_cls` (Python) twin `jiraCls` (JS) cho màu badge status.
+
+### 101. Ghi chú riêng theo task *(2026-10-02, issue #198, code: `core/task_notes.py`)*
+Lớp phủ local kiểu #21 cho thứ status/nhãn không nói được: checklist cá nhân, lý do đang chờ, link Chat. **KHÔNG đẩy Jira**, chỉ chính chủ (`/set-note` + `detail.note` gate `_is_admin`).
+- Kho: KV `qa-dashboard-task-notes` local-first (#78) + `.task_notes.json` (gitignore). Shape `{notes:{KEY:{t,at}}}`, cap 5000 ký tự/ghi chú, 2000 task. Text rỗng = xoá. `threading.Lock` quanh read-modify-write vì autosave bắn POST chồng nhau.
+- Lưu theo **key thật**, tra theo `canon_key` (#76) → qua kỳ nửa năm vẫn thấy; lưu lại thì entry key kỳ cũ bị thay bằng key mới (1 task = 1 ghi chú).
+- UI: mục "Ghi chú riêng" trong **cả 2 drawer** (`noteSectionHtml` shared, render sau "Bug liên quan"), autosave debounce 900ms + lưu ngay khi blur + `fetch keepalive` lúc `pagehide`. Client giữ `NOTE_TXT[key]` → drawer render lại (poll #24, đổi status) KHÔNG mất chữ đang gõ (nhưng vẫn mất focus — như ô comment). Bảng Việc của tôi có icon `note-pencil` cạnh tiêu đề (`hasNote`, vá client qua `__applyNotePatch`).
+**Giới hạn**: plain text, không render checklist/markdown. Không có lịch sử sửa (last-write-wins như mọi kho #78).
 
 ### 27. Dọn dead code `.last_seen.json` / snapshot-diff NEW badge
 Snapshot-diff vẫn chạy mỗi request nhưng **không còn được render** (QA controller không đọc `isNew`). Đã xoá `core/state.py`, `_build_view`, param `new_keys`/`first_run`, `STATE_FILE`.
@@ -487,6 +525,7 @@ Cái "New" còn thấy là **nguồn KHÁC, giữ nguyên**: pill New ở `rende
 | 83 | API JSON `/api/*` cho app Android + App Links + Bearer token | ❌ gỡ cùng app — #97 |
 | 60 | Cổng QA gate — chuông "chuyển READY PRODUCTION nhưng CHƯA có sub-task QA" (`fetch_ready_prod_gaps`, `READY_PROD_*`) | ❌ gỡ hẳn 2026-10-02 theo yêu cầu user (noti cũ 86 ngày, không còn giá trị khi dashboard dùng riêng — #97) |
 | 89 | Bỏ pill "New" ở dashboard team | ❌ dashboard team đã gỡ — #97 |
+| 82 | Report tháng gửi CTO qua Google Chat (`monthly_reporter_chat_app.py` + Scheduled Task) | ❌ gỡ — #100 (Analytics giữ nguyên) |
 | 52 | Tạo nhiều sub-task dưới 1 cha (textarea mỗi dòng 1 sub-task) | ⛔ mở rộng bởi #58 (assignee từng dòng) + #77 (nhiều cha) |
 
 ---
@@ -515,10 +554,11 @@ KHÔNG được:
 
 ### Works
 - Server `ThreadingHTTPServer` + Google OAuth login, chỉ phục vụ localhost (LOCAL_ONLY #96), chỉ tracking task của chính chủ (#97)
-- Việc của tôi (`/my-work`, `/` redirect về đây), Tài liệu (`/docs`), Bug Log (`/bug-log`), Analytics (`/analytics`), Cài đặt (`/settings`)
+- Hôm nay (`/today`, `/` redirect về đây — #102), Việc của tôi (`/my-work`), Tài liệu (`/docs`), Bug Log (`/bug-log`), Analytics (`/analytics`), Cài đặt (`/settings`)
 - Ghi Jira bằng PAT cá nhân: đổi status, comment (@-mention), đổi due date, tạo sub-task hàng loạt nhiều cha
-- Custom status overlay, notification short-poll 60s, command palette Ctrl+K
-- Bug Log sync từ Drive (Sheet native + xlsx), metric + freeze tháng, export Excel, report tháng qua Google Chat
+- Custom status overlay, ghi chú riêng theo task (#101), notification short-poll 60s + thông báo desktop (#103), command palette Ctrl+K
+- Auto-login chính chủ khi mở từ localhost (#98), autostart lúc logon (#99)
+- Bug Log sync từ Drive (Sheet native + xlsx), metric + freeze tháng, export Excel
 - Viewer tài liệu inline (PDF/ảnh/Office/text/HTML sandbox), folder Quy Trình dạng tab
 
 ### Known Limitations
@@ -591,6 +631,7 @@ qa-dashboard/
 │   ├── pat_store.py         ← API token cá nhân {email: enc('email:token')} (#20, #94)
 │   ├── jira_write.py        ← ghi Jira bằng API token cá nhân: transition/comment/duedate/sub-task (#20,#57,#77)
 │   ├── custom_status.py     ← nhãn overlay + activity (#21)
+│   ├── task_notes.py        ← ghi chú riêng theo task (#101)
 │   ├── remote_store.py      ← kho sync chéo máy Cloudflare KV, local-first (#78)
 │   ├── drive_token.py       ← refresh token Drive của admin, mã hoá (#79)
 │   ├── docs.py              ← cây tài liệu (#11,#66)
@@ -602,17 +643,16 @@ qa-dashboard/
 │   ├── bug_backlog.py       ← fingerprint, tồn đọng, freeze tháng (#54,#69,#75)
 │   ├── task_link.py         ← link bug↔task (#37,#50,#51,#76)
 │   ├── xlsx_export.py       ← build .xlsx zero-dep (#45b)
-│   ├── monthly_reporter_chat_app.py  ← report tháng qua Google Chat (#82)
-│   ├── render/              ← package: base · shell · misc · dashboard (= Việc của tôi) · docs · bug_log · analytics (`__init__.py` re-export cho caller cũ)
+│   ├── render/              ← package: base · shell · misc · today (= Hôm nay #102) · dashboard (= Việc của tôi) · docs · bug_log · analytics (`__init__.py` re-export cho caller cũ)
 │   └── routes/              ← oauth · uploads · write (mixin cho handler)
 │
 ├── assets/  app_v2.js · styles_v2.css (UI v2) · styles.css (chỉ error page)
-├── scripts/ run_monthly_report.ps1 / .sh · jira_cloud_probe.py (dò config Jira Cloud vs config.py — #94)
+├── scripts/ install_autostart.ps1 (autostart lúc logon — #99) · jira_cloud_probe.py (dò config Jira Cloud vs config.py — #94)
 ├── docs/    ghi chú kỹ thuật rời
 │
 │   ── gitignore (sinh lúc chạy) ──
 ├── .env · .crypto_key · .drive_token.json · .pat_store.json · .jira_accounts.json · .sync_meta.json
-├── .docs_config.json · .custom_status.json · (.roadmap_config.json · .tc_config.json — data cũ, không còn code đọc, #97)
+├── .docs_config.json · .custom_status.json · .task_notes.json · (.roadmap_config.json · .tc_config.json — data cũ, không còn code đọc, #97)
 ├── .bug_log*.json · .bug_monthly.json · .bug_task_link.json · .testcase_*.json
 ├── uploads/ · reports/ · gcp-service-account.json
 ```
@@ -628,6 +668,8 @@ qa-dashboard/
 - Khi thêm/đổi cấu trúc: **tự ghi Decision mới** vào file này (số kế tiếp), không đợi user nhắc.
 
 ## Last Updated
+
+2026-10-02 — Issue #198 (productivity dashboard dùng riêng): #98 auto-login + chặn CSRF POST · #99 autostart lúc logon · #100 gỡ phần tự gửi report tháng (Analytics giữ nguyên; #82 → bảng chết) · #101 ghi chú riêng theo task · #102 trang Hôm nay làm trang chính · #103 thông báo desktop.
 
 2026-10-02 — Gỡ cổng QA gate (#60 → bảng decision chết): chuông không còn noti READY PRODUCTION thiếu sub-task QA.
 

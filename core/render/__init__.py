@@ -21,6 +21,8 @@ from render.misc import (render_403, _render_drive_card, render_settings_page,
                          render_error_page, render_shell_error, render_login_page)
 # Lens cá nhân "Việc của tôi" (render.dashboard) — dashboard team đã gỡ (Decision #97).
 from render.dashboard import render_qa_v2, build_my_work_payload
+# Trang chính "Hôm nay" (Decision #102).
+from render.today import render_today_v2, build_today_groups
 # Tài liệu training (tab /docs) tách sang render.docs; re-export để chỗ gọi
 # (qa_dashboard.py) không phải đổi import. See issue #107 / #86.
 from render.docs import render_docs_page, render_file_view_page

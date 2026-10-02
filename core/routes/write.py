@@ -7,6 +7,7 @@ Gom các route ghi (Decision #20/#21/#22):
 - `_handle_jira_write` — /jira-transitions · /do-transition · /add-comment (PAT cá nhân)
 - `_handle_create_subtask` — /create-subtask (PAT cá nhân, reporter = người đăng nhập)
 - `_post_set_custom_status` — /set-custom-status (nhãn nội bộ, không cần PAT)
+- `_post_set_note` — /set-note (ghi chú riêng theo task, Decision #101)
 
 Mixin dùng các helper dùng chung định nghĩa ở Handler (resolve qua MRO):
 `self._user_email()`, `self._reply_json()`, `self._read_json_body()`, `self._json()`.
@@ -19,6 +20,7 @@ import json
 from config import JIRA_URL
 from pat_store import load_user_pat
 from custom_status import set_custom_status, is_valid
+from task_notes import set_note
 from status_overlay import record as record_status
 from jira_write import (get_transitions, do_transition, get_issue_status, add_comment,
                         create_subtask, create_subtasks, create_subtasks_multi,
@@ -301,3 +303,24 @@ class WriteMixin:
             self._json(200, json.dumps({'ok': True, 'values': values}).encode('utf-8'))
         else:
             self._json(400, b'{"ok":false}')
+
+    def _post_set_note(self):
+        # Ghi chú riêng theo task (Decision #101) — chỉ chính chủ, không chạm Jira, không cần PAT.
+        if not self._is_admin():
+            self._json(403, b'{"ok":false}')
+            return
+        entry = None
+        try:
+            payload = self._read_json_body(40_000)
+            if isinstance(payload, dict):
+                key, text = payload.get('key'), payload.get('text', '')
+                if (isinstance(key, str) and re.fullmatch(r'[A-Z][A-Z0-9]*-\d+', key)
+                        and isinstance(text, str)):
+                    entry = set_note(key, text)
+        except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
+            entry = None
+        if entry is None:
+            self._json(400, b'{"ok":false}')
+            return
+        self._json(200, json.dumps({'ok': True, 'note': entry or None},
+                                   ensure_ascii=False).encode('utf-8'))

@@ -472,8 +472,8 @@ def archive(cur_bugs, reopen_map=None):
 
 
 def freeze_month(month=None, live=None, reopen_map=None):
-    """CHỐT CỨNG số liệu tháng `month` ('YYYY-MM', None = tháng hiện tại) — gọi SAU khi report
-    tháng đã gửi xong (xem hook trong monthly_reporter_chat_app.py).
+    """CHỐT CỨNG số liệu tháng `month` ('YYYY-MM', None = tháng hiện tại). Hook tự gọi sau khi
+    gửi report đã gỡ cùng reporter (Decision #100) — giờ chỉ gọi tay khi cần chốt số.
 
     Vì sao cần: `archive()` overwrite snapshot tháng HIỆN TẠI mỗi lần scan, nên số chỉ "tự đóng
     băng" ở lần scan chót của tháng — không trùng với thời điểm gửi report. Freeze tại đúng lúc
