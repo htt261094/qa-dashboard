@@ -49,6 +49,7 @@ from docs import load_docs, save_docs, valid_tree, ensure_process_folder
 from pat_store import save_user_pat, has_pat, delete_user_pat
 from custom_status import (load_bundle, load_overlay, values_of,
                            clear_labels_for_done)
+from task_notes import load_notes, note_for
 from render import (render_qa_v2, render_docs_page, render_bug_log_v2, render_analytics_v2,
                     render_settings_page, render_error_page, render_403, render_shell_error)
 from routes.oauth import OAuthMixin
@@ -484,17 +485,17 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             self._forbidden()
             return
         try:
-            data, overlay, bell, stale = self._my_work_bundle(self._wants_fresh())
+            data, overlay, bell, stale, notes = self._my_work_bundle(self._wants_fresh())
         except RuntimeError:
             self._html(render_shell_error('mywork', self._user_ctx(),
                                           title='Việc của tôi — QA Workspace'))
             return
         # UI hệt QA member (render_qa_v2), chỉ highlight tab "Việc của tôi" ở sidebar
         self._html(render_qa_v2(data, bell, overlay, self._user_ctx(),
-                                nav_active='mywork', stale=stale))
+                                nav_active='mywork', stale=stale, notes=notes))
 
     def _my_work_bundle(self, fresh):
-        """Fetch + scope snapshot cho lens "Việc của tôi". Trả `(data, overlay, bell, stale)`.
+        """Fetch + scope snapshot cho lens "Việc của tôi". Trả `(data, overlay, bell, stale, notes)`.
         Raise RuntimeError khi Jira down (caller tự render lỗi). overlay/bell degrade mềm
         (KV/chuông fail -> None/[]) như hành vi cũ."""
         scope = self._self_username()
@@ -509,7 +510,11 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             bell = self._bell_activities(force=fresh)
         except RuntimeError:
             bell = []
-        return data, overlay, bell, stale
+        try:
+            notes = load_notes()
+        except Exception:   # noqa: BLE001 — ghi chú là phụ trợ, lỗi kho -> bảng vẫn hiện
+            notes = {}
+        return data, overlay, bell, stale, notes
 
     def _get_docs(self):
         # tài liệu training: load song song tài liệu và chuông notif (đồng nhất mọi tab)
@@ -578,12 +583,15 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             # Jira detail + bug đã link tới task (chiều ngược task_link) song song.
             res = run_parallel({'detail': lambda: fetch_issue_detail(key),
                                 'bugs': lambda: self._bugs_for_task(key),
-                                'overlay': lambda: load_overlay()})
+                                'overlay': lambda: load_overlay(),
+                                'notes': lambda: load_notes() if self._is_admin() else {}})
             detail = res['detail']
             detail['bugs'] = res['bugs']
             # Nhãn nội bộ (custom status overlay) — để drawer mở từ noti (task ngoài
             # bucket TASKS) vẫn hiện nhãn thay vì '—' (đồng nhất với click từ bảng).
             detail['customs'] = values_of((res['overlay'] or {}).get(key))
+            # Ghi chú riêng (Decision #101) — chỉ chính chủ; drawer mọi trang đọc từ đây.
+            detail['note'] = note_for(key, res['notes']) if res['notes'] else None
             self._json(200, json.dumps({'ok': True, 'detail': detail}).encode('utf-8'))
         except RuntimeError:
             self._json(400, b'{"ok":false,"msg":"loi"}')
@@ -762,6 +770,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             return
         if path == '/set-custom-status':
             self._post_set_custom_status()
+            return
+        if path == '/set-note':
+            self._post_set_note()      # routes/write.py (Decision #101)
             return
         if path in ('/jira-transitions', '/do-transition', '/add-comment',
                          '/duedate-perm', '/set-duedate', '/edit-perms', '/update-issue'):

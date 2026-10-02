@@ -9,6 +9,8 @@ from config import JIRA_URL, STUCK_DAYS
 from issues import (parse_date, i_assignee, i_assignee_name, i_status, i_summary,
                     i_duedate, i_created, i_comment_count, days_overdue, is_stuck)
 from custom_status import values_of
+from task_notes import index_by_canon
+from config import canon_key
 
 from render.base import _json_script
 from render.shell import _avatar, _document_v2, _conn_error_card
@@ -23,7 +25,7 @@ def _snap_note(data):
 
 
 # ===== Lens cá nhân — payload =====
-def build_my_work_payload(data, cmap):
+def build_my_work_payload(data, cmap, notes=None):
     """Dựng data thuần cho lens "Việc của tôi" từ snapshot Jira đã scope.
 
     Chỉ tính toán, KHÔNG dựng markup. Trả `(tasks, meta)`:
@@ -31,6 +33,7 @@ def build_my_work_payload(data, cmap):
     - meta : count KPI (active/overdue/stuck/dueweek/done + STUCK_DAYS).
     """
     active = data['active']
+    note_idx = index_by_canon(notes or {})   # ghi chú riêng (#101) -> cờ hasNote trên bảng
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     week_start = today - timedelta(days=today.weekday())
     week_end = week_start + timedelta(days=7)
@@ -62,6 +65,7 @@ def build_my_work_payload(data, cmap):
             'dueCls': duecls, 'overdue': overdue, 'stuck': stuck, 'dueWeek': dueweek,
             'created': (i_created(iss) or '')[:10], 'createdDisp': (i_created(iss) or '')[:10] or '—',
             'nComments': i_comment_count(iss),
+            'hasNote': canon_key(iss['key']) in note_idx,
             'jiraUrl': f'{JIRA_URL}/browse/{iss["key"]}',
         })
     # Done tasks (tất cả) — để tab/KPI "Done" xem được list, không chỉ số đếm.
@@ -78,6 +82,7 @@ def build_my_work_payload(data, cmap):
             'dueCls': '', 'overdue': False, 'stuck': False, 'dueWeek': False,
             'created': (i_created(iss) or '')[:10], 'createdDisp': (i_created(iss) or '')[:10] or '—',
             'nComments': i_comment_count(iss),
+            'hasNote': canon_key(iss['key']) in note_idx,
             'jiraUrl': f'{JIRA_URL}/browse/{iss["key"]}',
         })
     meta = {'active': len(active), 'overdue': n_over, 'stuck': n_stuck,
@@ -87,7 +92,7 @@ def build_my_work_payload(data, cmap):
 
 # ===== Dashboard QA v2 (lens cá nhân — 1 bảng + tabs + KPI + drawer) =====
 def render_qa_v2(data, activities, cmap, user, nav_active='mywork',
-                 jira_error=False, stale=False):
+                 jira_error=False, stale=False, notes=None):
     # Lens cá nhân = 100% data Jira (không có block local nào) -> Jira down thì cả vùng
     # nội dung báo lỗi, giữ skeleton sidebar/topbar.
     if jira_error:
@@ -98,7 +103,7 @@ def render_qa_v2(data, activities, cmap, user, nav_active='mywork',
         return _document_v2(content, nav_active, user, activities,
                             title='QA Workspace — Việc của tôi')
 
-    tasks, meta = build_my_work_payload(data, cmap)
+    tasks, meta = build_my_work_payload(data, cmap, notes)
     n_over, n_stuck, n_dueweek = meta['overdue'], meta['stuck'], meta['dueweek']
 
     tabs = (

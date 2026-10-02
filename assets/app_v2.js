@@ -122,6 +122,52 @@ function bugSectionHtml(d){
   return '<div class="dt-sec-title">Bug liên quan ('+bugs.length+')</div><div class="dt-bugs">'+rows+'</div>';
 }
 
+// ---------- ghi chú riêng theo task (Decision #101) — drawer mọi trang ----------
+// NOTE_TXT[key] = bản đang có ở client (đã gõ/đã lưu) -> drawer render lại (poll 60s, đổi status)
+// KHÔNG làm mất chữ đang gõ. Lần đầu lấy từ detail.note (/issue-comments). Chỉ chính chủ.
+var NOTE_TXT={}, NOTE_AT={};
+function noteSectionHtml(key, d){
+  if(!window.__isAdmin || !d) return '';
+  if(NOTE_TXT[key]===undefined){ NOTE_TXT[key]=(d.note&&d.note.t)||''; NOTE_AT[key]=(d.note&&d.note.at)||''; }
+  var at=NOTE_AT[key] ? 'Đã lưu '+esc(NOTE_AT[key].slice(0,16).replace('T',' ')) : 'Chỉ mình bạn thấy · tự lưu';
+  return '<div class="dt-sec-title">Ghi chú riêng</div>'
+    +'<div class="dt-note"><textarea class="dt-note-ta" data-note-key="'+esc(key)+'" rows="3" maxlength="5000" '
+    +'placeholder="Checklist, lý do đang chờ, link Chat… (không đẩy lên Jira)">'+esc(NOTE_TXT[key])+'</textarea>'
+    +'<div class="dt-note-st" id="noteSt-'+esc(key)+'">'+at+'</div></div>';
+}
+(function(){
+  var timers={};
+  function save(key){
+    clearTimeout(timers[key]); delete timers[key];
+    var txt=NOTE_TXT[key]||'', st=$('noteSt-'+key);
+    if(st) st.textContent='Đang lưu…';
+    postJSON('/set-note', { key:key, text:txt }, 15000).then(function(j){
+      var el=$('noteSt-'+key);
+      if(j && j.ok){ NOTE_AT[key]=(j.note&&j.note.at)||'';
+        if(el) el.textContent=NOTE_AT[key]?('Đã lưu '+NOTE_AT[key].slice(0,16).replace('T',' ')):'Đã xoá ghi chú';
+        if(window.__applyNotePatch) window.__applyNotePatch(key, !!(txt.trim())); }
+      else if(el) el.textContent='⚠ Không lưu được — thử gõ lại';
+    }).catch(function(){ var el=$('noteSt-'+key); if(el) el.textContent='⚠ Lỗi mạng — chưa lưu'; });
+  }
+  document.addEventListener('input', function(e){
+    var ta=e.target; if(!ta.classList || !ta.classList.contains('dt-note-ta')) return;
+    var key=ta.getAttribute('data-note-key'); NOTE_TXT[key]=ta.value;
+    var st=$('noteSt-'+key); if(st) st.textContent='Chưa lưu…';
+    clearTimeout(timers[key]); timers[key]=setTimeout(function(){ save(key); }, 900);
+  });
+  // blur = lưu ngay (đóng drawer/chuyển trang không mất chữ của 900ms cuối)
+  document.addEventListener('focusout', function(e){
+    var ta=e.target; if(!ta.classList || !ta.classList.contains('dt-note-ta')) return;
+    var key=ta.getAttribute('data-note-key'); if(timers[key]) save(key);
+  });
+  window.addEventListener('pagehide', function(){
+    Object.keys(timers).forEach(function(key){
+      try{ fetch('/set-note', { method:'POST', keepalive:true,
+        headers:{'Content-Type':'application/json'}, body:JSON.stringify({key:key, text:NOTE_TXT[key]||''}) }); }catch(_){}
+    });
+  });
+})();
+
 // ---------- toast (stack queue, max 3, giữ nguyên signature toast(msg, ok)) ----------
 function toast(msg, ok){
   var wrap=$('toastWrap');
@@ -1081,7 +1127,8 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var cnt = nc ? '<span class="cmt-count">'+nc+'</span>' : '';
     return '<tr'+(t.overdue?' class="overdue-row"':'')+' data-key="'+esc(t.key)+'">'
       +'<td><a class="key" href="'+esc(t.jiraUrl)+'" target="_blank">'+esc(t.key)+'</a></td>'
-      +'<td class="title clickable" data-act="detail" data-key="'+esc(t.key)+'">'+esc(t.summary)+'</td>'
+      +'<td class="title clickable" data-act="detail" data-key="'+esc(t.key)+'">'+esc(t.summary)
+      +(t.hasNote?' <span class="note-ic material-symbols-rounded ph-light ph-note-pencil mi-xs" title="Có ghi chú riêng"></span>':'')+'</td>'
       +'<td class="status-cell"><div class="stat-wrap"><span class="badge '+jiraCls(t.jira)+'">'+esc(t.jira)+'</span>'
       +'<button class="caret material-symbols-rounded ph-light ph-caret-down mi-sm" data-act="smenu" data-key="'+esc(t.key)+'"></button></div>'+chipHTML(t)+'</td>'
       +'<td><span class="assignee"><span class="av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span> '+esc(t.assignee.name)+'</span></td>'
@@ -1222,6 +1269,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
       +'<div class="lbl">Cảnh báo</div><div class="val">'+flags+'</div></div>'
       +'<div class="dt-sec-title">Mô tả</div><div class="dt-desc">'+desc+'</div>'
       +bugSectionHtml(DETAIL[t.key])
+      +noteSectionHtml(t.key, DETAIL[t.key])
       +'<div class="dt-cmts"><div class="dt-sec-title">Bình luận ('+(list&&list.length||0)+')</div>'
       +'<div class="cmt-panel"><div class="cmt-history">'+hist+'</div>'
       +'<div class="cmt-box"><textarea id="dtTa-'+esc(t.key)+'" placeholder="Viết bình luận... (gõ @ để nhắc người)"></textarea>'
@@ -1288,6 +1336,10 @@ window.__smSetCustom=function(t, key, val, onChanged){
     }
   };
   window.__rerenderRows=renderRows;
+  window.__applyNotePatch=function(key, has){
+    var t=TASKS.filter(function(x){ return x.key===key; })[0];
+    if(t && !!t.hasNote!==has){ t.hasNote=has; renderRows(); }
+  };
 
   setFilter('all');
 })();
@@ -1344,6 +1396,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
       +'<div class="lbl">Cảnh báo</div><div class="val">'+flags+'</div></div>'
       +'<div class="dt-sec-title">Mô tả</div><div class="dt-desc">'+desc+'</div>'
       +bugSectionHtml(DETAIL[t.key])
+      +noteSectionHtml(t.key, DETAIL[t.key])
       +'<div class="dt-cmts"><div class="dt-sec-title">Bình luận ('+(list&&list.length||0)+')</div>'
       +'<div class="cmt-panel"><div class="cmt-history">'+hist+'</div>'
       +'<div class="cmt-box"><textarea id="dtTa-'+esc(t.key)+'" placeholder="Viết bình luận... (gõ @ để nhắc người)"></textarea>'

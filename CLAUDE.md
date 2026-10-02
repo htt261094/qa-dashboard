@@ -469,6 +469,13 @@ Client đã vá tại chỗ sau transition (#24), nhưng mọi lần render SAU 
 - Mutate issue dict **tại chỗ** (object nằm trong cache SWR) → mọi bản copy trong RAM thống nhất.
 **Ranh giới có chủ đích**: CHỈ status Jira (nhãn nội bộ đã là store local #21; duedate vẫn chỉ vá client-side). RAM per-process, KHÔNG sync chéo máy — trễ nằm ở cache/index của CHÍNH process đang serve. Chỉ ghi đè **tên** status, không dựng `statusCategory` (không code nào đọc field đó); count-only KPI (`done_total`/`created_week`/`resolved_week`) KHÔNG đổi theo overlay.
 
+### 101. Ghi chú riêng theo task *(2026-10-02, issue #198, code: `core/task_notes.py`)*
+Lớp phủ local kiểu #21 cho thứ status/nhãn không nói được: checklist cá nhân, lý do đang chờ, link Chat. **KHÔNG đẩy Jira**, chỉ chính chủ (`/set-note` + `detail.note` gate `_is_admin`).
+- Kho: KV `qa-dashboard-task-notes` local-first (#78) + `.task_notes.json` (gitignore). Shape `{notes:{KEY:{t,at}}}`, cap 5000 ký tự/ghi chú, 2000 task. Text rỗng = xoá. `threading.Lock` quanh read-modify-write vì autosave bắn POST chồng nhau.
+- Lưu theo **key thật**, tra theo `canon_key` (#76) → qua kỳ nửa năm vẫn thấy; lưu lại thì entry key kỳ cũ bị thay bằng key mới (1 task = 1 ghi chú).
+- UI: mục "Ghi chú riêng" trong **cả 2 drawer** (`noteSectionHtml` shared, render sau "Bug liên quan"), autosave debounce 900ms + lưu ngay khi blur + `fetch keepalive` lúc `pagehide`. Client giữ `NOTE_TXT[key]` → drawer render lại (poll #24, đổi status) KHÔNG mất chữ đang gõ (nhưng vẫn mất focus — như ô comment). Bảng Việc của tôi có icon `note-pencil` cạnh tiêu đề (`hasNote`, vá client qua `__applyNotePatch`).
+**Giới hạn**: plain text, không render checklist/markdown. Không có lịch sử sửa (last-write-wins như mọi kho #78).
+
 ### 27. Dọn dead code `.last_seen.json` / snapshot-diff NEW badge
 Snapshot-diff vẫn chạy mỗi request nhưng **không còn được render** (QA controller không đọc `isNew`). Đã xoá `core/state.py`, `_build_view`, param `new_keys`/`first_run`, `STATE_FILE`.
 Cái "New" còn thấy là **nguồn KHÁC, giữ nguyên**: pill New ở `render_admin_v2` = `created == hôm nay` (stateless).

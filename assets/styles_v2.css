@@ -419,6 +419,13 @@ tr.cmt-row:hover td{background:var(--surface-low)}
 .dt-desc{font-size:14px;line-height:21px;color:var(--on-surface);background:var(--surface-low);
          border:1px solid var(--divider);border-radius:var(--r-md);padding:12px 14px;margin-bottom:22px;white-space:pre-wrap;overflow-wrap:break-word;word-break:break-word}
 .dt-bugs{display:flex;flex-direction:column;gap:8px;margin-bottom:22px}
+.dt-note{margin-bottom:22px}
+.dt-note-ta{width:100%;min-height:72px;resize:vertical;padding:9px 11px;border:1px solid var(--outline-variant);
+            border-radius:var(--r-md);background:var(--surface-low);color:var(--on-surface);
+            font:inherit;font-size:13px;line-height:19px;box-sizing:border-box}
+.dt-note-ta:focus{outline:none;border-color:var(--primary);background:var(--card)}
+.dt-note-st{font-size:11px;color:var(--on-surface-variant);margin-top:4px;text-align:right}
+.note-ic{color:var(--primary);vertical-align:-2px;margin-left:2px}
 .dt-bug{display:flex;align-items:center;gap:10px;background:var(--surface-low);
         border:1px solid var(--divider);border-radius:var(--r-md);padding:9px 12px;font-size:13px}
 .dt-bug-id{font-weight:700;color:var(--primary);white-space:nowrap}
