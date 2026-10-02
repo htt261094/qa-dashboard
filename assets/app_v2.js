@@ -455,6 +455,7 @@ function skelComments(){
   var BUG_CLS={ 'New':'st-open','Fixing':'st-fixing','Fixed':'st-fixed','Reopen':'st-reopen',
                 'Rejected':'st-rejected','Closed':'st-closed' };
   var NAV=[
+    {label:'Hôm nay', href:'/today', icon:'sun-horizon'},
     {label:'Việc của tôi', href:'/my-work', icon:'person'},
     {label:'Bug Log', href:'/bug-log', icon:'bug_report'},
     {label:'Analytics', href:'/analytics', icon:'monitoring'},
@@ -1435,6 +1436,20 @@ window.__smSetCustom=function(t, key, val, onChanged){
         if(j.ok){ (COMMENTS[key]=COMMENTS[key]||[]).push({author:'Bạn', when:new Date().toISOString(), body:v});
           if(CUR[key]) renderDrawer(CUR[key]); toast('Đã gửi comment ✓', true); }
         else toast(j.msg||'Lỗi gửi comment', false); }).catch(function(){ toast('Lỗi mạng', false); }); }
+  });
+})();
+
+// ================= HÔM NAY (guard #todayPage — Decision #102) =================
+// Trang không có #rows -> drawer là SHARED DRAWER ở trên. Hàng mention: mở + đánh dấu đã đọc.
+(function(){
+  var page=$('todayPage'); if(!page) return;
+  page.addEventListener('click', function(e){
+    if(e.target.closest('a[href]')) return;              // key -> mở Jira tab mới như bình thường
+    var row=e.target.closest('[data-today-open]'); if(!row) return;
+    var key=row.getAttribute('data-today-open'), id=row.getAttribute('data-actid');
+    if(id){ postJSON('/dismiss', { ids:[id] }, 20000).catch(function(){});
+      row.classList.add('read'); }
+    if(key && window.__openDetail) window.__openDetail(key);
   });
 })();
 

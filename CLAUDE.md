@@ -75,6 +75,7 @@ Giảm deps, user không phải cài nhiều. Đánh đổi: không auto-reload/
 
 ### 99. Autostart lúc logon — Scheduled Task + pythonw *(2026-10-02, issue #198, code: `scripts/install_autostart.ps1`)*
 2 task cho user hiện tại: **"QA Dashboard"** (AtLogOn → `pythonw.exe qa_dashboard.py`, restart 3 lần/1′, không giới hạn thời gian chạy, `-AllowStartIfOnBatteries -DontStopIfGoingOnBatteries` — thiếu là Windows bỏ qua trigger im lặng khi chạy pin) + **"QA Dashboard Window"** (AtLogOn, trễ 20s → Edge/Chrome `--app=http://localhost:<PORT>/`, cửa sổ riêng). Kèm shortcut Desktop. `-Uninstall` gỡ sạch, `-NoWindow` bỏ task cửa sổ.
+- Python ưu tiên **`.venv\Scripts\pythonw.exe`** của repo: Python hệ thống trên máy này THIẾU `cryptography` → server chết ngay lúc import. Script check `import requests, cryptography` trước khi đăng ký.
 - pythonw không có console → `sys.stdout/stderr = None` → `log_message` crash mỗi request. Entry tự đổ cả 2 ra `reports/dashboard.log` (line-buffered) khi phát hiện `None`.
 - `.ps1` **ASCII-only** (PS 5.1 đọc file không-BOM theo ANSI). URL phải `localhost` (không `127.0.0.1`) vì OAuth redirect URI (#96).
 - ⚠ **User tự chạy** trong terminal của họ: `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install_autostart.ps1` — đừng chạy qua Claude Code (container MSIX, xem CLAUDE.md user-level).
@@ -126,7 +127,7 @@ User chốt (sau #96): dashboard là **của riêng mình**, không quản lý t
 - **Roster** `config.USERS = [SELF_USER]` — **bỏ qua `JIRA_USERS` trong `.env`** để không vô tình kéo lại task người khác. Mọi JQL `assignee/reporter in (USERS)` (bucket, activity feed #9, warm accountId) tự thu về task của mình; không phải sửa từng chỗ.
 - **Gỡ trang**: dashboard team `/` (`render_admin_v2`, workload #5, pill/KPI admin, card Metric Bug) → `/` redirect `/my-work` · Roadmap `/roadmap` + `/public/roadmap` (#12) · Test Case `/test-cases` + mọi `/tc-*` (#80/#42/#44/#55/#64/#91) · Đánh giá `/leader-eval` + `/batch-eval` (#71) · API mobile `/api/*` + `/.well-known/assetlinks.json` + Bearer token + OAuth `state.app`/`APP_REDIRECT` (#83) · role dev `JIRA_DEV_EMAIL` (#45). Module xoá: `roadmap.py`, `testcase_store.py`, `testcase_link.py`, `render/{roadmap,testcase,leader_eval}.py`; `build_dashboard_payload`/`build_analytics_payload`/`_cross_metrics` cũng đi theo (chỉ phục vụ API).
 - **Ăn theo**: drawer bỏ mục "Bộ test case liên quan"; bảng Việc của tôi bỏ cờ `hasTc` + note "🔗 x/y task đã link bộ test case"; Analytics bỏ 4 card Test Coverage / Execution / Bug Density / Automation Coverage (đều dựa test case). CSS: gỡ rule mà class/id chỉ còn ở code đã xoá (so source HEAD vs sau khi xoá).
-- `/my-work` giờ là trang chính, **admin-only → 403** (không redirect về `/` vì `/` lại redirect về `/my-work` → vòng lặp).
+- `/my-work` giờ là trang chính *(từ #102 trang chính là `/today`, `/` redirect về đó)*, **admin-only → 403** (không redirect về `/` vì `/` lại redirect về `/my-work` → vòng lặp).
 **Giữ nguyên có chủ đích**: Bug Log + Analytics vẫn đủ bug cả team (user chọn); Tài liệu; tạo sub-task (#22/#57/#58/#77 — dropdown QA giờ chỉ còn mình); custom status #21; chuông #24.
 **Data KHÔNG xoá**: `.roadmap_config.json`, `.tc_config.json`, `.testcase_*.json` + key KV tương ứng vẫn nằm nguyên — chỉ gỡ code. Muốn khôi phục: revert commit của #97. `remote_store` không còn ai đọc các key đó.
 
@@ -469,6 +470,13 @@ Client đã vá tại chỗ sau transition (#24), nhưng mọi lần render SAU 
 - Mutate issue dict **tại chỗ** (object nằm trong cache SWR) → mọi bản copy trong RAM thống nhất.
 **Ranh giới có chủ đích**: CHỈ status Jira (nhãn nội bộ đã là store local #21; duedate vẫn chỉ vá client-side). RAM per-process, KHÔNG sync chéo máy — trễ nằm ở cache/index của CHÍNH process đang serve. Chỉ ghi đè **tên** status, không dựng `statusCategory` (không code nào đọc field đó); count-only KPI (`done_total`/`created_week`/`resolved_week`) KHÔNG đổi theo overlay.
 
+### 102. Trang "Hôm nay" (`/today`) = trang chính *(2026-10-02, issue #198, code: `core/render/today.py`)*
+Bảng Việc của tôi trả lời "tôi có gì" chứ không trả lời "hôm nay làm gì trước". `/today` gom từ **đúng bundle của `/my-work`** (`_my_work_bundle` — 0 call Jira thêm): KPI + các nhóm **Quá hạn → Đến hạn hôm nay → Được nhắc chưa đọc → Kẹt ≥5 ngày → 7 ngày tới → Đang có ghi chú (#101)**.
+- `build_today_groups` thuần (test được): mỗi task active vào **đúng 1 nhóm** theo ưu tiên overdue > today > stuck > upcoming > noted; Done/Cancelled bỏ. Mention = activity chuông `mention && is_unread` (đã lọc noti do chính mình gây ra #34).
+- `/` redirect `/today`; sidebar + palette có mục "Hôm nay" đầu tiên. Admin-only (403, không redirect — tránh vòng lặp với `/`).
+- Click hàng → **shared drawer** (trang không có `#rows`, #18); hàng mention bấm vào = `/dismiss` + mở drawer. Server-render, KHÔNG nhận patch poll (#24) → tươi khi F5 như KPI.
+⚠ `_jira_cls` (Python) twin `jiraCls` (JS) cho màu badge status.
+
 ### 101. Ghi chú riêng theo task *(2026-10-02, issue #198, code: `core/task_notes.py`)*
 Lớp phủ local kiểu #21 cho thứ status/nhãn không nói được: checklist cá nhân, lý do đang chờ, link Chat. **KHÔNG đẩy Jira**, chỉ chính chủ (`/set-note` + `detail.note` gate `_is_admin`).
 - Kho: KV `qa-dashboard-task-notes` local-first (#78) + `.task_notes.json` (gitignore). Shape `{notes:{KEY:{t,at}}}`, cap 5000 ký tự/ghi chú, 2000 task. Text rỗng = xoá. `threading.Lock` quanh read-modify-write vì autosave bắn POST chồng nhau.
@@ -538,9 +546,10 @@ KHÔNG được:
 
 ### Works
 - Server `ThreadingHTTPServer` + Google OAuth login, chỉ phục vụ localhost (LOCAL_ONLY #96), chỉ tracking task của chính chủ (#97)
-- Việc của tôi (`/my-work`, `/` redirect về đây), Tài liệu (`/docs`), Bug Log (`/bug-log`), Analytics (`/analytics`), Cài đặt (`/settings`)
+- Hôm nay (`/today`, `/` redirect về đây — #102), Việc của tôi (`/my-work`), Tài liệu (`/docs`), Bug Log (`/bug-log`), Analytics (`/analytics`), Cài đặt (`/settings`)
 - Ghi Jira bằng PAT cá nhân: đổi status, comment (@-mention), đổi due date, tạo sub-task hàng loạt nhiều cha
-- Custom status overlay, notification short-poll 60s, command palette Ctrl+K
+- Custom status overlay, ghi chú riêng theo task (#101), notification short-poll 60s, command palette Ctrl+K
+- Auto-login chính chủ khi mở từ localhost (#98), autostart lúc logon (#99)
 - Bug Log sync từ Drive (Sheet native + xlsx), metric + freeze tháng, export Excel
 - Viewer tài liệu inline (PDF/ảnh/Office/text/HTML sandbox), folder Quy Trình dạng tab
 
@@ -614,6 +623,7 @@ qa-dashboard/
 │   ├── pat_store.py         ← API token cá nhân {email: enc('email:token')} (#20, #94)
 │   ├── jira_write.py        ← ghi Jira bằng API token cá nhân: transition/comment/duedate/sub-task (#20,#57,#77)
 │   ├── custom_status.py     ← nhãn overlay + activity (#21)
+│   ├── task_notes.py        ← ghi chú riêng theo task (#101)
 │   ├── remote_store.py      ← kho sync chéo máy Cloudflare KV, local-first (#78)
 │   ├── drive_token.py       ← refresh token Drive của admin, mã hoá (#79)
 │   ├── docs.py              ← cây tài liệu (#11,#66)
@@ -625,7 +635,7 @@ qa-dashboard/
 │   ├── bug_backlog.py       ← fingerprint, tồn đọng, freeze tháng (#54,#69,#75)
 │   ├── task_link.py         ← link bug↔task (#37,#50,#51,#76)
 │   ├── xlsx_export.py       ← build .xlsx zero-dep (#45b)
-│   ├── render/              ← package: base · shell · misc · dashboard (= Việc của tôi) · docs · bug_log · analytics (`__init__.py` re-export cho caller cũ)
+│   ├── render/              ← package: base · shell · misc · today (= Hôm nay #102) · dashboard (= Việc của tôi) · docs · bug_log · analytics (`__init__.py` re-export cho caller cũ)
 │   └── routes/              ← oauth · uploads · write (mixin cho handler)
 │
 ├── assets/  app_v2.js · styles_v2.css (UI v2) · styles.css (chỉ error page)
@@ -634,7 +644,7 @@ qa-dashboard/
 │
 │   ── gitignore (sinh lúc chạy) ──
 ├── .env · .crypto_key · .drive_token.json · .pat_store.json · .jira_accounts.json · .sync_meta.json
-├── .docs_config.json · .custom_status.json · (.roadmap_config.json · .tc_config.json — data cũ, không còn code đọc, #97)
+├── .docs_config.json · .custom_status.json · .task_notes.json · (.roadmap_config.json · .tc_config.json — data cũ, không còn code đọc, #97)
 ├── .bug_log*.json · .bug_monthly.json · .bug_task_link.json · .testcase_*.json
 ├── uploads/ · reports/ · gcp-service-account.json
 ```

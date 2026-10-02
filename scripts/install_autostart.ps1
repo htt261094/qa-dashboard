@@ -34,7 +34,12 @@ if ($Uninstall) {
   exit 0
 }
 
-# --- Python: uu tien pythonw.exe (khong bat console). KHONG dung stub WindowsApps. ---
+# --- Python: uu tien .venv cua repo (Python he thong co the THIEU cryptography -> server chet
+#     ngay luc import). Sau do moi toi pythonw.exe tren PATH. KHONG dung stub WindowsApps. ---
+if (-not $Python) {
+  $venv = Join-Path $ROOT '.venv\Scripts\pythonw.exe'
+  if (Test-Path $venv) { $Python = $venv }
+}
 if (-not $Python) {
   $cmd = Get-Command pythonw.exe -ErrorAction SilentlyContinue |
          Where-Object { $_.Source -notmatch 'WindowsApps' } | Select-Object -First 1
@@ -42,6 +47,12 @@ if (-not $Python) {
 }
 if (-not $Python -or -not (Test-Path $Python)) {
   Write-Error "Khong tim thay pythonw.exe. Truyen -Python 'C:\...\pythonw.exe'."
+}
+# Kiem tra som: thieu dep thi task se chet im lang luc logon (log chi co trong dashboard.log).
+$pyCheck = $Python -replace 'pythonw\.exe$', 'python.exe'
+& $pyCheck -c "import requests, cryptography" 2>$null
+if ($LASTEXITCODE -ne 0) {
+  Write-Error "$pyCheck thieu requests/cryptography. Chay: & '$pyCheck' -m pip install -r '$ROOT\requirements.txt'"
 }
 
 # --- Port tu .env (mac dinh 8080). Chi doc JIRA_PORT, khong in gi khac trong .env. ---

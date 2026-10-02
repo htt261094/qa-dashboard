@@ -50,7 +50,7 @@ from pat_store import save_user_pat, has_pat, delete_user_pat
 from custom_status import (load_bundle, load_overlay, values_of,
                            clear_labels_for_done)
 from task_notes import load_notes, note_for
-from render import (render_qa_v2, render_docs_page, render_bug_log_v2, render_analytics_v2,
+from render import (render_qa_v2, render_today_v2, render_docs_page, render_bug_log_v2, render_analytics_v2,
                     render_settings_page, render_error_page, render_403, render_shell_error)
 from routes.oauth import OAuthMixin
 from routes.write import WriteMixin
@@ -424,6 +424,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         if path == '/file-raw':
             self._get_file_raw()       # HTML thô, sandbox, để nhúng iframe (#65)
             return
+        if path in ('/today', '/today.html'):
+            self._get_today()          # trang chính (Decision #102)
+            return
         if path in ('/my-work', '/my-work.html'):
             self._get_my_work()
             return
@@ -470,7 +473,7 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             self._get_settings()
             return
         if path in ('/', '/index.html'):
-            self._redirect('/my-work')   # dashboard team đã gỡ (Decision #97)
+            self._redirect('/today')     # trang chính = Hôm nay (Decision #102)
             return
         self.send_response(404)
         self.end_headers()
@@ -493,6 +496,21 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         # UI hệt QA member (render_qa_v2), chỉ highlight tab "Việc của tôi" ở sidebar
         self._html(render_qa_v2(data, bell, overlay, self._user_ctx(),
                                 nav_active='mywork', stale=stale, notes=notes))
+
+    def _get_today(self):
+        # Hôm nay (Decision #102) = cùng bundle với Việc của tôi, chỉ khác cách gom nhóm.
+        # Admin-only như /my-work; KHÔNG redirect về `/` khi 403 (`/` lại redirect về đây).
+        if not self._is_admin():
+            self._forbidden()
+            return
+        try:
+            data, overlay, bell, stale, notes = self._my_work_bundle(self._wants_fresh())
+        except RuntimeError:
+            self._html(render_today_v2(None, self._bell_activities(), None, self._user_ctx(),
+                                       jira_error=True))
+            return
+        self._html(render_today_v2(data, bell, overlay, self._user_ctx(),
+                                   notes=notes, stale=stale))
 
     def _my_work_bundle(self, fresh):
         """Fetch + scope snapshot cho lens "Việc của tôi". Trả `(data, overlay, bell, stale, notes)`.

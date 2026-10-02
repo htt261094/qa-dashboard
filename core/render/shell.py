@@ -56,7 +56,7 @@ def render_sidebar_v2(active, user):
     email = user[0] if (user and user[0]) else ''
 
     # Phosphor: nav mặc định light; tab đang active dùng fill (đậm nét) thay cho FILL 1 của Material.
-    _ph_nav = {'person': 'user', 'bug_report': 'bug-beetle', 'monitoring': 'chart-line-up',
+    _ph_nav = {'today': 'sun-horizon', 'person': 'user', 'bug_report': 'bug-beetle', 'monitoring': 'chart-line-up',
                'description': 'file-text'}
 
     def lnk(href, key, icon, label):
@@ -66,7 +66,8 @@ def render_sidebar_v2(active, user):
         return (f'<a{cls} href="{href}"><span class="material-symbols-rounded ph-{wt} ph-{ph}"></span> {label}</a>')
 
     # Dashboard dùng riêng 1 người (Decision #97): chỉ còn lens cá nhân + bug/tài liệu.
-    nav = lnk('/my-work', 'mywork', 'person', 'Việc của tôi')
+    nav = lnk('/today', 'today', 'today', 'Hôm nay')   # trang chính (Decision #102)
+    nav += lnk('/my-work', 'mywork', 'person', 'Việc của tôi')
     nav += lnk('/bug-log', 'buglog', 'bug_report', 'Bugs')
     nav += lnk('/analytics', 'analytics', 'monitoring', 'Analytics')
     nav += lnk('/docs', 'docs', 'description', 'Tài liệu')
