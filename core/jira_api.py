@@ -7,19 +7,16 @@ Token never logged: network errors are redacted before raising.
 import sys
 import json
 import time
-import hashlib
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
 from config import (JIRA_URL, PAT, USERS, DEV_USERS, TASK_PTSP_TYPE_ID, actor_name,
                     LEADER_EVAL_NUM_FIELD, LEADER_EVAL_TEXT_FIELD, LEADER_FIELD,
-                    START_DATE_FIELD, jql_cf, OFFLINE,
-                    SNAPSHOT_CACHE_FILE, atomic_write, JIRA_MAX_CONCURRENT)
+                    START_DATE_FIELD, jql_cf, JIRA_MAX_CONCURRENT)
 from jira_cloud import (auth_headers as _cloud_headers, normalize, jql_user, jql_users,
                         username_of, canon_status)
 from issues import parse_date, i_assignee, i_reporter
-from remote_store import remote_get, remote_put
 from status_overlay import (patch_data as _ov_patch_data,
                             patch_issues as _ov_patch_issues,
                             patch_status_map as _ov_patch_statuses)
@@ -34,12 +31,12 @@ except ImportError:
 # urllib3 connection pool thread-safe nên share được giữa các thread của run_parallel.
 _SESSION = requests.Session()
 
-# Connect-timeout ngắn cho MỌI call qua _SESSION: khi Jira/VPN down (route blackhole),
+# Connect-timeout ngắn cho MỌI call qua _SESSION: khi Jira/mạng down (route blackhole),
 # bước TCP connect không có short timeout sẽ treo 15-30s/call -> nhiều call nối nhau làm
 # trang (kể cả tab non-Jira, vì chuông notif) treo cả phút + block server single-thread.
 # Bọc _SESSION.request ép connect-timeout = _CONNECT_TIMEOUT, GIỮ read-timeout caller truyền
 # (số đơn -> (connect, read); None -> mặc định). Fail nhanh -> chuông fail mềm gần như tức thì.
-_CONNECT_TIMEOUT = 5  # giây — Jira nội bộ qua VPN connect <1s lúc khoẻ; down thì bỏ sau 5s
+_CONNECT_TIMEOUT = 5  # giây — Jira Cloud connect <1s lúc khoẻ; down thì bỏ sau 5s
 _orig_request = _SESSION.request
 
 # Trần số call Jira REST đồng thời (issue #133). ThreadingHTTPServer (#129) + ThreadPool lồng
@@ -51,12 +48,12 @@ _orig_request = _SESSION.request
 # lúc giữ slot -> không deadlock. pool_maxsize của _SESSION đặt khớp để slot có socket dùng.
 _jira_gate = threading.BoundedSemaphore(JIRA_MAX_CONCURRENT)
 
-# Circuit breaker (issue #160): khi Jira blackhole (không VPN), MỖI call vẫn trả giá
+# Circuit breaker (issue #160): khi Jira blackhole (mất mạng), MỖI call vẫn trả giá
 # connect-timeout × retry ≈ 22s trước khi raise. Với chuông notif chạy MỌI tab + fetch_all,
 # 1 lần idle > stale-window là cả phút treo. Breaker: sau _BREAKER_FAILS connect-fail liên
 # tiếp -> "mở" trong _BREAKER_COOLDOWN giây, mọi call kế tiếp RAISE TỨC THÌ (không chạm
 # socket) -> caller (đã có except RequestException/RuntimeError) fail mềm gần như 0ms,
-# serve snapshot KV / chuông rỗng ngay. 1 call THÀNH CÔNG -> đóng lại (reset đếm). Chỉ tính
+# trang lỗi / chuông rỗng ngay. 1 call THÀNH CÔNG -> đóng lại (reset đếm). Chỉ tính
 # lỗi KẾT NỐI (ConnectionError/Timeout) là "Jira down"; lỗi HTTP 4xx/5xx KHÔNG mở breaker
 # (Jira vẫn với tới, chỉ là call sai/quá tải -> không nên chặn mù).
 _BREAKER_FAILS = 2        # số connect-fail liên tiếp để mở
@@ -70,7 +67,7 @@ _breaker_probing = False  # True khi đang có ĐÚNG 1 probe half-open chạy (
 def _breaker_allow():
     """Gọi TRƯỚC mỗi call. Trả True = đi tiếp, False = breaker chặn (caller raise tức thì).
 
-    Half-open single-flight (sửa kẹt sau VPN flip): hết cooldown thì CHỈ 1 call được làm
+    Half-open single-flight (sửa kẹt sau khi mạng chập chờn): hết cooldown thì CHỈ 1 call được làm
     probe (force dọn pool trước -> socket sạch), MỌI call khác vẫn bị chặn tới khi probe
     xong. Tránh fetch_all (5 call //) + nhiều tab cùng đập socket chết làm breaker thrash
     vô tận. Probe trên pool sạch + mạng đã lên -> pass chắc -> đóng breaker."""
@@ -148,8 +145,8 @@ def _request_short_connect(method, url, **kw):
 
 _SESSION.request = _request_short_connect
 
-# Retry + tự dọn pool sau VPN reconnect: keep-alive (Decision #13) giữ socket sống lâu; khi VPN
-# drop->reconnect, socket cũ trong pool thành chết/blackhole. Với max_retries=0 (mặc định) server
+# Retry + tự dọn pool sau khi mạng rớt: keep-alive (Decision #13) giữ socket sống lâu; khi mạng
+# drop->reconnect (đổi Wi-Fi, sleep máy...), socket cũ trong pool thành chết/blackhole. Với max_retries=0 (mặc định) server
 # KẸT cho tới khi restart (issue #139). 2 lớp chống:
 #  1) Retry adapter: urllib3 retry trên connection/read error -> tự lấy socket MỚI khi gặp chết.
 #  2) reset_pool(): đóng toàn bộ pool (cooldown) khi vẫn fail -> request kế tiếp dựng pool sạch.
@@ -166,7 +163,7 @@ def _mount_retries(sess):
     # (mặc định urllib3) lúc nhiều tab cùng fetch.
     _pool_kw = {'pool_connections': JIRA_MAX_CONCURRENT, 'pool_maxsize': JIRA_MAX_CONCURRENT}
     if Retry is not None:
-        # connect=1 (was 3): khi route blackhole (không VPN), retry connect thêm chỉ nhân
+        # connect=1 (was 3): khi route blackhole (mất mạng), retry connect thêm chỉ nhân
         # 5s timeout lên vô ích — breaker (#160) lo phần "Jira down" rẻ hơn nhiều. read=2 giữ
         # nguyên (Jira CÓ trả lời nhưng chậm/đứt giữa chừng thì retry đáng giá).
         retry = Retry(total=3, connect=1, read=2, status=0, redirect=0,
@@ -188,7 +185,7 @@ _pool_reset_lock = threading.Lock()
 
 def reset_pool(force=False):
     """Đóng mọi keep-alive socket -> request kế tiếp tự dựng pool MỚI (sạch). Gọi khi gặp lỗi
-    mạng: pool có thể đang 'nhiễm' socket chết sau VPN flip. Cooldown để không đóng liên tục.
+    mạng: pool có thể đang 'nhiễm' socket chết sau khi mạng rớt. Cooldown để không đóng liên tục.
     force=True (probe half-open) bỏ qua cooldown -> probe luôn chạy trên socket sạch."""
     global _pool_reset_at
     with _pool_reset_lock:
@@ -871,8 +868,6 @@ def fetch_ready_prod_gaps(force=False):
     """SWR-cached, BEST-EFFORT (block=False): không bao giờ treo chuông hay raise.
     Miss/Jira lỗi -> [] (chuông vẫn chạy). Kết quả GIỐNG NHAU cho mọi người (quét toàn
     instance, không scope) -> cache dùng chung; caller tự lọc theo người xem."""
-    if OFFLINE:
-        return []
     res = _cached_swr(_RP_CACHE_KEY, _compute_ready_prod_gaps, block=False, force=force)
     return [] if res is _SWR_NOT_READY else res
 
@@ -956,7 +951,7 @@ def _ukey(user):
 
 
 def _load_read_map():
-    """Toàn bộ map per-user {email: {activity_id: ts}} từ kho chung (KV, sync không cần VPN).
+    """Toàn bộ map per-user {email: {activity_id: ts}} từ kho chung (KV, sync chéo máy).
     Format cũ (flat shared {id: ts}) -> bỏ qua (trả {}), bắt đầu lại per-user.
     remote_get nạp lazy để tránh vòng import (remote_store có thể fallback jira_api)."""
     from remote_store import remote_get
@@ -1000,8 +995,6 @@ def dismiss_activities(user, ids, prune_days=14):
 
 def load_property(key, default=None):
     """Đọc JSON value từ Jira user property `key` (kho shared cross-device). default nếu 404."""
-    if OFFLINE:
-        raise RuntimeError('offline')   # ngắt mọi call Jira -> caller fallback cache local
     try:
         r = _SESSION.get(f"{JIRA_URL}/rest/api/2/user/properties/{key}",
                          headers=_auth_headers(), params={'accountId': _current_username()}, timeout=15)
@@ -1015,8 +1008,6 @@ def load_property(key, default=None):
 
 def save_property(key, value):
     """Ghi JSON value vào Jira user property `key`. Raise nếu Jira từ chối/lỗi mạng."""
-    if OFFLINE:
-        raise RuntimeError('offline')   # ngắt ghi Jira -> caller giữ cache local
     try:
         r = _SESSION.put(f"{JIRA_URL}/rest/api/2/user/properties/{key}",
                          headers=_auth_headers({'Content-Type': 'application/json'}),
@@ -1110,152 +1101,23 @@ def _compute_fetch_all(scope_user):
     return data
 
 
-# ===== Snapshot chéo máy: Cloudflare KV vừa làm cache CHUNG vừa làm kho OFFLINE =====
-# Mục tiêu (kết tiếp Decision cloudflare-kv-store):
-#  - Ai có VPN fetch full team -> ghi snapshot KV. Người sau (dù có VPN) thấy KV còn tươi
-#    (<_CACHE_TTL) -> view THẲNG, KHÔNG gọi Jira -> 1 lượt full fetch/cửa sổ phục vụ cả team.
-#  - Mất VPN -> đọc snapshot KV (cũ mấy cũng lấy) -> caller render READ-ONLY.
-#  - hash nội dung trùng bản đã đẩy -> KHÔNG PUT (đỡ quota write Cloudflare).
-# 3 tầng: L1 = _cache RAM (key 'fetch_all:None'); L2 = Cloudflare KV (chéo máy, cần internet
-# công cộng); L3 = cache đĩa local .snapshot_cache.json (#137 — KV không với tới + RAM lạnh
-# vẫn serve được, không ra trang lỗi). Luôn full team (__all__); caller scope_data.
-_SNAP_KEY = 'qa-snapshot'
-_snap_last_hash = None          # hash payload đã PUT gần nhất (per-process) -> dedup PUT
-_snap_hash_lock = threading.Lock()
-
-
-def _snap_serialize(data):
-    """fetch_all data -> dict JSON-able cho KV (fetched_at datetime -> ISO)."""
-    d = dict(data)
-    fa = d.get('fetched_at')
-    d['fetched_at'] = fa.isoformat() if hasattr(fa, 'isoformat') else fa
-    return d
-
-
-def _snap_deserialize(raw):
-    """KV dict -> fetch_all data (fetched_at ISO -> datetime; hỏng -> now)."""
-    d = dict(raw)
-    fa = d.get('fetched_at')
+# ===== Data full team cho dashboard/my-work (+ banner token chung hết hạn) =====
+# Trước (#84) có thêm tầng snapshot L2 Cloudflare KV + L3 đĩa để sống khi mất VPN. Jira
+# Cloud không cần VPN + chỉ 1 host -> gỡ hẳn, chỉ còn SWR RAM của fetch_all (Decision #95).
+def fetch_all_shared(force=False):
+    """Full team data (__all__) qua cache SWR của fetch_all(None). Trả (data, stale):
+    stale=False = data từ Jira (cache SWR hoặc live);
+    stale='auth' = token chung hết hạn/thu hồi -> phục vụ bản RAM cuối cùng (bất kể tuổi)
+    + banner "API token hết hạn". Chưa có bản RAM nào -> raise như fetch_all (trang lỗi).
+    Caller dùng scope_data() để lọc theo người xem."""
     try:
-        d['fetched_at'] = datetime.fromisoformat(fa) if isinstance(fa, str) else datetime.now()
-    except (TypeError, ValueError):
-        d['fetched_at'] = datetime.now()
-    return d
-
-
-def _snap_age(data):
-    """Tuổi snapshot theo giây (lớn vô cực nếu thiếu fetched_at)."""
-    fa = data.get('fetched_at')
-    if not hasattr(fa, 'timestamp'):
-        return float('inf')
-    return (datetime.now() - fa).total_seconds()
-
-
-def _snap_payload_hash(data):
-    """Hash phần NỘI DUNG (bỏ fetched_at/fetched_by volatile) để dedup PUT."""
-    core = {k: data.get(k) for k in
-            ('active', 'new24', 'done_week', 'done_total', 'created_week', 'resolved_week')}
-    return hashlib.sha256(
-        json.dumps(core, sort_keys=True, default=str).encode('utf-8')).hexdigest()
-
-
-# L3 = cache đĩa local: KV không với tới (mất internet công cộng) + RAM lạnh (mới restart) ->
-# vẫn còn bản snapshot trên đĩa để serve read-only thay vì trang lỗi. Đúng pattern Bug Log.
-_snap_file_lock = threading.Lock()
-
-
-def _snap_read_local():
-    """Đọc snapshot serialize (fetched_at = ISO str) từ đĩa. None nếu chưa có/hỏng."""
-    if SNAPSHOT_CACHE_FILE.exists():
-        try:
-            d = json.loads(SNAPSHOT_CACHE_FILE.read_text(encoding='utf-8'))
-            if isinstance(d, dict) and 'active' in d:
-                return d
-        except (json.JSONDecodeError, OSError):
-            pass
-    return None
-
-
-def _snap_write_local(payload):
-    """Ghi snapshot xuống đĩa atomic (tmp + rename) — không bao giờ để lại file rách."""
-    with _snap_file_lock:
-        atomic_write(SNAPSHOT_CACHE_FILE, json.dumps(payload, ensure_ascii=False))
-
-
-def _write_snapshot_async(data):
-    """Ghi snapshot ở NỀN: LUÔN ghi đĩa local (L3, rẻ, không dedup) + đẩy KV (hash trùng ->
-    bỏ qua PUT đỡ quota; KV lỗi -> nuốt, thử lại sau)."""
-    h = _snap_payload_hash(data)
-    payload = _snap_serialize(data)
-
-    def _run():
-        global _snap_last_hash
-        _snap_write_local(payload)          # L3 luôn cập nhật, kể cả khi KV PUT bị dedup/lỗi
-        with _snap_hash_lock:
-            if h == _snap_last_hash:
-                return                      # nội dung y bản đã đẩy -> KHỎI PUT (đỡ quota)
-        try:
-            remote_put(_SNAP_KEY, payload)
-            with _snap_hash_lock:
-                _snap_last_hash = h
-        except RuntimeError:
-            pass                            # KV không với tới -> để lần sau
-    threading.Thread(target=_run, daemon=True).start()
-
-
-def fetch_all_shared(fetched_by=None, force=False):
-    """Pull full team data qua tầng L1 RAM -> L2 KV(tươi) -> L3 đĩa local -> live fetch -> stale.
-
-    Trả (data, stale): stale=False = data tươi (live/cache/KV-fresh/đĩa-fresh);
-    stale=True = Jira KHÔNG với tới (mất VPN/mạng), phục vụ snapshot cũ -> banner OFFLINE;
-    stale='auth' = PAT chung hết hạn/thu hồi, phục vụ snapshot cũ -> banner "PAT hết hạn".
-    Cả True lẫn 'auth' đều read-only (truthy).
-    data luôn là FULL team (__all__); caller dùng scope_data() để lọc theo người xem.
-
-    force=True (Decision #26 bổ sung 'F5 = luôn tươi'): BỎ QUA fresh-serve của L1/L2/L3, đi
-    thẳng live fetch để lấy bản mới nhất khi user chủ động F5. Vẫn giữ snapshot làm fallback
-    nếu Jira không với tới (mất VPN -> read-only, KHÔNG ra trang lỗi)."""
-    key = 'fetch_all:None'
-    # L1 — RAM cache còn tươi -> trả ngay (nhanh nhất, không chạm KV). Bỏ qua khi force.
-    if not force:
-        with _cache_lock:
-            entry = _cache.get(key)
-        if entry and (time.monotonic() - entry[1]) < _CACHE_TTL:
-            return _ov_patch_data(entry[0]), False
-    # L2 — snapshot KV còn tươi -> view thẳng, KHÔNG gọi Jira (tối ưu #1)
-    snap = None
-    try:
-        raw = remote_get(_SNAP_KEY)
-        if raw:
-            snap = _snap_deserialize(raw)
-    except RuntimeError:
-        snap = None                          # KV không với tới
-    # L3 — KV trống/không với tới -> cache đĩa local (offline + RAM lạnh vẫn có cái để serve)
-    if snap is None:
-        local_raw = _snap_read_local()
-        if local_raw:
-            snap = _snap_deserialize(local_raw)
-    # force -> bỏ qua fresh-serve, đi thẳng live fetch (snap vẫn giữ để fallback offline).
-    if not force and snap is not None and _snap_age(snap) < _CACHE_TTL:
-        _cache_set(key, snap)
-        return _ov_patch_data(snap), False
-    # cần data tươi -> live fetch full team
-    try:
-        data = _compute_fetch_all(None)
+        return fetch_all(None, force=force), False
     except JiraAuthError:
-        if snap is not None:
-            # PAT hết hạn -> snapshot cũ + banner "PAT hết hạn"
-            return _ov_patch_data(snap), 'auth'
-        raise                                # không có snap -> trang lỗi (báo auth)
-    except RuntimeError:
-        if snap is not None:
-            return _ov_patch_data(snap), True     # mất VPN -> snapshot cũ, read-only
-        raise                                # KV cũng trống -> trang lỗi như cũ
-    data['fetched_by'] = fetched_by
-    _cache_set(key, data)
-    _ov_patch_data(data)                     # Decision #90 (vá TRƯỚC khi đẩy snapshot)
-    _write_snapshot_async(data)              # ghi KV nền + dedup hash (tối ưu #2)
-    return data, False
+        with _cache_lock:
+            entry = _cache.get('fetch_all:None')
+        if entry is None:
+            raise
+        return _ov_patch_data(entry[0]), 'auth'
 
 
 def scope_data(data, scope_user):

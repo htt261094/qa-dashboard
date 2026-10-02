@@ -34,7 +34,6 @@ BUG_TASK_LINK_FILE = SCRIPT_DIR / '.bug_task_link.json'  # cache link bug/test-c
 TESTCASE_FILE = SCRIPT_DIR / '.testcase_config.json'    # cache bộ test case import từ Drive (#152)
 TESTCASE_TASK_LINK_FILE = SCRIPT_DIR / '.testcase_task_link.json'  # cache link bộ test case -> Jira task (#155)
 JIRA_ACCOUNTS_FILE = SCRIPT_DIR / '.jira_accounts.json'  # cache map username <-> accountId Jira Cloud (#197)
-SNAPSHOT_CACHE_FILE = SCRIPT_DIR / '.snapshot_cache.json'  # L3 cache đĩa snapshot task (offline fallback, #137)
 TC_FILE = SCRIPT_DIR / '.tc_config.json'                   # test case folders + cases (persistence #152)
 UPLOADS_DIR = SCRIPT_DIR / 'uploads'   # file tài liệu upload (Decision #23) — ghi đè ở dưới nếu .env có UPLOADS_DIR
 
@@ -122,11 +121,6 @@ def _load_env():
 
 
 CFG = _load_env()
-# OFFLINE mode (Decision: tách Bug Log chạy standalone khi không vào được Jira/VPN).
-# Bật bằng env OFFLINE=1 -> KHÔNG bắt buộc JIRA creds + jira_api ngắt mọi call property
-# (fallback cache local tức thì). Đặt env này TRƯỚC khi import config (xem bug_log_offline.py).
-OFFLINE = (CFG.get('OFFLINE') or os.environ.get('OFFLINE') or '').strip().lower() in ('1', 'true', 'yes')
-
 # Thư mục lưu tài liệu upload (issue #37). Mặc định <root>/uploads — bám SCRIPT_DIR nên
 # chạy đúng mọi OS (trước hardcode path macOS -> upload chết trên host Windows).
 # Override bằng UPLOADS_DIR trong .env / env var nếu muốn để ổ khác.
@@ -139,16 +133,11 @@ except OSError:
 
 # Jira Cloud (#197): auth = Basic base64(email:api_token) — KHÔNG còn PAT Bearer của Jira DC.
 if not (CFG.get('JIRA_URL') and CFG.get('JIRA_EMAIL') and CFG.get('JIRA_API_TOKEN')):
-    if not OFFLINE:
-        hint = (" (JIRA_PAT là của Jira DC cũ, Cloud dùng JIRA_EMAIL + JIRA_API_TOKEN)"
-                if CFG.get('JIRA_PAT') else '')
-        print("ERROR: Thiếu JIRA_URL / JIRA_EMAIL / JIRA_API_TOKEN" + hint +
-              ". Tạo file .env theo .env.example.", file=sys.stderr)
-        sys.exit(1)
-    # OFFLINE: không cần Jira -> giá trị dummy để các `from config import JIRA_URL, PAT` không vỡ.
-    CFG.setdefault('JIRA_URL', 'http://offline.invalid')
-    CFG.setdefault('JIRA_EMAIL', 'offline@offline.invalid')
-    CFG.setdefault('JIRA_API_TOKEN', 'offline')
+    hint = (" (JIRA_PAT là của Jira DC cũ, Cloud dùng JIRA_EMAIL + JIRA_API_TOKEN)"
+            if CFG.get('JIRA_PAT') else '')
+    print("ERROR: Thiếu JIRA_URL / JIRA_EMAIL / JIRA_API_TOKEN" + hint +
+          ". Tạo file .env theo .env.example.", file=sys.stderr)
+    sys.exit(1)
 
 JIRA_URL = CFG['JIRA_URL'].rstrip('/')
 JIRA_EMAIL = CFG['JIRA_EMAIL'].strip()

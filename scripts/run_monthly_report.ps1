@@ -1,11 +1,12 @@
-# Bao cao Bug Metric thang -> CTO (Google Chat), chay OFFLINE tren Windows.
+# Bao cao Bug Metric thang -> CTO (Google Chat) tren Windows.
 # Port Windows cua scripts/run_monthly_report.sh (macOS). Xem CLAUDE.md + monthly_reporter_chat_app.py.
 #
 # ASCII-only co chu dich: Windows PowerShell 5.1 doc .ps1 KHONG-BOM theo ANSI -> ky tu
 # tieng Viet co dau se pha parser. Giu file nay thuan ASCII de chay on dinh qua Task Scheduler.
 #
-# Luong: dung bug_log_offline.py (doc cache Drive, KHONG can VPN/Jira) tren 1 PORT RIENG
-# (ne server chinh 8080) -> doi /analytics 200 -> reporter export PDF + upload Drive + gui
+# Luong: dung 1 instance qa_dashboard.py tren 1 PORT RIENG (ne server chinh 8080; Jira Cloud
+# khong can VPN nen da bo ban bug_log_offline.py) -> doi server san sang -> reporter
+# (cookie phien admin ky bang SESSION_SECRET) export PDF + upload Drive + gui
 # Google Chat cho CTO -> tat server. Scheduled Task goi script nay HANG NGAY; guard cuoi
 # thang tu bo qua cac ngay khac (giong cron Mac). KHONG gui email.
 #
@@ -32,7 +33,7 @@ New-Item -ItemType Directory -Force -Path "$ROOT\reports" | Out-Null
 
 # Bat buoc UTF-8 cho stdout/stderr cua Python. Khi Task Scheduler pipe output, Python lay
 # codepage ANSI (cp1252) -> print tieng Viet raise UnicodeEncodeError va job chet TRUOC khi
-# gui report (da dinh 2026-07-31, rc=1). Dat o day de ap cho ca server offline lan reporter.
+# gui report (da dinh 2026-07-31, rc=1). Dat o day de ap cho ca server lan reporter.
 $env:PYTHONUTF8       = '1'
 $env:PYTHONIOENCODING = 'utf-8'
 
@@ -45,7 +46,7 @@ function Log($msg) {
 }
 
 $MODE = if ($Test) { 'TEST space' } else { 'REAL space (CTO)' }
-Log "===== monthly report (offline, port $PORT, $MODE) ====="
+Log "===== monthly report (port $PORT, $MODE) ====="
 
 # 1. Chi chay that vao ngay cuoi thang (mai la mung 1). Chan som de khong phi dung server.
 #    Che do -Test bo qua guard nay (chay thu bat ky ngay nao).
@@ -54,24 +55,21 @@ if (-not $Test -and (Get-Date).AddDays(1).Day -ne 1) {
   exit 0
 }
 
-# 2. Dung server bug-log OFFLINE tren port rieng. OFFLINE=1 de config khong bat Jira creds.
-$env:OFFLINE   = '1'
+# 2. Dung server qa_dashboard tren port rieng (reporter cung doc JIRA_PORT de tro dung port).
 $env:JIRA_PORT = $PORT
-$srvOut = "$ROOT\reports\offline_server.log"
-$srv = Start-Process -FilePath $PY -ArgumentList 'bug_log_offline.py' `
+$srvOut = "$ROOT\reports\report_server.log"
+$srv = Start-Process -FilePath $PY -ArgumentList 'qa_dashboard.py' `
   -WorkingDirectory $ROOT -PassThru -WindowStyle Hidden `
   -RedirectStandardOutput $srvOut -RedirectStandardError "$srvOut.err"
 
-# Reporter chay o config NON-offline (giong Mac: chi thua JIRA_PORT, KHONG thua OFFLINE).
-Remove-Item Env:\OFFLINE -ErrorAction SilentlyContinue
-
 $rc = 1
 try {
-  # 3. Doi /analytics tra 200 (toi da ~40s) - route reporter drive de export metric bug.
+  # 3. Doi server tra 200 (toi da ~40s). Probe route PUBLIC (assetlinks: khong gate login,
+  #    khong goi Jira) - /analytics khi AUTH bat se redirect sang trang login.
   $ready = $false
   for ($i = 0; $i -lt 40; $i++) {
     try {
-      $r = Invoke-WebRequest -UseBasicParsing -Uri "http://localhost:$PORT/analytics" -TimeoutSec 5
+      $r = Invoke-WebRequest -UseBasicParsing -Uri "http://localhost:$PORT/.well-known/assetlinks.json" -TimeoutSec 5
       if ($r.StatusCode -eq 200) { $ready = $true; break }
     } catch { }
     if ($srv.HasExited) { break }   # server chet som (thieu dep...) -> khoi doi du 40s
@@ -79,7 +77,7 @@ try {
   }
 
   if (-not $ready) {
-    Log "[LOI] bug_log_offline.py (/analytics) khong san sang tren port $PORT - bo qua gui. Xem $srvOut.err"
+    Log "[LOI] qa_dashboard.py khong san sang tren port $PORT - bo qua gui. Xem $srvOut.err"
     exit 1
   }
 
@@ -92,7 +90,7 @@ try {
   Log "===== xong (rc=$rc) ====="
 }
 finally {
-  # Tat server offline du thoat kieu gi.
+  # Tat server du thoat kieu gi.
   if ($srv -and -not $srv.HasExited) {
     Stop-Process -Id $srv.Id -Force -ErrorAction SilentlyContinue
   }

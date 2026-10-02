@@ -3,8 +3,7 @@
 
 Vấn đề: sau khi đổi status thành công, client đã vá tại chỗ (#24) nhưng mọi lần render
 SAU đó lại đọc lại status từ Jira, mà có 2 tầng trễ:
-  1. cache SWR (`_CACHE_TTL=120s`, stale tới 900s) + snapshot KV/đĩa (#84) — chuyển tab
-     hoặc máy khác mở là ra data cũ;
+  1. cache SWR (`_CACHE_TTL=120s`, stale tới 900s) — chuyển tab là ra data cũ;
   2. search index của Jira (`/rest/api/2/search/jql`) lag vài giây sau transition — F5 ngay
      (force=True, bỏ qua cache) vẫn có thể trả status cũ.
 → user thấy trạng thái "nhảy về" giá trị cũ.
@@ -19,7 +18,7 @@ Ranh giới có chủ đích:
   - CHỈ status Jira. Nhãn nội bộ đã là store local (#21) nên không cần; duedate vẫn theo
     hành vi cũ (vá client-side).
   - RAM per-process, KHÔNG sync chéo máy: đúng trọng tâm — trễ nằm ở cache/index của
-    CHÍNH process đang serve; máy khác có snapshot riêng và sẽ tự tươi.
+    CHÍNH process đang serve.
   - Chỉ ghi đè TÊN status, không dựng lại `statusCategory` (không chỗ nào đọc field đó).
 
 Layer: config -> issues -> (this) -> jira_api.
@@ -95,7 +94,7 @@ def patch_issues(issues):
 
 
 def patch_data(data):
-    """Vá 3 bucket của `fetch_all`/snapshot (active/new24/done_week) tại chỗ."""
+    """Vá 3 bucket của `fetch_all` (active/new24/done_week) tại chỗ."""
     if not isinstance(data, dict):
         return data
     if not pending():

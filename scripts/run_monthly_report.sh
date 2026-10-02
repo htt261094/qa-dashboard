@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
-# Báo cáo Bug Metric tháng -> CTO, chạy OFFLINE (không cần VPN/Jira/login).
+# Báo cáo Bug Metric tháng -> CTO (Google Chat).
 #
-# Bối cảnh: cron cũ gọi thẳng monthly_reporter_chat_app.py, vốn drive Playwright vào
-# http://localhost:8080/bug-log do SERVER CHÍNH (qa_dashboard.py) phục vụ -> cần VPN/Jira.
-# Mạng nhà không vào được VPN -> route đó không chắc sống. Wrapper này tự dựng
-# bug_log_offline.py (đọc cache Drive, KHÔNG cần Jira) trên 1 PORT RIÊNG (né server chính
-# 8080), render /bug-log, để reporter export PDF + gửi, rồi tắt server.
+# Wrapper tự dựng 1 instance qa_dashboard.py trên 1 PORT RIÊNG (né server chính 8080) để
+# reporter (cookie phiên admin ký bằng SESSION_SECRET) drive /analytics, export PDF + gửi,
+# rồi tắt server. Jira Cloud không cần VPN nên đã bỏ bản bug_log_offline.py.
 #
 # Crontab gọi script này cuối tháng. Output -> reports/cron.log (do crontab redirect).
 set -u
@@ -17,7 +15,7 @@ PORT="${REPORT_PORT:-8077}"   # port riêng cho lần chạy này, né server ch
 cd "$ROOT" || { echo "[LỖI] Không cd được vào $ROOT"; exit 1; }
 mkdir -p reports
 
-echo "===== $(date '+%F %T') monthly report (offline, port $PORT) ====="
+echo "===== $(date '+%F %T') monthly report (port $PORT) ====="
 
 # 1. Chỉ chạy thật vào ngày cuối tháng (mai là mùng 1). Giống guard --cron của reporter,
 #    nhưng chặn SỚM để không phí dựng server vào 28/29/30.
@@ -26,25 +24,26 @@ if [ "$(date -v+1d '+%d')" != "01" ]; then
   exit 0
 fi
 
-# 2. Dựng server bug-log OFFLINE trên port riêng (OFFLINE=1 để config không bắt Jira creds).
-OFFLINE=1 JIRA_PORT="$PORT" "$PY" bug_log_offline.py &
+# 2. Dựng server trên port riêng.
+JIRA_PORT="$PORT" "$PY" qa_dashboard.py &
 SRV_PID=$!
 
 # Tắt server dù thoát kiểu gì (lỗi/kill/xong).
 cleanup() { kill "$SRV_PID" 2>/dev/null; wait "$SRV_PID" 2>/dev/null; }
 trap cleanup EXIT
 
-# 3. Đợi /analytics trả 200 (tối đa ~40s) — đây là route reporter tháng drive (metric bug).
+# 3. Đợi server sẵn sàng (tối đa ~40s). Probe route PUBLIC (assetlinks: không gate login,
+#    không gọi Jira) — /analytics khi AUTH bật sẽ redirect sang login.
 ready=0
 for _ in $(seq 1 40); do
-  if curl -fsS -o /dev/null "http://localhost:$PORT/analytics"; then ready=1; break; fi
+  if curl -fsS -o /dev/null "http://localhost:$PORT/.well-known/assetlinks.json"; then ready=1; break; fi
   # Server chết sớm (vd thiếu dep) -> khỏi đợi đủ 40s.
   kill -0 "$SRV_PID" 2>/dev/null || break
   sleep 1
 done
 
 if [ "$ready" != "1" ]; then
-  echo "[LỖI] bug_log_offline.py (/analytics) không sẵn sàng trên port $PORT — bỏ qua gửi."
+  echo "[LỖI] qa_dashboard.py không sẵn sàng trên port $PORT — bỏ qua gửi."
   exit 1
 fi
 
