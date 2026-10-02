@@ -111,7 +111,7 @@ def _load_env():
     for k in ('JIRA_URL', 'JIRA_EMAIL', 'JIRA_API_TOKEN', 'JIRA_ACCOUNT_IDS', 'JIRA_USERS', 'JIRA_PORT',
               'JIRA_ADMIN_EMAIL', 'JIRA_ALLOWED_DOMAIN',
               'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'SESSION_SECRET',
-              'PUBLIC_BASE_URL', 'BUG_LOG_POLL_SECONDS', 'BUG_LOG_JIRA_ENABLED',
+              'PUBLIC_BASE_URL', 'LOCAL_ONLY', 'BUG_LOG_POLL_SECONDS', 'BUG_LOG_JIRA_ENABLED',
               'JIRA_MAX_CONCURRENT',
               'CF_ACCOUNT_ID', 'CF_KV_NAMESPACE_ID', 'CF_API_TOKEN', 'UPLOADS_DIR',
               'APP_REDIRECT', 'APP_LINK_PACKAGE', 'APP_LINK_FINGERPRINT'):
@@ -222,12 +222,24 @@ PAT_SECRET = CFG.get('PAT_SECRET', '').strip()
 PUBLIC_BASE_URL = CFG.get('PUBLIC_BASE_URL', '').strip().rstrip('/')
 AUTH_ENABLED = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
 
+# Chế độ CHỈ-MÁY-NÀY (Decision #96, MẶC ĐỊNH BẬT): dashboard là của riêng chủ máy, chỉ phục
+# vụ request gõ từ chính máy host (localhost) — request đi qua tunnel cloudflared/Cloudflare
+# edge bị 403 dù tunnel còn chạy. Set LOCAL_ONLY=0 trong .env để mở lại domain công khai.
+LOCAL_ONLY = (CFG.get('LOCAL_ONLY') or '1').strip().lower() not in ('0', 'false', 'no')
+if LOCAL_ONLY:
+    # Domain công khai không còn với tới -> login Google phải quay về localhost (redirect URI
+    # http://localhost:<PORT>/oauth/callback đã đăng ký sẵn — Decision #15). An toàn khi suy
+    # từ Host vì gate LOCAL_ONLY đã ép Host là loopback.
+    PUBLIC_BASE_URL = ''
+
 # ----- App Android (D2 hướng C: server-brokered token handoff) -----
 # APP_REDIRECT = URL App Link app đăng ký để nhận token sau OAuth (vd
 # 'https://baokim-qa.com/app/auth'). _do_callback redirect về đây kèm '#token=<jwt>' khi
 # state đánh dấu client=app. Bỏ trống => luồng mobile tắt (web hoạt động như cũ).
 # APP_LINK_PACKAGE = applicationId app (vd 'vn.baokim.qa') cho /.well-known/assetlinks.json.
 APP_REDIRECT = CFG.get('APP_REDIRECT', '').strip()
+if LOCAL_ONLY:
+    APP_REDIRECT = ''   # app Android đã bỏ — không giao token qua App Link
 APP_LINK_PACKAGE = CFG.get('APP_LINK_PACKAGE', '').strip()
 # SHA-256 cert fingerprint(s) của signing key app, phân tách dấu phẩy (debug + release +
 # Play App Signing nếu có). Phục vụ /.well-known/assetlinks.json để Google verify App Link.
