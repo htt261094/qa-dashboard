@@ -11,8 +11,8 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
-from config import (JIRA_URL, PAT, USERS, DEV_USERS, TASK_PTSP_TYPE_ID, actor_name,
-                    LEADER_EVAL_NUM_FIELD, LEADER_EVAL_TEXT_FIELD, LEADER_FIELD,
+from config import (JIRA_URL, PAT, USERS, TASK_PTSP_TYPE_ID, actor_name,
+                    LEADER_FIELD,
                     START_DATE_FIELD, jql_cf, JIRA_MAX_CONCURRENT)
 from jira_cloud import (auth_headers as _cloud_headers, normalize, jql_user, jql_users,
                         username_of, canon_status)
@@ -414,7 +414,7 @@ def fetch_activity_feed(days=7, cap=300, max_issues=120, scope_user=None, with_s
     # Cache độc lập với with_status (luôn lưu tuple (acts, statuses)) -> bell embed (no patch)
     # và poll (patch) DÙNG CHUNG 1 lần fetch changelog (call nặng nhất), không gọi đôi.
     # SWR: stale -> trả ngay + refresh nền (chuyển tab KHÔNG block trên call này).
-    if scope_user is not None and scope_user not in USERS and scope_user not in DEV_USERS:
+    if scope_user is not None and scope_user not in USERS:
         raise ValueError('unknown scope_user')
     cache_key = f'activity:{days}:{scope_user}'
     result = _cached_swr(
@@ -1064,7 +1064,7 @@ def fetch_all(scope_user=None, force=False):
     Cache SWR: fresh trong 2 phút; stale -> trả ngay + refresh nền (chuyển tab/F5 KHÔNG
     block trên 5 call Jira), data tươi lại ở lần load kế tiếp.
     """
-    if scope_user is not None and scope_user not in USERS and scope_user not in DEV_USERS:
+    if scope_user is not None and scope_user not in USERS:
         raise ValueError('unknown scope_user')
     # Decision #90: vá status vừa ghi (cache SWR / index Jira chưa kịp) trước khi caller render.
     return _ov_patch_data(
@@ -1136,53 +1136,3 @@ def scope_data(data, scope_user):
     out['created_week'] = 0
     out['resolved_week'] = 0
     return out
-
-
-def fetch_project_categories():
-    """Fetch project categories from Jira for filtering."""
-    cache_key = 'project_categories'
-    cached, hit = _cache_get(cache_key)
-    if hit:
-        return cached
-    try:
-        r = _SESSION.get(f"{JIRA_URL}/rest/api/2/projectCategory", headers=_auth_headers(), timeout=15)
-        if r.status_code == 200:
-            cats = r.json()
-            _cache_set(cache_key, cats)
-            return cats
-        return []
-    except Exception:
-        return []
-
-
-def fetch_leader_eval_tasks(category, leader, sel_assignees, year, month):
-    import calendar
-    _, last_day = calendar.monthrange(year, month)
-    start_str = f"{year}-{month:02d}-01"
-    end_str = f"{year}-{month:02d}-{last_day}"
-    
-    parts = ['type in (Task, Sub-task)']
-    if category:
-        parts.append(f'category = "{category}"')
-
-    # Loại trừ DUY NHẤT: task ĐÃ XONG (Done/PENDING) VÀ ĐÃ chấm điểm.
-    # Hệ quả (Decision #71 — khớp JQL dev cấp):
-    #   - task active (TO DO / In Progress) → LUÔN giữ, kể cả đã chấm (điểm 100)
-    #     → xử lý carry-over: việc dài hơi chưa xong vẫn hiện để đánh giá lại.
-    #   - task Done/PENDING mà CHƯA chấm → giữ (cần đánh giá).
-    #   - task Done/PENDING ĐÃ chấm → bỏ (xong + đã chấm).
-    parts.append('NOT ((statusCategory = Done OR status = PENDING) '
-                 f'AND {jql_cf(LEADER_EVAL_NUM_FIELD)} is not EMPTY)')
-    # Window: overlap tháng đang chấm (start <= cuối tháng AND due >= đầu tháng).
-    # Cloud (#197): field theo ID — tên "Start date" trên Cloud là field MỚI (trống), data
-    # nằm ở "Start date (migrated)"; "Leader" cũng tham chiếu theo ID cho chắc.
-    parts.append(f'({jql_cf(START_DATE_FIELD)} <= "{end_str}" AND duedate >= "{start_str}")')
-
-    if leader:
-        parts.append(f'{jql_cf(LEADER_FIELD)} in ({jql_user(leader)})')
-    if sel_assignees:
-        parts.append(f'assignee in ({jql_users(sel_assignees)})')
-
-    jql = " AND ".join(parts) + " ORDER BY priority DESC, updated DESC"
-    fields = f"{_DEFAULT_FIELDS},{LEADER_EVAL_NUM_FIELD},{LEADER_EVAL_TEXT_FIELD},project"
-    return jira_search(jql, max_results=500, fields=fields)

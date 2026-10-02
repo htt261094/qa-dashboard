@@ -64,12 +64,12 @@ $srv = Start-Process -FilePath $PY -ArgumentList 'qa_dashboard.py' `
 
 $rc = 1
 try {
-  # 3. Doi server tra 200 (toi da ~40s). Probe route PUBLIC (assetlinks: khong gate login,
+  # 3. Doi server tra 200 (toi da ~40s). Probe route PUBLIC (/login: khong gate login,
   #    khong goi Jira) - /analytics khi AUTH bat se redirect sang trang login.
   $ready = $false
   for ($i = 0; $i -lt 40; $i++) {
     try {
-      $r = Invoke-WebRequest -UseBasicParsing -Uri "http://localhost:$PORT/.well-known/assetlinks.json" -TimeoutSec 5
+      $r = Invoke-WebRequest -UseBasicParsing -Uri "http://localhost:$PORT/login" -TimeoutSec 5
       if ($r.StatusCode -eq 200) { $ready = $true; break }
     } catch { }
     if ($srv.HasExited) { break }   # server chet som (thieu dep...) -> khoi doi du 40s

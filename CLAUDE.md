@@ -4,9 +4,9 @@ Context cho Claude Code khi làm việc trên project này.
 
 ## Project Purpose
 
-Custom HTML dashboard cho team QA Bảo Kim, pull data live từ Jira qua REST API + đọc bug log / test case từ Google Drive. Thay cho Jira native dashboard (xấu, buggy, không merge cell, không conditional formatting).
+Custom HTML dashboard **dùng riêng cho 1 người** (`thanhht1`, chạy trên chính máy host — Decision #96/#97), pull data live từ Jira qua REST API + đọc bug log từ Google Drive. Thay cho Jira native dashboard (xấu, buggy, không merge cell, không conditional formatting).
 
-**User là Acting QA Manager**, quản lý 5 QA trong thời gian QA Manager (Hiền) maternity leave. Dashboard phục vụ briefing hàng ngày + acting management + report tháng cho CTO.
+**User là Acting QA Manager.** Từ 2026-10-02 dashboard chỉ còn việc của chính user (Việc của tôi · Bug Log · Analytics · Tài liệu) + report tháng cho CTO; dashboard team, roadmap, test case, đánh giá leader, app Android đã gỡ (#97).
 
 ## Tech Stack
 
@@ -42,6 +42,7 @@ Custom HTML dashboard cho team QA Bảo Kim, pull data live từ Jira qua REST A
 Status categories (filter an toàn hơn tên status): `new` → TO DO · `indeterminate` → In Progress/PENDING · `done` → DONE/CANCELLED
 
 ### QA team (5 người + 1 manager)
+⚠ App chỉ **tracking task của `thanhht1`** (`config.USERS = [SELF_USER]`, #97). Bảng dưới còn là ngữ cảnh domain: tên tester/dev vẫn xuất hiện trong Bug Log/Analytics (nguồn file Drive của cả team), Hiền vẫn là Leader/reporter.
 
 | Username | Display name | Role |
 |---|---|---|
@@ -90,7 +91,7 @@ Phân biệt bằng header `Cache-Control` của browser: F5 gửi `max-age=0`, 
 SUPERSEDES Decision #14 (Jira user property làm kho chung). Jira nằm sau VPN → mất VPN là `save` FAIL, data không lưu nổi. Đổi kho chung sang **Cloudflare Workers KV** (REST api.cloudflare.com, internet công cộng) và đảo nguyên tắc:
 - **save**: ghi file local TRƯỚC (luôn thành công) → đẩy KV best-effort → dirty-flag (`.sync_meta.json`) nếu KV không với tới, flush ở lần load/save kế.
 - **load**: KV thắng khi với tới được **và** local không dirty; KV rỗng → seed từ local (hoặc Jira 1 lần để migrate); KV chết → dùng local.
-Dùng bởi: roadmap · docs · custom-status · PAT · Drive token · task_link · testcase_link · bug backlog. Bỏ trống creds CF (`KV_ENABLED=False`) → fallback Jira property, vẫn local-first.
+Dùng bởi: docs · custom-status · PAT · Drive token · task_link · bug backlog (roadmap/testcase gỡ ở #97, key KV cũ còn nguyên). Bỏ trống creds CF (`KV_ENABLED=False`) → fallback Jira property, vẫn local-first.
 **Giới hạn**: mô hình 1 instance/lúc (host migration Mac↔Win) → last-write-wins, không timestamp; host ghi local rồi chết trước khi flush + sửa tiếp ở host khác thì mất edit chưa flush.
 
 ### 95. Gỡ mọi phần xử lý mất VPN (snapshot L2/L3 + chế độ OFFLINE) *(2026-10-02)*
@@ -114,10 +115,20 @@ Golive trên `baokim-qa.com`; Cloudflare Access kẹt ở bước Activate Zero 
 ### 31. AUTH tắt = fail-closed (loopback-only)
 Trước: `AUTH_ENABLED=False` → mọi request là admin (fail-**open**) — quên creds / bind nhầm 0.0.0.0 là mất trắng. Giờ AUTH tắt → chỉ request từ **loopback** (`_is_loopback()` đọc `self.client_address[0]`, KHÔNG tin `X-Forwarded-For`) mới là admin, còn lại 403. AUTH bật → giữ nguyên. Server vẫn bind `127.0.0.1` (lớp 1); đây là defense-in-depth lớp 2.
 
+### 97. Dashboard dùng riêng 1 người — gỡ tracking người khác + dashboard team / roadmap / test case / đánh giá / API mobile *(2026-10-02)*
+User chốt (sau #96): dashboard là **của riêng mình**, không quản lý team qua đây nữa, bỏ app Android.
+- **Roster** `config.USERS = [SELF_USER]` — **bỏ qua `JIRA_USERS` trong `.env`** để không vô tình kéo lại task người khác. Mọi JQL `assignee/reporter in (USERS)` (bucket, activity feed #9, QA gate #60, warm accountId) tự thu về task của mình; không phải sửa từng chỗ.
+- **Gỡ trang**: dashboard team `/` (`render_admin_v2`, workload #5, pill/KPI admin, card Metric Bug) → `/` redirect `/my-work` · Roadmap `/roadmap` + `/public/roadmap` (#12) · Test Case `/test-cases` + mọi `/tc-*` (#80/#42/#44/#55/#64/#91) · Đánh giá `/leader-eval` + `/batch-eval` (#71) · API mobile `/api/*` + `/.well-known/assetlinks.json` + Bearer token + OAuth `state.app`/`APP_REDIRECT` (#83) · role dev `JIRA_DEV_EMAIL` (#45). Module xoá: `roadmap.py`, `testcase_store.py`, `testcase_link.py`, `render/{roadmap,testcase,leader_eval}.py`; `build_dashboard_payload`/`build_analytics_payload`/`_cross_metrics` cũng đi theo (chỉ phục vụ API).
+- **Ăn theo**: drawer bỏ mục "Bộ test case liên quan"; bảng Việc của tôi bỏ cờ `hasTc` + note "🔗 x/y task đã link bộ test case"; Analytics bỏ 4 card Test Coverage / Execution / Bug Density / Automation Coverage (đều dựa test case). CSS: gỡ rule mà class/id chỉ còn ở code đã xoá (so source HEAD vs sau khi xoá).
+- `/my-work` giờ là trang chính, **admin-only → 403** (không redirect về `/` vì `/` lại redirect về `/my-work` → vòng lặp).
+- Script report tháng probe `/login` thay `assetlinks` (đã gỡ).
+**Giữ nguyên có chủ đích**: Bug Log + Analytics vẫn đủ bug cả team (nguồn report CTO — user chọn); Tài liệu; tạo sub-task (#22/#57/#58/#77 — dropdown QA giờ chỉ còn mình); custom status #21; chuông #24.
+**Data KHÔNG xoá**: `.roadmap_config.json`, `.tc_config.json`, `.testcase_*.json` + key KV tương ứng vẫn nằm nguyên — chỉ gỡ code. Muốn khôi phục: revert commit của #97. `remote_store` không còn ai đọc các key đó.
+
 ### 96. LOCAL_ONLY — dashboard chỉ phục vụ chính máy host *(2026-10-02, code: `qa_dashboard.py:_local_only_ok`)*
 User chốt dashboard thành **của riêng mình**: không dùng trên điện thoại, đã bỏ app Android. Server bind `127.0.0.1` từ trước nên LAN không vào được, nhưng **tunnel cloudflared** (`baokim-qa.com`) cũng tới app từ `127.0.0.1` → `_is_loopback()` không phân biệt được người ngồi trước máy với người trên internet.
 - `config.LOCAL_ONLY` (env `LOCAL_ONLY`, **mặc định BẬT**, `0/false/no` để tắt). Gate `_local_only_ok()` chạy **đầu tiên** ở `do_GET`/`do_POST` (trước cả `/login`, `/public/roadmap`, `assetlinks`), 3 điều kiện: (1) peer TCP loopback; (2) KHÔNG mang header tunnel (`Cf-Connecting-IP`/`Cf-Ray`/`Cf-Visitor`/`Cdn-Loop`/`X-Forwarded-For` — Cloudflare edge + cloudflared luôn gắn, browser gõ localhost không bao giờ gửi); (3) `Host` ∈ `localhost`/`127.0.0.1`/`[::1]` (chặn DNS rebinding). Thiếu 1 → 403.
-- **Giữ Google OAuth** (không tắt AUTH): tắt AUTH thì identity rỗng → PAT tra theo key `'local'` thay vì email → mất token cá nhân đã lưu. Thay vào đó LOCAL_ONLY **bỏ qua `PUBLIC_BASE_URL`** (domain chết khi tắt tunnel) → redirect_uri suy từ Host = `http://localhost:<PORT>/oauth/callback` (đã đăng ký sẵn, #15). Suy từ Host an toàn vì gate (3) đã ép Host loopback. `APP_REDIRECT` cũng bị bỏ.
+- **Giữ Google OAuth** (không tắt AUTH): tắt AUTH thì identity rỗng → PAT tra theo key `'local'` thay vì email → mất token cá nhân đã lưu. Thay vào đó LOCAL_ONLY **bỏ qua `PUBLIC_BASE_URL`** (domain chết khi tắt tunnel) → redirect_uri suy từ Host = `http://localhost:<PORT>/oauth/callback` (đã đăng ký sẵn, #15). Suy từ Host an toàn vì gate (3) đã ép Host loopback. (`APP_REDIRECT` đã gỡ hẳn ở #97.)
 - Gate ở app là lớp chặn **dù tunnel lỡ còn chạy**; tắt tunnel cloudflared là việc của user (ngoài app).
 **Ranh giới**: phải mở bằng `http://localhost:8080` (KHÔNG `127.0.0.1`) vì Google chỉ nhận redirect URI đã đăng ký. Report tháng (#82/#95, port 8077, `localhost`) không ảnh hưởng. Muốn mở lại domain: `LOCAL_ONLY=0` + bật tunnel — `PUBLIC_BASE_URL` trong `.env` vẫn còn nguyên.
 
@@ -141,10 +152,6 @@ SUPERSEDES Decision #2 (Bearer PAT). Công ty chuyển sang `https://baokim.atla
 Fix: **bỏ hẳn** nhánh CF header → identity CHỈ từ Bearer token (mobile) hoặc session cookie, cả hai đều là **token HMAC do app ký** (`email_from_session`). Rủi ro gỡ = 0 vì không có CF Access nào set header đó hợp lệ nữa. Đây là phần còn sót của issue #44 (khuyến nghị #3 hoãn khi đóng #44 — chỉ làm fail-closed #31).
 **Ranh giới**: nếu sau này bật lại CF Access thật thì phải verify JWT `Cf-Access-Jwt-Assertion` (chữ ký), KHÔNG quay lại tin header trần.
 
-### 45. Role "dev" (hẹp) — chỉ my-work + bug-log
-`DEV_EMAILS` (env `JIRA_DEV_EMAIL`) = người không phải QA, không admin. Allowlist `_DEV_GET_ALLOWED` / `_DEV_POST_ALLOWED` trong `do_GET`/`do_POST`: GET ngoài allowlist → redirect `/my-work`, POST → 403. Dev không nằm trong snapshot team nên `/my-work` fetch riêng `fetch_all(scope_user=<dev>)`; bug-log render `editable=False`. Sidebar chỉ 2 tab + chip role "Dev".
-⚠ Local dev loopback = admin (#31) → test role dev phải login Google thật.
-
 ### 20. PAT cá nhân + ghi Jira đúng tên người
 App dùng 1 PAT chung → mọi thao tác ghi mang tên chủ PAT, sai attribution. Mỗi QA dán **PAT cá nhân** ở `/settings`.
 - `pat_store.py`: `{email: enc_pat}`; trước khi lưu **verify PAT thuộc đúng người đăng nhập** (`/myself`, so username với local-part email) — chặn dán nhầm PAT người khác.
@@ -155,10 +162,6 @@ App dùng 1 PAT chung → mọi thao tác ghi mang tên chủ PAT, sai attributi
 ### 79. Drive OAuth — 1 refresh token của admin *(ghi bổ sung 2026-08-10, code: `core/drive_token.py`)*
 Bug log + test case đọc file trên Drive công ty → chỉ cần **1 token đọc của admin**, không phải per-user như PAT. Refresh token mã hoá Fernet, lưu KV `qa-dashboard-drive-token` + cache `.drive_token.json`. Routes `/drive/connect`, `/oauth/drive-callback`, `/has-drive`, `/disconnect-drive`. KHÔNG plaintext, KHÔNG log token.
 
-### 83. API JSON cho app Android + App Links *(ghi bổ sung 2026-08-10)*
-`/api/my-work` · `/api/dashboard` · `/api/bug-log` · `/api/analytics` — **cùng nguồn data/scope/overlay/bell như web**, chỉ đổi output HTML → JSON (payload thuần dựng bởi `build_*_payload`, buckets/pager do client lo). Nguyên tắc **1 nguồn chân lý**: sửa logic phải sửa ở `build_*_payload` chứ không nhân bản.
-Login mobile: OAuth callback thấy `state.app` + `APP_REDIRECT` → giao token HMAC self-contained qua **App Link** thay vì Set-Cookie; `/.well-known/assetlinks.json` (public, không gate) để Google verify app sở hữu domain. Chưa cấu hình `APP_LINK_*` → trả `[]`, web vẫn chạy.
-
 ## Data Jira: fetch, bucket, notification
 
 ### 4. JQL dùng `statusCategory != Done` cho bucket active
@@ -167,9 +170,6 @@ An toàn hơn `status != "DONE"` nếu workflow thêm status mới; DONE + CANCE
 ### 4b. Bucket `done_week` dùng `status = "DONE"` (KHÔNG dùng `resolved`)
 Workflow Bảo Kim thường không set resolution → `resolutiondate` null → `resolved >= ...` trả rỗng. Từ 2026-07-07 (user yêu cầu) bỏ luôn cửa sổ 3 ngày: JQL `status = "DONE" ORDER BY updated DESC`, `max_results=500`, nhãn KPI "Done". Cột thời gian hiển thị `resolutiondate`, fallback `updated`.
 "Vào/Ra tuần" (`resolved_week`) VẪN dùng `status CHANGED TO "DONE" AFTER startOfWeek()` — không đụng.
-
-### 5. Workload threshold: ≥15 / 5–14 / ≤4 = QUÁ TẢI / OK / NHẸ
-Từ xlsx tracker gốc của user. **KHÔNG đổi trừ khi user yêu cầu trực tiếp.**
 
 ### 5b. Metric quản lý: "Kẹt ≥5 ngày" + "Vào/Ra tuần"
 **Kẹt** (`is_stuck`): task in-flight (không phải TO DO) mà `updated` ≥ `STUCK_DAYS`(=5) ngày. **Vào/Ra tuần**: `created >= startOfWeek()` vs `status CHANGED TO "DONE" AFTER startOfWeek()`, dùng `jira_count` (maxResults=0). Vào > Ra → backlog phình, card đỏ.
@@ -200,7 +200,7 @@ Scope: admin thấy hết, QA/dev chỉ thấy gap do chính mình gây. Config:
 ## UI v2 & tương tác
 
 ### 19. UI v2 "Stitch" — sidebar Material 3
-Redesign toàn app sang sidebar Material 3, vanilla JS + string template. Shell chung `_document_v2(content, active, user, activities, title)` = `render_sidebar_v2` + `render_topbar_v2` (chuông) + drawer dùng chung + modal (settings/sub-task/palette) + nhúng `window.__jiraBase` / `__isAdmin` / `QA_CUSTOM_STATUSES` / `__mentionUsers`. Trang: `render_admin_v2`, `render_qa_v2`, `render_roadmap_v2`, `render_docs_page`, `render_bug_log_v2`, `render_analytics_v2`, `render_testcase_v2`, `render_leader_eval_page`.
+Redesign toàn app sang sidebar Material 3, vanilla JS + string template. Shell chung `_document_v2(content, active, user, activities, title)` = `render_sidebar_v2` + `render_topbar_v2` (chuông) + drawer dùng chung + modal (settings/sub-task/palette) + nhúng `window.__jiraBase` / `__isAdmin` / `QA_CUSTOM_STATUSES` / `__mentionUsers`. Trang: `render_qa_v2` (Việc của tôi), `render_docs_page`, `render_bug_log_v2`, `render_analytics_v2`, `render_settings_page` (dashboard team/roadmap/test case/leader eval đã gỡ — #97).
 UI cũ (topnav, `app.js`, `render_personal`, `render_nav`, filterbar, workload matrix, PIC) đã **xoá hẳn** (cleanup #43).
 
 ### 18. Drawer detail ở shell + notification mở detail mọi tab
@@ -239,21 +239,7 @@ Popup của `<select>` do OS vẽ → không style được: list trắng giữa
 ⚠ Bỏ qua khi `multiple` / `size>1` / có `data-noxsel` → cần select native chỗ nào thì gắn `data-noxsel`.
 **Giới hạn**: inline `style="width:…"` đặt trên `<select>` không còn tác dụng (nằm trên native đã ẩn) — muốn đổi bề rộng phải style ở CSS cho `.xsel-btn`.
 
-## Tab: Việc của tôi / lens cá nhân
-
-### 17. Tab "Việc của tôi" (`/my-work`) — lens cá nhân cho admin
-Admin cũng là 1 QA có task riêng; QA non-admin thì `/` đã auto-scope. `/my-work` admin-only (non-admin → 302 `/`), scope = `_self_username()` (`username_from_email(login) or ADMIN_EMAIL or SELF_USER`). UI **hệt QA member** — tái dùng `render_qa_v2()` với `nav_active='mywork'`.
-
-## Tab: Roadmap & Tài liệu
-
-### 12. Tab "Roadmap" (`/roadmap`) — giai đoạn › mục › sub-task + cảnh báo hạn
-KHÔNG suy từ Jira (team làm ở tầng sub-task, fixVersion/epic không nhất quán → roadmap auto sẽ vỡ). Tự author + edit, bố cục theo mốc thời gian.
-- Data (`.roadmap_config.json` + KV): list `{phase, items:[item]}`; node = `{title, status, progress, due}`, item thêm `subtasks[]`. Status ∈ {planned, in_progress, done, blocked} (lenient, CSS `rm-st-<value>`). Cap `MAX_PHASES=100` / `MAX_ITEMS=1000`.
-- **Edit = popup**, không inline: bấm mục có sub-task = xổ cây, bấm ✎ = popup. Auto-save debounce 600ms POST `/save-roadmap`.
-- **% + status của mục có sub-task là TỰ TÍNH**: progress = trung bình; status = all done→done · có blocked→blocked · có in_progress hoặc vài done→in_progress · else planned. 2 ô disable trong popup. Node sửa tay `status='done'` → ép `progress=100`.
-- `due_alerts(data, within_days=14)` → block "🗺 Roadmap sắp đến hạn" ở dashboard, tách khỏi feed Jira.
-- Đã BỎ field PIC + link (roadmap 1 mình user làm). `/public/roadmap` = bản chỉ-xem không cần login (`render_public_roadmap_v2`).
-- Chưa làm: reorder kéo-thả, nhiều tầng sub-task.
+## Tab: Tài liệu
 
 ### 11. Tab "Tài liệu" (`/docs`) — cây thư mục + link Google Drive
 Chốt **KHÔNG build editor Office** (OnlyOffice/Collabora cần Docker → phá kiến trúc minimal-deps). "Edit thật để Google lo", workspace chỉ là **index + mở nhanh**: dán link Drive → click mở/preview. Zero dep, không Google API cho phần này.
@@ -447,57 +433,14 @@ Jira đổi key khi chuyển kỳ (`DA51H26→DA52H26`), số issue giữ nguyê
 ⚠ Twin `canonKey` trong `app_v2.js` — sửa 1 bên phải sửa bên kia. Chỉ dùng để **so khớp**, không dùng để ghi (store vẫn lưu key thật).
 Data cũ đã migrate 1 lần (`*1H26 → *2H26`, map lấy authoritative từ Jira, backup `.bak-*`).
 
-## Test Case
-
-### 80. Tab "Test Case" (`/test-cases`) — repository + import từ Drive *(ghi bổ sung 2026-08-10; epic #151, issue #152/#155/#157)*
-- **Store** (`core/testcase_store.py`, `.tc_config.json` + KV): Repository = cây folder (`{id,name}`), mỗi folder = 1 "bộ"; case = `{id, item, pre, step, exp, priority, result, auto, auto_result, folder}`; `imports` = metadata mỗi lần import. `result ∈ TC_RESULTS` (default `norun`).
-- Drive: **tái dùng** `bug_log.{fetch_meta, download_file, list_sheet_names, read_sheet_rows}` (#29) — KHÔNG viết lại Drive client.
-- **Link ở mức CẢ BỘ (folder), KHÔNG per-case** (`core/testcase_link.py`, store RIÊNG để tách namespace `f_<hex>` vs bug key).
-- `editable=True` cho **mọi QA đăng nhập** (không giới hạn admin).
-- Routes: `/tc-import`, `/tc-sync`, `/tc-sync-all`, `/tc-sheets`, `/tc-add-folder`, `/tc-rename-folder`, `/tc-delete-folder`, `/tc-link-task`, `/tc-update-link`.
-
-**Bổ sung 2026-09-03 — cap folder + thông báo lỗi import**: mỗi **sheet** import = 1 sub-folder tự sinh (`_apply_sheet_cases`) → số folder phình theo số sheet chứ không theo thao tác tay. `MAX_FOLDERS=100` cũ chạm trần ở 12 bộ / 87 sheet; import file ≥2 sheet mới → 101 folder → `valid_store` False → `save_testcases` False → UI báo **"Không lưu được (KV/local lỗi)"** dù KV hoàn toàn khoẻ (local-first #78 không bao giờ fail vì mạng). Nới `MAX_FOLDERS=1000` (payload gzip ~0.5MB, xa cap KV), thêm **check tường minh cap folder trong `import_cases`** (cạnh check `MAX_CASES`) và log lý do shape/cap ra stderr trong `save_testcases` — message chung không đủ để chẩn đoán.
-
-### 91. Cột kết quả nhiều vòng test (Round 1/2/3) — lấy round MỚI NHẤT có dữ liệu *(2026-09-14)*
-Sheet test case thật có nhiều cột kết quả theo vòng chạy (`Round 1` · `Round 2` · `Round 3`, hoặc merged header `Result` + sub-header Round bên dưới, hoặc `Kết quả lần 2`/`Đợt 3`). `_find_header` cũ chỉ nhận cột nào khớp **đúng** synonym `result/kết quả/status…` → cột `Round 2`/`Round 3` không map được field nào → sync xong chỉ thấy kết quả round 1, round sau mất trắng.
-- `_round_no(cell)`: gỡ từ nhiễu (`result/status/actual/test/kết quả/thực tế`) rồi fullmatch `<round|lần|vòng|đợt> <số>` → số round; nhãn round trơn không số → 1; không phải round → `None`. `Automation Result` KHÔNG bị nhận nhầm (không có từ khoá round).
-- `_scan_result_cols` gom `{col_index: round_no}` cho cả hàng header lẫn 2 hàng sub-header; nhãn **có số round THẮNG** nhãn `Result` trơn ở cùng cột (ca merged header). `_order_result_cols` xếp theo `(round, vị trí cột)` → phần tử cuối = round mới nhất.
-- `cell()` duyệt **ngược** danh sách: **round cuối cùng có dữ liệu thắng**; round cuối bỏ trống thì lùi về round trước (QA chưa chạy lại thì vẫn giữ kết quả lần gần nhất). Trống hết → `result=''` → rơi vào nhánh giữ/ghi đè của `_apply_sheet_cases` (#42) như cũ.
-**Ranh giới**: chỉ đổi tầng ĐỌC header, hình dạng case (`result` 1 field) KHÔNG đổi → store/UI/donut/link không phải sửa. Không lưu "kết quả round nào" — muốn xem lịch sử vòng test thì phải mở file gốc.
-
-### 42. Sync test case — LUÔN ghi đè kết quả theo file
-Smart Sync ban đầu giữ result chấm tay khi ô Result trong sheet trống. Từ 2026-07-16 user chốt **luôn ghi đè** cho MỌI sync (1 bộ / tất cả / link-modal): ô trống → `norun`. Checkbox tuỳ chọn đã gỡ; backend giữ flag `overwrite_results` nhưng client luôn gửi `True`. Lý do: user muốn hệ thống phản ánh file 100%.
-
-### 44. Sync — dọn sheet đã xoá khỏi file (mirror Drive 100%)
-Case mồ côi: `_apply_sheet_cases` ghi đè theo TÊN SHEET nên sheet đã xoá/đổi tên (vd tab `Copy of T7`) tồn mãi trong store, donut vẫn cộng (ca thật: store 217 vs sync 181).
-**CHỈ khi sync TOÀN FILE** (`sheet == ''`) → xoá sub-folder có tên không còn trong `all_sheets` (cascade + xoá cases + `imports.pop`). KHÔNG áp cho sync 1 sheet. Đặt **sau** guard `if not applied` để tải hỏng không nuke store.
-**Đánh đổi**: đổi tên sheet = xoá + thêm mới → mất result đã chấm của sheet đó. Ca **còn sheet nhưng rỗng / mất header** vẫn GIỮ cases cũ (bảo vệ khi file đang sửa dở).
-
-### 55. Repository panel — thanh tiến độ pass/fail + search
-Mỗi folder có mini stacked-bar (pass/fail/rest) + `% pass = pass/total`. ⚠ icon cảnh báo CHỈ khi `fail/total ≥ 10%` → dự án chưa test (toàn norun) không bị gắn oan.
-Ô search lọc live: fold không dấu (`đ→d`), folder hiện nếu tên khớp **hoặc** có con cháu khớp, có query thì auto-mở hết. Thuần client, không gọi server.
-
-### 64. Cột Automated + Automation Result — độ phủ automation
-Cột **Automated** 3 giá trị: `Y` đã có script · `N` auto được nhưng chưa có script · `N/A` không thể auto.
-**Định nghĩa (mấu chốt)**: `coverage = Y / (Y + N)` — **N/A bị loại khỏi mẫu số** (không auto được thì không phải nợ automation); ô trống/lạ → chưa phân loại, cũng không vào mẫu số. `denom = 0` → hiện `—`, KHÔNG hiện `0%` (0% = đã khai báo mà chưa auto, khác hẳn chưa khai báo).
-2 cột LUÔN lấy theo file mỗi lần sync (không chấm tay trên dashboard). Header match exact sau `_norm` → "Automation Result" không nhầm cột "Result".
-Hiển thị: 2 cột trong bảng (9 cột → giữ px cho 4 cột cuối + `.tc-table-wrap{overflow-x:auto}` + `min-width:1240px`; ép % làm badge bị cắt), card metric, chart theo dự án/bộ, dòng `% auto` trong cây, drawer, và card ở `/analytics` (tái dùng `tcData` đã embed → 0 call thêm).
-⚠ Bar coverage phải vẽ **trên mẫu số Y+N** (helper dùng chung `autoBarRowHTML`), N/A + chưa-phân-loại ra cột phụ — vẽ trên tổng case thì bar không bao giờ khớp % hiển thị. Công thức ở `/test-cases` và `/analytics` là twin.
-
 ## Analytics & Report
 
 ### 81. Tab "Analytics" (`/analytics`) *(ghi bổ sung 2026-08-10; issue #158)*
-Gom metric bug (số lượng theo dev/dự án, Valid & Rejected Bug Rate, Tỷ lệ Reopen, dải tồn đọng) + coverage automation + card placeholder metric Jira (#61). `build_analytics_payload` cũng phục vụ `/api/analytics`. Data embed trong `<script id="analyticsData">`, controller tính client-side → đổi tháng/scope không gọi server.
+Gom metric bug (số lượng theo dev/dự án, Valid & Rejected Bug Rate, Tỷ lệ Reopen, dải tồn đọng) + card placeholder metric Jira (#61). (Coverage automation/test case + `build_analytics_payload` cho API đã gỡ — #97.) Data embed trong `<script id="analyticsData">`, controller tính client-side → đổi tháng/scope không gọi server.
 ⚠ Nhiều công thức là **twin Python↔JS** (`_reopen_table`↔`renderReopen`, `_valid_counts`↔`renderValid`, `_month_of`↔`monthOf`, `prev_month_backlog`↔`computeBacklog`) vì cùng số phải ra ở cả report CTO lẫn UI.
 
 ### 82. Report tháng gửi CTO qua Google Chat *(ghi bổ sung 2026-08-10)*
 `core/monthly_reporter_chat_app.py` — gửi **Google Chat webhook**, KHÔNG email. Chạy qua Scheduled Task Windows (`scripts/run_monthly_report.ps1`), cần `gcp-service-account.json` + `GOOGLE_CHAT_SPACE_ID`. `--real`/`--cron` = gửi thật + freeze tháng (#69); mặc định là run TEST.
-
-### 71. Leader Eval (`/leader-eval`) — carry-over task active
-Chu kỳ: tháng T chấm việc tháng T-1 (mặc định mở ra tháng trước). JQL cũ dùng `"Leader đánh giá (Số)" is EMPTY` → coi "đã chấm" là VĨNH VIỄN, task dài hơi chấm kỳ trước bị giấu dù vẫn chạy.
-Giờ bám **đúng JQL dev cấp** (verify khớp 212/212): loại trừ DUY NHẤT `NOT ((statusCategory = Done OR status = PENDING) AND "Leader đánh giá (Số)" is not EMPTY)` → task active **luôn giữ, kể cả đã chấm**; chỉ rớt khi Done/PENDING + đã chấm. Bỏ mệnh đề assignee (khớp dev). Giữ window overlap tháng + category + `Leader in (...)`.
-Chấm điểm hàng loạt qua POST `/batch-eval` (admin).
-**Bổ sung 2026-09-03 — lọc Assignee client-side**: dropdown `evalAsgFilter` cạnh lọc Status/Đánh giá, option build từ CHÍNH tập task đang render (`unique_assignees`, sort theo display name) chứ không phải roster QA — assignee ở đây là **dev**, roster QA sẽ thiếu. Lọc thuần client (`applyRowFilters` gộp 3 điều kiện), không round-trip Jira; row bị ẩn thì **bỏ tick** để `check-all`/`/batch-eval` không chạm task ngoài tầm nhìn. Option `__none__` = task chưa giao (`data-assignee` rỗng), chỉ render khi thật sự có. Param server `?assignee=` (`fetch_leader_eval_tasks`) vẫn còn, thu hẹp tập fetch — 2 lớp độc lập, không đụng nhau. Số ở tiêu đề `Danh sách Task` đổi theo filter (`updateVisCount` → `(hiện/tổng)` khi đang lọc) — trước là `len(tasks)` tĩnh nên lọc xong số vẫn đứng yên.
 
 ## Custom status & misc
 
@@ -506,10 +449,6 @@ Status Jira nghèo, không nói được "Chờ BA confirm" hay "Dev fix bug". L
 Store: `{status:{KEY:{v:[labels],by,at}}, activity:[...]}`. **Mỗi task nhiều nhãn** (`v` là list; string cũ đọc thành list 1 phần tử). 6 nhãn (2026-08-10): Dev fix bug · Chờ BA confirm requirement · Có thay đổi requirement · Chờ data test · Môi trường test chưa sẵn sàng · Chờ deploy lên test.
 ⚠ Đổi/bỏ nhãn PHẢI giữ **key cũ** ở đâu semantic trùng — `values_of` lọc theo `_VALID`, đổi key = task đang gắn key đó rớt nhãn.
 Mỗi lần đổi ghi 1 event vào activity (cap 200, prune 14 ngày) → gộp vào block "Hoạt động".
-
-### 89. Bỏ pill "New" ở dashboard — task mới nằm trong To Do *(2026-09-03)*
-Pill `New` (`created == hôm nay`, stateless — nguồn còn lại sau #27) loại task mới khỏi bucket To Do (`!isNew`), nên task vừa tạo **rơi ra ngoài mọi bucket** khi user đang ở tab To Do → tưởng mất task. Bỏ hẳn pill; `todo` giờ = mọi task active `TO DO` không overdue.
-`meta['new']` **vẫn tính và trả trong payload** (`build_dashboard_payload`) để `/api/dashboard` (app Android) không breaking — chỉ web bỏ pill. ⚠ Twin: `pillMatch`/`updateCounts` trong `app_v2.js` phải khớp `n_todo` bên Python.
 
 ### 90. Overlay status vừa ghi — dashboard hiện ngay, không chờ Jira/cache bắt kịp *(2026-09-03, code: `core/status_overlay.py`)*
 Client đã vá tại chỗ sau transition (#24), nhưng mọi lần render SAU đó đọc lại status từ Jira và dính **2 tầng trễ**: (a) cache SWR `_CACHE_TTL=120s`/stale 900s → chuyển tab là ra status cũ; (b) **search index Jira lag vài giây** → F5 (`force=True`, bỏ qua cache) vẫn có thể trả status cũ. Triệu chứng: status "nhảy về" giá trị trước.
@@ -543,6 +482,14 @@ Cái "New" còn thấy là **nguồn KHÁC, giữ nguyên**: pill New ở `rende
 | 40 | Card insight "Cần chú ý hôm nay" | ❌ gỡ 2026-07-08 (user thấy không thêm giá trị) |
 | — | Tính năng PIC (`pic.py`, `/save-pic`) | ❌ bỏ hẳn (cleanup #43) |
 | 22 (phần parent) | Sub-task chỉ được tạo dưới Task-PTSP | ⛔ nới thành **bất kỳ task** — xem #57 |
+| 5 | Workload threshold ≥15 / 5–14 / ≤4 (strip workload dashboard team) | ❌ gỡ cùng dashboard team — #97 |
+| 12 | Tab Roadmap (`/roadmap`, `/public/roadmap`) | ❌ gỡ — #97 (data `.roadmap_config.json` + KV giữ nguyên) |
+| 17 | `/my-work` = lens cá nhân **phụ** cho admin | ⛔ thành trang chính duy nhất, `/` redirect về đây — #97 |
+| 45 | Role "dev" (`JIRA_DEV_EMAIL`) chỉ my-work + bug-log | ❌ gỡ — #97 |
+| 71 | Leader Eval (`/leader-eval`, `/batch-eval`) | ❌ gỡ — #97 |
+| 80 / 42 / 44 / 55 / 64 / 91 | Tab Test Case: store/import/sync Drive, mirror sheet, repo panel, độ phủ automation, cột Round | ❌ gỡ — #97 (data `.tc_config.json`/`.testcase_*.json` + KV giữ nguyên) |
+| 83 | API JSON `/api/*` cho app Android + App Links + Bearer token | ❌ gỡ cùng app — #97 |
+| 89 | Bỏ pill "New" ở dashboard team | ❌ dashboard team đã gỡ — #97 |
 | 52 | Tạo nhiều sub-task dưới 1 cha (textarea mỗi dòng 1 sub-task) | ⛔ mở rộng bởi #58 (assignee từng dòng) + #77 (nhiều cha) |
 
 ---
@@ -570,27 +517,25 @@ KHÔNG được:
 ## Current State
 
 ### Works
-- Server `ThreadingHTTPServer` + Google OAuth login + role admin/QA/dev
-- Dashboard team (`/`), Việc của tôi (`/my-work`), Roadmap (`/roadmap` + `/public/roadmap`), Tài liệu (`/docs`), Bug Log (`/bug-log`), Analytics (`/analytics`), Test Case (`/test-cases`), Leader Eval (`/leader-eval`), Cài đặt (`/settings`)
-- API JSON cho app Android (`/api/*`) + App Links
+- Server `ThreadingHTTPServer` + Google OAuth login, chỉ phục vụ localhost (LOCAL_ONLY #96), chỉ tracking task của chính chủ (#97)
+- Việc của tôi (`/my-work`, `/` redirect về đây), Tài liệu (`/docs`), Bug Log (`/bug-log`), Analytics (`/analytics`), Cài đặt (`/settings`)
 - Ghi Jira bằng PAT cá nhân: đổi status, comment (@-mention), đổi due date, tạo sub-task hàng loạt nhiều cha
 - Custom status overlay, notification short-poll 60s, command palette Ctrl+K
 - Bug Log sync từ Drive (Sheet native + xlsx), metric + freeze tháng, export Excel, report tháng qua Google Chat
-- Test case import/sync từ Drive, link bộ ↔ task, độ phủ automation
 - Viewer tài liệu inline (PDF/ảnh/Office/text/HTML sandbox), folder Quy Trình dạng tab
 
 ### Known Limitations
-- Pagination cap cứng: active 300 · new24 50 · done 500 · activity feed 120 issue/7 ngày · READY PRODUCTION 150. Team mở rộng thì phải tăng (issue #38).
+- Pagination cap cứng: active 300 · new24 50 · done 500 · activity feed 120 issue/7 ngày · READY PRODUCTION 150 (#38).
 - No HTTPS ở tầng app — server bind `127.0.0.1`; mặc định LOCAL_ONLY (#96) chặn mọi request qua tunnel → chỉ dùng được trên máy host.
 - Display name mặc định hardcode trong `DEFAULT_DISPLAY_NAMES` (override qua env `JIRA_DISPLAY_NAMES` JSON).
 - Data bảng/KPI chỉ tươi khi F5 (trừ status + nhãn nội bộ, xem #24).
-- Nhiều công thức là **twin Python↔JS** — sửa 1 bên phải sửa bên kia (danh sách ở #47/#49/#54/#64/#75/#76/#81/#85).
+- Nhiều công thức là **twin Python↔JS** — sửa 1 bên phải sửa bên kia (danh sách ở #47/#49/#54/#75/#76/#81/#85).
 - Fingerprint match theo nội dung → team sửa `summary` lúc copy sheet là đứt (#54).
 - File upload không sync chéo máy (chỉ ở host, `uploads/` gitignore).
 
 ## Things NOT to Do
 
-- KHÔNG đổi threshold workload (15/5/4) hay `STUCK_DAYS` tự ý
+- KHÔNG đổi `STUCK_DAYS` tự ý
 - KHÔNG đổi color scheme (Atlassian-blue intentional)
 - KHÔNG đề xuất rewrite sang React/Vue/Svelte — user explicit chọn server-side render
 - KHÔNG thêm dep (Flask/openpyxl/PyJWT/framework) — minimal-deps là quyết định
@@ -640,10 +585,10 @@ qa-dashboard/
 ├── CLAUDE.md / README.md / requirements.txt / .env.example
 │
 ├── core/
-│   ├── config.py            ← env, paths, USERS/PORT/role, field ids, canon_key, atomic_write
+│   ├── config.py            ← env, paths, USERS(=SELF_USER)/PORT/role, LOCAL_ONLY, field ids, canon_key, atomic_write
 │   ├── issues.py            ← accessor i_* + helper (parse_date, is_stuck, esc, status_class, issue_link)
 │   ├── jira_cloud.py        ← lớp biên Jira Cloud: Basic auth, map username↔accountId, normalize response, canon status, mention (#94)
-│   ├── jira_api.py          ← Jira REST bằng token chung: search/count, fetch_all(+shared snapshot), activity feed, SWR cache, run_parallel, ready-prod gaps, leader-eval. PAT redact ở đây.
+│   ├── jira_api.py          ← Jira REST bằng token chung: search/count, fetch_all(+shared snapshot), activity feed, SWR cache, run_parallel, ready-prod gaps. PAT redact ở đây.
 │   ├── auth.py              ← Google OAuth + session cookie HMAC (#15)
 │   ├── crypto_util.py       ← Fernet at-rest (#20)
 │   ├── pat_store.py         ← API token cá nhân {email: enc('email:token')} (#20, #94)
@@ -651,18 +596,17 @@ qa-dashboard/
 │   ├── custom_status.py     ← nhãn overlay + activity (#21)
 │   ├── remote_store.py      ← kho sync chéo máy Cloudflare KV, local-first (#78)
 │   ├── drive_token.py       ← refresh token Drive của admin, mã hoá (#79)
-│   ├── docs.py / roadmap.py ← cây tài liệu / roadmap (#11,#12,#66)
+│   ├── docs.py              ← cây tài liệu (#11,#66)
 │   ├── file_preview.py      ← dựng HTML preview docx/xlsx/pptx/text (#63)
 │   ├── bug_log.py           ← Drive client + parse xlsx/Sheet native + normalize (#29,#53,#73)
 │   ├── bug_log_source.py    ← danh sách nguồn (provider drive|jira — #61)
 │   ├── bug_log_store.py     ← scan/diff/reopen/persist `.bug_log.json` (#25,#30,#43,#48)
 │   ├── bug_source_jira.py   ← stub provider Jira (#61)
 │   ├── bug_backlog.py       ← fingerprint, tồn đọng, freeze tháng (#54,#69,#75)
-│   ├── task_link.py / testcase_link.py  ← link bug↔task / bộ test case↔task (#37,#50,#51,#76,#80)
-│   ├── testcase_store.py    ← store + import/sync test case từ Drive (#42,#44,#64,#80)
+│   ├── task_link.py         ← link bug↔task (#37,#50,#51,#76)
 │   ├── xlsx_export.py       ← build .xlsx zero-dep (#45b)
 │   ├── monthly_reporter_chat_app.py  ← report tháng qua Google Chat (#82)
-│   ├── render/              ← package: base · shell · misc · dashboard · docs · roadmap · bug_log · analytics · testcase · leader_eval (`__init__.py` re-export cho caller cũ)
+│   ├── render/              ← package: base · shell · misc · dashboard (= Việc của tôi) · docs · bug_log · analytics (`__init__.py` re-export cho caller cũ)
 │   └── routes/              ← oauth · uploads · write (mixin cho handler)
 │
 ├── assets/  app_v2.js · styles_v2.css (UI v2) · styles.css (chỉ error page)
@@ -671,14 +615,14 @@ qa-dashboard/
 │
 │   ── gitignore (sinh lúc chạy) ──
 ├── .env · .crypto_key · .drive_token.json · .pat_store.json · .jira_accounts.json · .sync_meta.json
-├── .docs_config.json · .roadmap_config.json · .custom_status.json · .tc_config.json
+├── .docs_config.json · .custom_status.json · (.roadmap_config.json · .tc_config.json — data cũ, không còn code đọc, #97)
 ├── .bug_log*.json · .bug_monthly.json · .bug_task_link.json · .testcase_*.json
 ├── uploads/ · reports/ · gcp-service-account.json
 ```
 
 ## Coding Conventions
 
-- **Layer, KHÔNG vòng lặp import**: `config` → `issues` → `{crypto_util, remote_store, jira_cloud}` → `jira_api` → `{pat_store, drive_token, jira_write, custom_status, docs, roadmap, bug_log*, task_link, testcase_*}` → `render` → `qa_dashboard`. Import lazy (trong hàm) khi buộc phải đi ngược.
+- **Layer, KHÔNG vòng lặp import**: `config` → `issues` → `{crypto_util, remote_store, jira_cloud}` → `jira_api` → `{pat_store, drive_token, jira_write, custom_status, docs, bug_log*, task_link}` → `render` → `qa_dashboard`. Import lazy (trong hàm) khi buộc phải đi ngược.
 - `from X import (tên cụ thể)`, không `import *`.
 - Section comment: `# ===== SECTION NAME =====`
 - Accessor issue field dùng prefix `i_`.
@@ -687,6 +631,8 @@ qa-dashboard/
 - Khi thêm/đổi cấu trúc: **tự ghi Decision mới** vào file này (số kế tiếp), không đợi user nhắc.
 
 ## Last Updated
+
+2026-10-02 — Thêm Decision #97 (dashboard dùng riêng 1 người: roster = SELF_USER, gỡ dashboard team / roadmap / test case / leader eval / API mobile / role dev). #5/#12/#17/#45/#71/#80/#42/#44/#55/#64/#91/#83/#89 chuyển vào bảng decision chết.
 
 2026-10-02 — Thêm Decision #96 (LOCAL_ONLY: dashboard chỉ phục vụ chính máy host, chặn request qua tunnel cloudflared).
 

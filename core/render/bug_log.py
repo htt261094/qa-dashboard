@@ -21,8 +21,7 @@ from render.shell import _document_v2
 def build_bug_log_payload(data, links, sources=None):
     """Dựng data thuần bug-log từ cache Excel/Drive — KHÔNG dựng markup.
 
-    Nguồn chân lý DUY NHẤT cho cả `render_bug_log_v2` (HTML web) lẫn `/api/bug-log`
-    (JSON mobile, E0.4/android #12) — tránh parity Python↔Kotlin (D3).
+    Tách khỏi `render_bug_log_v2` để phần tính toán không lẫn với markup.
 
     `data`    = bug_log_store.load_bug_log() = {files:{fid:{project,bugs:{key:bug},...}}, synced_at, reopen}
     `links`   = task_link.load_links()       = {bugKey: {task/tasks,by,at,fp}}
@@ -104,7 +103,6 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
     `links` = task_link.load_links()       = {bugKey: {task,by,at}}
     """
     is_admin = user[1] if (user and len(user) > 1) else True
-    # Nguồn chân lý dùng chung với /api/bug-log (D3) — chỉ dựng markup từ payload thuần.
     (bugs, month_list, sources_shaped, src_files,
      synced_disp, synced, reopen) = build_bug_log_payload(data, links, sources)
     poll_min = max(1, BUG_LOG_POLL_SECONDS // 60)

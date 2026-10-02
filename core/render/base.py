@@ -17,7 +17,7 @@ def load_css():
 
 
 def load_css_v2():
-    """Read styles_v2.css per-render (shell UI v2 — dashboard QA + roadmap)."""
+    """Read styles_v2.css per-render (shell UI v2)."""
     try:
         return (ASSETS_DIR / 'styles_v2.css').read_text(encoding='utf-8')
     except OSError:

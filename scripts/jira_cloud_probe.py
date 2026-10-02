@@ -35,8 +35,6 @@ FIELDS = [
     ('Leader', 'LEADER_FIELD'),
     ('Department', 'DEPARTMENT_FIELD'),
     ('BK Team', 'BK_TEAM_FIELD'),
-    ('Leader đánh giá (Số)', 'LEADER_EVAL_NUM_FIELD'),
-    ('Leader đánh giá (text)', 'LEADER_EVAL_TEXT_FIELD'),
 ]
 QA_STATUSES = ('to do', 'in progress', 'pending', 'done', 'cancelled', 'canceled',
                config.READY_PROD_STATUS.lower())
@@ -125,7 +123,7 @@ def main(only_projects):
     keys = [p['key'] for p in (projs or {}).get('values', [])]
     if only_projects:
         keys = [k for k in keys if k in only_projects] or list(only_projects)
-    want = {getattr(config, c) for _, c in FIELDS if c not in ('LEADER_EVAL_NUM_FIELD', 'LEADER_EVAL_TEXT_FIELD')}
+    want = {getattr(config, c) for _, c in FIELDS}
     ok_projects = []
     for pk in keys:
         meta, err = get(f'/rest/api/2/issue/createmeta/{pk}/issuetypes', maxResults=100)

@@ -1,106 +1,19 @@
-"""Dashboard pages v2 — admin team-wide view + QA personal lens, plus the
-`render_page` dispatcher.
+"""Lens cá nhân "Việc của tôi" (`/my-work`) — 1 bảng + tabs + KPI + drawer.
 
-- `render_page`     : chọn nhánh admin/QA theo `user[1]` (is_admin).
-- `render_admin_v2` : dashboard team (pills + member filter + bảng 6 cột + KPI + metric bug + drawer).
-- `render_qa_v2`    : lens cá nhân (QA `/` + admin `/my-work`) — 1 bảng + tabs + KPI.
-
-Tách từ render/__init__.py (issue #106 / #86). Zero behavior change — chỉ di
-chuyển định nghĩa, re-export ở __init__ để chỗ gọi không phải đổi import.
+Dashboard team (`render_admin_v2`, workload, metric bug) đã gỡ ở Decision #97 — app giờ
+là của riêng 1 người nên chỉ còn lens cá nhân.
 """
 from datetime import datetime, timedelta
 
-from config import JIRA_URL, STUCK_DAYS, canon_key
+from config import JIRA_URL, STUCK_DAYS
 from issues import (parse_date, i_assignee, i_assignee_name, i_status, i_summary,
-                    i_duedate, i_created, i_updated, i_comment_count, days_overdue, is_stuck, esc)
+                    i_duedate, i_created, i_comment_count, days_overdue, is_stuck)
 from custom_status import values_of
-from testcase_link import load_links, tasks_of
-from testcase_store import load_testcases
 
 from render.base import _json_script
 from render.shell import _avatar, _document_v2, _conn_error_card
 
 
-def _tc_linked_keys():
-    """Set task key (đã CANON qua kỳ nửa năm) ĐÃ link tới 1 bộ test case (folder) CÒN TỒN
-    TẠI. Bỏ link "mồ côi" (folder đã xoá khỏi testcase config nhưng entry link còn sót) —
-    khớp với drawer detail (chỉ hiện bộ còn tồn tại). Key canon để miễn nhiễm đổi project
-    key mỗi kỳ (DA51H26<->DA52H26, xem config.canon_key); caller so `canon_key(live)` với
-    set này. Best-effort: lỗi kho -> set rỗng, KHÔNG chặn render."""
-    try:
-        valid_fids = {f.get('id') for f in (load_testcases() or {}).get('folders', [])}
-        return {canon_key(t) for fid, v in load_links().items()
-                if fid in valid_fids for t in tasks_of(v)}
-    except Exception:
-        return set()
-
-
-# Markup card "Metric Bug" — KHÔNG cần Jira (nguồn = bug_log_store cache local). Tách
-# riêng để dùng được cả nhánh bình thường lẫn nhánh jira_error (giữ block này khi Jira down).
-def _bug_metric_card_html():
-    return (
-        '<div class="card bug-metric-card" id="bugMetricCard">'
-        '<div class="table-header"><div class="table-title">'
-        '<span class="material-symbols-rounded ph-light ph-bug-beetle"></span>'
-        '<span>Metric Bug — Tổng &amp; theo Status</span></div>'
-        '<div class="bm-filters">'
-        '<span class="material-symbols-rounded ph-light ph-file-text mi-sm"></span>'
-        '<select id="bmFile" class="bm-sel"></select>'
-        '<span class="material-symbols-rounded ph-light ph-browsers mi-sm"></span>'
-        '<select id="bmSheet" class="bm-sel"></select></div></div>'
-        '<div class="bm-body">'
-        '<div class="bm-current" id="bmCurrent"></div>'
-        '<div class="bm-history-wrap"><div class="bm-history-head">'
-        '<span class="material-symbols-rounded ph-light ph-clock-counter-clockwise mi-sm"></span> '
-        'Lịch sử thay đổi qua mỗi lần sync</div>'
-        '<div class="bm-history" id="bmHistory"></div></div></div>'
-        '<div class="bm-sub" id="bmSynced"></div></div>'
-    )
-
-
-# ===== Full page =====
-def render_page(data, activities, activity_days=7, roadmap_data=None,
-                user=None, custom_overlay=None, bug_log_data=None, jira_error=False, stale=False):
-    is_admin = user[1] if (user and len(user) > 1) else True
-
-    # QA thường (non-admin): data đã auto-scope về chính họ -> UI v2 (shell sidebar Stitch).
-    if not is_admin:
-        return render_qa_v2(data, activities, custom_overlay, user,
-                            jira_error=jira_error, stale=stale)
-
-    # Admin -> new v2 dashboard (pills + member filter + 5-col table + KPI cards)
-    return render_admin_v2(data, activities, custom_overlay, user,
-                           bug_log_data=bug_log_data, jira_error=jira_error, stale=stale)
-
-
-def _bug_metrics_payload(bug_log_data):
-    """bug_log_store.load_bug_log() -> payload cho controller `#bugMetrics` trên dashboard.
-
-    {files:[{fid,label,project,months:[sheet,...]}], metrics:{fid:{month:[snapshot,...]}},
-     syncedAt}. snapshot = {at, total, statuses:{raw_status:count}} (xem bug_log_store).
-    Tháng (sheet) lấy TỪ lịch sử metric -> chạy được cả khi Jira property ở bản nhẹ
-    (đã drop `bugs`). Chỉ liệt kê file CÓ lịch sử metric."""
-    bug_log_data = bug_log_data or {}
-    files_raw = bug_log_data.get('files', {}) or {}
-    metrics = bug_log_data.get('metrics', {}) or {}
-    files = []
-    for fid, fm in metrics.items():
-        months = sorted((m for m in (fm or {}) if m), reverse=True)
-        if not months:
-            continue
-        f = files_raw.get(fid, {}) or {}
-        files.append({
-            'fid': fid,
-            'label': f.get('name') or f.get('project') or fid,
-            'project': f.get('project', ''),
-            'months': months,
-        })
-    files.sort(key=lambda x: (x['label'] or '').lower())
-    synced = (bug_log_data.get('synced_at', '') or '').replace('T', ' ')[:16]
-    return {'files': files, 'metrics': metrics, 'syncedAt': synced or 'chưa đồng bộ'}
-
-
-# ===== Admin Dashboard v2 (team-wide — pills + member filter + 5-col table + KPI cards) =====
 def _snap_note(data):
     """Mô tả bản data đang hiện cho banner token hết hạn: 'dữ liệu lúc HH:MM dd/mm'."""
     fa = (data or {}).get('fetched_at')
@@ -108,284 +21,16 @@ def _snap_note(data):
     return f'dữ liệu lúc {when}'
 
 
-def _workload_level(n):
-    """Ngưỡng workload/người (spec §2, KHÔNG tự đổi): ≥15 QUÁ TẢI / 5–14 OK / ≤4 NHẸ."""
-    if n >= 15:
-        return 'over'
-    if n >= 5:
-        return 'ok'
-    return 'light'
 
-
-_WL_LABEL = {'over': 'Quá tải', 'ok': 'OK', 'light': 'Nhẹ'}
-
-
-def _workload_strip_html(workload):
-    """Strip workload gọn (1 hàng, wrap) — mỗi QA 1 chip: avatar + tên + số task active,
-    viền/badge tô theo mức tải (over/ok/light, ngưỡng spec §2). Render server-side, tĩnh
-    (không lọc theo pill/member — luôn là bức tranh tải toàn team). `workload` từ
-    build_dashboard_payload (đã sort giảm dần theo count)."""
-    if not workload:
-        return ''
-    chips = ''
-    for w in workload:
-        lvl = w['level']
-        chips += (
-            f'<div class="wl-chip wl-{lvl}" title="{esc(w["name"])} — {w["count"]} task active ({_WL_LABEL[lvl]})">'
-            f'<span class="wl-av {w["cls"]}">{esc(w["init"])}</span>'
-            f'<span class="wl-name">{esc(w["name"])}</span>'
-            f'<span class="wl-count">{w["count"]}</span></div>'
-        )
-    return (
-        '<div class="workload-strip" id="workloadStrip">'
-        '<div class="wl-head"><span class="material-symbols-rounded ph-light ph-scales"></span>'
-        '<span>Workload</span></div>'
-        f'<div class="wl-chips">{chips}</div></div>'
-    )
-
-
-# ===== Dashboard team admin — payload (nguồn chân lý dùng chung web + mobile API) =====
-def build_dashboard_payload(data, cmap):
-    """Dựng data thuần cho dashboard team admin từ snapshot Jira full team.
-
-    Nguồn chân lý DUY NHẤT cho cả `render_admin_v2` (HTML web) lẫn `/api/dashboard` (JSON
-    mobile, E0.3/android #8) — tránh parity Python↔Kotlin (D3). Chỉ tính toán, KHÔNG dựng markup.
-
-    Trả `(tasks, meta, members, workload)`:
-    - tasks   : flat list task active + done_week, mỗi task là dict field UI-agnostic.
-    - meta    : count KPI (active/todo/progress/new/stuck/overdue/done + vào/ra tuần).
-    - members : list tên assignee unique (đổ vào dropdown filter web / picker app).
-    - workload: [{name,init,cls,count,level}] — số task ACTIVE/người + mức tải (spec §2).
-    """
-    active = data['active']
-    done = data['done_week']
-    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    today_str = today.strftime('%Y-%m-%d')
-
-    linked_keys = _tc_linked_keys()
-
-    tasks = []
-    seen = set()
-
-    # Active tasks (TO DO, In Progress, PENDING, etc.)
-    for iss in active:
-        key = iss['key']
-        if key in seen:
-            continue
-        seen.add(key)
-        st = i_status(iss)
-        a = i_assignee(iss)
-        aname = i_assignee_name(iss)
-        init, cls = _avatar(a, aname)
-        overdue = days_overdue(iss) is not None
-        stuck = is_stuck(iss)
-        customs = values_of((cmap or {}).get(key))
-        # "New" = task tạo TRONG NGÀY (created == hôm nay), giữ nguyên cả ngày, reset sang
-        # ngày mới. ĐỘC LẬP status -> task sang In Progress/Done vẫn nằm trong list New
-        # tới hết ngày (thay cho snapshot-diff new_keys vốn mất sau 1 lần refresh).
-        is_new = (i_created(iss) or '')[:10] == today_str
-        # New Tasks & TO DO: cột "Updated" hiển thị Created Date; còn lại = Updated thật.
-        upd_src = i_created(iss) if (is_new or st == 'TO DO') else i_updated(iss)
-        upd_date = (upd_src or '')[:10]
-        tasks.append({
-            'key': key, 'summary': i_summary(iss), 'jira': st,
-            'hasTc': canon_key(key) in linked_keys,
-            'customs': customs, 'canCustom': st in ('TO DO', 'In Progress'),
-            'assignee': {'name': aname, 'init': init, 'cls': cls},
-            'due': i_duedate(iss) or '', 'dueDisp': i_duedate(iss) or 'Chưa đặt hạn',
-            'dueCls': 'overdue' if overdue else '',
-            'updated': upd_date, 'updatedDisp': upd_date or '—',
-            'created': (i_created(iss) or '')[:10], 'createdDisp': (i_created(iss) or '')[:10] or '—',
-            'overdue': overdue, 'stuck': stuck,
-            'isNew': is_new, 'active': True,
-            'jiraUrl': f'{JIRA_URL}/browse/{key}',
-        })
-
-    # Done tasks (tất cả)
-    for iss in done:
-        key = iss['key']
-        if key in seen:
-            continue
-        seen.add(key)
-        st = i_status(iss)
-        a = i_assignee(iss)
-        aname = i_assignee_name(iss)
-        init, cls = _avatar(a, aname)
-        upd_date = (i_updated(iss) or '')[:10]
-        tasks.append({
-            'key': key, 'summary': i_summary(iss), 'jira': st,
-            'hasTc': canon_key(key) in linked_keys,
-            'customs': [], 'canCustom': False,
-            'assignee': {'name': aname, 'init': init, 'cls': cls},
-            'due': i_duedate(iss) or '', 'dueDisp': i_duedate(iss) or '',
-            'dueCls': '',
-            'updated': upd_date, 'updatedDisp': upd_date or '—',
-            'created': (i_created(iss) or '')[:10], 'createdDisp': (i_created(iss) or '')[:10] or '—',
-            'overdue': False, 'stuck': False,
-            'isNew': (i_created(iss) or '')[:10] == today_str, 'active': False,
-            'jiraUrl': f'{JIRA_URL}/browse/{key}',
-        })
-
-    # Pill counts
-    # Bucket "New" đã bỏ khỏi UI (chỉ còn todo/progress/stuck/overdue/done) → task mới tạo
-    # KHÔNG bị loại khỏi To Do nữa, nếu không chúng rơi ra ngoài mọi bucket.
-    n_todo = sum(1 for t in tasks if t['jira'] == 'TO DO' and not t['overdue'])
-    # "In Progress" = MỌI task active không phải TO DO (In Progress, PENDING, và bất kỳ
-    # status active mới nào) → todo ∪ progress phủ trọn bucket active, không status nào lọt (issue #39).
-    n_prog = sum(1 for t in tasks if t['active'] and t['jira'] != 'TO DO' and not t['stuck'] and not t['overdue'])
-    # Giữ lại count 'new' trong meta cho /api/dashboard (app Android) dù web không còn pill.
-    n_new = sum(1 for t in tasks if t['isNew'])
-    n_stuck = sum(1 for t in tasks if t['stuck'])
-    n_over = sum(1 for t in tasks if t['overdue'])
-    n_active = sum(1 for t in tasks if t['active'])
-    # "Done" = TỔNG THẬT từ Jira (jira_count), KHÔNG phải len(done_week) vì bucket bị cắt 500.
-    n_done = data.get('done_total', sum(1 for t in tasks if t['jira'].upper() == 'DONE'))
-
-    # Unique member names (dropdown filter web / picker app)
-    members = []
-    seen_m = set()
-    for t in tasks:
-        nm = t['assignee']['name']
-        if nm not in seen_m:
-            seen_m.add(nm)
-            members.append(nm)
-
-    # Workload/người = số task ACTIVE (in-flight) / assignee + mức tải theo ngưỡng spec §2.
-    # Chỉ đếm active (done không phải tải hiện tại). Web admin_v2 chưa render block này nhưng
-    # app cần (E6.4) -> tính sẵn ở nguồn chân lý (D3), web bỏ qua field vô hại.
-    wl = {}
-    for t in tasks:
-        if not t['active']:
-            continue
-        a = t['assignee']
-        w = wl.setdefault(a['name'], {'name': a['name'], 'init': a['init'], 'cls': a['cls'], 'count': 0})
-        w['count'] += 1
-    workload = sorted(wl.values(), key=lambda w: (-w['count'], w['name'].lower()))
-    for w in workload:
-        w['level'] = _workload_level(w['count'])
-
-    meta = {
-        'isAdmin': True,
-        'active': n_active,
-        'todo': n_todo, 'progress': n_prog, 'new': n_new,
-        'stuck': n_stuck, 'overdue': n_over, 'done': n_done,
-        'resolvedWeek': data.get('resolved_week', 0),
-        'createdWeek': data.get('created_week', 0),
-    }
-    return tasks, meta, members, workload
-
-
-def render_admin_v2(data, activities, cmap, user, bug_log_data=None,
-                    jira_error=False, stale=False):
-    """Admin dashboard v2: team-wide view with status pills, member dropdown, paginated
-    5-column table, 3 KPI cards, and a task detail drawer. Data is embedded as JSON and
-    rendered entirely client-side by the admin controller in app_v2.js.
-
-    jira_error=True -> Jira không với tới được: chỉ vùng task (pills/bảng/KPI, nguồn Jira)
-    đổi sang card lỗi; KHÔNG drop #rows table thật -> dashboard controller bail (guard #rows).
-    Block Metric Bug (cache local) VẪN render + hoạt động bình thường."""
-    if jira_error:
-        content = (
-            '<div class="page-head"><div>'
-            '<h2 class="page-title">Task Management</h2></div></div>'
-            + _conn_error_card()
-            + _bug_metric_card_html()
-            + _json_script('bugMetrics', _bug_metrics_payload(bug_log_data))
-        )
-        return _document_v2(content, 'dashboard', user, activities,
-                            title='QA Workspace — Task Management')
-
-    # Nguồn chân lý dùng chung với /api/dashboard (D3) — chỉ dựng markup từ payload thuần.
-    tasks, meta, members, workload = build_dashboard_payload(data, cmap)
-    n_todo, n_prog = meta['todo'], meta['progress']
-    n_stuck, n_over, n_done = meta['stuck'], meta['overdue'], meta['done']
-
-    member_opts = '<div class="member-opt active" data-member="all">All Members</div>'
-    for m in sorted(members):
-        member_opts += f'<div class="member-opt" data-member="{esc(m)}">{esc(m)}</div>'
-
-    content = (
-        # Page header + member filter
-        '<div class="page-head"><div>'
-        '<h2 class="page-title">Task Management</h2>'
-        '</div>'
-        '<div class="member-filter-wrap">'
-        '<button class="member-filter-btn" id="memberFilterBtn">'
-        '<span class="material-symbols-rounded ph-light ph-users"></span>'
-        '<span id="selectedMemberLabel">All Members</span>'
-        '<span class="material-symbols-rounded ph-light ph-caret-down"></span>'
-        '</button>'
-        f'<div class="member-dropdown" id="memberDropdown">{member_opts}</div>'
-        '</div></div>'
-        # Status pills
-        '<div class="status-pills" id="statusPills">'
-        f'<button class="pill-btn active" data-pill="todo">To Do <span class="pill-badge" id="count-todo">{n_todo}</span></button>'
-        f'<button class="pill-btn" data-pill="progress">In Progress <span class="pill-badge" id="count-progress">{n_prog}</span></button>'
-        f'<button class="pill-btn" data-pill="stuck">Stuck <span class="pill-badge" id="count-stuck">{n_stuck}</span></button>'
-        f'<button class="pill-btn" data-pill="overdue">Overdue <span class="pill-badge" id="count-overdue">{n_over}</span></button>'
-        f'<button class="pill-btn" data-pill="done">Done <span class="pill-badge" id="count-done">{n_done}</span></button>'
-        '</div>'
-        # Workload strip (gọn — tải active/người, tĩnh, không lọc theo pill/member)
-        + _workload_strip_html(workload) +
-        # Table card
-        '<div class="card">'
-        '<div class="table-header">'
-        '<div class="table-title" id="tableTitleText">'
-        '<span class="material-symbols-rounded ph-light ph-clipboard-text"></span>'
-        '<span>To Do Tasks</span></div>'
-        '<div class="table-actions"></div></div>'
-        '<div style="overflow-x:auto"><table id="taskTable"><thead><tr>'
-        '<th style="width:140px">Task ID</th><th>Title</th>'
-        '<th style="width:180px">Member</th><th style="width:170px">Status</th>'
-        '<th style="width:120px">Due Date</th><th style="width:120px">Ngày tạo</th><th style="width:120px">Updated</th>'
-        '<th style="width:70px">Thao tác</th>'
-        '</tr></thead><tbody id="rows"></tbody></table></div>'
-        '<div class="pager" id="pager"></div></div>'
-        # KPI cards
-        '<div class="kpi-grid">'
-        '<div class="kpi-card"><div class="kpi-icon">'
-        '<span class="material-symbols-rounded ph-light ph-gauge"></span></div>'
-        '<div class="kpi-details"><div class="kpi-title">JIRA VELOCITY</div>'
-        '<div class="kpi-value" id="kpiVelocity">0</div>'
-        '<div class="kpi-trend up"><span class="material-symbols-rounded ph-light ph-trend-up"></span>'
-        '<span>this week</span></div></div></div>'
-        '<div class="kpi-card"><div class="kpi-icon">'
-        '<span class="material-symbols-rounded ph-light ph-graph"></span></div>'
-        '<div class="kpi-details"><div class="kpi-title">TOTAL TASKS</div>'
-        '<div class="kpi-value" id="kpiTotalTasks">0</div>'
-        '<div class="kpi-trend up"><span class="material-symbols-rounded ph-light ph-trend-up"></span>'
-        '<span>active</span></div></div></div>'
-        '<div class="kpi-card"><div class="kpi-icon">'
-        '<span class="material-symbols-rounded ph-light ph-bug-beetle"></span></div>'
-        '<div class="kpi-details"><div class="kpi-title">OVERDUE</div>'
-        '<div class="kpi-value" id="kpiBugs">0</div>'
-        '<div class="kpi-trend down"><span class="material-symbols-rounded ph-light ph-warning"></span>'
-        '<span>need attention</span></div></div></div></div>'
-        # ===== Metric Bug (nguồn = bug_log_store; chọn theo file + sheet; lịch sử mỗi sync)
-        + _bug_metric_card_html()
-        # Status menu #smenu + QA_CUSTOM_STATUSES giờ ở shell _document_v2 (mọi trang dùng chung)
-        + _json_script('bugMetrics', _bug_metrics_payload(bug_log_data))
-        + _json_script('qaData', {'tasks': tasks, 'meta': meta})
-    )
-    return _document_v2(content, 'dashboard', user, activities,
-                        title='QA Workspace — Task Management',
-                        stale=stale, stale_note=_snap_note(data) if stale else '')
-
-
-# ===== Lens cá nhân — payload (nguồn chân lý dùng chung web + mobile API) =====
+# ===== Lens cá nhân — payload =====
 def build_my_work_payload(data, cmap):
     """Dựng data thuần cho lens "Việc của tôi" từ snapshot Jira đã scope.
 
-    Nguồn chân lý DUY NHẤT cho cả `render_qa_v2` (HTML web) lẫn `/api/my-work` (JSON
-    mobile) — tránh parity Python↔Kotlin (D3). Chỉ tính toán, KHÔNG dựng markup.
-
-    Trả `(tasks, meta, n_linked, n_total)`:
+    Chỉ tính toán, KHÔNG dựng markup. Trả `(tasks, meta)`:
     - tasks: list task active + done_week, mỗi task là dict field UI-agnostic.
     - meta : count KPI (active/overdue/stuck/dueweek/done + STUCK_DAYS).
-    - n_linked/n_total: số task đã link bộ test case / tổng (badge "🔗 x/y").
     """
     active = data['active']
-    linked_keys = _tc_linked_keys()
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     week_start = today - timedelta(days=today.weekday())
     week_end = week_start + timedelta(days=7)
@@ -411,7 +56,6 @@ def build_my_work_payload(data, cmap):
         customs = values_of((cmap or {}).get(iss['key']))   # values; JS map -> label qua QA_CUSTOM_STATUSES
         tasks.append({
             'key': iss['key'], 'summary': i_summary(iss), 'jira': st,
-            'hasTc': canon_key(iss['key']) in linked_keys,
             'customs': customs, 'canCustom': st in ('TO DO', 'In Progress'),
             'assignee': {'name': aname, 'init': init, 'cls': cls},
             'due': i_duedate(iss) or '', 'dueDisp': i_duedate(iss) or 'Chưa đặt hạn',
@@ -428,7 +72,6 @@ def build_my_work_payload(data, cmap):
         init, cls = _avatar(a, aname)
         tasks.append({
             'key': iss['key'], 'summary': i_summary(iss), 'jira': st,
-            'hasTc': canon_key(iss['key']) in linked_keys,
             'customs': [], 'canCustom': False,
             'assignee': {'name': aname, 'init': init, 'cls': cls},
             'due': i_duedate(iss) or '', 'dueDisp': i_duedate(iss) or '',
@@ -439,18 +82,11 @@ def build_my_work_payload(data, cmap):
         })
     meta = {'active': len(active), 'overdue': n_over, 'stuck': n_stuck,
             'dueweek': n_dueweek, 'done': len(data['done_week']), 'stuckDays': STUCK_DAYS}
-
-    # Bao nhiêu task đã được link tới bộ test case (folder).
-    all_keys = {iss['key'] for iss in active} | {iss['key'] for iss in data['done_week']}
-    n_linked = sum(1 for k in all_keys if canon_key(k) in linked_keys)
-    n_total = len(all_keys)
-    return tasks, meta, n_linked, n_total
+    return tasks, meta
 
 
 # ===== Dashboard QA v2 (lens cá nhân — 1 bảng + tabs + KPI + drawer) =====
-# Dùng chung cho QA member (`/`, nav_active='dashboard') và admin xem việc mình
-# (`/my-work`, nav_active='mywork') — UI hệt nhau, chỉ khác tab sidebar được highlight.
-def render_qa_v2(data, activities, cmap, user, nav_active='dashboard',
+def render_qa_v2(data, activities, cmap, user, nav_active='mywork',
                  jira_error=False, stale=False):
     # Lens cá nhân = 100% data Jira (không có block local nào) -> Jira down thì cả vùng
     # nội dung báo lỗi, giữ skeleton sidebar/topbar.
@@ -462,8 +98,7 @@ def render_qa_v2(data, activities, cmap, user, nav_active='dashboard',
         return _document_v2(content, nav_active, user, activities,
                             title='QA Workspace — Việc của tôi')
 
-    # Nguồn chân lý dùng chung với /api/my-work (D3) — chỉ dựng markup từ payload thuần.
-    tasks, meta, n_linked, n_total = build_my_work_payload(data, cmap)
+    tasks, meta = build_my_work_payload(data, cmap)
     n_over, n_stuck, n_dueweek = meta['overdue'], meta['stuck'], meta['dueweek']
 
     tabs = (
@@ -488,10 +123,7 @@ def render_qa_v2(data, activities, cmap, user, nav_active='dashboard',
         '<th style="width:150px">Người xử lý</th><th style="width:110px">Ngày tạo</th><th style="width:130px">Hạn chót</th>'
         '<th style="width:70px">Thao tác</th>'
         '</tr></thead><tbody id="rows"></tbody></table></div>'
-        '<div class="pager-row">'
-        f'<div class="tc-linked-note{" all-linked" if n_total and n_linked == n_total else ""}">🔗 {n_linked}/{n_total} task đã link bộ test case</div>'
-        '<div class="pager" id="pager"></div>'
-        '</div>'
+        '<div class="pager-row"><div class="pager" id="pager"></div></div>'
     )
     content = (
         '<div class="page-head"><div class="page-title">Tổng quan — Việc của tôi</div></div>'
