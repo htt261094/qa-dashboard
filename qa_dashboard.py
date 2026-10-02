@@ -15,6 +15,16 @@ from datetime import datetime
 from http.cookies import SimpleCookie
 from urllib.parse import urlparse, parse_qs
 
+# Chạy bằng pythonw (autostart lúc logon — Decision #99) thì KHÔNG có console: sys.stdout/stderr
+# = None -> log_message/print(file=sys.stderr) raise AttributeError mỗi request. Đổ cả 2 ra
+# reports/dashboard.log (append, line-buffered) để còn đọc được log khi chạy ẩn.
+if sys.stdout is None or sys.stderr is None:
+    _logdir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'reports')
+    os.makedirs(_logdir, exist_ok=True)
+    _logf = open(os.path.join(_logdir, 'dashboard.log'), 'a', encoding='utf-8', buffering=1)
+    sys.stdout = sys.stdout or _logf
+    sys.stderr = sys.stderr or _logf
+
 # Core modules live in ./core/ (issue #85). Add it to sys.path so sibling-style
 # imports (`from config import ...`) keep working unchanged.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'core'))
