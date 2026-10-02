@@ -256,21 +256,9 @@ def _palette_modal_v2():
     )
 
 
-def _stale_banner(note):
-    """Banner OFFLINE: đang phục vụ snapshot KV cũ (Jira không với tới). `note` = mô tả nguồn."""
-    return (
-        '<div style="background:#fff4e5;border:1px solid #ffb74d;color:#7a4b00;'
-        'border-radius:10px;padding:10px 14px;margin:0 0 16px;font-size:13px;'
-        'display:flex;gap:8px;align-items:center">'
-        '<span style="font-size:16px">🔌</span><span>'
-        f'<b>Đang xem OFFLINE</b> — {esc(note)}. '
-        'Không đổi được task (đổi trạng thái / tạo sub-task) tới khi có kết nối Jira.'
-        '</span></div>')
-
-
 def _auth_banner(note, is_admin=False):
-    """Banner khi API token chung hết hạn/thu hồi (Jira coi request là vô danh). Tách khỏi OFFLINE
-    để khỏi đánh lừa thành lỗi mạng. Admin được chỉ dẫn cách sửa; QA chỉ báo + nhờ admin."""
+    """Banner khi API token chung hết hạn/thu hồi (Jira coi request là vô danh) — đang hiện bản
+    RAM cũ. Admin được chỉ dẫn cách sửa; QA chỉ báo + nhờ admin."""
     fix = ('Cập nhật <b>JIRA_API_TOKEN</b> trong <code>.env</code> bằng token mới '
            '(id.atlassian.com → Security → API tokens → Create API token) rồi restart server.'
            if is_admin else 'Báo admin cấp lại token để khôi phục.')
@@ -280,7 +268,7 @@ def _auth_banner(note, is_admin=False):
         'display:flex;gap:8px;align-items:center">'
         '<span style="font-size:16px">🔑</span><span>'
         f'<b>API token Jira hết hạn</b> — {esc(note)}. {fix} '
-        'Đang hiển thị dữ liệu lưu tạm (read-only).'
+        'Đang hiển thị dữ liệu lưu tạm.'
         '</span></div>')
 
 
@@ -288,13 +276,10 @@ def _document_v2(content_inner, active, user, activities, title='QA Suite',
                  stale=False, stale_note=''):
     """Shell sidebar Material-3 cho dashboard QA + roadmap. Inline styles_v2.css + app_v2.js.
     `activities` = feed (đã lọc dismissed) cho chuông notif (embed JSON #qaNotif).
-    stale=True -> Jira không với tới, đang phục vụ snapshot KV cũ: banner + window.__stale
-    (app_v2.js chặn write /do-transition + /create-subtask)."""
+    stale='auth' -> token Jira chung hết hạn, đang phục vụ bản RAM cũ: banner đỏ."""
     if stale == 'auth':
         _adm = bool(user[1]) if isinstance(user, (tuple, list)) and len(user) > 1 else False
         banner = _auth_banner(stale_note, _adm)
-    elif stale:
-        banner = _stale_banner(stale_note)
     else:
         banner = ''
     return f"""<!DOCTYPE html>
@@ -314,7 +299,7 @@ def _document_v2(content_inner, active, user, activities, title='QA Suite',
 <div class="drawer-ov" id="drawerOv"></div><aside class="drawer" id="drawer"></aside>
 <div class="smenu" id="smenu"></div>
 {_json_script('qaNotif', activities)}
-<script>window.__jiraBase={json.dumps(JIRA_URL)};window.__stale={json.dumps(bool(stale))};window.__isAdmin={json.dumps(bool(user[1]) if isinstance(user, (tuple, list)) and len(user) > 1 else True)};window.QA_CUSTOM_STATUSES={json.dumps(CUSTOM_STATUSES, ensure_ascii=False)};window.__mentionUsers={json.dumps([{'name': u, 'display': display_name(u)} for u in USERS], ensure_ascii=False)};</script>
+<script>window.__jiraBase={json.dumps(JIRA_URL)};window.__isAdmin={json.dumps(bool(user[1]) if isinstance(user, (tuple, list)) and len(user) > 1 else True)};window.QA_CUSTOM_STATUSES={json.dumps(CUSTOM_STATUSES, ensure_ascii=False)};window.__mentionUsers={json.dumps([{'name': u, 'display': display_name(u)} for u in USERS], ensure_ascii=False)};</script>
 <script>{load_js_v2()}</script>
 </body></html>"""
 
@@ -343,6 +328,5 @@ def _document_public_v2(content_inner, title='QA Suite'):
 <div class="content">{content_inner}</div>
 </div>
 </div>
-<script>window.__stale=false;</script>
 <script>{load_js_v2()}</script>
 </body></html>"""

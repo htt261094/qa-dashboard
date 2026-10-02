@@ -580,10 +580,10 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             stale = False
         else:
             scope = self._self_username()
-            # data full team qua snapshot chéo máy rồi scope về chính admin (Decision offline-snapshot).
-            full, stale = fetch_all_shared(fetched_by=self._user_email(), force=fresh)
+            # data full team (cache SWR dùng chung) rồi scope về chính admin.
+            full, stale = fetch_all_shared(force=fresh)
             data = scope_data(full, scope)
-        # overlay nhãn custom qua KV -> sống offline; chuông notif qua Jira -> có thể fail.
+        # overlay nhãn custom qua KV; chuông notif qua Jira -> có thể fail (degrade mềm).
         try:
             overlay, _cust_act = load_bundle(scope, ACTIVITY_DAYS)
         except RuntimeError:
@@ -671,13 +671,13 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             return
         fresh = self._wants_fresh()
         try:
-            # data full team qua snapshot chéo máy (Decision offline-snapshot). scope=None -> team-wide.
-            full, stale = fetch_all_shared(fetched_by=self._user_email(), force=fresh)
+            # data full team (cache SWR dùng chung). scope=None -> team-wide.
+            full, stale = fetch_all_shared(force=fresh)
         except RuntimeError:
             self._json(503, b'{"ok":false,"error":"jira_unavailable"}')
             return
         data = scope_data(full, None)
-        # overlay nhãn custom qua KV -> sống offline; chuông notif qua Jira -> có thể fail (degrade mềm).
+        # overlay nhãn custom qua KV; chuông notif qua Jira -> có thể fail (degrade mềm).
         try:
             overlay, _cust = load_bundle(None, ACTIVITY_DAYS)
         except RuntimeError:
@@ -984,20 +984,19 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         # Jira để khi Jira down vẫn render được các block này (chỉ vùng task báo lỗi).
         buglog = load_bug_log()
         roadmap = load_roadmap()
-        # Task data qua tầng snapshot chéo máy: ai có VPN fetch full team -> ghi KV; người
-        # sau (kể cả mất VPN) đọc snapshot KV. stale=True -> Jira không với tới, đang phục vụ
-        # snapshot cũ -> render read-only. data LUÔN full team -> scope_data lọc theo người xem.
+        # Task data full team qua cache SWR dùng chung (fetch_all_shared) -> scope_data lọc theo
+        # người xem. stale='auth' -> token chung hết hạn, đang phục vụ bản RAM cũ + banner.
         fresh = self._wants_fresh()   # F5 -> ép data tươi; click chuyển tab -> SWR nhanh
         try:
-            full, stale = fetch_all_shared(fetched_by=email, force=fresh)
+            full, stale = fetch_all_shared(force=fresh)
         except RuntimeError:
-            # Jira không với tới + KV cũng trống -> không có gì hiện vùng task (skeleton + lỗi).
+            # Jira không với tới -> không có gì hiện vùng task (skeleton + lỗi).
             self._html(render_page(None, [], ACTIVITY_DAYS,
                                    roadmap_data=roadmap, user=self._user_ctx(),
                                    custom_overlay=None, bug_log_data=buglog, jira_error=True))
             return
         data = scope_data(full, scope)
-        # nhãn custom qua KV -> sống cả khi offline; feed/dismissed qua Jira -> có thể fail.
+        # nhãn custom qua KV; feed/dismissed có thể fail -> chuông rỗng.
         try:
             overlay, cust_act = load_bundle(scope, ACTIVITY_DAYS)
         except RuntimeError:
@@ -1014,7 +1013,7 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             })
             feed, dismissed, gaps = res['feed'], res['dismissed'], res.get('gaps') or []
         except RuntimeError:
-            feed, dismissed, gaps = [], {}, []   # offline -> chuông rỗng, trang vẫn render
+            feed, dismissed, gaps = [], {}, []   # Jira lỗi -> chuông rỗng, trang vẫn render
         merged = sorted(feed + cust_act, key=lambda a: a.get('when') or '', reverse=True)
         merged = _drop_own_activities(merged, email)
         # QA-gate alerts: KHÔNG drop-own; QA/dev chỉ thấy cái do chính họ gây (xem _bell_activities).
@@ -1691,15 +1690,14 @@ def main():
     # Jira Cloud (#197): resolve trước accountId cho roster (cache .jira_accounts.json) ở nền
     # -> request đầu tiên không phải chờ N call /user/search. No-op khi đã có cache.
     import threading
-    from config import OFFLINE, DEV_USERS
-    if not OFFLINE:
-        from jira_cloud import warm_accounts
-        threading.Thread(target=lambda: warm_accounts(list(USERS) + sorted(DEV_USERS)),
-                         daemon=True).start()
+    from config import DEV_USERS
+    from jira_cloud import warm_accounts
+    threading.Thread(target=lambda: warm_accounts(list(USERS) + sorted(DEV_USERS)),
+                     daemon=True).start()
 
     try:
         # ThreadingHTTPServer (issue #129): mỗi request 1 thread → 1 request chạm Jira
-        # treo (read-timeout 30s qua VPN) KHÔNG còn đơ MỌI user/tab khác như TCPServer
+        # treo (read-timeout 30s) KHÔNG còn đơ MỌI user/tab khác như TCPServer
         # tuần tự. An toàn vì mọi kho ghi đã có lock (_cache_lock, _scan_lock, _meta_lock,
         # KV) + atomic_write tmp-name duy nhất theo thread (#128 + #129). daemon_threads
         # = thread chết theo process khi Ctrl+C, không treo lúc thoát.

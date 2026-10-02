@@ -109,14 +109,7 @@ function pagerHTML(page, pages, total, start, count, unit){
   ph+='<button class="pager-btn"'+(page>=pages?' disabled':'')+' data-pg="'+(page+1)+'"><span class="material-symbols-rounded ph-light ph-caret-right mi-xs"></span></button></div>';
   return ph;
 }
-// Write cần Jira -> chặn khi đang xem snapshot OFFLINE (window.__stale). /set-custom-status
-// ghi Cloudflare KV nên VẪN cho (sống offline); /dismiss cũng KV -> không chặn.
-var JIRA_WRITE = { '/do-transition':1, '/create-subtask':1, '/create-subtasks':1 };
 function postJSON(url, body, ms){
-  if (window.__stale && JIRA_WRITE[url]) {
-    try { toast('Đang xem offline (mất kết nối Jira) — không đổi được task. Bật VPN rồi thử lại.'); } catch(e){}
-    return Promise.reject(new Error('offline'));
-  }
   var ctrl = new AbortController();
   var to = setTimeout(function(){ ctrl.abort(); }, ms||20000);
   return fetch(url, { method:'POST', headers:{'Content-Type':'application/json'},
@@ -5762,8 +5755,8 @@ window.__smSetCustom=function(t, key, val, onChanged){
     }).catch(function(e){
       var timed = e && (e.name==='AbortError' || /abort/i.test(String(e.message||e)));
       window.tcShowError(timed
-        ? 'Đồng bộ quá lâu (quá thời gian chờ). File có thể quá lớn hoặc mạng/VPN chậm — thử lại.'
-        : 'Lỗi mạng khi đồng bộ (không kết nối được server). Kiểm tra mạng/VPN rồi thử lại.',
+        ? 'Đồng bộ quá lâu (quá thời gian chờ). File có thể quá lớn hoặc mạng chậm — thử lại.'
+        : 'Lỗi mạng khi đồng bộ (không kết nối được server). Kiểm tra mạng rồi thử lại.',
         'Đồng bộ thất bại');
     });
   }
@@ -5819,8 +5812,8 @@ window.__smSetCustom=function(t, key, val, onChanged){
     }).catch(function(e){ if(btn){ btn.disabled=false; btn.innerHTML=orig; }
       var timed = e && (e.name==='AbortError' || /abort/i.test(String(e.message||e)));
       window.tcShowError(timed
-        ? 'Đồng bộ quá lâu (quá thời gian chờ). Quá nhiều bộ hoặc mạng/VPN chậm — thử lại.'
-        : 'Lỗi mạng khi đồng bộ (không kết nối được server). Kiểm tra mạng/VPN rồi thử lại.',
+        ? 'Đồng bộ quá lâu (quá thời gian chờ). Quá nhiều bộ hoặc mạng chậm — thử lại.'
+        : 'Lỗi mạng khi đồng bộ (không kết nối được server). Kiểm tra mạng rồi thử lại.',
         'Đồng bộ thất bại'); });
   }
   // Modal xác nhận đồng bộ + tuỳ chọn "ghi đè cả kết quả" (dùng chung sync 1 bộ / tất cả).

@@ -80,7 +80,7 @@ Chuyển tab chậm 6-10s vì mỗi page block trên call Jira nặng (`fetch_ac
 **Đánh đổi**: page có thể cũ tối đa ~15' nhưng tự tươi ngầm. Knob: 2 hằng số trong `jira_api.py`.
 
 ### 26b. "F5 = luôn tươi" — bypass SWR khi user chủ động refresh
-Phân biệt bằng header `Cache-Control` của browser: F5 gửi `max-age=0`, Ctrl+F5 gửi `no-cache`, click `<a>` không gửi → `_wants_fresh()`. `force=True` xuyên `_cached_swr` / `fetch_all` / `fetch_activity_feed` / `fetch_all_shared` (bỏ qua cả L1 RAM + L2 KV + L3 đĩa, nhưng snapshot vẫn là fallback offline).
+Phân biệt bằng header `Cache-Control` của browser: F5 gửi `max-age=0`, Ctrl+F5 gửi `no-cache`, click `<a>` không gửi → `_wants_fresh()`. `force=True` xuyên `_cached_swr` / `fetch_all` / `fetch_activity_feed` / `fetch_all_shared` (bỏ qua cache SWR RAM).
 **KHÔNG force**: endpoint poll `/activity-feed` (60s) — poll không phải F5.
 
 ### 28. ThreadingHTTPServer — hết đơ toàn cục
@@ -93,9 +93,14 @@ SUPERSEDES Decision #14 (Jira user property làm kho chung). Jira nằm sau VPN 
 Dùng bởi: roadmap · docs · custom-status · PAT · Drive token · task_link · testcase_link · bug backlog. Bỏ trống creds CF (`KV_ENABLED=False`) → fallback Jira property, vẫn local-first.
 **Giới hạn**: mô hình 1 instance/lúc (host migration Mac↔Win) → last-write-wins, không timestamp; host ghi local rồi chết trước khi flush + sửa tiếp ở host khác thì mất edit chưa flush.
 
-### 84. Snapshot task chéo máy (L1/L2/L3) + chế độ OFFLINE *(ghi bổ sung 2026-08-10)*
-- `fetch_all_shared` 3 tầng: **L1** `_cache` RAM · **L2** Cloudflare KV `qa-snapshot` (ai có VPN fetch full team thì ghi, người sau đọc → 1 lượt fetch phục vụ cả team; dedup PUT theo hash) · **L3** `.snapshot_cache.json` trên đĩa. Mất VPN → đọc snapshot cũ, caller render **read-only** + banner stale.
-- `bug_log_offline.py` (+ `start-bug-log-offline.bat`): entry riêng đặt `OFFLINE=1` trước khi import config → không bắt Jira creds, ngắt mọi call Jira property, chỉ phục vụ `/bug-log` + sync Drive. Dùng khi mạng nhà không vào được VPN nhưng vẫn phải chốt report cuối tháng.
+### 95. Gỡ mọi phần xử lý mất VPN (snapshot L2/L3 + chế độ OFFLINE) *(2026-10-02)*
+SUPERSEDES #84. Jira Cloud (#94) đi qua internet công cộng, không còn VPN/whitelist IP → toàn bộ cơ chế "sống khi mất VPN" thành gánh nặng:
+- **Snapshot task**: bỏ L2 Cloudflare KV `qa-snapshot` + L3 `.snapshot_cache.json` + dedup hash. `fetch_all_shared(force)` giờ chỉ là `fetch_all(None)` (SWR RAM #26) — chỉ còn 1 host (Windows) nên snapshot chéo máy không phục vụ ai. Jira lỗi mạng → trang lỗi / vùng task báo lỗi như mọi call Jira khác (SWR vẫn phục vụ data cũ tới 900s).
+- **Giữ `'auth'`**: token chung hết hạn (`JiraAuthError`) → phục vụ bản RAM cuối cùng (bất kể tuổi) + banner đỏ "API token hết hạn"; chưa có bản RAM (vừa restart) → trang lỗi. Return vẫn là `(data, stale)` với `stale ∈ {False, 'auth'}`; `/api/*` giữ key `stale` cho app Android.
+- **Bỏ read-only**: gỡ `window.__stale` + guard `JIRA_WRITE` trong `postJSON` — write dùng token cá nhân nên token chung chết không chặn ghi.
+- **Bỏ chế độ OFFLINE**: xoá `bug_log_offline.py`, `start-bug-log-offline.bat`, `config.OFFLINE` (+ dummy Jira creds) và các nhánh `if OFFLINE` trong `jira_api`/`jira_cloud`/`qa_dashboard.main`.
+- **Report tháng** (`scripts/run_monthly_report.{ps1,sh}`): dựng `qa_dashboard.py` (thay `bug_log_offline.py`) trên port riêng 8077; reporter vào `/analytics` bằng cookie phiên admin ký `SESSION_SECRET` (đã có sẵn). Probe sẵn sàng bằng `/.well-known/assetlinks.json` (public, không gọi Jira) vì `/analytics` redirect login khi AUTH bật.
+**Giữ nguyên có chủ đích** (bảo vệ khi mạng/Jira chập chờn nói chung, không riêng VPN): connect-timeout 5s, circuit breaker #160, retry + `reset_pool`, chuông best-effort `block=False`, KV local-first #78 (kho sync, không phải tính năng VPN).
 
 ## Auth & phân quyền
 
@@ -122,7 +127,7 @@ SUPERSEDES Decision #2 (Bearer PAT). Công ty chuyển sang `https://baokim.atla
 - 429 (rate limit Cloud) → retry theo `Retry-After` (cap 10s, 2 lần) ngay trong `_request_short_connect`.
 - Project key GIỮ NGUYÊN sau migrate (DA52H26, PSIT2H26…) → link bug/testcase ↔ task trong KV không trượt, không phải migrate.
 - **Migrate CHƯA XONG (2026-09-25)**: IT mới chuyển đủ screen cho DA52H26/DA62H26/DA72H26/DA102H26/PSIT2H26 — CRS/D8TN/DAIT2026/DEMOIT/SIT* thiếu field custom trên màn tạo sub-task, AM/PT/PTSP dùng type sub-task khác → tạo sub-task ở đó Jira trả 400. Cố ý CHƯA làm createmeta-aware (cấu hình còn đổi). Khi IT báo xong: chạy `scripts/jira_cloud_probe.py` (chỉ đọc) đối chiếu field/type/option/createmeta với config rồi mới quyết.
-**Giới hạn**: privacy ẩn email → người đó không resolve được → khai `JIRA_ACCOUNT_IDS`. Changelog assignee của người ngoài roster chưa từng gặp hiện `accountid:<id>` trong `from/to` (UI vẫn hiện displayName qua `fromString/toString`). API token Cloud hết hạn tối đa 1 năm → banner đỏ "API token hết hạn" (#84 `'auth'`). Offline mode (#84) giữ làm fallback dù Cloud không cần VPN.
+**Giới hạn**: privacy ẩn email → người đó không resolve được → khai `JIRA_ACCOUNT_IDS`. Changelog assignee của người ngoài roster chưa từng gặp hiện `accountid:<id>` trong `from/to` (UI vẫn hiện displayName qua `fromString/toString`). API token Cloud hết hạn tối đa 1 năm → banner đỏ "API token hết hạn" (`'auth'`, #95). Offline mode/snapshot #84 đã gỡ ở #95.
 
 ### 92. Gỡ tin header `Cf-Access-Authenticated-User-Email` — auth bypass *(2026-09-14, code: `qa_dashboard.py:_user_email`)*
 `_user_email` có nhánh fallback cuối tin **header trần** `Cf-Access-Authenticated-User-Email` do client gửi. Header đó CHỈ đáng tin khi **Cloudflare Access** ngồi trước tự set + strip header giả — nhưng CF Access đã bỏ (#15), tunnel hiện tại là **plain cloudflared KHÔNG strip**. Hệ quả: `curl -H "Cf-Access-Authenticated-User-Email: thanhht1@baokim.vn" .../settings` → thành **admin**, bypass toàn bộ Google OAuth (`_authed`/`_is_admin` khi AUTH bật chỉ cần email hợp lệ, không đòi loopback; email bịa vẫn qua `_domain_ok`). Là backdoor sống, không phải rủi ro lý thuyết — verify bằng curl trên origin.
@@ -500,9 +505,9 @@ Pill `New` (`created == hôm nay`, stateless — nguồn còn lại sau #27) lo�
 `meta['new']` **vẫn tính và trả trong payload** (`build_dashboard_payload`) để `/api/dashboard` (app Android) không breaking — chỉ web bỏ pill. ⚠ Twin: `pillMatch`/`updateCounts` trong `app_v2.js` phải khớp `n_todo` bên Python.
 
 ### 90. Overlay status vừa ghi — dashboard hiện ngay, không chờ Jira/cache bắt kịp *(2026-09-03, code: `core/status_overlay.py`)*
-Client đã vá tại chỗ sau transition (#24), nhưng mọi lần render SAU đó đọc lại status từ Jira và dính **2 tầng trễ**: (a) cache SWR `_CACHE_TTL=120s`/stale 900s + snapshot KV/đĩa (#84) → chuyển tab là ra status cũ; (b) **search index Jira lag vài giây** → F5 (`force=True`, bỏ qua cache) vẫn có thể trả status cũ. Triệu chứng: status "nhảy về" giá trị trước.
+Client đã vá tại chỗ sau transition (#24), nhưng mọi lần render SAU đó đọc lại status từ Jira và dính **2 tầng trễ**: (a) cache SWR `_CACHE_TTL=120s`/stale 900s → chuyển tab là ra status cũ; (b) **search index Jira lag vài giây** → F5 (`force=True`, bỏ qua cache) vẫn có thể trả status cũ. Triệu chứng: status "nhảy về" giá trị trước.
 - Store RAM per-process `{key: {status, at}}`. Ghi vào lúc `/do-transition` OK: status lấy **authoritative** bằng `jira_write.get_issue_status` (`GET /issue/{key}` — KHÔNG qua `/search` nên không lag index), fail thì dùng `to` client gửi kèm; response trả `status` để client dùng thay `toName`.
-- Áp ở **4 seam đọc**: `fetch_all` · `fetch_all_shared` (mọi đường trả L1/L2/L3/live/offline, vá TRƯỚC khi đẩy snapshot) · `fetch_activity_feed(with_status=True)` (map status của poll 60s — nếu không vá thì poll dội status cũ về bảng) · `fetch_issue_detail` (drawer).
+- Áp ở **4 seam đọc**: `fetch_all` · `fetch_all_shared` (kể cả bản RAM cũ khi `'auth'`) · `fetch_activity_feed(with_status=True)` (map status của poll 60s — nếu không vá thì poll dội status cũ về bảng) · `fetch_issue_detail` (drawer).
 - **Hết hiệu lực** khi `updated` của issue `+2s >= at` (data đã bao gồm thao tác của mình, hoặc người khác đổi tiếp → tin Jira) hoặc quá `_TTL=900s` (backstop, khớp cửa sổ stale SWR). Feed không fetch `updated` → vòng đời do bucket + TTL quyết định.
 - Mutate issue dict **tại chỗ** (object nằm trong cache SWR) → mọi bản copy trong RAM thống nhất.
 **Ranh giới có chủ đích**: CHỈ status Jira (nhãn nội bộ đã là store local #21; duedate vẫn chỉ vá client-side). RAM per-process, KHÔNG sync chéo máy — trễ nằm ở cache/index của CHÍNH process đang serve. Chỉ ghi đè **tên** status, không dựng `statusCategory` (không code nào đọc field đó); count-only KPI (`done_total`/`created_week`/`resolved_week`) KHÔNG đổi theo overlay.
@@ -527,6 +532,7 @@ Cái "New" còn thấy là **nguồn KHÁC, giữ nguyên**: pill New ở `rende
 | 16 | Lens cá nhân `render_personal` cho QA non-admin | ⛔ SUPERSEDED bởi #17/#19 (`render_qa_v2` dùng cho cả QA lẫn `/my-work`) |
 | 32 | Chatbot AI float (Ollama proxy) | ❌ gỡ hoàn toàn 2026-07-06 |
 | 33 / 36 / 46 / 62 / 68 | Tồn đọng T-1 theo snapshot / fingerprint / carry-copy | ⛔ SUPERSEDED bởi #75 (sheet-based) cho read-path. Kho `months`/`carry` vẫn được `archive()` ghi nhưng **dead cho read path** |
+| 84 | Snapshot task L2 KV / L3 đĩa + chế độ OFFLINE (`bug_log_offline.py`) để sống khi mất VPN | ⛔ SUPERSEDED bởi #95 (Jira Cloud không cần VPN) — gỡ hẳn |
 | 40 | Card insight "Cần chú ý hôm nay" | ❌ gỡ 2026-07-08 (user thấy không thêm giá trị) |
 | — | Tính năng PIC (`pic.py`, `/save-pic`) | ❌ bỏ hẳn (cleanup #43) |
 | 22 (phần parent) | Sub-task chỉ được tạo dưới Task-PTSP | ⛔ nới thành **bất kỳ task** — xem #57 |
@@ -565,7 +571,6 @@ KHÔNG được:
 - Bug Log sync từ Drive (Sheet native + xlsx), metric + freeze tháng, export Excel, report tháng qua Google Chat
 - Test case import/sync từ Drive, link bộ ↔ task, độ phủ automation
 - Viewer tài liệu inline (PDF/ảnh/Office/text/HTML sandbox), folder Quy Trình dạng tab
-- Chạy được khi mất VPN: snapshot KV/đĩa (read-only) + `bug_log_offline.py`
 
 ### Known Limitations
 - Pagination cap cứng: active 300 · new24 50 · done 500 · activity feed 120 issue/7 ngày · READY PRODUCTION 150. Team mở rộng thì phải tăng (issue #38).
@@ -624,8 +629,7 @@ python qa_dashboard.py
 ```
 qa-dashboard/
 ├── qa_dashboard.py          ← ENTRY: HTTP handler (do_GET/do_POST) + main(). Mỏng, dispatch sang core.
-├── bug_log_offline.py       ← ENTRY phụ: chỉ /bug-log, OFFLINE=1, không cần Jira/VPN (#84)
-├── start.bat / start.command / start-bug-log-offline.bat
+├── start.bat / start.command
 ├── CLAUDE.md / README.md / requirements.txt / .env.example
 │
 ├── core/
@@ -661,7 +665,7 @@ qa-dashboard/
 │   ── gitignore (sinh lúc chạy) ──
 ├── .env · .crypto_key · .drive_token.json · .pat_store.json · .jira_accounts.json · .sync_meta.json
 ├── .docs_config.json · .roadmap_config.json · .custom_status.json · .tc_config.json
-├── .bug_log*.json · .bug_monthly.json · .bug_task_link.json · .testcase_*.json · .snapshot_cache.json
+├── .bug_log*.json · .bug_monthly.json · .bug_task_link.json · .testcase_*.json
 ├── uploads/ · reports/ · gcp-service-account.json
 ```
 
@@ -676,6 +680,8 @@ qa-dashboard/
 - Khi thêm/đổi cấu trúc: **tự ghi Decision mới** vào file này (số kế tiếp), không đợi user nhắc.
 
 ## Last Updated
+
+2026-10-02 — Thêm Decision #95 (gỡ snapshot L2/L3 + chế độ OFFLINE/`bug_log_offline.py` vì Jira Cloud không cần VPN). #84 chuyển vào bảng decision chết.
 
 2026-09-25 — Thêm Decision #94 (chuyển Jira DC → Jira Cloud: Basic auth API token, dịch accountId ở biên, search/jql, field id mới). #2 chuyển vào bảng decision chết.
 

@@ -56,7 +56,7 @@ class WriteMixin:
                 res = {'ok': ok, 'msg': msg}
                 if ok:
                     # Decision #90: chốt status MỚI ngay tại đây để mọi lần render sau
-                    # (cache SWR / snapshot / index Jira chưa kịp) không dội status cũ về.
+                    # (cache SWR / index Jira chưa kịp) không dội status cũ về.
                     # Ưu tiên đọc lại từ Jira (GET /issue -> không lag index); fail thì
                     # dùng tên đích client gửi kèm.
                     sok, name = get_issue_status(key, pat)

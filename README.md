@@ -25,8 +25,7 @@ Dự án hoạt động theo mô hình Server-Side Rendering (SSR) thuần, kế
    - Một số dữ liệu phụ trợ không nằm trong trường chuẩn của Jira (Roadmap, Docs, Custom Status, Test Case link, Bug log link) được lưu vào *Cloudflare KV* để đồng bộ chéo máy giữa các thành viên.
    - Khi render trang, server fetch Jira API + đọc Local Cache (thường lưu dưới dạng các file `.json` ẩn như `.roadmap_config.json`, `.bug_log.json`).
    - Nếu Jira bị lỗi hoặc không có mạng, các tính năng không phụ thuộc trực tiếp vào trạng thái Jira Task (như xem list Tài liệu, Roadmap) vẫn render được nhờ Local Cache (Offline fallback).
-3. **Data Snapshot (Cross-machine Sync)**: Để giảm tải cho Jira và hỗ trợ thành viên quên bật VPN, hệ thống áp dụng cơ chế "Data Snapshot". Ai có VPN và vào trang sẽ tự động pull full data và ghi đè vào cache chung trên đĩa. Những người sau (kể cả không có VPN) sẽ đọc bản snapshot mới nhất này để xem thông tin team.
-4. **Real-time Notifications**: Giao diện không dùng Websocket mà sử dụng kỹ thuật *Short-Polling*. Mỗi 60 giây client sẽ gọi background API `/activity-feed`, pull changelog mới nhất và dùng DOM manipulation để hiển thị badge/toast/status mới trực tiếp trên UI.
+3. **Real-time Notifications**: Giao diện không dùng Websocket mà sử dụng kỹ thuật *Short-Polling*. Mỗi 60 giây client sẽ gọi background API `/activity-feed`, pull changelog mới nhất và dùng DOM manipulation để hiển thị badge/toast/status mới trực tiếp trên UI.
 
 ---
 
@@ -194,7 +193,7 @@ Roadmap/docs/dismiss/PAT/nhãn nội bộ sync qua Cloudflare KV nên xoá file 
 | `403 API token không đủ quyền` | Tài khoản thiếu Browse Projects | Xin quyền cho tài khoản chủ token |
 | `Không tìm thấy tài khoản Jira Cloud cho "x"` | Không resolve được accountId (email bị ẩn) | Khai `JIRA_ACCOUNT_IDS` trong `.env` |
 | `Port đang bị chiếm` | Process khác dùng 8080 | Đổi `JIRA_PORT` |
-| `Network error` | Không vào được Jira | Check VPN/Tailscale/kết nối nội bộ |
+| `Network error` | Không vào được Jira | Check kết nối internet / status.atlassian.com |
 | Trống không có task | JQL ra 0 issue | Check `JIRA_USERS` đúng username |
 | Bị đá về `/login` liên tục | OAuth chưa cấu hình đúng | Check `GOOGLE_*` + redirect URI khớp |
 | Đổi status báo "chưa cấu hình API token" | Chưa dán token cá nhân (PAT Jira cũ không còn hiệu lực) | Vào `/settings` dán API token Jira Cloud |

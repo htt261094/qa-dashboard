@@ -102,11 +102,10 @@ def _bug_metrics_payload(bug_log_data):
 
 # ===== Admin Dashboard v2 (team-wide — pills + member filter + 5-col table + KPI cards) =====
 def _snap_note(data):
-    """Mô tả nguồn snapshot cho banner offline: 'dữ liệu lúc HH:MM dd/mm (fetch bởi X)'."""
+    """Mô tả bản data đang hiện cho banner token hết hạn: 'dữ liệu lúc HH:MM dd/mm'."""
     fa = (data or {}).get('fetched_at')
     when = fa.strftime('%H:%M %d/%m') if hasattr(fa, 'strftime') else '?'
-    by = (data or {}).get('fetched_by') or 'máy khác'
-    return f'dữ liệu lúc {when} (fetch bởi {by})'
+    return f'dữ liệu lúc {when}'
 
 
 def _workload_level(n):

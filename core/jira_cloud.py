@@ -29,7 +29,7 @@ import time
 import requests
 
 from config import (JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN, JIRA_ACCOUNT_IDS,
-                    JIRA_ACCOUNTS_FILE, ALLOWED_DOMAIN, OFFLINE, atomic_write)
+                    JIRA_ACCOUNTS_FILE, ALLOWED_DOMAIN, atomic_write)
 
 # Domain email công ty — dựng email từ username để tìm accountId ('quangbm' -> quangbm@baokim.vn).
 MAIL_DOMAIN = (ALLOWED_DOMAIN or JIRA_EMAIL.split('@')[-1] or 'baokim.vn').lower()
@@ -177,8 +177,6 @@ def username_of_account(account_id):
 def _resolve_remote(username):
     """Tìm accountId theo email <username>@<domain> qua /user/search (token chung).
     Trả accountId hoặc None. Không raise."""
-    if OFFLINE:
-        return None
     email = f'{username}@{MAIL_DOMAIN}'
     try:
         r = requests.get(f'{JIRA_URL}/rest/api/2/user/search', headers=auth_headers(),
