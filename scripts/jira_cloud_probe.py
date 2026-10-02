@@ -37,7 +37,7 @@ FIELDS = [
     ('BK Team', 'BK_TEAM_FIELD'),
 ]
 QA_STATUSES = ('to do', 'in progress', 'pending', 'done', 'cancelled', 'canceled',
-               config.READY_PROD_STATUS.lower())
+               'ready production')
 
 
 def get(path, **params):

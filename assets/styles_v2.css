@@ -152,7 +152,6 @@ a{color:inherit}
        border:2px solid var(--card);font-size:13px}
 .nkind.k-done{background:var(--success)}.nkind.k-due{background:var(--warning)}
 .nkind.k-mention{background:#6554c0}.nkind.k-status{background:var(--primary)}
-.nkind.k-warn{background:var(--error)}
 .ncontent{flex:1;min-width:0}
 .ncontent .nt{font-size:13px;line-height:18px;color:var(--on-surface)}
 .ncontent .nt b{font-weight:600}
@@ -163,7 +162,6 @@ a{color:inherit}
 .nrsn.mention{background:#efeafc;color:#6554c0}
 html[data-theme="dark"] .nrsn.mention{background:#2a2342;color:#b3a6f0}
 .nrsn.watch{background:var(--surface-container);color:var(--on-surface-variant)}
-.nrsn.warn{background:var(--warning-bg);color:var(--warning-on)}
 .ntime{font-size:11px;color:var(--on-surface-variant)}
 .notif-item.unread .ntime{color:var(--primary-strong);font-weight:600}
 .ndot{width:10px;height:10px;border-radius:50%;background:var(--primary);flex:0 0 10px;align-self:center}
