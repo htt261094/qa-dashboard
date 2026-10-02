@@ -105,7 +105,7 @@ def _load_env():
     for k in ('JIRA_URL', 'JIRA_EMAIL', 'JIRA_API_TOKEN', 'JIRA_ACCOUNT_IDS', 'JIRA_PORT',
               'JIRA_ADMIN_EMAIL', 'JIRA_ALLOWED_DOMAIN',
               'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'SESSION_SECRET',
-              'PUBLIC_BASE_URL', 'LOCAL_ONLY', 'BUG_LOG_POLL_SECONDS', 'BUG_LOG_JIRA_ENABLED',
+              'PUBLIC_BASE_URL', 'LOCAL_ONLY', 'LOCAL_AUTOLOGIN', 'BUG_LOG_POLL_SECONDS', 'BUG_LOG_JIRA_ENABLED',
               'JIRA_MAX_CONCURRENT',
               'CF_ACCOUNT_ID', 'CF_KV_NAMESPACE_ID', 'CF_API_TOKEN', 'UPLOADS_DIR'):
         if os.environ.get(k):
@@ -208,6 +208,26 @@ if LOCAL_ONLY:
     # http://localhost:<PORT>/oauth/callback đã đăng ký sẵn — Decision #15). An toàn khi suy
     # từ Host vì gate LOCAL_ONLY đã ép Host là loopback.
     PUBLIC_BASE_URL = ''
+
+# Tự đăng nhập chính chủ (Decision #98, MẶC ĐỊNH BẬT khi LOCAL_ONLY + AUTH): request đã qua gate
+# LOCAL_ONLY = người ngồi trước máy host = chính chủ -> khỏi login Google. Identity vẫn là EMAIL
+# (không phải 'local') để API token cá nhân đã lưu theo email tiếp tục dùng được (#20).
+# Set LOCAL_AUTOLOGIN=0 để quay lại login Google bình thường.
+LOCAL_AUTOLOGIN = (LOCAL_ONLY and AUTH_ENABLED
+                   and (CFG.get('LOCAL_AUTOLOGIN') or '1').strip().lower() not in ('0', 'false', 'no'))
+
+
+def _owner_email():
+    """Email chính chủ cho auto-login: `<SELF_USER>@<ALLOWED_DOMAIN>` nếu nằm trong admin, else
+    admin DUY NHẤT. Nhiều admin mà không đoán được -> '' (tắt auto-login, KHÔNG chọn bừa vì
+    ADMIN_EMAILS là set không thứ tự)."""
+    guess = f'{SELF_USER}@{ALLOWED_DOMAIN}'.lower() if (SELF_USER and ALLOWED_DOMAIN) else ''
+    if guess and guess in ADMIN_EMAILS:
+        return guess
+    return next(iter(ADMIN_EMAILS)) if len(ADMIN_EMAILS) == 1 else ''
+
+
+OWNER_EMAIL = _owner_email() if LOCAL_AUTOLOGIN else ''
 
 # ----- Cloudflare Workers KV = kho sync chéo máy KHÔNG cần VPN (thay Jira property) -----
 # Cả 3 giá trị có mặt => KV_ENABLED: remote_store dùng KV làm kho chung (reachable qua

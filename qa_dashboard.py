@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cor
 
 from config import (JIRA_URL, USERS, PORT, ADMIN_EMAIL, ADMIN_EMAILS, ALLOWED_DOMAIN,
                     AUTH_ENABLED, SELF_USER, PUBLIC_BASE_URL, LOCAL_ONLY,
-                    display_name, username_from_email, canon_key)
+                    LOCAL_AUTOLOGIN, OWNER_EMAIL, display_name, username_from_email, canon_key)
 from auth import (SESSION_COOKIE, SESSION_TTL, email_from_session,
                   session_status, make_session_token)
 from drive_token import has_drive_token, delete_drive_token
@@ -102,7 +102,34 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         cloudflared KHÔNG strip → client bịa header trần đi thẳng tới origin. Với AUTH bật,
         `_authed()`/`_is_admin()` chỉ cần email hợp lệ (không đòi loopback) → set header =
         thành admin, bypass toàn bộ Google OAuth. Identity CHỈ đến từ token HMAC do app ký."""
-        return email_from_session(self._cookie(SESSION_COOKIE)) or ''
+        email = email_from_session(self._cookie(SESSION_COOKIE))
+        if email:
+            return email
+        # Auto-login chính chủ (Decision #98): đã qua gate LOCAL_ONLY = người ngồi trước máy.
+        # An toàn chỉ vì MỌI POST còn qua _same_origin_ok (bỏ cookie = mất lớp SameSite chống CSRF).
+        if self._autologin_ok():
+            return OWNER_EMAIL
+        return ''
+
+    def _autologin_ok(self):
+        return bool(LOCAL_AUTOLOGIN and OWNER_EMAIL and self._local_only_ok())
+
+    def _same_origin_ok(self):
+        """Chống CSRF cho POST (Decision #98). Browser luôn gắn `Sec-Fetch-Site`/`Origin` cho POST
+        cross-site — trang web lạ đang mở (hoặc HTML upload chạy trong iframe sandbox /file-raw,
+        origin 'null') POST tới localhost sẽ mang Host=localhost nên gate LOCAL_ONLY KHÔNG chặn
+        được. Trước đây cookie SameSite=Lax che; auto-login không cần cookie nên phải chặn ở đây.
+        Thiếu cả 2 header (curl/script local) -> cho qua: tiến trình trên chính máy nằm ngoài
+        mô hình đe doạ (nó đọc được .env rồi)."""
+        sfs = (self.headers.get('Sec-Fetch-Site') or '').strip().lower()
+        if sfs and sfs not in ('same-origin', 'none'):
+            return False
+        origin = self.headers.get('Origin')
+        if origin is not None:
+            host = (self.headers.get('Host') or '').strip().lower()
+            if urlparse(origin.strip()).netloc.lower() != host or not host:
+                return False
+        return True
 
     def _is_loopback(self):
         """TCP peer của request có phải loopback (127.0.0.0/8 hoặc ::1) không.
@@ -349,6 +376,9 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             self._forbidden()
             return
         if path == '/login':
+            if self._autologin_ok():          # Decision #98: chính chủ khỏi login
+                self._redirect('/')
+                return
             self._do_login()
             return
         if path == '/oauth/callback':
@@ -688,7 +718,8 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         # Dispatch mỏng: gate auth/domain rồi route tới method _post_* / _handle_*.
         # Giữ NGUYÊN thứ tự kiểm tra path (zero behavior change — B0b/#112).
         # Fail-closed (issue #44): AUTH tắt + không loopback -> 403 (đã gộp trong _authed).
-        if not self._local_only_ok() or not self._authed() or not self._domain_ok():
+        if (not self._local_only_ok() or not self._same_origin_ok()
+                or not self._authed() or not self._domain_ok()):
             self._json(403, b'{"ok":false,"err":"forbidden"}')
             return
         path = urlparse(self.path).path
@@ -996,6 +1027,13 @@ def main():
         print("     loopback (127.0.0.1). Mọi request local = ADMIN. KHÔNG expose ra ngoài.", file=sys.stderr)
     if LOCAL_ONLY:
         print("  🔒 LOCAL_ONLY: chỉ phục vụ chính máy này (localhost) — request qua tunnel bị 403.")
+    if LOCAL_AUTOLOGIN:
+        if OWNER_EMAIL:
+            print("  🔓 LOCAL_AUTOLOGIN: tự đăng nhập chính chủ — khỏi login Google.")
+        else:
+            print("  ⚠  LOCAL_AUTOLOGIN bật nhưng không xác định được email chính chủ "
+                  "(JIRA_ADMIN_EMAIL có nhiều email, không có <JIRA_SELF_USER>@<domain>) — vẫn login Google.",
+                  file=sys.stderr)
     print("  Ctrl+C để stop\n")
 
     start_bug_log_scheduler()   # daemon thread poll Drive 10p (no-op nếu chưa kết nối Drive)

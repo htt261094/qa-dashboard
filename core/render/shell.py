@@ -7,7 +7,8 @@ the full document. Assets inline per-render via render.base. See issue #104 / #8
 import json
 from datetime import datetime
 
-from config import JIRA_URL, USERS, display_name, username_from_email
+from config import (JIRA_URL, USERS, LOCAL_AUTOLOGIN, OWNER_EMAIL, display_name,
+                    username_from_email)
 from custom_status import CUSTOM_STATUSES
 from issues import esc
 
@@ -78,7 +79,8 @@ def render_sidebar_v2(active, user):
     sub = esc(email) if email else 'Local dev'
     logout = ('<div class="sep"></div>'
               '<a class="danger" href="/logout"><span class="material-symbols-rounded ph-light ph-sign-out mi-sm"></span> Đăng xuất</a>'
-              ) if email else ''
+              ) if (email and not (LOCAL_AUTOLOGIN and email == OWNER_EMAIL)) else ''
+    # Auto-login chính chủ (Decision #98): đăng xuất xong vẫn tự vào lại -> ẩn nút cho khỏi lừa.
     return (
         '<aside class="sidebar" id="sidebar">'
         '<div class="brand"><h1>QA Workspace</h1></div>'
