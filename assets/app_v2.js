@@ -3837,7 +3837,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
         + '<div class="es-hint">Mọi bug đều đã đóng hoặc bị từ chối.</div>';
       return;
     }
-    var counts = OA_BUCKETS.map(function(){ return 0; }), maxC = 0;
+    var counts = OA_BUCKETS.map(function(){ return 0; }), maxC = 0, n = ages.length;
     ages.forEach(function(a){
       for(var i=0;i<OA_BUCKETS.length;i++){ if(OA_BUCKETS[i][1]==null || a<=OA_BUCKETS[i][1]){ counts[i]++; break; } }
     });
@@ -3846,28 +3846,24 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var mid = Math.floor(sorted.length/2);
     var median = sorted.length%2 ? sorted[mid] : Math.round((sorted[mid-1]+sorted[mid])/2);
     var maxAge = sorted[sorted.length-1];
+    // Stat tiles — số lớn dễ liếc; chiều rộng thanh phân bố chuẩn hoá theo bucket đông nhất (maxC)
+    // để so tương quan; count kèm % trên tổng bug mở.
+    var tiles = '<div class="oa-kpis">'
+      + '<div class="oa-tile"><div class="v">'+open.length+'</div><div class="l">Bug đang mở</div></div>'
+      + '<div class="oa-tile"><div class="v">'+median+'</div><div class="l">Tuổi trung vị (ngày)</div></div>'
+      + '<div class="oa-tile warn"><div class="v">'+maxAge+'</div><div class="l">Mở lâu nhất (ngày)</div></div>'
+      + '</div>';
     var bars = OA_BUCKETS.map(function(bk, i){
-      var c = counts[i], pct = maxC ? (c/maxC*100) : 0;
-      return '<div style="display:flex; align-items:center; gap:10px; margin-bottom:8px; font-size:13px;">'
-        + '<span style="flex:0 0 78px; color:var(--on-surface-variant); text-align:right;">'+bk[0]+'</span>'
-        + '<div style="flex:1; height:20px; background:var(--surface-variant,rgba(0,0,0,.06)); border-radius:4px; overflow:hidden;">'
-        +   '<div style="height:100%; width:'+Math.max(c?6:0,pct)+'%; background:'+bk[2]+'; border-radius:4px;"></div>'
-        + '</div>'
-        + '<span style="flex:0 0 32px; font-weight:700; color:var(--on-surface); text-align:left; font-variant-numeric:tabular-nums;">'+c+'</span>'
+      var c = counts[i], pct = maxC ? (c/maxC*100) : 0, share = n ? Math.round(c/n*100) : 0;
+      return '<div class="oa-row">'
+        + '<span class="lab">'+bk[0]+'</span>'
+        + '<div class="oa-track"><div class="oa-fill" style="width:'+(c?Math.max(6,pct):0)+'%; background:'+bk[2]+';"></div></div>'
+        + '<span class="oa-cnt">'+c+'<span class="pc">'+share+'%</span></span>'
         + '</div>';
     }).join('');
-    var head = '<div style="display:flex; gap:28px; margin-bottom:16px;">'
-      + '<div><div style="font-size:26px; font-weight:800; color:var(--on-surface); font-variant-numeric:tabular-nums;">'+open.length+'</div>'
-      +   '<div style="font-size:12px; color:var(--on-surface-variant);">bug đang mở</div></div>'
-      + '<div><div style="font-size:26px; font-weight:800; color:var(--on-surface); font-variant-numeric:tabular-nums;">'+median+'</div>'
-      +   '<div style="font-size:12px; color:var(--on-surface-variant);">tuổi trung vị (ngày)</div></div>'
-      + '<div><div style="font-size:26px; font-weight:800; color:#ff5630; font-variant-numeric:tabular-nums;">'+maxAge+'</div>'
-      +   '<div style="font-size:12px; color:var(--on-surface-variant);">bug mở lâu nhất (ngày)</div></div>'
-      + '</div>';
-    // Thay cả body (bỏ class empty-state để hết canh giữa dọc) -> dùng wrapper padding thường.
     body.className = 'jm-filled';
-    body.setAttribute('style', 'padding:4px 20px 20px;');
-    body.innerHTML = head + bars;
+    body.removeAttribute('style');
+    body.innerHTML = tiles + '<div class="oa-dist-title">Phân bố theo tuổi</div>' + bars;
   }
   renderJiraMetrics();
 
