@@ -69,10 +69,10 @@ def render_analytics_v2(data, user=None, activities=None, backlog=None):
         f'<div class="bl-sub"><span class="bl-dot"></span> Dữ liệu bug đồng bộ: {esc(synced_disp)}</div>'
         '</div>'
         '<div class="an-ctl">'
-        '<div class="an-ctl-month"><span class="material-symbols-rounded ph-light ph-calendar-dots mi-sm"></span>'
-        '<select id="anMonth"></select></div>'
-        '<button class="lbtn ghost an-ctl-export" id="anExport" title="Export PDF biểu đồ bug">'
-        '<span class="material-symbols-rounded ph-light ph-file-pdf mi-sm"></span> Export PDF</button>'
+        '<div class="an-ctl-month"><select id="anMonth"></select></div>'
+        '<button class="an-ctl-export" id="anExport" title="Export PDF biểu đồ bug">'
+        '<span class="an-exp-ic"><span class="material-symbols-rounded ph-light ph-file-pdf"></span></span>'
+        'Export PDF</button>'
         '</div></div>'
 
         # ===== hàng 4 KPI =====
