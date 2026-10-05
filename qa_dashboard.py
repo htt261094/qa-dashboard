@@ -774,7 +774,7 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         import re
         from urllib.parse import quote
         from xlsx_export import build_xlsx
-        HEADERS = ['ID', 'Module', 'Mô tả bug', 'Ngày', 'Severity', 'Trạng thái',
+        HEADERS = ['ID', 'Mô tả bug', 'Ngày', 'Severity', 'Trạng thái',
                    'Tester', 'Dev in charge']
         try:
             length = int(self.headers.get('Content-Length', 0))

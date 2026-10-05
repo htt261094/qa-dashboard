@@ -43,9 +43,9 @@ def build_bug_log_payload(data, sources=None):
                 'fid': fid,
                 'id': f"{b.get('project', '')}-{b.get('service') + '-' if b.get('service') else ''}{b.get('bug_no', '')}".strip('-'),
                 'summary': b.get('summary', ''),
-                'module': b.get('feature', ''),
                 'severity': b.get('severity', ''),
-                'status': b.get('status', ''),
+                'status': b.get('status', ''),            # lifecycle (logic tồn đọng/mở)
+                'statusRaw': b.get('status_raw', ''),     # status Jira thật (hiển thị bảng)
                 'project': b.get('project', ''),
                 'service': b.get('service', ''),
                 'month': month,
@@ -153,7 +153,7 @@ def render_bug_log_v2(data, user=None, activities=None, sources=None, pending=No
         '<span>Danh sách Bug / Test Case</span></div>'
         '<div class="bl-count" id="blCount"></div></div>'
         '<div style="overflow-x:auto"><table class="bl-table"><thead><tr>'
-        '<th style="width:110px">ID</th><th style="width:140px">Module</th>'
+        '<th style="width:110px">ID</th>'
         '<th>Mô tả bug</th><th style="width:110px;white-space:nowrap">Ngày</th>'
         # Severity = ĐÚNG field Jira (Blocker/Critical/High/Medium/Low — #104), cùng thang pie /analytics
         '<th style="width:104px" title="Mức độ nghiêm trọng (field Severity trên Jira). '

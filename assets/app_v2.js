@@ -3315,13 +3315,18 @@ window.__smSetCustom=function(t, key, val, onChanged){
     if(/cao|high|major/.test(t)) return 'sev-high';
     if(/th[ấa]p|low|minor|trivial/.test(t)) return 'sev-low';
     return 'sev-med'; }
-  var ST = { 'New':['st-open','Mới'], 'Fixing':['st-fixing','Đang fix'],
-    'Fixed':['st-fixed','Đã fix (chờ retest)'], 'Reopen':['st-reopen','Reopen'],
-    'Rejected':['st-rejected','Bị từ chối'], 'Closed':['st-closed','Đã đóng'] };
-  function stCell(s){ var m=ST[s]||['st-default', s||'—'];
-    return '<span class="st-badge '+m[0]+'">'+esc(m[1])+'</span>'; }
-  // nhãn trạng thái dạng text (giống badge trên bảng) -> dùng cho export Excel
-  function statusLabel(s){ var m=ST[s]; return m?m[1]:(s||''); }
+  // Trạng thái = ĐÚNG status Jira (#104, không map lifecycle). Màu badge theo tên status
+  // workflow Bug Testing; tên lạ -> badge mặc định.
+  var JST = {
+    'TRIAGE':'st-open', 'Open':'st-open', 'To Do':'st-open', 'TO DO':'st-open',
+    'In Progress':'st-fixing', 'TESTING':'st-fixing', 'PENDING':'st-fixing',
+    'Reopened':'st-reopen',
+    'REJECTED':'st-rejected',
+    'Done':'st-closed', 'DONE':'st-closed', 'CANCELLED':'st-closed'
+  };
+  function stCell(s){ s=s||''; return '<span class="st-badge '+(JST[s]||'st-default')+'">'+esc(s||'—')+'</span>'; }
+  // nhãn trạng thái dạng text cho export Excel = chính status Jira.
+  function statusLabel(s){ return s||''; }
 
   // Cột "Liên kết": issue liên quan native Jira (parent + Relates), read-only — #104.
   function taskCell(b){
@@ -3439,11 +3444,10 @@ window.__smSetCustom=function(t, key, val, onChanged){
   function rowHTML(b){
     return '<tr data-bug="'+esc(b.key)+'">'
       +'<td><a class="bl-id key" href="'+esc(base)+'/browse/'+encodeURIComponent(b.key)+'" target="_blank" rel="noopener" title="Mở trên Jira">'+esc(b.id)+'</a></td>'
-      +'<td>'+esc(b.module)+'</td>'
       +'<td><b>'+esc(b.summary)+'</b></td>'
       +'<td style="white-space:nowrap">'+esc(formatCreated(b.created))+'</td>'
       +'<td>'+sevCell(b)+'</td>'
-      +'<td>'+stCell(b.status)+'</td>'
+      +'<td>'+stCell(b.statusRaw||b.status)+'</td>'
       +'<td>'+esc(b.qa||'—')+'</td>'
       +'<td>'+esc(b.dev||'—')+'</td>'
       +'<td>'+taskCell(b)+'</td></tr>';
@@ -3475,7 +3479,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var total = ordered.length, pages = Math.max(1, Math.ceil(total/PER));
     if(page>pages) page=pages;
     var start=(page-1)*PER, slice=ordered.slice(start, start+PER);
-    var cols = 9;   // ID/Module/Mô tả/Ngày/Severity/Trạng thái/Tester/Dev/Liên kết
+    var cols = 8;   // ID/Mô tả/Ngày/Severity/Trạng thái/Tester/Dev/Liên kết
 
     // 2 tab nhóm (ẩn khi tháng không có bug nào)
     var sb=$('blSplitBar');
@@ -3543,10 +3547,10 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var list=visibleBugs();   // đúng bảng đang xem: file + tháng + tester/dev/link + tab nhóm
     if(!list.length){ toast('Không có bug nào để export', false); return; }
     var rows=list.map(function(b){
-      var sk = sevOf(b);   // cột Severity: xuất nhãn đã quy về 3 mức (#85), 'none' -> rỗng
-      return [ b.id||'', b.module||'', b.summary||'', formatCreated(b.created),
-               (sk==='none' ? '' : SEV_LABEL[sk].split(' ')[0]),
-               statusLabel(b.status), b.qa||'', b.dev||'' ]; });
+      var sk = sevOf(b);   // Severity: xuất ĐÚNG mức Jira (#104), 'none' -> rỗng
+      return [ b.id||'', b.summary||'', formatCreated(b.created),
+               (sk==='none' ? '' : SEV_LABEL[sk]),
+               statusLabel(b.statusRaw||b.status), b.qa||'', b.dev||'' ]; });
     var lbl=(activeLabel()||'tat-ca').replace(/[^\w]+/g,'-').replace(/^-+|-+$/g,'');
     var mon=(curMonth||'').replace(/[\/]/g,'-');
     var grp=(splitGroups().active==='new') ? 'moi' : 'ton-dong';
