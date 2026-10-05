@@ -3829,6 +3829,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
   function renderJiraMetrics(){
     var card = document.querySelector('[data-jm="open_age"]'); if(!card) return;
     var body = card.querySelector('.jm-empty'); if(!body) return;
+    card.classList.remove('jira-soon');   // data đã từ Jira (#104) -> card thật, bỏ viền nét đứt placeholder
     var open = BUGS.filter(function(b){ return b.created && !isClosed(b.status) && !isReject(b.status); });
     var ages = open.map(function(b){ return _ageDays(b.created); }).filter(function(a){ return a != null; });
     if(!ages.length){
@@ -4007,29 +4008,27 @@ window.__smSetCustom=function(t, key, val, onChanged){
     // Pie CHỈ 3 mức (user chốt); mẫu số % = bug ĐÃ phân loại, không phải tổng bug tháng.
     var classified = SEV_PIE.reduce(function(a,k){ return a + c[k]; }, 0);
     if(!classified)
-      return '<div style="width:100%; border-top:1px solid var(--outline-variant); margin-top:8px; padding-top:18px;">'
+      return '<div class="sev-block">'
         + '<div class="an-empty">Chưa bug nào của tháng này được điền cột Severity ('+total+' bug).</div></div>';
     var segs = SEV_PIE.filter(function(k){ return c[k] > 0; }).map(function(k){
       return { label: SEV_LABEL[k], n: c[k], color: SEV_COLOR[k] }; });
     var rows = segs.map(function(s){
       var p = s.n/classified*100, pd = (p%1===0 ? p.toFixed(0) : p.toFixed(1))+'%';
-      return '<div style="display:flex; align-items:center; gap:8px; font-size:13.5px; margin-bottom:8px;">'
-        + '<span style="width:14px; height:14px; border-radius:3px; background:'+s.color+'; display:inline-block; flex-shrink:0;"></span>'
-        + '<span style="color:var(--on-surface); flex:1;">'+esc(s.label)+'</span>'
-        + '<strong style="color:var(--on-surface);">'+s.n+'</strong>'
-        + '<span style="color:var(--on-surface-variant); min-width:48px; text-align:right;">'+pd+'</span></div>';
+      return '<div class="sev-row">'
+        + '<span class="sev-dot" style="background:'+s.color+';"></span>'
+        + '<span class="sev-name">'+esc(s.label)+'</span>'
+        + '<span class="sev-n">'+s.n+'</span>'
+        + '<span class="sev-pc">'+pd+'</span></div>';
     }).join('');
     var note = c.none
-      ? '<div style="text-align:center; font-size:12.5px; color:var(--on-surface-variant); margin-top:14px;">'
-        + 'Chưa phân loại: <strong>'+c.none+'</strong>/'+total+' bug — không tính vào biểu đồ.</div>'
+      ? '<div class="sev-note">Chưa phân loại: <strong>'+c.none+'</strong>/'+total
+        + ' bug — không tính vào biểu đồ.</div>'
       : '';
-    return '<div style="width:100%; border-top:1px solid var(--outline-variant); margin-top:8px; padding-top:18px;">'
-      + '<div style="text-align:center; font-size:14px; font-weight:600; color:var(--on-surface); margin-bottom:14px;">'
-      +   'Phân bố theo mức độ nghiêm trọng (Severity) — '+classified+' bug đã phân loại</div>'
-      + '<div style="display:flex; gap:28px; align-items:center; justify-content:center; flex-wrap:wrap;">'
-      +   '<div style="flex-shrink:0;">'+pieSVG(segs, 200)+'</div>'
-      +   '<div style="min-width:280px;">'+rows+'</div>'
-      + '</div>' + note + '</div>';
+    return '<div class="sev-block">'
+      + '<div class="sev-head">Phân bố theo mức độ nghiêm trọng (Severity) — '+classified+' bug đã phân loại</div>'
+      + '<div class="sev-grid"><div class="sev-pie">'+pieSVG(segs, 170)+'</div>'
+      +   '<div class="sev-rows">'+rows+'</div></div>'
+      + note + '</div>';
   }
 
   // ---------- Bar chart: bug của dev theo dự án ----------
@@ -4097,22 +4096,22 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var legendHtml = '';
     projList.forEach(function(p, idx){
       var color = PIE_COLORS[idx%PIE_COLORS.length];
-      legendHtml += '<div style="display:flex; align-items:center; margin-right:16px; margin-bottom:8px; font-size:13.5px;">'
-        + '<span style="display:inline-block; width:14px; height:14px; background:'+color+'; border-radius:3px; margin-right:6px;"></span>'
-        + '<span style="color:var(--on-surface);">'+esc(p)+' <strong>('+(+(projTotals[p].toFixed(2)))+')</strong></span></div>';
+      legendHtml += '<div class="mc-leg"><span class="sw" style="background:'+color+';"></span>'
+        + '<span>'+esc(p)+' <strong>('+(+(projTotals[p].toFixed(2)))+')</strong></span></div>';
     });
     // Biểu đồ cột (vùng Export PDF) CHỈ thể hiện bug MỚI phát sinh của tháng T — user chốt 2026-08-03.
     // Số tính LIVE (không còn khoá freeze cho chart này), dải tồn đọng T-1 render ở #anBacklogStrip
     // (TÁCH ngoài metricCharts) nên KHÔNG lọt vào ảnh report.
-    var totalHtml = '<div style="text-align:center; margin-bottom:14px; font-size:14px; color:var(--on-surface);">'
-      + 'Tổng số bug: <strong style="font-size:16px;">'+grandTotal+'</strong>'
-      + ' · Bug mới đã fix: <strong style="font-size:16px; color:#36b37e;">'+fixedCount+'</strong>'
-      + '<span style="color:var(--on-surface-variant);">/'+(bc.newOwn||0)+'</span></div>';
+    var totalHtml = '<div class="mc-total">'
+      + '<div class="mc-stat"><span class="n">'+grandTotal+'</span><span class="l">Tổng số bug</span></div>'
+      + '<div class="mc-stat"><span class="n ok">'+fixedCount+'<span class="den">/'+(bc.newOwn||0)+'</span></span>'
+      +   '<span class="l">Bug mới đã fix</span></div>'
+      + '</div>';
     var backlogStrip = $('anBacklogStrip');
     if(backlogStrip){
       if(bc.hasSnapshot){
-        backlogStrip.innerHTML = '<div style="max-width:820px; margin:0 auto; padding:14px 18px; border:1px solid var(--outline-variant); border-radius:8px;">'
-          + '<div style="font-size:13.5px; color:var(--on-surface); margin-bottom:10px;">'
+        backlogStrip.innerHTML = '<div class="mc-backlog">'
+          + '<div class="mc-bl-line">'
           +   '<strong>'+(bc.newOwn||0)+'</strong> bug mới phát sinh '
           +   '(đã fix <strong style="color:#36b37e;">'+(bc.newFixed||0)+'</strong>, '
           +   'chưa fix <strong>'+(bc.newOpen||0)+'</strong>) · '
@@ -4123,7 +4122,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     }
     metricCharts.innerHTML = '<div style="width:100%; display:flex; flex-direction:column; padding:10px 0;">'
       + totalHtml
-      + '<div style="display:flex; justify-content:center; flex-wrap:wrap; margin-bottom:24px;">' + legendHtml + '</div>'
+      + '<div class="mc-legend">' + legendHtml + '</div>'
       + '<div style="display:flex; align-items:flex-start;">'
       +   '<div style="position:relative; height:'+chartHeight+'px; width:40px; flex-shrink:0;">' + ticksHtml + '</div>'
       +   '<div class="hide-scrollbar" style="position:relative; flex:1; height:'+(chartHeight+50)+'px; display:flex; align-items:flex-start; overflow-x:auto; border-bottom:1px solid var(--outline-variant);">'
