@@ -1958,3 +1958,9 @@ html[data-theme="dark"] .anrt-risk.c-warn,html[data-theme="dark"] .anrt-ava.c-wa
 html[data-theme="dark"] .an-sp-bl.ok{color:#57d9a3}
 .an-sp-bl.ok .material-symbols-rounded{vertical-align:-3px}
 @media (max-width:640px){ .an-sp-tiles{grid-template-columns:1fr} }
+
+/* #106/B fix — nhịp dọc giữa các block top-level Analytics (trước dính liền) */
+.an-head{margin-bottom:20px}
+.ank-row{margin-top:0}
+#anSprintSec,#anAgeSec,.an-grid2{margin-top:20px}
+.an-foot-bar{margin-top:24px}
