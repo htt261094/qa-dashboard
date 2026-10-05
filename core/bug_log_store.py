@@ -524,6 +524,31 @@ def _count_reopens(reopen_map, prev_bugs, cur_bugs):
     return hits
 
 
+def _apply_jira_reopens(reopen_map, cur_bugs):
+    """Nguồn Jira (#104): set reopen count THẲNG từ `bug['reopen_count']` (đếm changelog —
+    chính xác, không sót transition như diff-poll). CHỈ đụng bug có field 'reopen_count'
+    (= bug nguồn Jira); bug Drive bỏ qua. reopen_count đơn điệu tăng nên `_merge_reopen` max
+    không làm méo. Entry shape khớp `_reopen_table` (count + metadata). Trả số entry đổi."""
+    changed = 0
+    for key, b in cur_bugs.items():
+        if 'reopen_count' not in b:
+            continue
+        rc = int(b.get('reopen_count') or 0)
+        if rc <= 0:
+            continue
+        ent = reopen_map.get(key)
+        if ent is not None and int(ent.get('count', 0)) == rc:
+            continue
+        reopen_map[key] = {
+            'count': rc, 'fix': 1, 'last': _now_iso(),
+            'dev': b.get('dev_pic', '') or '',
+            'project': b.get('project', '') or '',
+            'month': b.get('month', '') or '',
+        }
+        changed += 1
+    return changed
+
+
 def _seed_current_reopens(reopen_map, cur_bugs):
     """Hướng A (#146): bug ĐANG ở status 'Reopen' mà chưa có entry -> seed count, fix=1.
 
@@ -693,10 +718,6 @@ def scan(force=False):
         result = {'ok': True, 'synced_at': '', 'count': 0, 'changed': 0,
                   'unmapped': 0, 'errors': [], 'changes': [],
                   'missing': [], 'missing_total': 0}
-        if not has_drive_token():
-            result['ok'] = False
-            result['errors'].append('Chưa kết nối Drive.')
-            return result
         try:
             sources = load_sources()
         except RuntimeError as e:
@@ -705,7 +726,14 @@ def scan(force=False):
             return result
         if not sources:
             result['ok'] = False
-            result['errors'].append('Chưa cấu hình file Drive nguồn.')
+            result['errors'].append('Chưa cấu hình nguồn Bug Log.')
+            return result
+        # Drive CHỈ cần khi còn nguồn provider='drive' (cut-over #104: mặc định toàn Jira, không
+        # cần Drive token). Toàn Jira -> bỏ qua gate này.
+        has_drive_src = any(provider_of(s) == 'drive' for s in sources)
+        if has_drive_src and not has_drive_token():
+            result['ok'] = False
+            result['errors'].append('Chưa kết nối Drive (còn nguồn Drive trong cấu hình).')
             return result
 
         data = _load_data()
@@ -738,7 +766,9 @@ def scan(force=False):
             prev = files.get(fid, {})
             meta, norm, cur_bugs = r['meta'], r['norm'], r['cur_bugs']
             new_events.extend(_diff_events(prev.get('bugs', {}), cur_bugs, meta.get('name', '')))
-            if _count_reopens(reopen, prev.get('bugs', {}), cur_bugs):
+            # Reopen: nguồn Jira (#104) đếm từ changelog (xử lý sau vòng lặp) — KHÔNG dùng diff.
+            # Chỉ nguồn Drive mới suy reopen bằng accumulator transition giữa 2 snapshot.
+            if provider_of(src) != 'jira' and _count_reopens(reopen, prev.get('bugs', {}), cur_bugs):
                 dirty = True
             if _update_metrics(metrics, fid, _metric_snapshot(cur_bugs)):
                 dirty = True
@@ -782,7 +812,11 @@ def scan(force=False):
         all_cur_bugs = {}
         for f in files.values():
             all_cur_bugs.update(f.get('bugs', {}))
-        if _seed_current_reopens(reopen, all_cur_bugs):
+        # Nguồn Jira (#104): set reopen THẲNG từ bug['reopen_count'] (đếm changelog, chính xác).
+        if _apply_jira_reopens(reopen, all_cur_bugs):
+            dirty = True
+        # Nguồn Drive (nếu còn): seed theo trạng thái Reopen hiện tại như cũ.
+        if has_drive_src and _seed_current_reopens(reopen, all_cur_bugs):
             dirty = True
 
         # Hướng B (tồn đọng T-1): chốt snapshot status per-bug theo tháng tạo. Tự dedup +
@@ -794,13 +828,14 @@ def scan(force=False):
         except Exception as e:   # noqa: BLE001 — archive KHÔNG được làm sập lượt scan
             _log('backlog archive warn: ' + _safe(e))
 
-        # Stamp fingerprint lên link bug->task khi dòng bug gốc còn trong file, để link ngược
-        # bền qua việc copy bug sang sheet tháng mới (key đổi). Soft-fail, KHÔNG làm sập scan.
-        try:
-            from task_link import backfill_fingerprints as _backfill_link_fp
-            _backfill_link_fp(all_cur_bugs)
-        except Exception as e:   # noqa: BLE001
-            _log('link fp backfill warn: ' + _safe(e))
+        # Stamp fingerprint lên link bug->task — CHỈ cần cho nguồn Drive (key sheet đổi khi copy).
+        # Nguồn Jira (#104): key = issue.key ổn định -> không cần fp carry. Soft-fail.
+        if has_drive_src:
+            try:
+                from task_link import backfill_fingerprints as _backfill_link_fp
+                _backfill_link_fp(all_cur_bugs)
+            except Exception as e:   # noqa: BLE001
+                _log('link fp backfill warn: ' + _safe(e))
 
         if new_events:
             data['activity'] = _prune_activity(new_events + activity)

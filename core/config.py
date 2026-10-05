@@ -149,12 +149,19 @@ try:
     BUG_LOG_POLL_SECONDS = max(30, int(CFG.get('BUG_LOG_POLL_SECONDS', '600')))
 except ValueError:
     BUG_LOG_POLL_SECONDS = 600
-# ----- Bug Log: nguồn Jira (placeholder — chuyển từ Google Sheet sang Jira, Decision #61) -----
-# Sắp tới team log bug trực tiếp trên Jira thay vì Google Sheet. Toggle này bật lớp nguồn
-# `provider='jira'` trong bug_log_store._scan_one -> bug_source_jira. Default False = HOÀN TOÀN
-# inert (stub trả rỗng, KHÔNG gọi Jira) -> luồng Drive production không đổi. Bật khi model bug
-# Jira được công bố + bug_source_jira đã cắm fetch thật.
-BUG_LOG_JIRA_ENABLED = (CFG.get('BUG_LOG_JIRA_ENABLED') or '').strip().lower() in ('1', 'true', 'yes')
+# ----- Bug Log: nguồn Jira (Decision #104 — cut-over Drive -> Jira "Bug Testing") -----
+# Team log bug trực tiếp trên Jira (issue type Bug Testing) thay Google Sheet. Toggle này bật lớp
+# nguồn `provider='jira'` trong bug_log_store._scan_one -> bug_source_jira. MẶC ĐỊNH BẬT từ #104
+# (đã bỏ hẳn Drive). Đặt BUG_LOG_JIRA_ENABLED=0 trong .env để tắt (stub trả rỗng, không gọi Jira).
+BUG_LOG_JIRA_ENABLED = (CFG.get('BUG_LOG_JIRA_ENABLED') or '1').strip().lower() not in ('0', 'false', 'no')
+
+# ----- Bug Log nguồn Jira (#104): issue type "Bug Testing" + field Severity + JQL mặc định -----
+# Instance-specific (dò lại bằng /rest/api/2/issuetype + /rest/api/2/field nếu migrate/đổi cấu hình).
+BUG_TESTING_TYPE_ID = CFG.get('BUG_TESTING_TYPE_ID', '10382').strip()            # issuetype "Bug Testing"
+BUG_SEVERITY_FIELD = CFG.get('BUG_SEVERITY_FIELD', 'customfield_10404').strip()  # select "Severity" (Blocker/Critical/High/Medium/Low)
+# JQL nguồn Bug Log mặc định (chưa lọc project — chia theo squad = project.key ở tầng hiển thị).
+BUG_TESTING_JQL = (CFG.get('BUG_TESTING_JQL', '').strip()
+                   or f'issuetype = {BUG_TESTING_TYPE_ID} ORDER BY created DESC')
 
 # ----- Trần số call Jira REST đồng thời (Decision #129/#133) -----
 # ThreadingHTTPServer + ThreadPool lồng (/ outer + fetch_all 5 call + refresh nền + scheduler)

@@ -115,20 +115,16 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
         total_bugs = len(bugs)
         src_line = f'<b>{src_names}</b> — {total_bugs} bản ghi'
     else:
-        src_line = '<b>Chưa kết nối nguồn Drive nào.</b> Vào Cài đặt để kết nối Google Drive.'
+        src_line = '<b>Chưa lấy được bug nào từ Jira.</b> Bấm “Đồng bộ ngay” để kéo lại.'
 
-    # "Đồng bộ ngay" (thêm lại 2026-06-10): F5 chỉ render cache, không kéo Drive ->
-    # nút này POST /sync-bug-log chạy scan() ngay rồi reload. Admin-only (endpoint gate).
-    sync_btn = ('<button class="btn btn-ghost" id="blSyncBtn" title="Đọc lại data mới từ Drive ngay">'
+    # "Đồng bộ ngay": F5 chỉ render cache, không kéo Jira -> nút này POST /sync-bug-log chạy
+    # scan() ngay rồi reload. Admin-only (endpoint gate).
+    sync_btn = ('<button class="btn btn-ghost" id="blSyncBtn" title="Kéo lại Bug Testing từ Jira ngay">'
                 '<span class="material-symbols-rounded ph-light ph-arrows-clockwise mi-sm"></span> '
                 'Đồng bộ ngay</button>') if is_admin else ''
-    # "Quản lý link drive" = modal CRUD list link đã add.
-    drive_btn = ('<button class="btn btn-ghost" id="blManageBtn">'
-                 '<span class="material-symbols-rounded ph-light ph-link mi-sm"></span> '
-                 'Quản lý link drive</button>') if editable else ''
-    # ✎ trên source card: đổi link file bug -> hệ thống đi theo link load data (single).
-    edit_link_btn = ('<button class="bl-src-edit material-symbols-rounded ph-light ph-folder-open" id="blEditLinkBtn" '
-                     'title="Chọn file bug để xem"></button>') if editable else ''
+    # Nguồn Jira cố định (issuetype Bug Testing) -> không còn UI quản lý link Drive (#104).
+    drive_btn = ''
+    edit_link_btn = ''
 
     # Filter lọc-xem (tester/dev/link) — hiện cho MỌI người (kể cả non-admin/dev-lead):
     # chỉ lọc bảng, không sửa gì. Widget liên kết task (tick + tạo link) mới gate `editable`.
@@ -189,13 +185,13 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
         f'<div class="bl-sub"><span class="bl-dot"></span> Đã đồng bộ: {esc(synced_disp)}</div>'
         f'<div class="bl-next" id="blNextSync" data-synced="{esc(synced)}" data-interval="{BUG_LOG_POLL_SECONDS}">'
         f'<span class="material-symbols-rounded ph-light ph-arrows-clockwise mi-sm"></span> '
-        f'Tự đồng bộ lại toàn bộ file mỗi {poll_min} phút</div>'
+        f'Tự đồng bộ từ Jira mỗi {poll_min} phút</div>'
         '</div><div style="display:flex;gap:10px;align-items:center">'
         f'{export_btn}{sync_btn}{drive_btn}</div></div>'
         # source card (✎ = đổi link file bug, tự sync sau khi lưu)
         '<div class="card bl-source">'
-        '<span class="ic material-symbols-rounded ph-light ph-table"></span>'
-        '<div class="bl-src-info"><div class="lbl">NGUỒN DỮ LIỆU: GOOGLE DRIVE</div>'
+        '<span class="ic material-symbols-rounded ph-light ph-bug-beetle"></span>'
+        '<div class="bl-src-info"><div class="lbl">NGUỒN: JIRA — Bug Testing (issuetype 10382)</div>'
         f'<div class="fname" id="blSrcLine">{src_line}</div>'
         '<span class="bl-active-file" id="blActiveFile" style="display:none"></span></div>'
         f'{edit_link_btn}</div>'
@@ -240,38 +236,11 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
 
 
 def _bug_log_source_modals():
-    """2 modal admin của Bug Log:
-    - #blEditOv: đổi link 1 file bug (paste link Drive) — ✎ trên source card.
-    - #blSrcOv : quản lý list link Drive đã add (thêm/sửa/xoá) — nút "Quản lý link drive".
-    Cả hai POST /save-bug-log-sources (full list) -> server rút file id + scan ngay."""
+    """Popup sau đồng bộ của Bug Log (nguồn Jira — #104, không còn modal quản lý link Drive):
+    - #blChgOv : tổng kết thay đổi sau đồng bộ (bug mới / đổi status).
+    - #blMissOv: giữ cho tương thích JS (nguồn Jira không có dòng thiếu STT -> không bao giờ hiện)."""
     return (
-        # ----- đổi link 1 file (single) -----
-        '<div class="overlay" id="blEditOv"><div class="modal">'
-        '<div class="modal-head"><span class="material-symbols-rounded ph-light ph-folder-open"></span>'
-        '<h3>Chọn file bug để xem</h3>'
-        '<button type="button" class="x material-symbols-rounded ph-light ph-x" id="blEditClose"></button></div>'
-        '<div class="modal-body"><p class="modal-note">Chọn 1 file Drive đã thêm để xem riêng dữ liệu của file đó. '
-        'Quản lý (thêm/sửa/xoá link) ở “Quản lý link drive”.</p>'
-        '<div id="blPickList" class="bl-pick-list"></div></div>'
-        '<div class="modal-foot">'
-        '<button type="button" class="btn btn-ghost" id="blEditCancel">Đóng</button>'
-        '</div></div></div>'
-        # ----- quản lý list link -----
-        '<div class="overlay" id="blSrcOv"><div class="modal" style="width:640px">'
-        '<div class="modal-head"><span class="material-symbols-rounded ph-light ph-link"></span>'
-        '<h3>Quản lý link Google Drive nguồn</h3>'
-        '<button type="button" class="x material-symbols-rounded ph-light ph-x" id="blSrcClose"></button></div>'
-        '<div class="modal-body"><p class="modal-note">Danh sách file Drive nguồn đã thêm. '
-        'Mỗi thẻ = 1 file: sửa <b>nhãn</b> / <b>hậu tố</b> / <b>link</b> (trỏ sang file mới khi '
-        'đổi tên hoặc di chuyển), rồi bấm <b>Lưu &amp; đồng bộ</b> — hệ thống kéo lại nội dung ngay.</p>'
-        '<div id="blSrcList" class="bl-src-list"></div>'
-        '<button type="button" class="btn btn-ghost" id="blSrcAdd" style="align-self:flex-start">'
-        '<span class="material-symbols-rounded ph-light ph-plus mi-sm"></span> Thêm link</button></div>'
-        '<div class="modal-foot">'
-        '<button type="button" class="btn btn-ghost" id="blSrcCancel">Huỷ</button>'
-        '<button type="button" class="btn btn-primary" id="blSrcSave">Lưu &amp; đồng bộ</button>'
-        '</div></div></div>'
-        # ----- popup tổng kết thay đổi sau đồng bộ (file/sheet/nội dung) -----
+        # ----- popup tổng kết thay đổi sau đồng bộ (nội dung) -----
         '<div class="overlay" id="blChgOv"><div class="modal bl-pop-modal">'
         '<div class="modal-head"><span class="material-symbols-rounded ph-light ph-git-diff"></span>'
         '<h3>Thay đổi sau đồng bộ</h3>'
