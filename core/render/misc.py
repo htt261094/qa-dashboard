@@ -1,7 +1,7 @@
-"""Trang phụ + card lẻ: 403, Settings (PAT + Drive), error page.
+"""Trang phụ + card lẻ: 403, Settings (API token Jira), error page.
 
-Tách từ render/__init__.py (issue #105 / #86). Zero behavior change — chỉ di
-chuyển định nghĩa, re-export ở __init__ để chỗ gọi không phải đổi import.
+Tách từ render/__init__.py (issue #105 / #86). Card "Kết nối Drive" đã gỡ (#104) —
+Bug Log nguồn Jira, không còn Google Drive.
 """
 from config import JIRA_URL
 from issues import esc
@@ -22,39 +22,7 @@ def render_403():
 
 
 # ===== Settings page (/settings): nhập PAT cá nhân để thao tác Jira ghi đúng tên mình =====
-def _render_drive_card(has_drive, auth_enabled):
-    """Card 'Kết nối Drive' (admin-only) — lấy refresh_token đọc file bug log (#52)."""
-    if not auth_enabled:
-        return ('<div class="set-card">'
-                '<h2>🔗 Kết nối Google Drive (Bug Log)</h2>'
-                '<div class="set-state set-none">⚠ Chưa bật Google OAuth (GOOGLE_CLIENT_ID/SECRET) '
-                'nên không kết nối Drive được. Đây là chế độ local dev.</div></div>')
-    if has_drive:
-        state = ('<div class="set-state set-ok">✓ Đã kết nối Drive. Background sync đọc file bug log '
-                 'bằng quyền admin (chỉ đọc).</div>')
-        btns = ('<a href="/drive/connect" class="set-btn">Kết nối lại</a>'
-                '<button type="button" id="driveDisconnect" class="set-link-del">Ngắt kết nối Drive</button>')
-    else:
-        state = ('<div class="set-state set-none">⚠ Chưa kết nối Drive. Bug log sync sẽ báo '
-                 '"chưa kết nối Drive".</div>')
-        btns = '<a href="/drive/connect" class="set-btn">Kết nối Drive</a>'
-    # Lưu ý: account chooser luôn hiện (prompt=select_account, auth.py) — chọn ĐÚNG tài
-    # khoản @baokim.vn, KHÔNG dùng Gmail cá nhân (sẽ bị domain gate từ chối).
-    return (
-        '<div class="set-card">'
-        '<h2>🔗 Kết nối Google Drive (Bug Log)</h2>'
-        f'{state}'
-        '<p class="set-note">Cấp quyền <b>chỉ đọc</b> (<code>drive.readonly</code>) bằng tài khoản admin '
-        'để background sync tải file <code>.xlsx</code> bug log. Token được mã hoá (AES) trước khi lưu, '
-        'không bao giờ lưu dạng thô và không ghi/sửa được file trên Drive.</p>'
-        '<p class="set-note">⚠ Khi Google hỏi, hãy <b>chọn tài khoản <code>@baokim.vn</code></b> '
-        '(không phải Gmail cá nhân) — tài khoản ngoài domain sẽ bị từ chối.</p>'
-        f'<div class="set-form">{btns}</div>'
-        '</div>'
-    )
-
-
-def render_settings_page(has_pat, user=None, has_drive=False, auth_enabled=False, activities=None):
+def render_settings_page(has_pat, user=None, activities=None):
     # Jira Cloud (#197): API token Atlassian thay PAT Jira DC. PAT DC đã lưu tự bị coi là "chưa có".
     status_line = ('<div class="set-state set-ok">✓ Bạn đã lưu API token Jira. Thao tác đổi status/comment sẽ ghi đúng tên bạn trên Jira.</div>'
                    if has_pat else

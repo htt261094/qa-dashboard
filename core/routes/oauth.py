@@ -13,11 +13,9 @@ Layer rule: KHÔNG import qa_dashboard (tránh vòng import).
 from urllib.parse import urlparse, parse_qs
 
 from config import AUTH_ENABLED, PUBLIC_BASE_URL, ALLOWED_DOMAIN
-from auth import (SESSION_COOKIE, STATE_COOKIE, DRIVE_STATE_COOKIE, SESSION_TTL, STATE_TTL,
+from auth import (SESSION_COOKIE, STATE_COOKIE, SESSION_TTL, STATE_TTL,
                   login_url, exchange_code, email_allowed,
-                  make_session_token, make_state_token, state_valid,
-                  drive_login_url, exchange_code_tokens)
-from drive_token import save_refresh_token
+                  make_session_token, make_state_token, state_valid)
 from render import render_error_page, render_login_page
 
 
@@ -94,42 +92,4 @@ class OAuthMixin:
     def _do_logout(self):
         secure = self._secure_cookie()
         self._redirect('/login', [self._set_cookie(SESSION_COOKIE, '', 0, secure)])
-
-    # ----- Drive connect (admin-only, tách khỏi login chung — issue #52) -----
-    def _do_drive_connect(self):
-        if not self._is_admin():
-            self._forbidden()
-            return
-        state = make_state_token()
-        secure = self._secure_cookie()
-        url = drive_login_url(self._base_url() + '/oauth/drive-callback', state)
-        self._redirect(url, [self._set_cookie(DRIVE_STATE_COOKIE, state, STATE_TTL, secure)])
-
-    def _do_drive_callback(self):
-        if not self._is_admin():
-            self._forbidden()
-            return
-        q = parse_qs(urlparse(self.path).query)
-        code = (q.get('code') or [''])[0]
-        state = (q.get('state') or [''])[0]
-        cookie_state = self._cookie(DRIVE_STATE_COOKIE)
-        cookie_ok = (not cookie_state) or (state == cookie_state)   # cookie bị drop -> dựa signed-state (#166)
-        if not code or not state or not state_valid(state) or not cookie_ok:
-            self._forbidden()
-            return
-        secure = self._secure_cookie()
-        clear = self._set_cookie(DRIVE_STATE_COOKIE, '', 0, secure)
-        try:
-            info, refresh = exchange_code_tokens(code, self._base_url() + '/oauth/drive-callback')
-        except RuntimeError as e:
-            self._html(render_error_page(str(e)))
-            return
-        ok, _email = email_allowed(info)  # token phải của tài khoản đúng domain
-        if not ok:
-            self._forbidden()
-            return
-        save_ok, _msg = save_refresh_token(refresh)
-        if not save_ok:
-            self._html(render_error_page(_msg))
-            return
-        self._redirect('/bug-log', [clear])
+    # Drive OAuth (connect/callback) đã gỡ (#104): Bug Log nguồn Jira, không còn kết nối Drive.

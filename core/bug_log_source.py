@@ -90,10 +90,19 @@ def _write_cache(data):
     return atomic_write(BUG_LOG_SOURCE_FILE, json.dumps(data, ensure_ascii=False, indent=2))
 
 
+def _default_jira_source():
+    """Nguồn Bug Log mặc định sau cut-over Drive->Jira (#104): toàn bộ issue type Bug Testing.
+    Chia theo squad (= project.key) ở tầng hiển thị, chưa lọc project ở JQL."""
+    from config import BUG_TESTING_JQL
+    return [{'provider': 'jira', 'id': 'bug-testing', 'label': 'Bug Testing',
+             'service': '', 'query': BUG_TESTING_JQL}]
+
+
 def load_sources():
     """Kho chung = Cloudflare KV (sync chéo máy, không cần VPN); local file = fallback offline.
-    [] nếu chưa cấu hình."""
-    return synced_load(BUG_LOG_SOURCE_PROP, _read_cache, _write_cache, valid_sources, [])
+    Chưa cấu hình gì -> mặc định 1 nguồn Jira Bug Testing (#104), KHÔNG còn rỗng/Drive."""
+    srcs = synced_load(BUG_LOG_SOURCE_PROP, _read_cache, _write_cache, valid_sources, [])
+    return srcs or _default_jira_source()
 
 
 def save_sources(data):

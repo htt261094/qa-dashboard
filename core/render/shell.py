@@ -126,24 +126,8 @@ def render_topbar_v2():
 
 
 def _settings_modal_v2(user=None):
-    # Drive connection = admin-only (chỉ admin lấy refresh_token đọc bug log). Non-admin
-    # chỉ thấy phần PAT. Trạng thái kết nối load lười qua /has-drive (tránh +1 Jira call
-    # mỗi lần render shell). IDs prefix `setDrive*` để KHÔNG đụng id nào khác.
-    is_admin = bool(user and len(user) > 1 and user[1])
+    # Card "Kết nối Drive" đã gỡ (#104): Bug Log nguồn Jira "Bug Testing", không còn Google Drive.
     drive = ''
-    if is_admin:
-        drive = (
-            '<div class="set-drive" id="setDriveSect">'
-            '<label class="set-drive-lbl"><span class="material-symbols-rounded ph-light ph-cloud mi-sm"></span> '
-            'Kết nối Google Drive (Bug Log)</label>'
-            '<p class="modal-note">Cấp quyền <b>chỉ đọc</b> để background sync đọc file <code>.xlsx</code> bug log. '
-            'Khi Google hỏi, chọn tài khoản <b>@baokim.vn</b>. Token được mã hoá khi lưu.</p>'
-            '<div class="set-drive-state" id="setDriveState"><span class="skel skel-line w60" style="display:inline-block;width:180px"></span></div>'
-            '<div class="set-drive-acts">'
-            '<a class="btn btn-ghost" id="setDriveConnect" href="/drive/connect">Kết nối Drive</a>'
-            '<button type="button" class="btn btn-danger" id="setDriveDisconnect" style="display:none;margin-right:0">Ngắt kết nối</button>'
-            '</div></div>'
-        )
     return (
         '<div class="overlay" id="setOverlay">'
         '<div class="modal">'

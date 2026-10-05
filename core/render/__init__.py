@@ -17,7 +17,7 @@ from render.shell import (_FONTS_V2, _AV_CLS, _avatar, _conn_error_card,
                           _subtask_modal_v2, _document_v2)
 # Trang phụ (403/settings/drive card/error) tách sang render.misc; re-export để
 # chỗ gọi (qa_dashboard.py) không phải đổi import. See issue #105 / #86.
-from render.misc import (render_403, _render_drive_card, render_settings_page,
+from render.misc import (render_403, render_settings_page,
                          render_error_page, render_shell_error, render_login_page)
 # Lens cá nhân "Việc của tôi" (render.dashboard) — dashboard team đã gỡ (Decision #97).
 from render.dashboard import render_qa_v2, build_my_work_payload
