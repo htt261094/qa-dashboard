@@ -3812,10 +3812,8 @@ window.__smSetCustom=function(t, key, val, onChanged){
   function curYm(){ var d=new Date(); return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2); }
   var PIE_COLORS = ['#4c9aff','#36b37e','#ffab00','#ff5630','#6554c0','#00b8d9','#ff7452','#57d9a3','#8777d9','#ff8b00','#2684ff','#172b4d'];
 
-  // Metric từ Jira — nguồn bug đã chuyển sang Jira (#104). Option A (#105): 'open_age' tính thuần
-  // client-side (created + status), không cần resolutiondate/changelog. Card [data-jm] render
-  // empty-state server-side; hàm này thay body bằng số thật (giữ nguyên empty-state nếu không có bug mở).
-  // Bug "đang mở" = lifecycle KHÔNG phải Closed/Rejected (dùng chung isClosed/isReject bên dưới).
+  // Tuổi bug đang mở (#105, redesign #106) — tính thuần client-side (created + status), không cần
+  // resolutiondate/changelog. Bug "đang mở" = lifecycle KHÔNG phải Closed/Rejected.
   var OA_BUCKETS = [  // [nhãn, maxNgày (inclusive, null = vô cực), màu — xanh->đỏ theo tuổi]
     ['≤3 ngày', 3, '#36b37e'], ['4–7 ngày', 7, '#57d9a3'], ['8–14 ngày', 14, '#ffab00'],
     ['15–30 ngày', 30, '#ff7452'], ['>30 ngày', null, '#ff5630']
@@ -3826,47 +3824,22 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var ms = Date.now() - d.getTime();
     return ms < 0 ? 0 : Math.floor(ms / 86400000);
   }
-  function renderJiraMetrics(){
-    var card = document.querySelector('[data-jm="open_age"]'); if(!card) return;
-    var body = card.querySelector('.jm-empty'); if(!body) return;
-    card.classList.remove('jira-soon');   // data đã từ Jira (#104) -> card thật, bỏ viền nét đứt placeholder
+  // Thống kê tuổi bug đang mở (KHÔNG lọc tháng — phản ánh trạng thái HIỆN TẠI của mọi bug mở).
+  function computeOpenAge(){
     var open = BUGS.filter(function(b){ return b.created && !isClosed(b.status) && !isReject(b.status); });
     var ages = open.map(function(b){ return _ageDays(b.created); }).filter(function(a){ return a != null; });
-    if(!ages.length){
-      body.innerHTML = '<div class="es-ic"><span class="material-symbols-rounded">task_alt</span></div>'
-        + '<div class="es-title">Không có bug nào đang mở</div>'
-        + '<div class="es-hint">Mọi bug đều đã đóng hoặc bị từ chối.</div>';
-      return;
-    }
-    var counts = OA_BUCKETS.map(function(){ return 0; }), maxC = 0, n = ages.length;
+    if(!ages.length) return { open: open.length, ages: [], counts: OA_BUCKETS.map(function(){return 0;}),
+                              median: 0, maxAge: 0, total: 0 };
+    var counts = OA_BUCKETS.map(function(){ return 0; });
     ages.forEach(function(a){
       for(var i=0;i<OA_BUCKETS.length;i++){ if(OA_BUCKETS[i][1]==null || a<=OA_BUCKETS[i][1]){ counts[i]++; break; } }
     });
-    counts.forEach(function(c){ if(c>maxC) maxC = c; });
     var sorted = ages.slice().sort(function(x,y){ return x-y; });
     var mid = Math.floor(sorted.length/2);
     var median = sorted.length%2 ? sorted[mid] : Math.round((sorted[mid-1]+sorted[mid])/2);
-    var maxAge = sorted[sorted.length-1];
-    // Stat tiles — số lớn dễ liếc; chiều rộng thanh phân bố chuẩn hoá theo bucket đông nhất (maxC)
-    // để so tương quan; count kèm % trên tổng bug mở.
-    var tiles = '<div class="oa-kpis">'
-      + '<div class="oa-tile"><div class="v">'+open.length+'</div><div class="l">Bug đang mở</div></div>'
-      + '<div class="oa-tile"><div class="v">'+median+'</div><div class="l">Tuổi trung vị (ngày)</div></div>'
-      + '<div class="oa-tile warn"><div class="v">'+maxAge+'</div><div class="l">Mở lâu nhất (ngày)</div></div>'
-      + '</div>';
-    var bars = OA_BUCKETS.map(function(bk, i){
-      var c = counts[i], pct = maxC ? (c/maxC*100) : 0, share = n ? Math.round(c/n*100) : 0;
-      return '<div class="oa-row">'
-        + '<span class="lab">'+bk[0]+'</span>'
-        + '<div class="oa-track"><div class="oa-fill" style="width:'+(c?Math.max(6,pct):0)+'%; background:'+bk[2]+';"></div></div>'
-        + '<span class="oa-cnt">'+c+'<span class="pc">'+share+'%</span></span>'
-        + '</div>';
-    }).join('');
-    body.className = 'jm-filled';
-    body.removeAttribute('style');
-    body.innerHTML = tiles + '<div class="oa-dist-title">Phân bố theo tuổi</div>' + bars;
+    return { open: open.length, ages: ages, counts: counts, median: median,
+             maxAge: sorted[sorted.length-1], total: ages.length };
   }
-  renderJiraMetrics();
 
   function getCreatedMonthYear(iso){
     if(!iso) return '';
@@ -3920,323 +3893,313 @@ window.__smSetCustom=function(t, key, val, onChanged){
   }
 
   // ---------- Valid Bug Rate = Closed / (Tổng bug − Reject) ----------
-  var validMonthSel = $('anValidMonth'), validBox = $('anValidBox');
   function isReject(s){ return /reject/i.test(s||''); }
   function isClosed(s){ return /closed|đã đóng/i.test(s||''); }
-  function renderValid(){
-    if(!validMonthSel || !validBox) return;
-    var m = validMonthSel.value;
-    // FROZEN cho tháng đã đóng (Decision #47); LIVE (dedup fp) cho tháng hiện tại/chưa freeze.
-    var selYm = toYm(m); var frozen = frozenFor(selYm);
-    var total, reject, closed;
-    if(frozen && frozen.valid){
-      total = frozen.valid.total||0; reject = frozen.valid.reject||0; closed = frozen.valid.closed||0;
-    } else {
-      var mBugs = dedupByFp(BUGS.filter(function(b){ return monthOf(b) === m; }));
-      total = mBugs.length;
-      reject = mBugs.filter(function(b){ return isReject(b.status); }).length;
-      closed = mBugs.filter(function(b){ return isClosed(b.status); }).length;
-    }
-    var denom = total - reject;
-    if(total === 0){
-      validBox.innerHTML = '<div class="an-empty">Không có bug trong tháng này</div>';
-      return;
-    }
-    var pct = denom > 0 ? (closed/denom*100) : null;
-    var pctDisp = pct === null ? '—' : (pct%1===0 ? pct.toFixed(0) : pct.toFixed(1)) + '%';
-    var rejPct = total > 0 ? (reject/total*100) : 0;
-    var rejDisp = (rejPct%1===0 ? rejPct.toFixed(0) : rejPct.toFixed(1)) + '%';
-
-    validBox.innerHTML =
-      '<div style="flex:1;">'
-      + '<div class="an-valid-main"><span class="an-valid-pct an-good">'+pctDisp+'</span>'
-      + '<span class="an-valid-cap">bug hợp lệ đã đóng</span></div>'
-      + '<div class="an-valid-break">'
-      +   '<div class="an-stat an-num-good"><span class="an-stat-n">'+closed+'</span><span class="an-stat-l">Closed</span></div>'
-      +   '<div class="an-stat-op">/</div>'
-      +   '<div class="an-stat"><span class="an-stat-n">'+denom+'</span><span class="an-stat-l">Tổng '+total+' − Reject '+reject+'</span></div>'
-      + '</div>'
-      + '</div>'
-      + '<div style="flex:1; border-left:1px solid var(--outline-variant); padding-left:32px;">'
-      + '<div class="an-valid-main"><span class="an-valid-pct an-bad">'+rejDisp+'</span>'
-      + '<span class="an-valid-cap">tỷ lệ Reject</span></div>'
-      + '<div class="an-valid-break">'
-      +   '<div class="an-stat an-num-bad"><span class="an-stat-n">'+reject+'</span><span class="an-stat-l">Reject</span></div>'
-      +   '<div class="an-stat-op">/</div>'
-      +   '<div class="an-stat"><span class="an-stat-n">'+total+'</span><span class="an-stat-l">Tổng số Bug</span></div>'
-      + '</div>'
-      + '</div>';
-  }
-
-  // ---------- Severity: pie chart (Decision #85) ----------
-  // Thang 3 mức + sevOf() dùng chung ở scope ngoài (cùng dùng cho cột Severity ở /bug-log).
-  // Ô trống/giá trị lạ -> 'none': KHÔNG vẽ trong pie nhưng vẫn hiện thành ghi chú dưới chart
-  // (bỏ hẳn thì mất mẫu số, CTO tưởng tháng chỉ có ngần ấy bug).
   function sevCounts(list){
     var c = {}; SEV_ORDER.forEach(function(k){ c[k]=0; });
     list.forEach(function(b){ c[sevOf(b)]++; });
     return c;
   }
-  // Pie SVG thuần path (KHÔNG conic-gradient — html2canvas không render được conic, ảnh gửi
-  // CTO sẽ trắng bệch). 1 nhóm duy nhất -> vẽ <circle> vì cung 360° làm path arc suy biến.
-  function pieSVG(segs, size){
-    var total = 0; segs.forEach(function(s){ total += s.n; });
-    if(total <= 0) return '';
-    var r = size/2, cx = r, cy = r;
-    var live = segs.filter(function(s){ return s.n > 0; });
-    if(live.length === 1)
-      return '<svg width="'+size+'" height="'+size+'" viewBox="0 0 '+size+' '+size+'">'
-        + '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="'+live[0].color+'"></circle></svg>';
-    var a0 = -Math.PI/2, paths = '';
-    live.forEach(function(s){
-      var a1 = a0 + (s.n/total)*Math.PI*2;
-      var x0 = cx + r*Math.cos(a0), y0 = cy + r*Math.sin(a0);
-      var x1 = cx + r*Math.cos(a1), y1 = cy + r*Math.sin(a1);
-      var large = (a1-a0) > Math.PI ? 1 : 0;
-      paths += '<path d="M '+cx+' '+cy+' L '+x0.toFixed(2)+' '+y0.toFixed(2)
-        + ' A '+r+' '+r+' 0 '+large+' 1 '+x1.toFixed(2)+' '+y1.toFixed(2)+' Z" fill="'+s.color+'">'
-        + '<title>'+esc(s.label)+': '+s.n+'</title></path>';
-      a0 = a1;
-    });
-    return '<svg width="'+size+'" height="'+size+'" viewBox="0 0 '+size+' '+size+'">'+paths+'</svg>';
-  }
-  // Khối "Phân bố theo mức độ nghiêm trọng" — nằm TRONG #anMetricCharts nên tự lọt vào ảnh
-  // Export PDF/PNG mà reporter tháng gửi CTO.
-  function sevBlockHTML(list){
-    var c = sevCounts(list), total = list.length;
-    if(!total) return '';
-    // Pie CHỈ 3 mức (user chốt); mẫu số % = bug ĐÃ phân loại, không phải tổng bug tháng.
-    var classified = SEV_PIE.reduce(function(a,k){ return a + c[k]; }, 0);
-    if(!classified)
-      return '<div class="sev-block">'
-        + '<div class="an-empty">Chưa bug nào của tháng này được điền cột Severity ('+total+' bug).</div></div>';
-    var segs = SEV_PIE.filter(function(k){ return c[k] > 0; }).map(function(k){
-      return { label: SEV_LABEL[k], n: c[k], color: SEV_COLOR[k] }; });
-    var rows = segs.map(function(s){
-      var p = s.n/classified*100, pd = (p%1===0 ? p.toFixed(0) : p.toFixed(1))+'%';
-      return '<div class="sev-row">'
-        + '<span class="sev-dot" style="background:'+s.color+';"></span>'
-        + '<span class="sev-name">'+esc(s.label)+'</span>'
-        + '<span class="sev-n">'+s.n+'</span>'
-        + '<span class="sev-pc">'+pd+'</span></div>';
-    }).join('');
-    var note = c.none
-      ? '<div class="sev-note">Chưa phân loại: <strong>'+c.none+'</strong>/'+total
-        + ' bug — không tính vào biểu đồ.</div>'
-      : '';
-    return '<div class="sev-block">'
-      + '<div class="sev-head">Phân bố theo mức độ nghiêm trọng (Severity) — '+classified+' bug đã phân loại</div>'
-      + '<div class="sev-grid"><div class="sev-pie">'+pieSVG(segs, 170)+'</div>'
-      +   '<div class="sev-rows">'+rows+'</div></div>'
-      + note + '</div>';
+  var JBASE = (window.__jiraBase||'').replace(/\/+$/,'');
+  function pctDisp(p){ return p==null ? '—' : (p%1===0 ? p.toFixed(0) : p.toFixed(1))+'%'; }
+  function devList1(s){
+    var l=(s||'Chưa gán').trim().split(/[,;+&\/]/).map(function(x){return x.trim();}).filter(Boolean);
+    return l.length ? l : ['Chưa gán'];
   }
 
-  // ---------- Bar chart: bug của dev theo dự án ----------
-  var metricMonthSel = $('anMetricMonth'), metricCharts = $('anMetricCharts');
-  function renderMetric(){
-    if(!metricMonthSel || !metricCharts) return;
-    var backlogStripEl = $('anBacklogStrip');
-    if(backlogStripEl) backlogStripEl.innerHTML = '';  // reset, tránh dải tồn đọng cũ sót khi đổi tháng
-    var selectedMonth = metricMonthSel.value;
-    if(!selectedMonth){ metricCharts.innerHTML = '<div class="an-empty">Không có dữ liệu</div>'; return; }
-    // Biểu đồ cột + "Tổng số bug" CHỈ tính BUG MỚI PHÁT SINH trong tháng T — SHEET-BASED
-    // (Decision #75): dòng nằm trong sheet tháng T (monthOf===tháng chọn) có created trong T.
-    // Đếm DÒNG (không dedup) -> grandTotal = "mới phát sinh" khớp dải tồn đọng + màn Bug.
-    // Tính LIVE cho MỌI tháng. Freeze (#47/#69) VẪN áp cho Valid Bug Rate + Reopen.
-    var selYm = toYm(selectedMonth);
-    var devs = {}, projSet = {}, grandTotal = 0, fixedCount = 0, bc;
-    var mBugs = BUGS.filter(function(b){
-      return monthOf(b) === selectedMonth && (b.created||'').slice(0,7) === selYm; });
-    mBugs.forEach(function(b){
-      var dl = (b.dev||'Chưa gán').trim().split(/[,;+&\/]/).map(function(s){ return s.trim(); }).filter(Boolean);
-      if(!dl.length) dl = ['Chưa gán'];
-      var fraction = 1/dl.length, p = (b.project||'Khác').trim();
-      dl.forEach(function(d){
-        if(!devs[d]) devs[d] = { total:0, projs:{} };
-        devs[d].projs[p] = (devs[d].projs[p]||0) + fraction;
-        devs[d].total += fraction;
-      });
-      projSet[p] = true;
-    });
-    grandTotal = mBugs.length;
-    bc = computeBacklog(selYm);
-    // Đã fix trong tháng = bug MỚI PHÁT SINH đã Closed (bc.newFixed).
-    fixedCount = bc.newFixed||0;
-    var devList = Object.keys(devs).sort(function(a,b){ return devs[b].total - devs[a].total; });
-    var projList = Object.keys(projSet).sort();
-    if(!devList.length){ metricCharts.innerHTML = '<div class="an-empty">Không có dữ liệu trong tháng này</div>'; return; }
-    // tổng số bug theo từng dự án + tổng toàn tháng (bug đa-dev tính phân số nên tổng = số bug thật)
-    var projTotals = {};
-    projList.forEach(function(p){ projTotals[p] = 0; });
-    devList.forEach(function(d){ var pj = devs[d].projs; Object.keys(pj).forEach(function(p){ projTotals[p] += pj[p]; }); });
-    var maxTotal = 0; devList.forEach(function(d){ if(devs[d].total>maxTotal) maxTotal = devs[d].total; });
-    var yMax = Math.max(5, Math.ceil(maxTotal/5)*5), steps = 5, chartHeight = 260;
-    var ticksHtml = '';
-    for(var i=0;i<=steps;i++){
-      var val = Math.round((yMax/steps)*i), bottomPct = (i/steps)*100;
-      ticksHtml += '<div style="position:absolute; bottom:'+bottomPct+'%; right:8px; transform:translateY(50%); font-size:11px; color:var(--on-surface-variant);">'+val+'</div>';
+  // ===== compute (dùng chung cho KPI + section) — giữ nguyên công thức + freeze (twin #47/#81) =====
+  function computeValid(m){
+    var selYm = toYm(m), frozen = frozenFor(selYm), total, reject, closed;
+    if(frozen && frozen.valid){
+      total=frozen.valid.total||0; reject=frozen.valid.reject||0; closed=frozen.valid.closed||0;
+    } else {
+      var mb = dedupByFp(BUGS.filter(function(b){ return monthOf(b)===m; }));
+      total=mb.length;
+      reject=mb.filter(function(b){ return isReject(b.status); }).length;
+      closed=mb.filter(function(b){ return isClosed(b.status); }).length;
     }
-    var barsHtml = '';
-    devList.forEach(function(d){
-      var dData = devs[d], segmentsHtml = '';
-      projList.forEach(function(p, idx){
-        var count = dData.projs[p];
-        if(count){
-          var pct = (count/yMax)*100, color = PIE_COLORS[idx%PIE_COLORS.length], displayCount = +(count.toFixed(2));
-          segmentsHtml = '<div style="width:100%; height:'+pct+'%; background:'+color+'; display:flex; align-items:center; justify-content:center; color:#fff; font-size:11px; font-weight:600; overflow:hidden;" title="'+esc(p)+': '+displayCount+'">' + (pct>6?displayCount:'') + '</div>' + segmentsHtml;
-        }
-      });
-      var displayTotal = +(dData.total.toFixed(2));
-      barsHtml += '<div style="display:flex; flex-direction:column; align-items:center; width:48px; margin:0 12px; z-index:1;">'
-        + '<div style="font-size:12.5px; font-weight:700; color:var(--on-surface); margin-bottom:6px;">'+displayTotal+'</div>'
-        + '<div style="width:100%; height:'+chartHeight+'px; display:flex; flex-direction:column; justify-content:flex-end; border-radius:4px 4px 0 0; overflow:hidden;">' + segmentsHtml + '</div>'
-        + '<div style="font-size:12px; margin-top:10px; text-align:center; word-break:break-word; color:var(--on-surface-variant); width:64px; line-height:1.3;">'+esc(d)+'</div>'
-        + '</div>';
-    });
-    var legendHtml = '';
-    projList.forEach(function(p, idx){
-      var color = PIE_COLORS[idx%PIE_COLORS.length];
-      legendHtml += '<div class="mc-leg"><span class="sw" style="background:'+color+';"></span>'
-        + '<span>'+esc(p)+' <strong>('+(+(projTotals[p].toFixed(2)))+')</strong></span></div>';
-    });
-    // Biểu đồ cột (vùng Export PDF) CHỈ thể hiện bug MỚI phát sinh của tháng T — user chốt 2026-08-03.
-    // Số tính LIVE (không còn khoá freeze cho chart này), dải tồn đọng T-1 render ở #anBacklogStrip
-    // (TÁCH ngoài metricCharts) nên KHÔNG lọt vào ảnh report.
-    var totalHtml = '<div class="mc-total">'
-      + '<div class="mc-stat"><span class="n">'+grandTotal+'</span><span class="l">Tổng số bug</span></div>'
-      + '<div class="mc-stat"><span class="n ok">'+fixedCount+'<span class="den">/'+(bc.newOwn||0)+'</span></span>'
-      +   '<span class="l">Bug mới đã fix</span></div>'
-      + '</div>';
-    var backlogStrip = $('anBacklogStrip');
-    if(backlogStrip){
-      if(bc.hasSnapshot){
-        backlogStrip.innerHTML = '<div class="mc-backlog">'
-          + '<div class="mc-bl-line">'
-          +   '<strong>'+(bc.newOwn||0)+'</strong> bug mới phát sinh '
-          +   '(đã fix <strong style="color:#36b37e;">'+(bc.newFixed||0)+'</strong>, '
-          +   'chưa fix <strong>'+(bc.newOpen||0)+'</strong>) · '
-          +   'Tồn đọng từ tháng trước: '
-          +   '<strong>'+bc.total+'</strong> (còn <strong style="color:#ff5630;">'+bc.stillOpen+'</strong>, đã xử lý '+bc.resolved+')'
-          + '</div>' + compBar(backlogSegs(bc), 26) + '</div>';
-      } else { backlogStrip.innerHTML = ''; }
-    }
-    metricCharts.innerHTML = '<div style="width:100%; display:flex; flex-direction:column; padding:10px 0;">'
-      + totalHtml
-      + '<div class="mc-legend">' + legendHtml + '</div>'
-      + '<div style="display:flex; align-items:flex-start;">'
-      +   '<div style="position:relative; height:'+chartHeight+'px; width:40px; flex-shrink:0;">' + ticksHtml + '</div>'
-      +   '<div class="hide-scrollbar" style="position:relative; flex:1; height:'+(chartHeight+50)+'px; display:flex; align-items:flex-start; overflow-x:auto; border-bottom:1px solid var(--outline-variant);">'
-      +     '<div style="display:flex; height:'+(chartHeight+40)+'px; padding-top:0;">' + barsHtml + '</div>'
-      +   '</div></div>'
-      // Pie severity CÙNG tập bug với bar chart (mới phát sinh trong T) -> tổng 2 chart khớp nhau.
-      + sevBlockHTML(mBugs)
-      + '</div>';
+    var denom=total-reject;
+    return { total:total, reject:reject, closed:closed, denom:denom,
+             valid: denom>0 ? closed/denom*100 : null,
+             rejPct: total>0 ? reject/total*100 : 0 };
   }
-
-  // ---------- Reopen table ----------
-  var reopenMonthSel = $('anReopenMonth'), reopenKpi = $('anReopenKpi'),
-      reopenHead = $('anReopenHead'), reopenRows = $('anReopenRows');
-  var reopenExpanded = {};
   function reopenPct(n, d){ if(d<=0) return null; var p = n/d*100; return (p%1===0 ? p.toFixed(0) : p.toFixed(1)); }
-  // Số lần fix = SUY từ count + trạng thái hiện tại (parity _reopen_table Python). KHÔNG đọc
-  // accumulator r.fix cũ (undercount vì team hay skip status 'Fixed' -> ca vô lý "2 reopen 1 fix").
-  // Mỗi reopen = 1 fix bị QA trả lại; +1 nếu bug đang ở trạng thái đã-giao-fix (Fixed/Closed).
-  // Bug rời file (b không có) -> giả định đã giao 1 lần cuối.
+  // Số lần fix = số reopen + 1 nếu bug đang ở trạng thái đã-giao-fix (Fixed/Closed). Parity _reopen_table.
   function fixDeliv(r, b){
     var cnt = +(r&&r.count)||0;
     if(b && b.status!=null) return cnt + ((b.status==='Fixed'||b.status==='Closed') ? 1 : 0);
     return cnt + 1;
   }
-  function renderReopen(){
-    if(!reopenMonthSel || !reopenHead || !reopenRows) return;
-    var selectedMonth = reopenMonthSel.value;
-    if(!selectedMonth){
-      if(reopenKpi) reopenKpi.innerHTML = '';
-      reopenHead.innerHTML = '';
-      reopenRows.innerHTML = '<tr><td style="text-align:center;color:var(--on-surface-variant);padding:30px">Không có dữ liệu</td></tr>';
-      return;
-    }
-    // FROZEN cho tháng đã đóng (Decision #47) — giữ nguyên semantics live (RAW, không dedup),
-    // chỉ chặn trôi. Tháng hiện tại/chưa freeze -> tính LIVE từ BUGS + REOPEN.
-    var selYm = toYm(selectedMonth); var frozen = frozenFor(selYm);
-    var bugsPerDev = {}, totalBugs = 0, distinctPerDev = {}, fixPerDev = {}, detailPerDev = {}, distinctTotal = 0;
+  // Trả {totalBugs, distinctTotal, perDev:{dev:{nb,fx,denom,proj,detail[]}}}. FROZEN cho tháng đóng
+  // (#47) giữ nguyên semantics RAW. detail kèm key/sev/status để drawer hiển thị (không fetch thêm).
+  function computeReopen(m){
+    var selYm=toYm(m), frozen=frozenFor(selYm), totalBugs=0, distinctTotal=0, perDev={};
+    function ensure(d){ return perDev[d] || (perDev[d]={nb:0,fx:0,denom:0,proj:{},detail:[]}); }
     if(frozen && frozen.reopen){
-      var fr = frozen.reopen;
-      totalBugs = fr.totalBugs||0; distinctTotal = fr.distinctTotal||0;
+      var fr=frozen.reopen; totalBugs=fr.totalBugs||0; distinctTotal=fr.distinctTotal||0;
       Object.keys(fr.devs||{}).forEach(function(d){
-        var e = fr.devs[d]||{};
-        distinctPerDev[d] = e.nb||0; fixPerDev[d] = e.fx||0; bugsPerDev[d] = e.denom||0;
-        detailPerDev[d] = e.detail||[];
+        var e=fr.devs[d]||{}, x=ensure(d); x.nb=e.nb||0; x.fx=e.fx||0; x.denom=e.denom||0; x.detail=e.detail||[];
       });
     } else {
-      var mBugs = BUGS.filter(function(b){ return monthOf(b) === selectedMonth; });
+      var mBugs = BUGS.filter(function(b){ return monthOf(b)===m; });
       totalBugs = mBugs.length;
-      var bugByKey = {};
+      var byKey={};
       mBugs.forEach(function(b){
-        var devList = (b.dev||'Chưa gán').trim().split(/[,;+&\/]/).map(function(s){ return s.trim(); }).filter(Boolean);
-        if(!devList.length) devList = ['Chưa gán'];
-        // Full attribution: bug nhiều dev -> mỗi dev tính đủ 1 (KHÔNG chia 1/n) -> số nguyên.
-        // Parity với _reopen_table (bug_backlog.py).
-        devList.forEach(function(d){ bugsPerDev[d] = (bugsPerDev[d]||0) + 1; });
-        if(b.key) bugByKey[b.key] = b;
+        devList1(b.dev).forEach(function(d){ var x=ensure(d); x.denom++;
+          var p=(b.project||'Khác').trim(); x.proj[p]=(x.proj[p]||0)+1; });
+        if(b.key) byKey[b.key]=b;
       });
       Object.keys(REOPEN).forEach(function(key){
-        var r = REOPEN[key]||{}, cnt = +r.count||0; if(cnt<=0) return;
-        var b = bugByKey[key];
-        // CHỈ đếm bug CÒN trong current bugs của tháng; entry orphan (bug rời file/bị filter) -> bỏ.
-        // Parity với _reopen_table (bug_backlog.py) — data clean, filter-consistent.
-        if(!b) return;
-        var devStr = (b.dev||'Chưa gán').trim(), fx = fixDeliv(r, b);
-        var devList = devStr.split(/[,;+&\/]/).map(function(s){ return s.trim(); }).filter(Boolean);
-        if(!devList.length) devList = ['Chưa gán'];
-        distinctTotal++;
-        // Full attribution: mỗi dev cùng fix bug này tính đủ số reopen/fix (KHÔNG chia 1/n)
-        // -> chi tiết số nguyên. Parity với _reopen_table (bug_backlog.py).
-        devList.forEach(function(d){
-          distinctPerDev[d] = (distinctPerDev[d]||0) + 1;
-          fixPerDev[d] = (fixPerDev[d]||0) + fx;
-          (detailPerDev[d] = detailPerDev[d]||[]).push({ id: b.id, summary: b.summary, reopen: cnt, fix: fx });
-        });
+        var r=REOPEN[key]||{}, cnt=+r.count||0; if(cnt<=0) return;
+        var b=byKey[key]; if(!b) return;       // chỉ bug còn trong tháng (parity Python)
+        var fx=fixDeliv(r,b); distinctTotal++;
+        devList1(b.dev).forEach(function(d){ var x=ensure(d); x.nb++; x.fx+=fx;
+          x.detail.push({ id:b.id, key:b.key||'', summary:b.summary, reopen:cnt, fix:fx,
+                          sev:sevOf(b), status:(b.status_raw||b.status||'') }); });
       });
     }
-    if(reopenKpi){
-      var hp = reopenPct(distinctTotal, totalBugs);
-      reopenKpi.innerHTML = hp === null ? '<span class="rk-sub">Không có bug trong tháng này.</span>'
-        : '<span class="rk-pct">'+hp+'%</span> bug bị reopen';
+    // squad = project dev gặp nhiều nhất trong tháng (nhãn phụ, best-effort)
+    Object.keys(perDev).forEach(function(d){ var pj=perDev[d].proj||{}, best='', bn=-1;
+      Object.keys(pj).forEach(function(p){ if(pj[p]>bn){ bn=pj[p]; best=p; } });
+      perDev[d].squad=best; });
+    return { totalBugs:totalBugs, distinctTotal:distinctTotal, perDev:perDev };
+  }
+
+  // ===== state chung =====
+  var monthSel = $('anMonth'), metricCharts = $('anMetricCharts');
+  var squadFilter = 'all';   // tab lọc squad cho chart
+  function curM(){ return monthSel ? monthSel.value : curMonth; }
+
+  // ===== 4 KPI =====
+  function fillKpi(cid, badgeCls, badgeTxt, valHtml, sub, footHtml){
+    var card=$(cid); if(!card) return;
+    var b=card.querySelector('.ank-badge'); if(b){ b.className='ank-badge '+badgeCls; b.textContent=badgeTxt; }
+    var body=card.querySelector('.ank-body');
+    if(body) body.innerHTML='<span class="ank-val">'+valHtml+'</span><span class="ank-sub">'+sub+'</span>';
+    var f=card.querySelector('.ank-foot'); if(f) f.innerHTML=footHtml;
+  }
+  function renderKpis(){
+    var m=curM();
+    // Valid
+    var v=computeValid(m);
+    if(!v.total){
+      fillKpi('anKpiValid','soft','Mục tiêu >90%','—','chưa có bug','<span class="ank-mut">Không có bug trong tháng</span>');
+      fillKpi('anKpiReject','soft','Tốt: <5%','—','chưa có bug','<span class="ank-mut">—</span>');
+    } else {
+      var vp=v.valid;
+      fillKpi('anKpiValid', vp!=null&&vp>=90?'ok':'soft', vp!=null&&vp>=90?'Đạt >90%':'Mục tiêu >90%',
+        pctDisp(vp), 'bug hợp lệ đã đóng',
+        '<span class="ank-f-main"><b class="c-ok">'+v.closed+'</b> Closed <span class="sep">/</span> <b>'+v.denom+'</b> Tổng − Reject '+v.reject+'</span>'
+        +'<span class="ank-f-side" title="Closed / (Tổng − Reject)">Công thức: Chuẩn</span>');
+      var rp=v.rejPct;
+      fillKpi('anKpiReject', rp<5?'ok':'bad', rp<5?'Tốt: <5%':'Cao: ≥5%',
+        '<span class="c-bad">'+pctDisp(rp)+'</span>', 'tỷ lệ reject',
+        '<span class="ank-f-main"><b class="c-bad">'+v.reject+'</b> Reject <span class="sep">/</span> <b>'+v.total+'</b> Tổng số Bug</span>'
+        +'<span class="ank-f-side">'+v.reject+' / '+v.total+' bug</span>');
     }
-    reopenHead.innerHTML = '<th>Developer</th><th>Bug bị reopen</th><th>Tổng số lần fix bug</th><th>Tỷ lệ reopen</th>';
-    var devList = Object.keys(distinctPerDev).sort(function(a,b){ return distinctPerDev[b] - distinctPerDev[a]; });
-    if(!devList.length){
-      reopenRows.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--on-surface-variant);padding:30px">Chưa ghi nhận reopen nào trong tháng này 🎉</td></tr>';
-      return;
+    // Reopen
+    var ro=computeReopen(m), hp=reopenPct(ro.distinctTotal, ro.totalBugs);
+    if(hp===null){
+      fillKpi('anKpiReopen','soft','—','—','chưa có bug','<span class="ank-mut">Không có bug trong tháng</span>');
+    } else {
+      var hpn=+hp, rcls=hpn<=10?'ok':(hpn<=25?'warn':'bad'),
+          rtxt=hpn<=10?'Chất lượng cao':(hpn<=25?'Cần theo dõi':'Cần cải thiện'),
+          good=Math.max(0, 100-hpn);
+      fillKpi('anKpiReopen', rcls, rtxt, '<span class="c-ok">'+hp+'%</span>', 'bug bị reopen',
+        '<span class="ank-f-main">Fix lần đầu thành công</span>'
+        +'<span class="ank-f-side c-ok">● '+(good%1===0?good.toFixed(0):good.toFixed(1))+'% đạt chuẩn</span>');
     }
-    function rateCell(nb, denom){ var r = reopenPct(nb, denom); return r === null ? '—' : r+'%'; }
-    function detailRow(dev){
-      var items = (detailPerDev[dev]||[]).slice().sort(function(a,b){ return b.reopen - a.reopen; });
-      var li = items.map(function(it){
-        return '<div class="rk-bug"><span class="rk-bug-id">'+esc(it.id)+'</span>'
-          + '<span class="rk-bug-sum">'+esc(it.summary||'(không mô tả)')+'</span>'
-          + '<span class="rk-bug-n">'+(+(it.reopen.toFixed(2)))+' lần reopen · '+(+(it.fix.toFixed(2)))+' lần fix</span></div>';
+    // Open (trạng thái hiện tại, không theo tháng)
+    var oa=computeOpenAge();
+    fillKpi('anKpiOpen', oa.open>0?'info':'ok', oa.open>0?'Đang xử lý':'Sạch',
+      ''+oa.open, 'bug đang active',
+      '<span class="ank-f-main">Trung vị: <b class="c-info">'+oa.median+' ngày</b></span>'
+      +'<span class="ank-f-side">Lâu nhất: <b>'+oa.maxAge+' ngày</b></span>');
+  }
+
+  // ===== section Tuổi bug đang mở =====
+  function renderAge(){
+    var pills=$('anAgePills'), dist=$('anAgeDist'); if(!dist) return;
+    var oa=computeOpenAge();
+    if(pills) pills.innerHTML =
+        '<span class="an-pill info"><span class="k">Bug đang mở:</span><b>'+oa.open+'</b></span>'
+      + '<span class="an-pill warn"><span class="k">Tuổi trung vị:</span><b>'+oa.median+' ngày</b></span>'
+      + '<span class="an-pill"><span class="k">Mở lâu nhất:</span><b>'+oa.maxAge+' ngày</b></span>';
+    if(!oa.total){
+      dist.innerHTML='<div class="an-empty">Không có bug nào đang mở 🎉</div>'; return;
+    }
+    var maxC=0; oa.counts.forEach(function(c){ if(c>maxC) maxC=c; });
+    dist.innerHTML='<div class="oa-dist-title">Phân bố theo tuổi</div>'
+      + OA_BUCKETS.map(function(bk,i){
+          var c=oa.counts[i], pct=maxC?c/maxC*100:0, share=oa.total?Math.round(c/oa.total*100):0;
+          return '<div class="oa-row'+(c?'':' zero')+'">'
+            + '<span class="lab">'+bk[0]+'</span>'
+            + '<div class="oa-track"><div class="oa-fill" style="width:'+(c?Math.max(6,pct):0)+'%;background:'+bk[2]+';">'
+            +   (c?'<span class="oa-inbar">'+c+' bug</span>':'')+'</div></div>'
+            + '<span class="oa-cnt">'+share+'%</span></div>';
+        }).join('');
+  }
+
+  // ===== chart bug theo squad & dev, chồng severity =====
+  // mBugs = bug MỚI phát sinh trong tháng T (created trong T) — khớp dải tồn đọng + màn Bug (#75/#104).
+  function renderMetric(){
+    if(!metricCharts) return;
+    var m=curM(), selYm=toYm(m), bl=$('anBacklogStrip'), sev=$('anSevStrip'),
+        stats=$('anChartStats'), tabs=$('anSquadTabs'), badge=$('anChartSquadBadge');
+    if(bl) bl.innerHTML=''; if(sev) sev.innerHTML='';
+    if(!m){ metricCharts.innerHTML='<div class="an-empty">Không có dữ liệu</div>'; return; }
+    var mBugs=BUGS.filter(function(b){ return monthOf(b)===m && (b.created||'').slice(0,7)===selYm; });
+    var squads={}, devCount={};
+    mBugs.forEach(function(b){
+      var p=(b.project||'Khác').trim(), sk=sevOf(b);
+      var sq=squads[p]||(squads[p]={devs:{}, total:0});
+      devList1(b.dev).forEach(function(d){
+        var dv=sq.devs[d]||(sq.devs[d]={sev:{}, total:0});
+        dv.sev[sk]=(dv.sev[sk]||0)+1; dv.total++; sq.total++;
+        devCount[d]=true;
+      });
+    });
+    var squadList=Object.keys(squads).sort();
+    var grand=mBugs.length, bc=computeBacklog(selYm), fixed=bc.newFixed||0, nDev=Object.keys(devCount).length;
+    if(badge) badge.textContent=squadList.length+' squad • '+nDev+' dev';
+    if(stats) stats.innerHTML=
+        '<div class="an-stile"><b>'+grand+'</b><span>Tổng bug tháng</span></div>'
+      + '<div class="an-stile"><b class="c-ok">'+fixed+'<i>/'+(bc.newOwn||0)+'</i></b><span>Đã fix</span></div>';
+    // tabs lọc squad
+    if(tabs){
+      var th='<button class="an-tab'+(squadFilter==='all'?' on':'')+'" data-sq="all">Tất cả <i>'+nDev+' dev • '+grand+'</i></button>';
+      squadList.forEach(function(p){ var sq=squads[p], dc=Object.keys(sq.devs).length;
+        th+='<button class="an-tab'+(squadFilter===p?' on':'')+'" data-sq="'+esc(p)+'">'+esc(p)+' <i>'+dc+' dev • '+sq.total+'</i></button>'; });
+      tabs.innerHTML=th;
+    }
+    if(!squadList.length){ metricCharts.innerHTML='<div class="an-empty">Không có bug mới trong tháng này</div>'; }
+    else {
+      // yMax từ dev đông bug nhất
+      var maxDev=0; squadList.forEach(function(p){ var dv=squads[p].devs;
+        Object.keys(dv).forEach(function(d){ if(dv[d].total>maxDev) maxDev=dv[d].total; }); });
+      var yMax=Math.max(4, Math.ceil(maxDev/2)*2), steps=yMax/2, H=190;
+      var grid=''; for(var g=0;g<=steps;g++){ grid+='<div class="an-grline"><span>'+Math.round(yMax-(yMax/steps)*g)+'</span></div>'; }
+      var shownSquads=squadList.filter(function(p){ return squadFilter==='all'||squadFilter===p; });
+      var groups=shownSquads.map(function(p){
+        var sq=squads[p], devs=Object.keys(sq.devs).sort(function(a,b){ return sq.devs[b].total-sq.devs[a].total; });
+        var bars=devs.map(function(d){
+          var dv=sq.devs[d], segs='';
+          SEV_ORDER.forEach(function(sk){ var n=dv.sev[sk]; if(!n) return;
+            var h=n/yMax*H;
+            segs+='<div class="an-seg" style="height:'+h+'px;background:'+SEV_COLOR[sk]+';" title="'+esc(SEV_LABEL[sk])+': '+n+'"></div>'; });
+          return '<div class="an-devcol" title="'+esc(d)+': '+dv.total+' bug">'
+            + '<span class="an-devn">'+dv.total+'</span>'
+            + '<div class="an-bar" style="height:'+H+'px;">'+segs+'</div>'
+            + '<span class="an-devl">'+esc(d)+'</span></div>';
+        }).join('');
+        return '<div class="an-squad"><div class="an-squad-bars">'+bars+'</div>'
+          + '<div class="an-squad-name">'+esc(p)+' <i>'+sq.total+'</i></div></div>';
       }).join('');
-      return '<tr class="rk-detail"><td colspan="4"><div class="rk-detail-box">'
-        + '<div class="rk-detail-hd">Chi tiết bug bị reopen của '+esc(dev)+'</div>' + li + '</div></td></tr>';
+      metricCharts.innerHTML='<div class="an-chart-inner">'
+        + '<div class="an-grid" style="height:'+H+'px;">'+grid+'</div>'
+        + '<div class="an-groups">'+groups+'</div></div>';
     }
-    reopenRows.innerHTML = devList.map(function(d){
-      var nb = distinctPerDev[d], fx = fixPerDev[d], denom = bugsPerDev[d]||0, open = !!reopenExpanded[d];
-      var row = '<tr class="rk-row'+(open?' open':'')+'" data-dev="'+esc(d)+'">'
-        + '<td>'+phIcon(open?'expand_more':'chevron_right','rk-caret')+esc(d)+'</td>'
-        + '<td>'+(+(nb.toFixed(2)))+'</td><td>'+(+(fx.toFixed(2)))+'</td>'
-        + '<td class="col-total">'+rateCell(nb, denom)+'</td></tr>';
-      if(open) row += detailRow(d);
-      return row;
+    // dải tồn đọng (tách ngoài chart ảnh)
+    if(bl && bc.hasSnapshot){
+      bl.innerHTML='<div class="mc-backlog"><div class="mc-bl-line">'
+        + '<strong>'+(bc.newOwn||0)+'</strong> bug mới phát sinh (đã fix <strong style="color:#36b37e;">'+(bc.newFixed||0)
+        + '</strong>, chưa fix <strong>'+(bc.newOpen||0)+'</strong>) · Tồn đọng từ tháng trước: <strong>'+bc.total
+        + '</strong> (còn <strong style="color:#ff5630;">'+bc.stillOpen+'</strong>, đã xử lý '+bc.resolved+')'
+        + '</div>'+compBar(backlogSegs(bc),26)+'</div>';
+    }
+    // strip severity (tất cả mBugs)
+    if(sev){
+      var c=sevCounts(mBugs), parts=SEV_PIE.filter(function(k){return c[k]>0;}).map(function(k){
+        return '<span class="an-sevp" style="--sc:'+SEV_COLOR[k]+';"><span class="d"></span>'+esc(SEV_LABEL[k])+': <b>'+c[k]+'</b></span>'; }).join('');
+      var none=c.none?'<span class="an-sevp mut">Chưa phân loại: <b>'+c.none+'</b></span>':'';
+      sev.innerHTML = mBugs.length
+        ? '<span class="an-sevp-lbl">Mức độ nghiêm trọng:</span>'+parts+none
+        : '';
+    }
+  }
+  if($('anSquadTabs')) $('anSquadTabs').addEventListener('click', function(e){
+    var b=e.target.closest('.an-tab'); if(!b) return;
+    squadFilter=b.getAttribute('data-sq')||'all'; renderMetric();
+  });
+
+  // ===== bảng Reopen + drawer =====
+  var reopenHead=$('anReopenHead'), reopenRows=$('anReopenRows'), LAST_REOPEN=null;
+  function riskOf(pct){
+    if(pct==null) return {t:'—', c:'mut'};
+    if(pct===0) return {t:'Chuẩn', c:'ok'};
+    if(pct<=10) return {t:'Tốt', c:'ok'};
+    if(pct<=20) return {t:'An toàn', c:'warn'};
+    return {t:'Cần chú ý', c:'bad'};
+  }
+  function renderReopen(){
+    if(!reopenHead || !reopenRows) return;
+    var m=curM(), avg=$('anReopenAvg'), tip=$('anReopenTip'), cbadge=$('anReopenCountBadge');
+    var ro=computeReopen(m); LAST_REOPEN=ro;
+    var perDev=ro.perDev, devList=Object.keys(perDev).sort(function(a,b){
+      var pa=reopenPct(perDev[a].nb,perDev[a].denom), pb=reopenPct(perDev[b].nb,perDev[b].denom);
+      return (pb===null?-1:+pb)-(pa===null?-1:+pa) || perDev[b].nb-perDev[a].nb; });
+    var hp=reopenPct(ro.distinctTotal, ro.totalBugs);
+    if(cbadge) cbadge.textContent=devList.length+' dev';
+    if(avg) avg.innerHTML='TB Reopen tháng này: <b class="'+(hp===null?'mut':(+hp>20?'c-bad':(+hp>10?'c-warn':'c-ok')))+'">'+(hp===null?'—':hp+'%')+'</b>';
+    reopenHead.innerHTML='<th>Developer</th><th class="ctr">Reopen / Fix</th><th class="ctr">Tỷ lệ Reopen</th>'
+      +'<th class="ctr">Đánh giá</th><th class="rgt">Chi tiết</th>';
+    if(!devList.length){
+      reopenRows.innerHTML='<tr><td colspan="5" class="anrt-empty">Chưa ghi nhận reopen nào trong tháng này 🎉</td></tr>';
+      if(tip) tip.innerHTML=''; return;
+    }
+    reopenRows.innerHTML=devList.map(function(d){
+      var e=perDev[d], pr=reopenPct(e.nb,e.denom), rk=riskOf(pr===null?null:+pr),
+          pv=pr===null?0:+pr, cN=pv>20?'#ff5630':(pv>10?'#ffab00':'#36b37e');
+      var action = e.nb>0
+        ? '<button class="anrt-btn" data-dev="'+esc(d)+'"><span class="material-symbols-rounded ph-light ph-eye mi-sm"></span> Xem bug ('+e.nb+')</button>'
+        : '<span class="anrt-none">Chưa có reopen</span>';
+      return '<tr><td class="anrt-dev"><span class="anrt-ava c-'+rk.c+'">'+esc((d[0]||'?').toUpperCase())+'</span>'
+        + '<span><b>'+esc(d)+'</b>'+(e.squad?'<i>'+esc(e.squad)+'</i>':'')+'</span></td>'
+        + '<td class="ctr mono"><b class="'+(e.nb>0?'c-bad':'')+'">'+e.nb+'</b> / '+e.fx+'</td>'
+        + '<td class="ctr"><div class="anrt-rate"><div class="anrt-track"><div class="anrt-fill" style="width:'+Math.min(100,pv)+'%;background:'+cN+';"></div></div>'
+        +   '<span class="mono">'+(pr===null?'—':pr+'%')+'</span></div></td>'
+        + '<td class="ctr"><span class="anrt-risk c-'+rk.c+'">'+rk.t+'</span></td>'
+        + '<td class="rgt">'+action+'</td></tr>';
     }).join('');
+    // quick tip
+    if(tip){
+      var warn=devList.filter(function(d){ var p=reopenPct(perDev[d].nb,perDev[d].denom); return p!==null && +p>20; });
+      tip.innerHTML = warn.length
+        ? '<span class="an-tip bad"><span class="material-symbols-rounded ph-light ph-warning mi-sm"></span> Có <b>'+warn.length+' dev</b> vượt ngưỡng reopen (&gt;20%). Nên review chất lượng fix &amp; SIT.</span>'
+        : '<span class="an-tip ok"><span class="material-symbols-rounded ph-light ph-check-circle mi-sm"></span> Không dev nào vượt ngưỡng reopen 20%. Chất lượng release ổn định.</span>';
+    }
   }
   if(reopenRows) reopenRows.addEventListener('click', function(e){
-    var tr = e.target.closest('.rk-row'); if(!tr) return;
-    var dev = tr.getAttribute('data-dev'); if(!dev) return;
-    reopenExpanded[dev] = !reopenExpanded[dev];
-    renderReopen();
+    var b=e.target.closest('.anrt-btn'); if(!b) return;
+    openDrawer(b.getAttribute('data-dev'));
   });
+
+  // ---- drawer chi tiết bug reopen của 1 dev (chỉ field có sẵn — #106) ----
+  var drawer=$('anDrawer'), drawerBody=$('anDrawerBody'), drawerDev=$('anDrawerDev');
+  function openDrawer(dev){
+    if(!drawer || !LAST_REOPEN) return;
+    var e=(LAST_REOPEN.perDev||{})[dev]; if(!e) return;
+    if(drawerDev) drawerDev.textContent=dev+(e.squad?' • '+e.squad:'');
+    var items=(e.detail||[]).slice().sort(function(a,b){ return b.reopen-a.reopen; });
+    var rows=items.map(function(it){
+      var link=(it.key && JBASE) ? '<a href="'+JBASE+'/browse/'+encodeURIComponent(it.key)+'" target="_blank" rel="noopener">'+esc(it.id||it.key)+'</a>' : esc(it.id||it.key||'(bug)');
+      var sv=it.sev&&it.sev!=='none' ? '<span class="andr-sev" style="background:'+SEV_COLOR[it.sev]+';">'+esc(SEV_LABEL[it.sev])+'</span>' : '';
+      return '<div class="andr-bug">'
+        + '<div class="andr-bug-top"><span class="andr-key">'+link+'</span>'+sv
+        +   '<span class="andr-rp">'+(+(it.reopen))+'x reopen</span>'
+        +   (it.status?'<span class="andr-st">'+esc(it.status)+'</span>':'')+'</div>'
+        + '<div class="andr-sum">'+esc(it.summary||'(không mô tả)')+'</div></div>';
+    }).join('');
+    if(drawerBody) drawerBody.innerHTML =
+        '<div class="andr-banner">Số bug bị reopen: <b class="c-bad">'+e.nb+'</b> · Tổng lượt fix: <b>'+e.fx
+      + '</b> · Tỷ lệ: <b>'+(reopenPct(e.nb,e.denom)||'—')+(reopenPct(e.nb,e.denom)===null?'':'%')+'</b></div>'
+      + (rows || '<div class="an-empty">Không có bug reopen.</div>');
+    drawer.classList.add('open'); drawer.setAttribute('aria-hidden','false');
+  }
+  function closeDrawer(){ if(drawer){ drawer.classList.remove('open'); drawer.setAttribute('aria-hidden','true'); } }
+  if($('anDrawerClose')) $('anDrawerClose').addEventListener('click', closeDrawer);
+  if($('anDrawerBackdrop')) $('anDrawerBackdrop').addEventListener('click', closeDrawer);
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape' && drawer && drawer.classList.contains('open')) closeDrawer(); });
 
   // ---------- Tồn đọng T-1 (dùng cho dải tóm tắt TRONG chart export) ----------
   function isOpenBug(s){ return !isClosed(s) && !isReject(s); }
@@ -4309,7 +4272,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
   }
 
   // ---------- Export PDF (bar chart) ----------
-  var btnExport = $('anExportChart');
+  var btnExport = $('anExport');
   if(btnExport) btnExport.addEventListener('click', function(){
     if(!metricCharts || !metricCharts.innerHTML || metricCharts.innerHTML.indexOf('an-empty') >= 0){ toast('Không có dữ liệu để export', false); return; }
     var origText = btnExport.innerHTML;
@@ -4319,7 +4282,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
       var titleEl = document.createElement('div');
       titleEl.style.cssText = 'font-size:24px; font-weight:bold; text-align:center; width:100%; margin-bottom:20px;';
       titleEl.style.color = getComputedStyle(document.body).getPropertyValue('--on-surface') || '#000';
-      titleEl.textContent = 'Số lượng bug theo từng dev (tháng '+(metricMonthSel.value||'')+')';
+      titleEl.textContent = 'Số lượng bug theo squad & dev (tháng '+(curM()||'')+')';
       metricCharts.insertBefore(titleEl, metricCharts.firstChild);
       var innerScroll = metricCharts.querySelector('div[style*="overflow-x:auto"]') || metricCharts.querySelector('div[style*="overflow-x: auto"]');
       var origInnerOverflow = '';
@@ -4339,7 +4302,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
         if(imgHeight > pdfHeight - margin*2){ imgHeight = pdfHeight - margin*2; imgWidth = (imgProps.width*imgHeight)/imgProps.height; }
         var xPos = margin + (pdfWidth - margin*2 - imgWidth)/2, yPos = margin + (pdfHeight - margin*2 - imgHeight)/2;
         pdf.addImage(imgData, 'PNG', xPos, yPos, imgWidth, imgHeight);
-        pdf.save('Bug_Metric_'+(metricMonthSel.value||'chart')+'.pdf');
+        pdf.save('Bug_Metric_'+(curM()||'chart')+'.pdf');
         btnExport.innerHTML = origText; btnExport.disabled = false;
         toast('Export PDF thành công ✓', true);
       }).catch(function(err){
@@ -4357,11 +4320,10 @@ window.__smSetCustom=function(t, key, val, onChanged){
     } else doExport();
   });
 
-  fillMonth(validMonthSel); fillMonth(metricMonthSel); fillMonth(reopenMonthSel);
-  if(validMonthSel) validMonthSel.addEventListener('change', renderValid);
-  if(metricMonthSel) metricMonthSel.addEventListener('change', renderMetric);
-  if(reopenMonthSel) reopenMonthSel.addEventListener('change', renderReopen);
-  renderValid(); renderMetric(); renderReopen();
+  function renderAll(){ renderKpis(); renderAge(); renderMetric(); renderReopen(); }
+  fillMonth(monthSel);
+  if(monthSel) monthSel.addEventListener('change', function(){ squadFilter='all'; renderAll(); });
+  renderAll();
 })();
 
 
