@@ -112,17 +112,9 @@ def render_bug_log_v2(data, user=None, activities=None, sources=None, pending=No
         '<option value="none">Chưa phân loại</option>'
         '</select>'
         '</div>'
-        '<div class="bl-filter" id="blLinkWrap">'
-        '<span class="material-symbols-rounded ph-light ph-link mi-sm"></span>'
-        '<select id="blLinkFilter">'
-        '<option value="">Liên kết: tất cả</option>'
-        '<option value="linked">Đã liên kết</option>'
-        '<option value="unlinked">Chưa liên kết</option>'
-        '</select>'
-        '</div>'
     )
-    # Liên kết bug<->task thủ công đã gỡ (#104): cột "Liên kết" đọc issue liên quan native Jira.
-    linkbar = '<div class="bl-linkbar">' + filters_html + '</div>'
+    # Mỗi filter là 1 chip tách rời (#104: bỏ filter "đã liên kết", bỏ khung linkbar gộp).
+    linkbar = '<div class="bl-filters">' + filters_html + '</div>'
     # Export bảng đang xem ra .xlsx. KHÔNG kèm cột liên kết.
     export_btn = ('<button class="btn btn-ghost" id="blExportBtn" title="Xuất bảng đang xem ra Excel">'
                   '<span class="material-symbols-rounded ph-light ph-download-simple mi-sm"></span> '

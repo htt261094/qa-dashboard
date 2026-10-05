@@ -3241,8 +3241,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
   var page = 1, PER = 15;
   var testerFilter = '';   // lọc bảng theo tester (qa_pic); '' = tất cả
   var devFilter = '';      // lọc bảng theo dev in charge (dev_pic); '' = tất cả
-  var sevFilter = '';      // lọc theo severity đã quy chuẩn: ''=tất cả, major/normal/minor/none
-  var linkFilter = '';     // lọc theo trạng thái liên kết task: ''=tất cả, 'linked', 'unlinked'
+  var sevFilter = '';      // lọc theo severity Jira: ''=tất cả, blocker/critical/high/medium/low/none
   // thu gọn nhóm tồn đọng / mới trong tháng (nhớ qua localStorage)
   // nhóm đang xem: 'back' = tồn đọng từ tháng trước · 'new' = mới trong tháng (2 tab riêng)
   var grpTab = 'new';
@@ -3345,7 +3344,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
   function availMonths(){ var fb=fileBugs(); return MONTHS.filter(function(m){ return fb.some(function(b){ return b.month===m; }); }); }
   // bug của ĐÚNG tháng đang chọn (không kèm filter tester/dev/link) -> nguồn cho dropdown lọc
   function monthScopeBugs(){ return fileBugs().filter(function(b){ return b.month===curMonth; }); }
-  // Predicate lọc-xem (tester/dev/severity/link) — KHÔNG gồm điều kiện tháng, để dùng chung cho
+  // Predicate lọc-xem (tester/dev/severity) — KHÔNG gồm điều kiện tháng, để dùng chung cho
   // cả "mới trong tháng" lẫn "tồn đọng từ tháng trước" (nợ cũ nằm ở tháng khác — #104).
   function passFilters(b){
     if(testerFilter && (b.qa||'')!==testerFilter) return false;
@@ -3353,12 +3352,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
       if(devFilter==='__none__'){ if((b.dev||'').trim()) return false; }
       else if((b.dev||'')!==devFilter) return false;
     }
-    if(sevFilter && sevOf(b)!==sevFilter) return false;   // 'none' = chưa phân loại (#85)
-    if(linkFilter){
-      var linked = (b.tasks||[]).length>0;
-      if(linkFilter==='linked' && !linked) return false;
-      if(linkFilter==='unlinked' && linked) return false;
-    }
+    if(sevFilter && sevOf(b)!==sevFilter) return false;   // 'none' = chưa phân loại (#104)
     return true;
   }
   // bug ĐANG MỞ (parity Python bug_backlog.is_open: Closed/Rejected = đóng).
@@ -3539,10 +3533,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
   // ----- events: lọc theo severity -----
   (function(){ var sf=$('blSevFilter'); if(!sf) return;
     sf.addEventListener('change', function(){ sevFilter=sf.value||''; page=1; render(); }); })();
-  // ----- events: lọc theo trạng thái liên kết task -----
-  (function(){ var lf=$('blLinkFilter'); if(!lf) return;
-    lf.addEventListener('change', function(){ linkFilter=lf.value||''; page=1; render(); }); })();
-  // ----- export bảng ĐANG XEM ra .xlsx (đúng file + tháng + filter hiện tại) -----
+  // ----- export bảng ĐANG XEM ra .xlsx (đúng tháng + filter hiện tại) -----
   function exportExcel(){
     var list=visibleBugs();   // đúng bảng đang xem: file + tháng + tester/dev/link + tab nhóm
     if(!list.length){ toast('Không có bug nào để export', false); return; }
@@ -3789,9 +3780,9 @@ window.__smSetCustom=function(t, key, val, onChanged){
   if(deepBug){
     var db = BUGS.filter(function(b){ return b.key===deepBug; })[0];
     if(db){
-      testerFilter=''; devFilter=''; linkFilter=''; sevFilter='';
-      var tf=$('blTesterFilter'), df=$('blDevFilter'), lf=$('blLinkFilter'), svf=$('blSevFilter');
-      if(tf) tf.value=''; if(df) df.value=''; if(lf) lf.value=''; if(svf) svf.value='';
+      testerFilter=''; devFilter=''; sevFilter='';
+      var tf=$('blTesterFilter'), df=$('blDevFilter'), svf=$('blSevFilter');
+      if(tf) tf.value=''; if(df) df.value=''; if(svf) svf.value='';
       if(db.fid && SOURCES.some(function(s){ return s.id===db.fid; })) activeFid=db.fid;
       if(db.month) curMonth=db.month;
       var list0=monthBugs();
