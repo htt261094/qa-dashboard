@@ -1,69 +1,43 @@
-"""Bug Log v2 (issue #55) — bug từ Excel/Drive + link ngược Jira task.
+"""Bug Log v2 — bug từ Jira "Bug Testing" (#104) + link native (Relates to Story / parent).
 
-Render shell + source card + tab tháng + bảng bug/test-case + metric cards;
-bảng render client-side bởi controller `#bugLogData` trong app_v2.js (tab/tick/
-link/pager). Modal admin (đổi link file / quản lý list link Drive) trong
-`_bug_log_source_modals`.
-
-Tách từ render/__init__.py (issue #109 / #86). Zero behavior change — chỉ di
-chuyển định nghĩa, re-export ở __init__ để chỗ gọi không phải đổi import.
+Render shell + source card + tab tháng + bảng bug + filter; bảng render client-side bởi
+controller `#bugLogData` trong app_v2.js. Cột "Liên kết" = issue liên quan ĐỌC THẲNG từ Jira
+(`bug['tasks']`), KHÔNG còn gắn tay (task_link đã gỡ — #104).
 """
 from config import normalize_tester
 from issues import esc
-from task_link import tasks_of, fp_of
-from bug_backlog import fingerprint
 from bug_log_store import POLL_SECONDS as BUG_LOG_POLL_SECONDS
 from render.base import _json_script
 from render.shell import _document_v2
 
 
-# ===== Bug Log v2 (issue #55) — bug từ Excel/Drive + link ngược Jira task =====
-def build_bug_log_payload(data, links, sources=None):
-    """Dựng data thuần bug-log từ cache Excel/Drive — KHÔNG dựng markup.
+# ===== Bug Log v2 — bug từ Jira "Bug Testing" (#104) =====
+def build_bug_log_payload(data, sources=None):
+    """Dựng data thuần bug-log từ cache — KHÔNG dựng markup.
 
-    Tách khỏi `render_bug_log_v2` để phần tính toán không lẫn với markup.
+    `data`    = bug_log_store.load_bug_log() = {files:{fid:{bugs:{key:bug},...}}, synced_at, reopen}
+    `sources` = bug_log_source.load_sources() (optional, cho source card)
 
-    `data`    = bug_log_store.load_bug_log() = {files:{fid:{project,bugs:{key:bug},...}}, synced_at, reopen}
-    `links`   = task_link.load_links()       = {bugKey: {task/tasks,by,at,fp}}
-    `sources` = bug_log_source.load_sources() = [{id,label,service}] (optional)
-
-    Trả `(bugs, month_list, sources_shaped, src_files, synced_disp, synced, reopen)`:
-    - bugs          : flat list bug (mỗi dict UI-agnostic: id/module/severity/status/qa/dev/tasks…).
-    - month_list    : tên sheet-tháng unique, mới nhất trước (tab tháng client-side).
-    - sources_shaped: [{id,label,service,name}] cho picker nguồn Drive.
-    - src_files     : [{name,project,count}] file Drive đã scan (source card).
-    - synced_disp   : mốc đồng bộ đã format ('YYYY-MM-DD HH:MM' / 'chưa đồng bộ').
-    - synced        : mốc đồng bộ raw ISO.
-    - reopen        : accumulator reopen (khách embed nguyên, dùng cho analytics).
+    Trả `(bugs, month_list, src_files, synced_disp, synced, reopen)`:
+    - bugs       : flat list bug (id/module/severity/status/qa/dev/tasks…). `tasks` = issue liên
+                   quan native Jira (parent + Relates) đọc thẳng từ bug dict.
+    - month_list : tháng (YYYY-MM) unique, mới nhất trước (tab tháng client-side).
+    - src_files  : [{name,project,count}] nguồn đã scan (source card).
+    - synced_disp/synced : mốc đồng bộ. reopen: accumulator (embed cho analytics).
     """
     data = data or {}
-    links = links or {}
     files = data.get('files', {}) or {}
     reopen = data.get('reopen', {}) or {}
 
-    # Index fingerprint -> union task (Decision #51): dòng bug copy sang sheet tháng mới có KEY
-    # khác nhưng CÙNG nội dung -> thừa hưởng chip link. Tra fp TRƯỚC, key sau (giống chiều
-    # task->bug ở _bugs_for_task #50). Entry legacy chưa có fp vẫn tra theo đúng key.
-    fp_tasks = {}
-    for _v in links.values():
-        _f = fp_of(_v)
-        if _f:
-            fp_tasks.setdefault(_f, set()).update(tasks_of(_v))
-
     bugs = []
     months = set()
-    src_files = []   # file Drive đã scan (name/project/count) — cho source card; KHÁC `sources` param
+    src_files = []
     for fid, f in files.items():
         src_files.append({'name': f.get('name', '') or '(không tên)',
                           'project': f.get('project', ''), 'count': f.get('count', 0)})
         for key, b in (f.get('bugs', {}) or {}).items():
             month = b.get('month', '') or ''
             months.add(month)
-            _fb = fingerprint(b)
-            if _fb in fp_tasks:
-                bug_tasks = sorted(fp_tasks[_fb])          # fp-match (gồm cả bản copy)
-            else:
-                bug_tasks = tasks_of(links.get(key) or {})  # legacy no-fp: theo đúng key
             bugs.append({
                 'key': key,
                 'fid': fid,
@@ -78,33 +52,25 @@ def build_bug_log_payload(data, links, sources=None):
                 'qa': normalize_tester(b.get('qa_pic', '')),
                 'dev': b.get('dev_pic', ''),
                 'created': (b.get('created', '') or '')[:10],
-                'tasks': bug_tasks,
+                'tasks': list(b.get('tasks', []) or []),   # link native Jira (parent + Relates)
             })
-    # tháng mới nhất trước (chuỗi 'YYYY-MM' hoặc tên sheet -> sort desc theo chuỗi)
     month_list = sorted((m for m in months if m), reverse=True)
 
     synced = data.get('synced_at', '') or ''
     synced_disp = synced.replace('T', ' ')[:16] if synced else 'chưa đồng bộ'
-
-    sources_shaped = [{'id': s.get('id', ''), 'label': s.get('label', ''),
-                       'service': s.get('service', ''),
-                       'name': (files.get(s.get('id', ''), {}) or {}).get('name', '')}
-                      for s in (sources or []) if s.get('id')]
-    return bugs, month_list, sources_shaped, src_files, synced_disp, synced, reopen
+    return bugs, month_list, src_files, synced_disp, synced, reopen
 
 
-def render_bug_log_v2(data, links, editable=True, user=None, activities=None, sources=None, pending=None):
-    """Tab Bug Log: bảng bug/test-case (nguồn = cache bug_log_store), tab theo THÁNG
-    (mỗi sheet Excel = 1 tháng — Decision #54), cột "Liên kết Task" = link app-side
-    do user tự gán (task_link), KHÔNG từ Excel. Toàn bộ bảng render client-side bởi
-    controller `#bugLogData` trong app_v2.js (tab/tick/link/pager).
+def render_bug_log_v2(data, user=None, activities=None, sources=None, pending=None):
+    """Tab Bug Log: bảng bug (nguồn = Jira "Bug Testing", cache bug_log_store), tab theo THÁNG
+    (tháng tạo), cột "Liên kết" = issue liên quan native Jira (#104). Bảng render client-side
+    bởi controller `#bugLogData` trong app_v2.js.
 
-    `data`  = bug_log_store.load_bug_log() = {files:{fid:{project,bugs:{key:bug},...}}, synced_at}
-    `links` = task_link.load_links()       = {bugKey: {task,by,at}}
+    `data` = bug_log_store.load_bug_log() = {files:{fid:{bugs:{key:bug},...}}, synced_at}
     """
     is_admin = user[1] if (user and len(user) > 1) else True
-    (bugs, month_list, sources_shaped, src_files,
-     synced_disp, synced, reopen) = build_bug_log_payload(data, links, sources)
+    (bugs, month_list, src_files,
+     synced_disp, synced, reopen) = build_bug_log_payload(data, sources)
     poll_min = max(1, BUG_LOG_POLL_SECONDS // 60)
 
     # source card: gộp các file Drive nguồn
@@ -122,12 +88,7 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
     sync_btn = ('<button class="btn btn-ghost" id="blSyncBtn" title="Kéo lại Bug Testing từ Jira ngay">'
                 '<span class="material-symbols-rounded ph-light ph-arrows-clockwise mi-sm"></span> '
                 'Đồng bộ ngay</button>') if is_admin else ''
-    # Nguồn Jira cố định (issuetype Bug Testing) -> không còn UI quản lý link Drive (#104).
-    drive_btn = ''
-    edit_link_btn = ''
-
-    # Filter lọc-xem (tester/dev/link) — hiện cho MỌI người (kể cả non-admin/dev-lead):
-    # chỉ lọc bảng, không sửa gì. Widget liên kết task (tick + tạo link) mới gate `editable`.
+    # Filter lọc-xem (tester/dev/severity/link) — hiện cho MỌI người, chỉ lọc bảng.
     filters_html = (
         '<div class="bl-filter" id="blTesterWrap">'
         '<span class="material-symbols-rounded ph-light ph-user-focus mi-sm"></span>'
@@ -137,15 +98,17 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
         '<span class="material-symbols-rounded ph-light ph-wrench mi-sm"></span>'
         '<select id="blDevFilter"><option value="">Tất cả dev</option></select>'
         '</div>'
-        # Lọc theo Severity — 3 mức đã quy chuẩn (#85) + "chưa phân loại" (ô trống/giá trị lạ),
-        # option cố định (không build từ data) vì thang là hằng số, không phụ thuộc file.
+        # Lọc theo Severity — ĐÚNG 5 mức field Jira (#104) + "chưa phân loại" (field trống/lạ),
+        # option cố định (thang là hằng số field Jira, không build từ data).
         '<div class="bl-filter" id="blSevWrap">'
         '<span class="material-symbols-rounded ph-light ph-gauge mi-sm"></span>'
         '<select id="blSevFilter">'
         '<option value="">Tất cả severity</option>'
-        '<option value="major">Major (High)</option>'
-        '<option value="normal">Normal (Medium)</option>'
-        '<option value="minor">Minor (Low)</option>'
+        '<option value="blocker">Blocker</option>'
+        '<option value="critical">Critical</option>'
+        '<option value="high">High</option>'
+        '<option value="medium">Medium</option>'
+        '<option value="low">Low</option>'
         '<option value="none">Chưa phân loại</option>'
         '</select>'
         '</div>'
@@ -158,27 +121,13 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
         '</select>'
         '</div>'
     )
-    link_widget = ''
-    if editable:
-        link_widget = (
-            '<div class="bl-ta" id="blTaskTA">'
-            '<span class="material-symbols-rounded ph-light ph-link-simple mi-sm"></span>'
-            '<div class="bl-ta-field" id="blTaskChips">'
-            '<input type="text" id="blTaskInp" placeholder="Tìm task để liên kết (đã tick ở cột trái)…" autocomplete="off" spellcheck="false">'
-            '</div>'
-            '<div class="bl-ta-res" id="blTaskRes"></div></div>'
-            '<button class="bl-linkbtn" id="blLinkBtn" disabled>'
-            '<span class="material-symbols-rounded ph-light ph-link mi-sm"></span> Liên kết với Task '
-            '<span id="blSelCount"></span></button>'
-        )
-    linkbar = '<div class="bl-linkbar">' + filters_html + link_widget + '</div>'
-    # Export bảng đang xem ra .xlsx (ID/Module/Mô tả/Ngày/Trạng thái/Tester/Dev) — cho MỌI
-    # người (mục đích: dev lead lấy thông tin). KHÔNG kèm liên kết task.
+    # Liên kết bug<->task thủ công đã gỡ (#104): cột "Liên kết" đọc issue liên quan native Jira.
+    linkbar = '<div class="bl-linkbar">' + filters_html + '</div>'
+    # Export bảng đang xem ra .xlsx. KHÔNG kèm cột liên kết.
     export_btn = ('<button class="btn btn-ghost" id="blExportBtn" title="Xuất bảng đang xem ra Excel">'
                   '<span class="material-symbols-rounded ph-light ph-download-simple mi-sm"></span> '
                   'Export Excel</button>')
 
-    th_check = '<th style="width:40px"><input type="checkbox" class="bl-check" id="blCheckAll"></th>' if editable else ''
     content = (
         '<div class="page-head"><div>'
         '<h2 class="page-title">Bug Management</h2>'
@@ -187,14 +136,12 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
         f'<span class="material-symbols-rounded ph-light ph-arrows-clockwise mi-sm"></span> '
         f'Tự đồng bộ từ Jira mỗi {poll_min} phút</div>'
         '</div><div style="display:flex;gap:10px;align-items:center">'
-        f'{export_btn}{sync_btn}{drive_btn}</div></div>'
-        # source card (✎ = đổi link file bug, tự sync sau khi lưu)
+        f'{export_btn}{sync_btn}</div></div>'
+        # source card
         '<div class="card bl-source">'
         '<span class="ic material-symbols-rounded ph-light ph-bug-beetle"></span>'
         '<div class="bl-src-info"><div class="lbl">NGUỒN: JIRA — Bug Testing (issuetype 10382)</div>'
-        f'<div class="fname" id="blSrcLine">{src_line}</div>'
-        '<span class="bl-active-file" id="blActiveFile" style="display:none"></span></div>'
-        f'{edit_link_btn}</div>'
+        f'<div class="fname" id="blSrcLine">{src_line}</div></div></div>'
         # tab tháng
         '<div class="bl-tabs" id="blTabs"></div>'
         + linkbar
@@ -206,24 +153,22 @@ def render_bug_log_v2(data, links, editable=True, user=None, activities=None, so
         '<span>Danh sách Bug / Test Case</span></div>'
         '<div class="bl-count" id="blCount"></div></div>'
         '<div style="overflow-x:auto"><table class="bl-table"><thead><tr>'
-        f'{th_check}'
         '<th style="width:110px">ID</th><th style="width:140px">Module</th>'
         '<th>Mô tả bug</th><th style="width:110px;white-space:nowrap">Ngày</th>'
-        # Severity quy về 3 mức Major/Normal/Minor (Decision #85) — cùng thang với pie ở /analytics
-        '<th style="width:104px" title="Mức độ nghiêm trọng — Major (High) / Normal (Medium) '
-        '/ Minor (Low). Ô trống trong file hiện —">Severity</th>'
+        # Severity = ĐÚNG field Jira (Blocker/Critical/High/Medium/Low — #104), cùng thang pie /analytics
+        '<th style="width:104px" title="Mức độ nghiêm trọng (field Severity trên Jira). '
+        'Field trống hiện —">Severity</th>'
         '<th style="width:140px">Trạng thái</th>'
         '<th style="width:120px">Tester</th><th style="width:130px">Dev in charge</th>'
-        '<th style="width:160px">Liên kết Task</th>'
+        '<th style="width:160px" title="Issue liên quan trên Jira (parent + Relates)">Liên kết (Jira)</th>'
         '</tr></thead><tbody id="blRows"></tbody></table></div>'
         '<div class="pager" id="blPager"></div></div>'
         # Các metric (chart bug theo dev/dự án + Tỷ lệ Reopen + Valid Bug Rate) đã
         # chuyển sang màn Analytics (/analytics) — issue #158.
-        + (_bug_log_source_modals() if editable else '')
+        + (_bug_log_source_modals() if is_admin else '')
         + _json_script('bugLogData', {
-            'bugs': bugs, 'months': month_list, 'editable': bool(editable),
+            'bugs': bugs, 'months': month_list,
             'syncedAt': synced_disp, 'reopen': reopen,
-            'sources': sources_shaped,
             # Thay đổi bug-log tích luỹ admin chưa xem (popup tự hiện lúc vào màn). [] khi
             # không có / non-admin -> controller bỏ qua. watermark gửi lại khi báo đã xem.
             'pendingChanges': (pending or {}).get('changes', []),

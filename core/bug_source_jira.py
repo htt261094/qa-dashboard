@@ -69,6 +69,22 @@ def _severity(fields):
     return sv if isinstance(sv, str) else ''
 
 
+def _related_keys(fields):
+    """Issue liên quan (link native Jira) = parent + mọi issuelink (Relates to Story...). Trả
+    list key duy nhất giữ thứ tự (parent trước). Thay cơ chế link bug<->task thủ công (#104)."""
+    out = []
+    p = (fields.get('parent') or {})
+    if isinstance(p, dict) and p.get('key'):
+        out.append(p['key'])
+    for lk in (fields.get('issuelinks') or []):
+        other = lk.get('outwardIssue') or lk.get('inwardIssue') or {}
+        k = other.get('key') if isinstance(other, dict) else None
+        if k:
+            out.append(k)
+    seen = set()
+    return [k for k in out if not (k in seen or seen.add(k))]
+
+
 def _issue_to_bug(issue):
     """1 Jira Bug Testing issue (đã normalize) -> bug dict khớp schema bug_log.normalize."""
     f = issue.get('fields') or {}
@@ -91,13 +107,14 @@ def _issue_to_bug(issue):
         'dev_pic': _user_name(f.get('assignee')),                    # dev fix = assignee
         'screenshot_urls': [a.get('content') for a in (f.get('attachment') or [])
                             if isinstance(a, dict) and a.get('content')],
-        'note': '', 'expected': '', 'handle_time': '',              # chưa map (Stage 2 — handle_time)
+        'note': '', 'expected': '', 'handle_time': '',              # chưa map (handle_time sau)
         'reopen_count': _reopen_count(issue),                        # thêm: tính reopen trực tiếp
+        'tasks': _related_keys(f),                                   # link native Jira (parent + relates) — #104
     }
 
 
 _FIELDS = ('summary,status,project,created,resolutiondate,updated,reporter,assignee,attachment,'
-           + config.BUG_SEVERITY_FIELD)
+           'issuelinks,parent,' + config.BUG_SEVERITY_FIELD)
 _MAX_ISSUES = 3000   # trần an toàn; Bug Testing còn ít, nới sau nếu cần
 
 

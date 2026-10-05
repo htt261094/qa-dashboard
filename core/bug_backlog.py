@@ -198,33 +198,24 @@ def _valid_counts(bugs):
     }
 
 
-# ===== Severity — pie chart Analytics + report CTO (Decision #85) =====
-# Các file bug log dùng LẪN 2 thang chữ cho cùng 1 mức (team đổi cách gõ theo thời điểm), nên
-# user chốt 2026-08-10 quy về ĐÚNG 3 mức: Major=High · Normal=Medium · Minor=Low.
-# Blocker/Critical (nếu ai đó gõ) gom vào Major — thang chỉ có 3 bậc, đây là bậc cao nhất.
-# Ô trống + giá trị lạ + sai chính tả không map được -> 'none' (Chưa phân loại): KHÔNG vẽ trong
-# pie (user chốt pie chỉ 3 mức) nhưng vẫn trả về để hiển thị/report thành ghi chú — bỏ hẳn thì
-# mẫu số biến mất, CTO tưởng tháng đó chỉ có ngần ấy bug.
-# PHẢI khớp SEV_MAP/SEV_ORDER/SEV_PIE/sevOf phía JS (app_v2.js) — twin Python↔JS.
-_SEV_ORDER = ('major', 'normal', 'minor', 'none')
-_SEV_PIE = ('major', 'normal', 'minor')      # mức được vẽ trong pie
+# ===== Severity — pie chart Analytics (Decision #104, trước là 3 mức #85) =====
+# Nguồn Jira: field Severity là dropdown chuẩn (Blocker/Critical/High/Medium/Low) -> hiện ĐÚNG
+# 5 mức, KHÔNG convert về 3 mức như thời Google Sheet (#85, gõ tay lẫn lộn). Field trống / giá
+# trị lạ -> 'none' (Chưa phân loại): KHÔNG vẽ trong pie nhưng vẫn trả về làm ghi chú mẫu số.
+# PHẢI khớp SEV_ORDER/SEV_PIE/SEV_LABEL/sevOf phía JS (app_v2.js) — twin Python↔JS.
+_SEV_ORDER = ('blocker', 'critical', 'high', 'medium', 'low', 'none')
+_SEV_PIE = ('blocker', 'critical', 'high', 'medium', 'low')   # mức được vẽ trong pie
 _SEV_LABEL = {
-    'major': 'Major (High)', 'normal': 'Normal (Medium)', 'minor': 'Minor (Low)',
-    'none': 'Chưa phân loại',
-}
-_SEV_MAP = {
-    'major': 'major', 'high': 'major', 'cao': 'major',
-    'blocker': 'major', 'critical': 'major', 'crit': 'major',
-    'nghiêm trọng': 'major', 'nghiem trong': 'major',
-    'normal': 'normal', 'medium': 'normal', 'trung bình': 'normal', 'trung binh': 'normal',
-    'minor': 'minor', 'minior': 'minor', 'low': 'minor', 'thấp': 'minor', 'thap': 'minor',
-    'trivial': 'minor',
+    'blocker': 'Blocker', 'critical': 'Critical', 'high': 'High', 'medium': 'Medium',
+    'low': 'Low', 'none': 'Chưa phân loại',
 }
 
 
 def _sev_bucket(raw):
-    """Giá trị cột Severity thô -> 1 trong _SEV_ORDER. Trống/không map được -> 'none'."""
-    return _SEV_MAP.get(_norm(raw), 'none')
+    """Giá trị field Severity Jira -> lowercase khớp 5 mức (#104, KHÔNG convert về 3 mức #85).
+    Trống / giá trị lạ -> 'none'. Twin sevOf phía JS (app_v2.js)."""
+    v = (raw or '').strip().lower()
+    return v if v in _SEV_PIE else 'none'
 
 
 def severity_counts(report_month=None, live=None):
