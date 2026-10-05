@@ -470,6 +470,7 @@ REALIZES 1 phần của #61: nguồn bug đã sang Jira (#104) → điền dần
 - `renderJiraMetrics()` tính **client-side thuần** từ `BUGS` (created + status lifecycle): bug "đang mở" = `!isClosed && !isReject` (dùng chung helper của Valid Bug Rate). Headline = số bug mở + tuổi trung vị + bug mở lâu nhất; bars phân bố 5 bucket tuổi (≤3/4–7/8–14/15–30/>30 ngày, xanh→đỏ). KHÔNG month-filter (phản ánh trạng thái HIỆN TẠI, mọi tháng). Không có bug mở → empty-state "Không có bug nào đang mở".
 - `renderJiraMetrics` gọi SỚM trong IIFE (trước khai báo `isClosed/isReject`) — an toàn vì cả 2 là function declaration (hoisted).
 **Ranh giới**: KHÔNG twin Python (tính hoàn toàn ở JS, không freeze/report). `jiraMetrics` trong `analyticsData` vẫn rỗng (hook cũ #61, chưa dùng). Data Bug Testing còn mỏng (vừa cut-over #104) → số nhỏ là bình thường.
+**Bổ sung 2026-10-05 — gom inline style các block Analytics còn lại sang CSS + polish**: card open_age bỏ class `jira-soon` (viền nét đứt placeholder) khi có data; bar chart dev/dự án đổi header "Tổng số bug / Bug mới đã fix" thành stat tile (`.mc-total`/`.mc-stat`), legend thành chip (`.mc-legend`/`.mc-leg`), dải tồn đọng thành `.mc-backlog`; khối Severity gom thành `.sev-*` (pie 200→170, rows grid 4 cột zebra). CHỈ đổi markup/CSS — công thức (dedup/freeze/Export PDF html2canvas, twin #49/#85) KHÔNG đụng; màu data-driven (PIE_COLORS/SEV_COLOR) vẫn inline cho html2canvas. Valid Bug Rate (`.an-valid-*`) + Reopen table (`.rk-*`) vốn đã dùng CSS → giữ nguyên.
 
 ### 100. Gỡ phần tự GỬI report tháng cho CTO *(2026-10-02, issue #198)*
 SUPERSEDES #82. User chốt bỏ việc bắn report tháng tự động; **Analytics giữ nguyên 100%** (trang, chart, twin công thức, freeze data).
@@ -690,6 +691,8 @@ qa-dashboard/
 - Khi thêm/đổi cấu trúc: **tự ghi Decision mới** vào file này (số kế tiếp), không đợi user nhắc.
 
 ## Last Updated
+
+2026-10-05 (#105 polish) — Bỏ note "Google Sheet" dưới "Metric từ Jira"; thiết kế lại card open_age (stat tile + bar + %) và gom inline style các block Analytics còn lại (bar chart dev/dự án, Severity) sang CSS (`.mc-*`/`.sev-*`), chỉ đổi markup không đụng công thức.
 
 2026-10-05 (#105) — Bật card "Tuổi bug đang mở" trong section "Metric từ Jira" (realize 1 phần #61); gỡ 5 card placeholder còn lại. Tính client-side thuần từ created+status, 5 bucket tuổi, không month-filter.
 
