@@ -1741,7 +1741,16 @@ html[data-theme="dark"] .c-ok{color:#57d9a3}html[data-theme="dark"] .c-warn{colo
 .an-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap}
 .an-ctl{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .an-ctl-month{display:flex;align-items:center;gap:6px;color:var(--on-surface-variant);font-size:13.5px}
-.an-ctl-export{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;font-size:13px}
+.an-ctl-export{display:inline-flex;align-items:center;gap:8px;padding:6px 14px 6px 7px;font-size:12.5px;
+               font-weight:600;color:var(--on-surface);background:var(--card);cursor:pointer;
+               border:1px solid var(--outline-variant);border-radius:999px;box-shadow:var(--e1);
+               transition:border-color var(--dur-1) var(--ease-out),box-shadow var(--dur-1) var(--ease-out),transform var(--dur-1) var(--ease-out)}
+.an-ctl-export:hover{border-color:var(--primary);box-shadow:var(--e2);transform:translateY(-1px)}
+.an-ctl-export:active{transform:translateY(0)}
+.an-ctl-export:disabled{opacity:.6;cursor:default;transform:none;box-shadow:var(--e1)}
+.an-exp-ic{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:999px;
+           color:var(--error);background:color-mix(in srgb,var(--error) 15%,transparent)}
+.an-exp-ic .material-symbols-rounded{font-size:15px}
 
 /* ---- KPI row ---- */
 .ank-row{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:4px}
