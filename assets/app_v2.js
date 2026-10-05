@@ -3812,12 +3812,62 @@ window.__smSetCustom=function(t, key, val, onChanged){
   function curYm(){ var d=new Date(); return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2); }
   var PIE_COLORS = ['#4c9aff','#36b37e','#ffab00','#ff5630','#6554c0','#00b8d9','#ff7452','#57d9a3','#8777d9','#ff8b00','#2684ff','#172b4d'];
 
-  // Metric từ Jira (sắp có) — placeholder chờ chuyển nguồn bug sang Jira (#61). Card empty-state
-  // đã render sẵn server-side; khi có data thật, đổ số vào từng card [data-jm] tại đây.
+  // Metric từ Jira — nguồn bug đã chuyển sang Jira (#104). Option A (#105): 'open_age' tính thuần
+  // client-side (created + status), không cần resolutiondate/changelog. Card [data-jm] render
+  // empty-state server-side; hàm này thay body bằng số thật (giữ nguyên empty-state nếu không có bug mở).
+  // Bug "đang mở" = lifecycle KHÔNG phải Closed/Rejected (dùng chung isClosed/isReject bên dưới).
+  var OA_BUCKETS = [  // [nhãn, maxNgày (inclusive, null = vô cực), màu — xanh->đỏ theo tuổi]
+    ['≤3 ngày', 3, '#36b37e'], ['4–7 ngày', 7, '#57d9a3'], ['8–14 ngày', 14, '#ffab00'],
+    ['15–30 ngày', 30, '#ff7452'], ['>30 ngày', null, '#ff5630']
+  ];
+  function _ageDays(iso){
+    if(!iso) return null;
+    var d = new Date(iso + 'T00:00:00'); if(isNaN(d)) return null;
+    var ms = Date.now() - d.getTime();
+    return ms < 0 ? 0 : Math.floor(ms / 86400000);
+  }
   function renderJiraMetrics(){
-    var JM = DATA.jiraMetrics || {};
-    // TODO(#61): với mỗi id trong JM, thay .jm-empty của card [data-jm="<id>"] bằng chart/KPI thật.
-    // Hiện JM rỗng -> giữ nguyên empty-state "Chờ dữ liệu bug từ Jira".
+    var card = document.querySelector('[data-jm="open_age"]'); if(!card) return;
+    var body = card.querySelector('.jm-empty'); if(!body) return;
+    var open = BUGS.filter(function(b){ return b.created && !isClosed(b.status) && !isReject(b.status); });
+    var ages = open.map(function(b){ return _ageDays(b.created); }).filter(function(a){ return a != null; });
+    if(!ages.length){
+      body.innerHTML = '<div class="es-ic"><span class="material-symbols-rounded">task_alt</span></div>'
+        + '<div class="es-title">Không có bug nào đang mở</div>'
+        + '<div class="es-hint">Mọi bug đều đã đóng hoặc bị từ chối.</div>';
+      return;
+    }
+    var counts = OA_BUCKETS.map(function(){ return 0; }), maxC = 0;
+    ages.forEach(function(a){
+      for(var i=0;i<OA_BUCKETS.length;i++){ if(OA_BUCKETS[i][1]==null || a<=OA_BUCKETS[i][1]){ counts[i]++; break; } }
+    });
+    counts.forEach(function(c){ if(c>maxC) maxC = c; });
+    var sorted = ages.slice().sort(function(x,y){ return x-y; });
+    var mid = Math.floor(sorted.length/2);
+    var median = sorted.length%2 ? sorted[mid] : Math.round((sorted[mid-1]+sorted[mid])/2);
+    var maxAge = sorted[sorted.length-1];
+    var bars = OA_BUCKETS.map(function(bk, i){
+      var c = counts[i], pct = maxC ? (c/maxC*100) : 0;
+      return '<div style="display:flex; align-items:center; gap:10px; margin-bottom:8px; font-size:13px;">'
+        + '<span style="flex:0 0 78px; color:var(--on-surface-variant); text-align:right;">'+bk[0]+'</span>'
+        + '<div style="flex:1; height:20px; background:var(--surface-variant,rgba(0,0,0,.06)); border-radius:4px; overflow:hidden;">'
+        +   '<div style="height:100%; width:'+Math.max(c?6:0,pct)+'%; background:'+bk[2]+'; border-radius:4px;"></div>'
+        + '</div>'
+        + '<span style="flex:0 0 32px; font-weight:700; color:var(--on-surface); text-align:left; font-variant-numeric:tabular-nums;">'+c+'</span>'
+        + '</div>';
+    }).join('');
+    var head = '<div style="display:flex; gap:28px; margin-bottom:16px;">'
+      + '<div><div style="font-size:26px; font-weight:800; color:var(--on-surface); font-variant-numeric:tabular-nums;">'+open.length+'</div>'
+      +   '<div style="font-size:12px; color:var(--on-surface-variant);">bug đang mở</div></div>'
+      + '<div><div style="font-size:26px; font-weight:800; color:var(--on-surface); font-variant-numeric:tabular-nums;">'+median+'</div>'
+      +   '<div style="font-size:12px; color:var(--on-surface-variant);">tuổi trung vị (ngày)</div></div>'
+      + '<div><div style="font-size:26px; font-weight:800; color:#ff5630; font-variant-numeric:tabular-nums;">'+maxAge+'</div>'
+      +   '<div style="font-size:12px; color:var(--on-surface-variant);">bug mở lâu nhất (ngày)</div></div>'
+      + '</div>';
+    // Thay cả body (bỏ class empty-state để hết canh giữa dọc) -> dùng wrapper padding thường.
+    body.className = 'jm-filled';
+    body.setAttribute('style', 'padding:4px 20px 20px;');
+    body.innerHTML = head + bars;
   }
   renderJiraMetrics();
 

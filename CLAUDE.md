@@ -464,6 +464,13 @@ Data cũ đã migrate 1 lần (`*1H26 → *2H26`, map lấy authoritative từ J
 Gom metric bug (số lượng theo dev/dự án, Valid & Rejected Bug Rate, Tỷ lệ Reopen, dải tồn đọng) + card placeholder metric Jira (#61). (Coverage automation/test case + `build_analytics_payload` cho API đã gỡ — #97.) Data embed trong `<script id="analyticsData">`, controller tính client-side → đổi tháng/scope không gọi server.
 ⚠ Nhiều công thức là **twin Python↔JS** (`_reopen_table`↔`renderReopen`, `_valid_counts`↔`renderValid`, `_month_of`↔`monthOf`, `prev_month_backlog`↔`computeBacklog`) (từng phục vụ cả report CTO lẫn UI — reporter gỡ ở #100, twin giữ nguyên vì Analytics/report tay vẫn đọc cùng số).
 
+### 105. Metric Jira "Tuổi bug đang mở" — bật card đầu tiên trong section placeholder *(2026-10-05, code: `core/render/analytics.py:_jira_metrics_placeholder` + `app_v2.js:renderJiraMetrics`)*
+REALIZES 1 phần của #61: nguồn bug đã sang Jira (#104) → điền dần section "Metric từ Jira" (trước là 6 card empty "Sắp có"). Option A của user: làm ngay cái **rẻ, data sẵn**, không cần resolutiondate/changelog.
+- Giữ DUY NHẤT card `open_age` (**Tuổi bug đang mở**); gỡ 5 card còn lại (`resolution_time`/`by_priority`/`first_response`/`throughput`/`by_component`). Lý do: `by_priority` trùng pie Severity #85; `resolution_time`/`throughput` dính bẫy `resolutiondate` thường null (#4b) → phải suy từ changelog; `by_component` vô nghĩa vì #104 chia theo **squad** không module. Để sau (gói "changelog metrics").
+- `renderJiraMetrics()` tính **client-side thuần** từ `BUGS` (created + status lifecycle): bug "đang mở" = `!isClosed && !isReject` (dùng chung helper của Valid Bug Rate). Headline = số bug mở + tuổi trung vị + bug mở lâu nhất; bars phân bố 5 bucket tuổi (≤3/4–7/8–14/15–30/>30 ngày, xanh→đỏ). KHÔNG month-filter (phản ánh trạng thái HIỆN TẠI, mọi tháng). Không có bug mở → empty-state "Không có bug nào đang mở".
+- `renderJiraMetrics` gọi SỚM trong IIFE (trước khai báo `isClosed/isReject`) — an toàn vì cả 2 là function declaration (hoisted).
+**Ranh giới**: KHÔNG twin Python (tính hoàn toàn ở JS, không freeze/report). `jiraMetrics` trong `analyticsData` vẫn rỗng (hook cũ #61, chưa dùng). Data Bug Testing còn mỏng (vừa cut-over #104) → số nhỏ là bình thường.
+
 ### 100. Gỡ phần tự GỬI report tháng cho CTO *(2026-10-02, issue #198)*
 SUPERSEDES #82. User chốt bỏ việc bắn report tháng tự động; **Analytics giữ nguyên 100%** (trang, chart, twin công thức, freeze data).
 - Xoá `core/monthly_reporter_chat_app.py`, `scripts/run_monthly_report.{ps1,sh}`, `docs/report-reopen-bug.md`.
@@ -683,6 +690,8 @@ qa-dashboard/
 - Khi thêm/đổi cấu trúc: **tự ghi Decision mới** vào file này (số kế tiếp), không đợi user nhắc.
 
 ## Last Updated
+
+2026-10-05 (#105) — Bật card "Tuổi bug đang mở" trong section "Metric từ Jira" (realize 1 phần #61); gỡ 5 card placeholder còn lại. Tính client-side thuần từ created+status, 5 bucket tuổi, không month-filter.
 
 2026-10-05 (follow-up #104) — Severity hiện ĐÚNG 5 mức field Jira (bỏ convert 3 mức #85); cột "Liên kết" = link native Jira (parent + Relates), GỠ HẲN task_link thủ công (xoá `task_link.py`, route `/link-task` + `/search-tasks`); dọn sạch Drive dead code (xoá `drive_token.py`, gut `bug_log.py` còn primitive xlsx, bỏ nhánh Drive trong `bug_log_store`, bỏ drive helpers trong `auth.py`, `bug_log_source` jira-only). #85/#79/#37/#50/#51 superseded.
 
