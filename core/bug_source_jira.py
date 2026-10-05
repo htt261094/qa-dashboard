@@ -69,6 +69,29 @@ def _severity(fields):
     return sv if isinstance(sv, str) else ''
 
 
+def _sprint_state(fields):
+    """Field Sprint (customfield_10020) = array sprint object, mỗi cái có 'state' (active/future/
+    closed) — xác minh bằng scripts/probe_sprint.py (#106/B). Map 1 bug về 1 trạng thái + tên sprint:
+      - có sprint 'active'  -> 'active'  (đang làm sprint kỳ này)
+      - không active, có 'future' -> 'future' (PO đã xếp kỳ sau)
+      - chỉ còn 'closed' / rỗng   -> 'backlog' (rớt về backlog, chờ PO quyết)
+    Jira Cloud trả object; thủ công phòng bản string cũ (bỏ qua, coi như backlog)."""
+    arr = fields.get(config.SPRINT_FIELD) or []
+    if not isinstance(arr, list):
+        arr = [arr]
+    objs = [s for s in arr if isinstance(s, dict)]
+    def _pick(state):
+        for s in objs:
+            if (s.get('state') or '').strip().lower() == state:
+                return s
+        return None
+    act = _pick('active'); fut = _pick('future')
+    if act:   return 'active', act.get('name', '') or ''
+    if fut:   return 'future', fut.get('name', '') or ''
+    last = objs[-1] if objs else None
+    return 'backlog', (last.get('name', '') if last else '')
+
+
 def _related_keys(fields):
     """Issue liên quan (link native Jira) = parent + mọi issuelink (Relates to Story...). Trả
     list key duy nhất giữ thứ tự (parent trước). Thay cơ chế link bug<->task thủ công (#104)."""
@@ -92,6 +115,7 @@ def _issue_to_bug(issue):
     created = (f.get('created') or '')[:10]
     status_raw = ((f.get('status') or {}).get('name') or '').strip()
     bug_no = key.rsplit('-', 1)[-1] if '-' in key else key
+    sp_state, sp_name = _sprint_state(f)
     return {
         'key': key,
         'project': (f.get('project') or {}).get('key', '') or '',   # = squad (SIT1-4)
@@ -110,11 +134,13 @@ def _issue_to_bug(issue):
         'note': '', 'expected': '', 'handle_time': '',              # chưa map (handle_time sau)
         'reopen_count': _reopen_count(issue),                        # thêm: tính reopen trực tiếp
         'tasks': _related_keys(f),                                   # link native Jira (parent + relates) — #104
+        'sprint_state': sp_state,                                    # active/future/backlog (#106/B)
+        'sprint': sp_name,                                           # tên sprint active/future (hiển thị)
     }
 
 
 _FIELDS = ('summary,status,project,created,resolutiondate,updated,reporter,assignee,attachment,'
-           'issuelinks,parent,' + config.BUG_SEVERITY_FIELD)
+           'issuelinks,parent,' + config.BUG_SEVERITY_FIELD + ',' + config.SPRINT_FIELD)
 _MAX_ISSUES = 3000   # trần an toàn; Bug Testing còn ít, nới sau nếu cần
 
 
