@@ -3353,8 +3353,9 @@ window.__smSetCustom=function(t, key, val, onChanged){
   function availMonths(){ var fb=fileBugs(); return MONTHS.filter(function(m){ return fb.some(function(b){ return b.month===m; }); }); }
   // bug của ĐÚNG tháng đang chọn (không kèm filter tester/dev/link) -> nguồn cho dropdown lọc
   function monthScopeBugs(){ return fileBugs().filter(function(b){ return b.month===curMonth; }); }
-  function monthBugs(){ return fileBugs().filter(function(b){
-    if(b.month!==curMonth) return false;
+  // Predicate lọc-xem (tester/dev/severity/link) — KHÔNG gồm điều kiện tháng, để dùng chung cho
+  // cả "mới trong tháng" lẫn "tồn đọng từ tháng trước" (nợ cũ nằm ở tháng khác — #104).
+  function passFilters(b){
     if(testerFilter && (b.qa||'')!==testerFilter) return false;
     if(devFilter){
       if(devFilter==='__none__'){ if((b.dev||'').trim()) return false; }
@@ -3366,7 +3367,11 @@ window.__smSetCustom=function(t, key, val, onChanged){
       if(linkFilter==='linked' && !linked) return false;
       if(linkFilter==='unlinked' && linked) return false;
     }
-    return true; }); }
+    return true;
+  }
+  // bug ĐANG MỞ (parity Python bug_backlog.is_open: Closed/Rejected = đóng).
+  function bugOpen(s){ s=(s||''); return s!=='Closed' && s!=='Rejected'; }
+  function monthBugs(){ return fileBugs().filter(function(b){ return b.month===curMonth && passFilters(b); }); }
   // danh sách tester (qa_pic) phân biệt trong file đang xem -> đổ vào dropdown lọc
   function populateTesters(){
     var sel0=$('blTesterFilter'); if(!sel0) return;
@@ -3458,12 +3463,20 @@ window.__smSetCustom=function(t, key, val, onChanged){
       +'<td>'+esc(b.dev||'—')+'</td>'
       +'<td>'+taskCell(b)+'</td></tr>';
   }
-  // Tách tồn đọng (fp xuất hiện từ tháng trước) vs mới trong tháng -> 2 tab riêng.
-  // Trả {back, fresh, active}: `active` = nhóm đang xem, tự lùi sang nhóm còn lại nếu nhóm
-  // đang chọn rỗng (vd đổi tháng/bộ lọc làm nhóm đó không còn dòng nào) -> KHÔNG bảng trống oan.
+  // Tách tồn đọng vs mới trong tháng -> 2 tab riêng (CREATED-BASED cho nguồn Jira — #104,
+  // parity Python prev_month_backlog):
+  //   - Mới trong tháng  = bug created TRONG tháng của tab (b.month===curMonth).
+  //   - Tồn đọng từ tháng trước = bug created < tháng tab VÀ CÒN MỞ tới giờ (lấy từ MỌI tháng,
+  //     không chỉ tháng tab) -> nợ cũ chưa đóng. (Jira key ổn định, status live -> tính trực tiếp.)
+  // Trả {back, fresh, active}: `active` tự lùi sang nhóm còn lại nếu nhóm đang chọn rỗng.
   function splitGroups(){
     var ym = tabYm(), back=[], fresh=[];
-    monthBugs().forEach(function(b){ ((ym && (b.created||'').slice(0,7) < ym) ? back : fresh).push(b); });
+    fileBugs().forEach(function(b){
+      if(!passFilters(b)) return;
+      var cm=(b.created||'').slice(0,7);
+      if(ym && cm && cm < ym){ if(bugOpen(b.status)) back.push(b); }   // nợ cũ còn treo
+      else if(b.month===curMonth) fresh.push(b);                       // mới trong tháng tab
+    });
     var act = grpTab;
     if(act==='back' && !back.length && fresh.length) act='new';
     else if(act==='new' && !fresh.length && back.length) act='back';
@@ -4307,35 +4320,34 @@ window.__smSetCustom=function(t, key, val, onChanged){
   // CỐ Ý BỎ feature (Decision #54): cột "Chức năng" hay bị đổi lúc copy sang sheet tháng mới -> fp đứt.
   function _bnorm(s){ return (s==null?'':(''+s)).toLowerCase().split(/\s+/).filter(Boolean).join(' '); }
   function _fpOf(b){ return _bnorm(b.project)+'|'+_bnorm(b.service)+'|'+_bnorm(b.summary); }
-  // Khử trùng theo fingerprint nội dung: cùng 1 bug thật bị copy sang nhiều sheet
-  // (Decision #36/#46) thành nhiều dòng cùng created-month -> chỉ giữ 1 bản đại diện
-  // (created mới nhất, "bản mới nhất thắng" Decision #37). Dùng cho count/chart để KHÔNG
-  // double-count (khớp newCount của computeBacklog).
+  // Khử trùng theo `key` (issue.key Jira ỔN ĐỊNH, duy nhất — #104) -> không gộp nhầm 2 bug
+  // khác nhau trùng summary. Bug không key (legacy) -> fallback fingerprint. created mới nhất
+  // thắng. PHẢI khớp _dedup_by_fp phía Python.
   function dedupByFp(list){
     var by = {};
-    list.forEach(function(b){ var f=_fpOf(b), p=by[f]; if(!p || (b.created||'') >= (p.created||'')) by[f]=b; });
-    return Object.keys(by).map(function(f){ return by[f]; });
+    list.forEach(function(b){ var k=b.key||_fpOf(b), p=by[k]; if(!p || (b.created||'') >= (p.created||'')) by[k]=b; });
+    return Object.keys(by).map(function(k){ return by[k]; });
   }
 
-  // Tính tồn đọng cho tháng report 'YYYY-MM' — SHEET-BASED (Decision #75, PHẢI khớp
-  // prev_month_backlog phía Python + splitGroups màn Bug). Đọc THẲNG sheet tháng T (bucket
-  // theo monthOf = tên sheet Tn), đếm DÒNG, tách theo created:
-  //   - tồn đọng (back): created < tháng-sheet. status mở=còn treo, Closed/Reject=đã xử lý.
-  //   - mới phát sinh (fresh): created >= tháng-sheet.
-  // KHÔNG fingerprint/carry/dedup — sheet đã là source-of-truth (team bê bug giữ nguyên created).
+  // Tính tồn đọng cho tháng report 'YYYY-MM' — CREATED-BASED cho nguồn Jira (#104, PHẢI khớp
+  // prev_month_backlog phía Python + splitGroups màn Bug). Jira key ổn định + status live ->
+  // tính trực tiếp, không sheet/fingerprint/carry:
+  //   - mới phát sinh (fresh): created TRONG tháng report.
+  //   - tồn đọng (back): created < tháng report VÀ CÒN MỞ tới giờ (nợ cũ chưa đóng, từ mọi tháng).
+  // 'đã xử lý nợ cũ' (resolved) KHÔNG suy được chính xác theo lịch sử (không snapshot) -> 0.
   function computeBacklog(reportYm){
     var prev = prevYm(reportYm);
-    var mmYYYY = reportYm.slice(5,7)+'/'+reportYm.slice(0,4);   // 'YYYY-MM' -> 'MM/YYYY' (khớp monthOf)
-    var rows = BUGS.filter(function(b){ return monthOf(b) === mmYYYY; });
     var back=[], fresh=[];
-    rows.forEach(function(b){ (((b.created||'').slice(0,7) < reportYm) ? back : fresh).push(b); });
-    var stillOpen=0, resolved=0;
-    back.forEach(function(b){ if(isOpenBug(b.status)) stillOpen++; else resolved++; });
+    BUGS.forEach(function(b){
+      var cm=(b.created||'').slice(0,7);
+      if(cm===reportYm) fresh.push(b);
+      else if(cm && cm < reportYm && isOpenBug(b.status)) back.push(b);
+    });
     var newFixed=0;
     fresh.forEach(function(b){ if(isClosed(b.status)) newFixed++; });
-    return { hasSnapshot: rows.length>0, prev:prev,
+    return { hasSnapshot: fresh.length>0 || back.length>0, prev:prev,
              newCount: fresh.length, total: back.length,
-             stillOpen: stillOpen, resolved: resolved,
+             stillOpen: back.length, resolved: 0,
              newOwn: fresh.length, newFixed: newFixed, newOpen: fresh.length - newFixed };
   }
 

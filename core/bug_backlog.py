@@ -146,14 +146,16 @@ def _month_of(b):
 
 
 def _dedup_by_fp(bugs):
-    """List bug -> giữ 1 bản đại diện / fingerprint (created MỚI NHẤT thắng — khớp
-    dedupByFp phía JS). Dùng để đếm bug THẬT của 1 tháng (khử bản copy sang sheet khác)."""
+    """List bug -> giữ 1 bản đại diện / bug. Nguồn Jira (#104): dedup theo `key` (issue.key ỔN
+    ĐỊNH, duy nhất) -> KHÔNG gộp nhầm 2 bug khác nhau trùng summary (fp cũ project|summary gộp sai
+    khi service rỗng). Bug không có key (legacy) -> fallback fingerprint. created mới nhất thắng.
+    PHẢI khớp dedupByFp phía JS (app_v2.js)."""
     by = {}
     for b in bugs:
-        f = _fp(b)
-        p = by.get(f)
+        k = b.get('key') or _fp(b)
+        p = by.get(k)
         if p is None or (b.get('created', '') or '') >= (p.get('created', '') or ''):
-            by[f] = b
+            by[k] = b
     return list(by.values())
 
 
@@ -559,25 +561,18 @@ def _cur_month_sheet(report_month):
 def prev_month_backlog(report_month=None, live=None):
     """Tồn đọng cho báo cáo tháng `report_month` ('YYYY-MM', None=tháng hiện tại).
 
-    Định nghĩa SHEET-BASED (user chốt 2026-08-07 — xem Decision #75). Đọc THẲNG sheet của
-    tháng T (bucket theo `_month_of` = tên sheet Tn), đếm DÒNG, tách theo `created`:
-      - TỒN ĐỌNG (mang sang từ tháng trước): dòng có `created` < tháng của sheet. Trong đó
-        status mở = CÒN TREO (still_open); Closed/Reject = ĐÃ XỬ LÝ (resolved).
-      - MỚI PHÁT SINH: dòng có `created` == (hoặc >) tháng của sheet.
-    total = still_open + resolved = số dòng tồn đọng.
-
-    Vì team bê bug chưa xử lý xong sang sheet tháng mới (GIỮ NGUYÊN ngày created), chính cái
-    sheet đã là source-of-truth — KHÔNG cần fingerprint/carry/dedup qua nhiều sheet nữa. Cả
-    màn Bug (splitGroups) + Analytics (computeBacklog JS) + report này đọc CÙNG 1 sheet, CÙNG
-    quy tắc -> số liệu KHÔNG thể lệch. PHẢI khớp computeBacklog phía JS (app_v2.js).
+    Định nghĩa CREATED-BASED cho nguồn Jira (Decision #104, thay sheet-based #75). Jira issue
+    key ổn định + status live -> tính trực tiếp, không sheet/fingerprint/carry:
+      - MỚI PHÁT SINH (fresh): bug created TRONG tháng T.
+      - TỒN ĐỌNG từ tháng trước (back): bug created < T VÀ CÒN MỞ tới giờ (nợ cũ chưa đóng, gom
+        từ MỌI tháng). 'Đã xử lý nợ cũ' (resolved) KHÔNG suy được chính xác theo lịch sử (không
+        snapshot per-tháng) -> 0.
+    total = still_open = số bug nợ cũ còn treo. PHẢI khớp computeBacklog + splitGroups phía JS.
 
     Trả dict (giữ nguyên keys cũ để caller/embed không vỡ):
-      {report_month, prev_month, has_snapshot,
-       total, resolved, still_open,
-       new_count,      # = new_own (số dòng mới phát sinh trong sheet)
-       new_own, new_fixed, new_open,   # bug mới: tổng / đã fix (Closed) / chưa fix
-       bugs: [ {id, project, dev, created, status_now, state} ]  # state∈{open,resolved}
-      }
+      {report_month, prev_month, has_snapshot, total, resolved, still_open,
+       new_count, new_own, new_fixed, new_open,
+       bugs: [ {id, project, dev, created, status_now, state} ]  # state='open' (nợ cũ còn treo)}
     `live` (optional) = {key:bug} truyền sẵn để tránh đọc lại; None -> tự lấy."""
     if not report_month:
         report_month = datetime.now().strftime('%Y-%m')
@@ -587,35 +582,30 @@ def prev_month_backlog(report_month=None, live=None):
     def _id(p, sv, n):
         return f"{p}-{sv + '-' if sv else ''}{n}".strip('-')
 
-    # Dòng thuộc SHEET của tháng T (bucket theo tên sheet Tn -> khớp monthOf JS).
-    rows = [b for b in live.values() if _month_of(b) == report_month]
     back, fresh = [], []
-    for b in rows:
-        (back if (b.get('created', '') or '')[:7] < report_month else fresh).append(b)
+    for b in live.values():
+        cm = (b.get('created', '') or '')[:7]
+        if cm == report_month:
+            fresh.append(b)
+        elif cm and cm < report_month and is_open(b.get('status', '')):
+            back.append(b)            # nợ cũ còn treo
 
-    bugs = []
-    resolved = still_open = 0
-    for b in back:
-        if is_open(b.get('status', '')):
-            state = 'open'; still_open += 1
-        else:
-            state = 'resolved'; resolved += 1
-        bugs.append({
-            'id': _id(b.get('project', ''), b.get('service', ''), b.get('bug_no', '')),
-            'project': b.get('project', ''), 'dev': b.get('dev_pic', '') or '',
-            'created': (b.get('created', '') or '')[:10],
-            'status_now': b.get('status', '') or '', 'state': state,
-        })
-    bugs.sort(key=lambda x: (x['state'] != 'open', x['project'], x['id']))
+    bugs = [{
+        'id': _id(b.get('project', ''), b.get('service', ''), b.get('bug_no', '')),
+        'project': b.get('project', ''), 'dev': b.get('dev_pic', '') or '',
+        'created': (b.get('created', '') or '')[:10],
+        'status_now': b.get('status', '') or '', 'state': 'open',
+    } for b in back]
+    bugs.sort(key=lambda x: (x['project'], x['id']))
 
-    # Mới phát sinh = số DÒNG trong sheet có created trong tháng T. Đã fix = trong đó Closed.
+    still_open = len(back)
     new_own = len(fresh)
     new_fixed = sum(1 for b in fresh if _RE_CLOSED.search(b.get('status', '') or ''))
 
     return {
         'report_month': report_month, 'prev_month': prev,
-        'has_snapshot': bool(rows),                   # sheet có dòng nào để tính hay không
-        'total': resolved + still_open, 'resolved': resolved, 'still_open': still_open,
+        'has_snapshot': bool(fresh or back),
+        'total': still_open, 'resolved': 0, 'still_open': still_open,
         'new_count': new_own, 'bugs': bugs,
         'new_own': new_own, 'new_fixed': new_fixed, 'new_open': new_own - new_fixed,
     }

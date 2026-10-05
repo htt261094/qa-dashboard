@@ -351,6 +351,16 @@ Seam duy nhất = `bug_log_store._scan_one(src, prev)`; downstream chỉ phụ t
 - UI `/analytics` có 6 card metric rỗng "Chờ dữ liệu Jira" (chốt layout trước).
 📌 Khi bật thật: cân nhắc dùng **Jira issue key** làm định danh bền → có thể BỎ toàn bộ logic fingerprint/carry vốn chỉ tồn tại vì Sheet thiếu ID ổn định.
 
+### 104. CUT-OVER Bug Log: Google Drive → Jira "Bug Testing" *(2026-10-05, issue #198, code: `core/bug_source_jira.py`)*
+REALIZES #61 (bật `provider='jira'` thật) + SUPERSEDES #75 (tồn đọng sheet-based → created-based) + gỡ nhánh Drive khỏi đường chính. User chốt: QA log bug **trực tiếp trên Jira** bằng issue type **Bug Testing (10382)**, **bỏ hẳn Google Drive**, data Drive cũ (tháng 10) không đáng tin → xoá (`scripts/reset_bug_log.py`, chạy 1 lần).
+- **Nguồn**: `bug_log_source.load_sources()` rỗng → mặc định 1 source Jira `{provider:'jira', id:'bug-testing', query:config.BUG_TESTING_JQL}` (`issuetype = 10382 ORDER BY created DESC`, chưa lọc project). `config.BUG_LOG_JIRA_ENABLED` mặc định **BẬT**.
+- **Map** (`bug_source_jira._issue_to_bug`, khớp schema `bug_log.normalize`): `key`=issue.key (ỔN ĐỊNH) · `project`=project.key (= **squad** SIT1-4, user chốt chia theo squad không theo dự án) · `service`/`feature`=`''` (bỏ) · `bug_no`=phần số của key · `status`=`_bug_lifecycle(status_raw)` (map RIÊNG: TRIAGE/Open→New, In Progress/TESTING→Fixing, Reopened→Reopen, REJECTED→Rejected, Done→Closed — vì status Bug Testing NGOÀI `jira_cloud.canon_status`) · `severity`=field **Severity** `customfield_10404` (Blocker/Critical/High→Major, Medium→Normal, Low→Minor qua `_sev_bucket`; null→none) · `qa_pic`=reporter, `dev_pic`=assignee · `month`=created[:7] · `reopen_count`=đếm changelog `toString=='Reopened'`.
+- **Reopen CHÍNH XÁC từ changelog** (`bug_log_store._apply_jira_reopens`): set `reopen_map[key]` thẳng từ `reopen_count` mỗi scan, KHÔNG dùng accumulator diff-poll / seed / fingerprint-carry (chỉ chạy cho nhánh Drive nếu còn). `_jira_request(expand='changelog')` lo phân trang + normalize.
+- **Backlog CREATED-BASED** (thay #75 sheet-based): tồn đọng tháng T = bug `created < T` **còn mở tới giờ** (gom từ mọi tháng); mới = `created ∈ T`. 'Nợ cũ đã xử lý' (resolved) = 0 (không suy được chính xác theo lịch sử). Twin: `bug_backlog.prev_month_backlog` ↔ `computeBacklog` + `splitGroups` (JS). `_dedup_by_fp`/`dedupByFp` dedup theo **key** (không fp) → không gộp nhầm bug trùng summary.
+- **Gỡ Drive**: route `/drive/connect`, `/oauth/drive-callback`, `/has-drive`, `/disconnect-drive`, `/save-bug-log-sources`; card "Kết nối Drive" (modal Setting + /settings); UI "Quản lý link drive" + picker file. bug id ở bảng = **link** `{JIRA_URL}/browse/{key}`.
+- **Giữ dormant (chưa xoá)**: `bug_log.py` parse/download Drive (vì `file_preview` dùng `list_sheet_names`/`read_sheet_rows`), nhánh Drive trong `bug_log_store` (`_count_reopens`/`_seed_current_reopens`/`_missing_id_rows`), `core/drive_token.py`, `auth.py` drive helpers → cleanup tách commit sau.
+- **Ranh giới / còn lại**: field Severity CHƯA lên create screen Bug Testing (nhờ IT thêm `customfield_10404`); `handle_time` để `''` (điền sau từ changelog); `task_link` link mới nên key theo issue.key (hiện fp, link cũ đã xoá khi reset); backlog của THÁNG QUÁ KHỨ dùng status LIVE nên chỉ gần đúng (không snapshot per-tháng). Jira Cloud identity/status qua `jira_cloud` (#94).
+
 ### 88. Sau đồng bộ = 2 popup song song (thay đổi file | dòng thiếu STT) *(2026-08-14)*
 Dòng bug **có đủ thông tin nhưng chưa đánh STT** rơi vào `unmapped` (#25/normalize) → không có khoá diff → không vào `bugs`, không vào activity, không vào bất kỳ metric nào. Trước đây chỉ còn lại con số `unmapped` trong log stderr → team không biết mà sửa. Giờ tách **2 popup hiện song song** sau mỗi lần sync:
 - **Popup 1** `#blChgOv` — thay đổi file (giữ nguyên hành vi cũ).
@@ -381,6 +391,7 @@ Freeze thụ động (#47) chỉ chốt ở lần scan chót của tháng, khôn
 **Gỡ freeze**: xoá entry tháng đó trong `frozen` của `.bug_monthly.json` **và** KV/property, hoặc gọi lại `freeze_month` để ghi đè.
 
 ### 75. Tồn đọng = SHEET-BASED (đọc thẳng sheet tháng, đếm dòng theo created)
+⛔ SUPERSEDED bởi #104 (cut-over Jira: tồn đọng CREATED-BASED) — mục dưới chỉ còn cho ngữ cảnh/nguồn Drive cũ đã gỡ.
 SUPERSEDES định nghĩa fingerprint/carry của #33/#36/#46/#62/#68 cho **read-path tồn đọng/mới**.
 Bối cảnh: màn Bug và màn Analytics đo 2 định nghĩa khác nhau nên lệch số. User chốt workflow: cuối tháng bê bug chưa xong sang sheet tháng mới, **GIỮ NGUYÊN ngày created** → chính việc bê sang sheet đã là "freeze" tự nhiên, không cần fingerprint/carry.
 Định nghĩa thống nhất — trong sheet tháng T, **đếm DÒNG**: `created < tháng-sheet` = **tồn đọng** (status mở = còn treo; Closed/Reject = đã xử lý); `created >= tháng-sheet` = **mới phát sinh** (Closed = đã fix). `total = còn treo + đã xử lý`. KHÔNG dedup (dòng trùng đếm 2 → tín hiệu dọn sheet).
@@ -558,7 +569,7 @@ KHÔNG được:
 - Ghi Jira bằng PAT cá nhân: đổi status, comment (@-mention), đổi due date, tạo sub-task hàng loạt nhiều cha
 - Custom status overlay, ghi chú riêng theo task (#101), notification short-poll 60s + thông báo desktop (#103), command palette Ctrl+K
 - Auto-login chính chủ khi mở từ localhost (#98), autostart lúc logon (#99)
-- Bug Log sync từ Drive (Sheet native + xlsx), metric + freeze tháng, export Excel
+- Bug Log nguồn **Jira "Bug Testing" (10382)** — chia theo squad, reopen từ changelog, backlog created-based, export Excel (#104). Drive đã gỡ.
 - Viewer tài liệu inline (PDF/ảnh/Office/text/HTML sandbox), folder Quy Trình dạng tab
 
 ### Known Limitations
@@ -668,6 +679,8 @@ qa-dashboard/
 - Khi thêm/đổi cấu trúc: **tự ghi Decision mới** vào file này (số kế tiếp), không đợi user nhắc.
 
 ## Last Updated
+
+2026-10-05 — Thêm Decision #104 (cut-over Bug Log Google Drive → Jira "Bug Testing" 10382: nguồn JQL issuetype=10382, chia theo squad=project, bỏ service/feature, severity từ customfield_10404, reopen từ changelog, backlog created-based, dedup theo key, gỡ Drive OAuth/UI/route). #61 realized, #75 superseded (read-path). `scripts/reset_bug_log.py` chạy 1 lần xoá data Drive cũ.
 
 2026-10-02 — Issue #198 (productivity dashboard dùng riêng): #98 auto-login + chặn CSRF POST · #99 autostart lúc logon · #100 gỡ phần tự gửi report tháng (Analytics giữ nguyên; #82 → bảng chết) · #101 ghi chú riêng theo task · #102 trang Hôm nay làm trang chính · #103 thông báo desktop.
 
