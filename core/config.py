@@ -158,6 +158,7 @@ BUG_LOG_JIRA_ENABLED = (CFG.get('BUG_LOG_JIRA_ENABLED') or '1').strip().lower() 
 # Instance-specific (dò lại bằng /rest/api/2/issuetype + /rest/api/2/field nếu migrate/đổi cấu hình).
 BUG_TESTING_TYPE_ID = CFG.get('BUG_TESTING_TYPE_ID', '10382').strip()            # issuetype "Bug Testing"
 BUG_SEVERITY_FIELD = CFG.get('BUG_SEVERITY_FIELD', 'customfield_10404').strip()  # select "Severity" (Blocker/Critical/High/Medium/Low)
+SPRINT_FIELD = CFG.get('SPRINT_FIELD', 'customfield_10020').strip()               # array sprint object (state active/future/closed) — #106/B
 # JQL nguồn Bug Log mặc định (chưa lọc project — chia theo squad = project.key ở tầng hiển thị).
 BUG_TESTING_JQL = (CFG.get('BUG_TESTING_JQL', '').strip()
                    or f'issuetype = {BUG_TESTING_TYPE_ID} ORDER BY created DESC')
