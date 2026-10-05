@@ -171,7 +171,7 @@ App dùng 1 PAT chung → mọi thao tác ghi mang tên chủ PAT, sai attributi
 - `jira_write.py`: ghi bằng PAT truyền vào (KHÔNG dùng `_SESSION`/PAT chung); redact PAT mọi lỗi.
 - **Không có PAT → từ chối ghi** (`code:no_pat`, UI nhắc vào Cài đặt) thay vì ghi nhầm tên chung. Jira tự enforce quyền.
 
-### 79. Drive OAuth — 1 refresh token của admin *(ghi bổ sung 2026-08-10, code: `core/drive_token.py`)*
+### 79. Drive OAuth — 1 refresh token của admin *(⛔ GỠ HẲN ở #104 — Bug Log nguồn Jira; `drive_token.py` + luồng connect/callback đã xoá)*
 Bug log + test case đọc file trên Drive công ty → chỉ cần **1 token đọc của admin**, không phải per-user như PAT. Refresh token mã hoá Fernet, lưu KV `qa-dashboard-drive-token` + cache `.drive_token.json`. Routes `/drive/connect`, `/oauth/drive-callback`, `/has-drive`, `/disconnect-drive`. KHÔNG plaintext, KHÔNG log token.
 
 ## Data Jira: fetch, bucket, notification
@@ -358,8 +358,14 @@ REALIZES #61 (bật `provider='jira'` thật) + SUPERSEDES #75 (tồn đọng sh
 - **Reopen CHÍNH XÁC từ changelog** (`bug_log_store._apply_jira_reopens`): set `reopen_map[key]` thẳng từ `reopen_count` mỗi scan, KHÔNG dùng accumulator diff-poll / seed / fingerprint-carry (chỉ chạy cho nhánh Drive nếu còn). `_jira_request(expand='changelog')` lo phân trang + normalize.
 - **Backlog CREATED-BASED** (thay #75 sheet-based): tồn đọng tháng T = bug `created < T` **còn mở tới giờ** (gom từ mọi tháng); mới = `created ∈ T`. 'Nợ cũ đã xử lý' (resolved) = 0 (không suy được chính xác theo lịch sử). Twin: `bug_backlog.prev_month_backlog` ↔ `computeBacklog` + `splitGroups` (JS). `_dedup_by_fp`/`dedupByFp` dedup theo **key** (không fp) → không gộp nhầm bug trùng summary.
 - **Gỡ Drive**: route `/drive/connect`, `/oauth/drive-callback`, `/has-drive`, `/disconnect-drive`, `/save-bug-log-sources`; card "Kết nối Drive" (modal Setting + /settings); UI "Quản lý link drive" + picker file. bug id ở bảng = **link** `{JIRA_URL}/browse/{key}`.
-- **Giữ dormant (chưa xoá)**: `bug_log.py` parse/download Drive (vì `file_preview` dùng `list_sheet_names`/`read_sheet_rows`), nhánh Drive trong `bug_log_store` (`_count_reopens`/`_seed_current_reopens`/`_missing_id_rows`), `core/drive_token.py`, `auth.py` drive helpers → cleanup tách commit sau.
-- **Ranh giới / còn lại**: field Severity CHƯA lên create screen Bug Testing (nhờ IT thêm `customfield_10404`); `handle_time` để `''` (điền sau từ changelog); `task_link` link mới nên key theo issue.key (hiện fp, link cũ đã xoá khi reset); backlog của THÁNG QUÁ KHỨ dùng status LIVE nên chỉ gần đúng (không snapshot per-tháng). Jira Cloud identity/status qua `jira_cloud` (#94).
+- **Drive dead code** (đã dọn ở follow-up cùng ngày — xem mục bổ sung cuối Decision này).
+- **Ranh giới / còn lại**: field Severity đã lên create screen (user xác nhận 2026-10-05); `handle_time` để `''` (điền sau từ changelog); backlog của THÁNG QUÁ KHỨ dùng status LIVE nên chỉ gần đúng (không snapshot per-tháng). Jira Cloud identity/status qua `jira_cloud` (#94).
+
+**Bổ sung 2026-10-05 (cùng #104, follow-up):**
+- **Severity = ĐÚNG field Jira** (Blocker/Critical/High/Medium/Low), KHÔNG convert 3 mức như #85. `_sev_bucket` chỉ lowercase + khớp 5 mức (lạ/trống → none, không vẽ pie). Twin `_SEV_ORDER/_SEV_PIE/_SEV_LABEL/_sev_bucket` (Python) ↔ `SEV_ORDER/SEV_PIE/SEV_LABEL/SEV_COLOR/sevOf` (JS) — bỏ `_SEV_MAP`. Badge bảng + filter 5 mức; màu inline qua `SEV_COLOR`. SUPERSEDES #85.
+- **Cột "Liên kết" = link native Jira**, GỠ HẲN liên kết tay (task_link): `bug_source_jira._related_keys` đọc `parent` + mọi `issuelinks` (vd Relates to Story) → `bug['tasks']`. Xoá `core/task_link.py`, route `/link-task` + `/search-tasks`, widget tick+link bar + checkbox column + 2 popup link. `_bugs_for_task` (chiều ngược, drawer) đọc `bug['tasks']` + canon_key. SUPERSEDES #37/#50/#51/#54(fp cho link).
+- **Bảng bug**: BỎ cột "Module" (service/feature đã bỏ); cột "Trạng thái" hiện ĐÚNG status Jira (`status_raw`: Open/TRIAGE/Reopened/In Progress/TESTING/REJECTED/Done) qua `JST` map màu badge, KHÔNG map lifecycle. `bug['status']` (lifecycle) VẪN giữ cho logic tồn đọng/mở (splitGroups/computeBacklog); chỉ phần HIỂN THỊ dùng `statusRaw`. Export Excel bỏ cột Module.
+- **Gỡ sạch Drive dead code**: `core/drive_token.py` xoá; `core/bug_log.py` còn MỖI `list_sheet_names`/`read_sheet_rows` (+ primitive xlsx) cho `file_preview`; `bug_log_store` bỏ nhánh Drive (`_count_reopens`/`_seed_current_reopens`/`_missing_id_rows`/Tầng-1 metadata/gate has_drive_token); `auth.py` bỏ `drive_login_url`/`exchange_code_tokens`/`refresh_access_token`/`DRIVE_SCOPE`/`DRIVE_STATE_COOKIE`; `bug_log_source` jira-only (bỏ `extract_file_id`/provider drive). Còn sót dormant: JS popup `#blMissOv` (missing-STT, luôn rỗng — để yên vì chung máy với popup thay đổi); `activeFid`/`SOURCES` trong JS bug-log (luôn ''/[]). `DRIVE_TOKEN_FILE` gỡ khỏi config.
 
 ### 88. Sau đồng bộ = 2 popup song song (thay đổi file | dòng thiếu STT) *(2026-08-14)*
 Dòng bug **có đủ thông tin nhưng chưa đánh STT** rơi vào `unmapped` (#25/normalize) → không có khoá diff → không vào `bugs`, không vào activity, không vào bất kỳ metric nào. Trước đây chỉ còn lại con số `unmapped` trong log stderr → team không biết mà sửa. Giờ tách **2 popup hiện song song** sau mỗi lần sync:
@@ -457,6 +463,13 @@ Data cũ đã migrate 1 lần (`*1H26 → *2H26`, map lấy authoritative từ J
 ### 81. Tab "Analytics" (`/analytics`) *(ghi bổ sung 2026-08-10; issue #158)*
 Gom metric bug (số lượng theo dev/dự án, Valid & Rejected Bug Rate, Tỷ lệ Reopen, dải tồn đọng) + card placeholder metric Jira (#61). (Coverage automation/test case + `build_analytics_payload` cho API đã gỡ — #97.) Data embed trong `<script id="analyticsData">`, controller tính client-side → đổi tháng/scope không gọi server.
 ⚠ Nhiều công thức là **twin Python↔JS** (`_reopen_table`↔`renderReopen`, `_valid_counts`↔`renderValid`, `_month_of`↔`monthOf`, `prev_month_backlog`↔`computeBacklog`) (từng phục vụ cả report CTO lẫn UI — reporter gỡ ở #100, twin giữ nguyên vì Analytics/report tay vẫn đọc cùng số).
+
+### 105. Metric Jira "Tuổi bug đang mở" — bật card đầu tiên trong section placeholder *(2026-10-05, code: `core/render/analytics.py:_jira_metrics_placeholder` + `app_v2.js:renderJiraMetrics`)*
+REALIZES 1 phần của #61: nguồn bug đã sang Jira (#104) → điền dần section "Metric từ Jira" (trước là 6 card empty "Sắp có"). Option A của user: làm ngay cái **rẻ, data sẵn**, không cần resolutiondate/changelog.
+- Giữ DUY NHẤT card `open_age` (**Tuổi bug đang mở**); gỡ 5 card còn lại (`resolution_time`/`by_priority`/`first_response`/`throughput`/`by_component`). Lý do: `by_priority` trùng pie Severity #85; `resolution_time`/`throughput` dính bẫy `resolutiondate` thường null (#4b) → phải suy từ changelog; `by_component` vô nghĩa vì #104 chia theo **squad** không module. Để sau (gói "changelog metrics").
+- `renderJiraMetrics()` tính **client-side thuần** từ `BUGS` (created + status lifecycle): bug "đang mở" = `!isClosed && !isReject` (dùng chung helper của Valid Bug Rate). Headline = số bug mở + tuổi trung vị + bug mở lâu nhất; bars phân bố 5 bucket tuổi (≤3/4–7/8–14/15–30/>30 ngày, xanh→đỏ). KHÔNG month-filter (phản ánh trạng thái HIỆN TẠI, mọi tháng). Không có bug mở → empty-state "Không có bug nào đang mở".
+- `renderJiraMetrics` gọi SỚM trong IIFE (trước khai báo `isClosed/isReject`) — an toàn vì cả 2 là function declaration (hoisted).
+**Ranh giới**: KHÔNG twin Python (tính hoàn toàn ở JS, không freeze/report). `jiraMetrics` trong `analyticsData` vẫn rỗng (hook cũ #61, chưa dùng). Data Bug Testing còn mỏng (vừa cut-over #104) → số nhỏ là bình thường.
 
 ### 100. Gỡ phần tự GỬI report tháng cho CTO *(2026-10-02, issue #198)*
 SUPERSEDES #82. User chốt bỏ việc bắn report tháng tự động; **Analytics giữ nguyên 100%** (trang, chart, twin công thức, freeze data).
@@ -644,15 +657,13 @@ qa-dashboard/
 │   ├── custom_status.py     ← nhãn overlay + activity (#21)
 │   ├── task_notes.py        ← ghi chú riêng theo task (#101)
 │   ├── remote_store.py      ← kho sync chéo máy Cloudflare KV, local-first (#78)
-│   ├── drive_token.py       ← refresh token Drive của admin, mã hoá (#79)
 │   ├── docs.py              ← cây tài liệu (#11,#66)
 │   ├── file_preview.py      ← dựng HTML preview docx/xlsx/pptx/text (#63)
-│   ├── bug_log.py           ← Drive client + parse xlsx/Sheet native + normalize (#29,#53,#73)
-│   ├── bug_log_source.py    ← danh sách nguồn (provider drive|jira — #61)
-│   ├── bug_log_store.py     ← scan/diff/reopen/persist `.bug_log.json` (#25,#30,#43,#48)
-│   ├── bug_source_jira.py   ← stub provider Jira (#61)
-│   ├── bug_backlog.py       ← fingerprint, tồn đọng, freeze tháng (#54,#69,#75)
-│   ├── task_link.py         ← link bug↔task (#37,#50,#51,#76)
+│   ├── bug_log.py           ← CHỈ còn primitive đọc xlsx thô cho file_preview (#63, #104)
+│   ├── bug_log_source.py    ← danh sách nguồn Jira "Bug Testing" (#104)
+│   ├── bug_log_store.py     ← scan Jira + reopen từ changelog + persist `.bug_log.json` (#104)
+│   ├── bug_source_jira.py   ← provider Jira "Bug Testing": fetch + map bug dict (#104)
+│   ├── bug_backlog.py       ← tồn đọng created-based, severity, freeze tháng (#104,#69)
 │   ├── xlsx_export.py       ← build .xlsx zero-dep (#45b)
 │   ├── render/              ← package: base · shell · misc · today (= Hôm nay #102) · dashboard (= Việc của tôi) · docs · bug_log · analytics (`__init__.py` re-export cho caller cũ)
 │   └── routes/              ← oauth · uploads · write (mixin cho handler)
@@ -679,6 +690,10 @@ qa-dashboard/
 - Khi thêm/đổi cấu trúc: **tự ghi Decision mới** vào file này (số kế tiếp), không đợi user nhắc.
 
 ## Last Updated
+
+2026-10-05 (#105) — Bật card "Tuổi bug đang mở" trong section "Metric từ Jira" (realize 1 phần #61); gỡ 5 card placeholder còn lại. Tính client-side thuần từ created+status, 5 bucket tuổi, không month-filter.
+
+2026-10-05 (follow-up #104) — Severity hiện ĐÚNG 5 mức field Jira (bỏ convert 3 mức #85); cột "Liên kết" = link native Jira (parent + Relates), GỠ HẲN task_link thủ công (xoá `task_link.py`, route `/link-task` + `/search-tasks`); dọn sạch Drive dead code (xoá `drive_token.py`, gut `bug_log.py` còn primitive xlsx, bỏ nhánh Drive trong `bug_log_store`, bỏ drive helpers trong `auth.py`, `bug_log_source` jira-only). #85/#79/#37/#50/#51 superseded.
 
 2026-10-05 — Thêm Decision #104 (cut-over Bug Log Google Drive → Jira "Bug Testing" 10382: nguồn JQL issuetype=10382, chia theo squad=project, bỏ service/feature, severity từ customfield_10404, reopen từ changelog, backlog created-based, dedup theo key, gỡ Drive OAuth/UI/route). #61 realized, #75 superseded (read-path). `scripts/reset_bug_log.py` chạy 1 lần xoá data Drive cũ.
 

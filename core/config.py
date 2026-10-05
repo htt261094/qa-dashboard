@@ -25,7 +25,6 @@ ENV_FILE = SCRIPT_DIR / '.env'
 DOCS_FILE = SCRIPT_DIR / '.docs_config.json'
 SYNC_META_FILE = SCRIPT_DIR / '.sync_meta.json'         # dirty-flag per key (remote_store flush)
 PAT_CACHE_FILE = SCRIPT_DIR / '.pat_store.json'         # cache map {email: enc_pat} (ĐÃ mã hoá)
-DRIVE_TOKEN_FILE = SCRIPT_DIR / '.drive_token.json'      # cache refresh token (mã hoá) fallback
 BUG_LOG_SOURCE_FILE = SCRIPT_DIR / '.bug_log_source.json'  # cache file Drive nguồn bug log
 BUG_LOG_FILE = SCRIPT_DIR / '.bug_log.json'              # cache snapshot bug log (fallback + render nhanh)
 BUG_MONTHLY_FILE = SCRIPT_DIR / '.bug_monthly.json'      # snapshot status per-bug chốt theo tháng (tồn đọng vs mới, hướng B)

@@ -1,134 +1,15 @@
-"""Tải file .xlsx bug log từ Google Drive (unattended) + parse ra rows thô (issue #52).
+"""Đọc sheet .xlsx bằng stdlib (zipfile + xml.etree) — KHÔNG openpyxl.
 
-CHỈ ĐỌC, không sửa file. Tầng đáy của Bug Log (#51): đầu vào cho #53 (normalize) và
-chạy trong background thread #54.
+Phần nguồn Bug Log từ Google Drive đã gỡ (cut-over sang Jira "Bug Testing" — Decision #104).
+Module này giờ CHỈ còn primitive đọc .xlsx thô, dùng bởi `file_preview.py` để xem trước file
+.xlsx người dùng upload ở tab Tài liệu (#63). Zero network, zero Drive.
 
-Luồng runtime:
-  1. refresh_token (giải mã từ drive_token) -> access_token (cache memory ~1h).
-  2. GET files/<id>?fields=modifiedTime,md5Checksum  -> check đổi (rẻ, khỏi tải nếu y nguyên).
-  3. GET files/<id>?alt=media                        -> tải binary .xlsx khi đổi.
-  4. Parse .xlsx bằng stdlib (zipfile + xml.etree) — KHÔNG openpyxl.
-
-Output: fetch_rows() -> (rows: list[dict], meta: {fileId, modifiedTime, md5Checksum}).
-
-OPSEC: access_token/refresh_token = credential -> KHÔNG log; redact token khỏi mọi error
-trước khi raise.
-
-Layer: config -> {auth, drive_token, bug_log_source} -> (this). Không cycle.
+API public: list_sheet_names(data) · read_sheet_rows(data, sheet_name).
 """
-import datetime
 import re
-import threading
-import time
-import unicodedata
 import zipfile
 from io import BytesIO
 from xml.etree import ElementTree as ET
-
-import requests
-
-from auth import refresh_access_token
-from drive_token import load_refresh_token
-from bug_log_source import load_sources
-
-_DRIVE_FILES = 'https://www.googleapis.com/drive/v3/files/'
-# Google Sheet *native* (không phải .xlsx up lên Drive). KHÔNG tải được qua alt=media
-# (Drive trả 403 fileNotDownloadable) -> phải /export sang xlsx trước khi parse.
-_GSHEET_MIME = 'application/vnd.google-apps.spreadsheet'
-_XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-
-# ----- access_token cache (memory; background thread + handler dùng chung) -----
-_tok_lock = threading.Lock()
-_access_token = None
-_access_exp = 0.0   # epoch giây hết hạn (trừ hao 60s)
-
-
-def _redact(text, *secrets):
-    out = str(text)
-    for s in secrets:
-        if s:
-            out = out.replace(s, '<REDACTED>')
-    return out
-
-
-def _get_access_token(force=False):
-    """access_token còn hạn (cache), refresh khi hết. Raise RuntimeError nếu chưa kết nối Drive."""
-    global _access_token, _access_exp
-    with _tok_lock:
-        if not force and _access_token and time.time() < _access_exp:
-            return _access_token
-        rt = load_refresh_token()
-        if not rt:
-            raise RuntimeError('Chưa kết nối Drive. Admin vào Cài đặt → "Kết nối Drive".')
-        access, expires_in = refresh_access_token(rt)  # redact bên trong auth
-        _access_token = access
-        _access_exp = time.time() + max(60, expires_in - 60)
-        return access
-
-
-def _drive_get(url, params, token, stream=False):
-    """GET Drive API với Bearer token; redact token khỏi error. Trả response (raise nếu !=200)."""
-    try:
-        r = requests.get(url, params=params,
-                         headers={'Authorization': f'Bearer {token}'},
-                         timeout=30, stream=stream)
-    except requests.RequestException as e:
-        raise RuntimeError('Lỗi mạng khi gọi Drive: ' + _redact(e, token))
-    if r.status_code == 401:
-        raise PermissionError('access_token hết hạn')  # caller refresh + retry 1 lần
-    if r.status_code == 404:
-        raise RuntimeError('Không tìm thấy file trên Drive (sai id hoặc không có quyền đọc).')
-    if r.status_code != 200:
-        raise RuntimeError(f'Drive trả HTTP {r.status_code}.')
-    return r
-
-
-def _with_token_retry(fn):
-    """Chạy fn(token); nếu 401 -> refresh token rồi thử lại đúng 1 lần."""
-    token = _get_access_token()
-    try:
-        return fn(token)
-    except PermissionError:
-        token = _get_access_token(force=True)
-        try:
-            return fn(token)
-        except PermissionError:
-            raise RuntimeError('Drive từ chối truy cập (401) — token có thể đã bị thu hồi. '
-                               'Admin hãy "Kết nối Drive" lại.')
-
-
-def file_metadata(file_id):
-    """{name, modifiedTime, md5Checksum, mimeType} — tầng-1 check đổi (rẻ). md5Checksum vắng
-    với Google Sheet native; dựa modifiedTime là đủ. mimeType để biết native vs .xlsx."""
-    def go(token):
-        r = _drive_get(_DRIVE_FILES + file_id,
-                       {'fields': 'name,modifiedTime,md5Checksum,mimeType',
-                        'supportsAllDrives': 'true'},
-                       token)
-        return r.json()
-    return _with_token_retry(go)
-
-
-def download_file(file_id, mime_type=None):
-    """Tải nội dung file -> bytes .xlsx.
-
-    - Google Sheet native (mime_type == _GSHEET_MIME) -> /export sang xlsx (Drive convert).
-    - File nhị phân (.xlsx up lên Drive) -> alt=media như cũ.
-    mime_type=None -> tự lấy metadata để biết loại (thêm 1 call; caller nên truyền sẵn)."""
-    if mime_type is None:
-        mime_type = file_metadata(file_id).get('mimeType', '')
-
-    def go(token):
-        if mime_type == _GSHEET_MIME:
-            # files.export: convert Sheet native -> xlsx. KHÔNG nhận alt=media/supportsAllDrives.
-            r = _drive_get(_DRIVE_FILES + file_id + '/export',
-                           {'mimeType': _XLSX_MIME}, token, stream=False)
-        else:
-            r = _drive_get(_DRIVE_FILES + file_id,
-                           {'alt': 'media', 'supportsAllDrives': 'true'},
-                           token, stream=False)
-        return r.content
-    return _with_token_retry(go)
 
 
 # ===== Parse .xlsx — stdlib (zipfile + xml.etree) =====
@@ -166,7 +47,6 @@ def _sheet_targets(zf):
     """[(sheet_name, worksheet_path)] theo thứ tự workbook."""
     wb = ET.fromstring(zf.read('xl/workbook.xml'))
     rels_root = ET.fromstring(zf.read('xl/_rels/workbook.xml.rels'))
-    # rId -> target path
     rid_target = {}
     for rel in rels_root:
         rid = rel.get('Id')
@@ -191,7 +71,7 @@ def _sheet_targets(zf):
 
 
 def _cell_value(c, shared):
-    """Giá trị 1 ô <c> -> str (hoặc '' nếu rỗng). Giữ số dạng str (date serial xử lý sau)."""
+    """Giá trị 1 ô <c> -> str (hoặc '' nếu rỗng). Giữ số dạng str."""
     t = c.get('t')
     if t == 'inlineStr':
         parts = [el.text or '' for el in c.iter() if _localname(el.tag) == 't']
@@ -208,28 +88,26 @@ def _cell_value(c, shared):
             return shared[int(v)]
         except (ValueError, IndexError):
             return ''
-    return v  # number / str formula / boolean — giữ nguyên text
+    return v
 
 
 def _read_rows(zf, path, shared):
-    """worksheet -> list[list[str]] (mỗi row = list ô theo cột, fill '' ở cột thiếu)."""
+    """worksheet -> list[list[str]] (mỗi row = list ô theo cột, fill '' ở cột thiếu; pad dòng
+    trống để chỉ số khớp số dòng Excel)."""
     rows = []
     current_row = 1
     for _ev, row in ET.iterparse(BytesIO(zf.read(path))):
         if _localname(row.tag) != 'row':
             continue
-        
         r_attr = row.get('r')
         if r_attr:
             try:
                 row_idx = int(r_attr)
-                # Pad empty rows to maintain 1:1 mapping with Excel row numbers
                 while current_row < row_idx:
                     rows.append([])
                     current_row += 1
             except ValueError:
                 pass
-
         cells = {}
         maxc = -1
         for c in row:
@@ -244,103 +122,9 @@ def _read_rows(zf, path, shared):
     return rows
 
 
-def _serial_to_date(value):
-    """Excel serial (epoch 1899-12-30) -> 'YYYY-MM-DD'. Trả str gốc nếu không phải số."""
-    s = (value or '').strip()
-    if not s:
-        return ''
-    try:
-        serial = float(s)
-    except ValueError:
-        return s  # đã là chuỗi ngày -> giữ nguyên
-    try:
-        d = datetime.datetime(1899, 12, 30) + datetime.timedelta(days=serial)
-        return d.strftime('%Y-%m-%d')
-    except (OverflowError, ValueError):
-        return s
-
-
-_DATA_SHEET_RE = re.compile(r'^(?!template$).+$', re.IGNORECASE)
-_BANNER_RE = re.compile(r'AI\s*báo\s*cáo', re.IGNORECASE)
-
-
-def _parse_sheet(name, rows):
-    """1 sheet data -> list[dict] theo cấu trúc file bug log (xem CLAUDE/issue #52).
-
-    r1 = tiêu đề (bỏ), r2 = header, banner "AI báo cáo" (bỏ), data row = `Mô tả bug` non-empty.
-    Forward-fill `Chức năng`; `Ngày` serial->date; `Ảnh` tách theo newline."""
-    if len(rows) < 3:
-        return []
-    header = [str(h).strip() for h in rows[1]]  # r2 (index 1)
-    # map tên cột -> chỉ số (tên đầu tiên thắng nếu trùng)
-    col = {}
-    for i, h in enumerate(header):
-        if h and h not in col:
-            col[h] = i
-
-    out = []
-    last_func = ''
-    # enumerate start=3: rows[0]=r1 tiêu đề, rows[1]=r2 header -> data bắt đầu ở dòng Excel 3.
-    # `_read_rows` chèn dòng rỗng cho row bị nhảy số nên chỉ số vẫn khớp dòng thật trong file
-    # -> `_row` dùng được để user mở file nhảy đúng dòng (popup "thiếu STT").
-    for row_no, row in enumerate(rows[2:], start=3):
-        if not any(str(x).strip() for x in row):
-            continue
-        joined = ' '.join(str(x) for x in row if str(x).strip())
-        if _BANNER_RE.search(joined) and sum(1 for x in row if str(x).strip()) <= 1:
-            continue  # banner 1 ô
-        rec = {}
-        for h, i in col.items():
-            rec[h] = (row[i].strip() if i < len(row) and isinstance(row[i], str) else
-                      (str(row[i]).strip() if i < len(row) else ''))
-        # forward-fill Chức năng (merged cell)
-        func = rec.get('Chức năng', '')
-        if func:
-            last_func = func
-        else:
-            rec['Chức năng'] = last_func
-        # data row = Mô tả bug non-empty
-        if not rec.get('Mô tả bug', '').strip():
-            continue
-        # Ngày: Excel serial -> date
-        if 'Ngày' in rec:
-            rec['Ngày'] = _serial_to_date(rec['Ngày'])
-        # Ảnh: nhiều link -> list
-        if 'Ảnh' in rec:
-            links = [ln.strip() for ln in re.split(r'[\r\n]+', rec['Ảnh']) if ln.strip()]
-            rec['Ảnh'] = links
-        rec['_sheet'] = name
-        rec['_row'] = row_no
-        out.append(rec)
-    return out
-
-
-def parse_xlsx(data):
-    """bytes .xlsx -> list[dict] (gộp mọi sheet tên ^T\\d+$). Raise RuntimeError nếu file hỏng."""
-    try:
-        zf = zipfile.ZipFile(BytesIO(data))
-    except zipfile.BadZipFile:
-        raise RuntimeError('File tải về không phải .xlsx hợp lệ.')
-    with zf:
-        shared = _read_shared_strings(zf)
-        out = []
-        for name, path in _sheet_targets(zf):
-            if not _DATA_SHEET_RE.match(name):
-                continue  # bỏ Template & sheet phụ
-            try:
-                rows = _read_rows(zf, path, shared)
-            except KeyError:
-                continue
-            out.extend(_parse_sheet(name, rows))
-        return out
-
-
-# ===== Đọc sheet thô (generic) — dùng lại bởi import test case (#152) =====
-# parse_xlsx ở trên gắn riêng với cấu trúc bug log. Test case cần đọc THÔ theo
-# từng sheet (chọn tab nào tuỳ user) -> hai hàm dưới mở cơ chế parse stdlib sẵn
-# có (KHÔNG viết lại Drive client) cho mọi caller. Raise RuntimeError nếu file hỏng.
+# ===== API public — dùng bởi file_preview (#63) =====
 def list_sheet_names(data):
-    """bytes .xlsx -> [tên sheet] theo thứ tự workbook (gồm cả Template/sheet phụ)."""
+    """bytes .xlsx -> [tên sheet] theo thứ tự workbook. Raise RuntimeError nếu file hỏng."""
     try:
         zf = zipfile.ZipFile(BytesIO(data))
     except zipfile.BadZipFile:
@@ -350,8 +134,7 @@ def list_sheet_names(data):
 
 
 def read_sheet_rows(data, sheet_name):
-    """bytes .xlsx + tên sheet -> list[list[str]] (rows thô). Raise nếu file hỏng / không
-    thấy sheet."""
+    """bytes .xlsx + tên sheet -> list[list[str]] (rows thô). Raise nếu file hỏng / không thấy sheet."""
     try:
         zf = zipfile.ZipFile(BytesIO(data))
     except zipfile.BadZipFile:
@@ -365,274 +148,3 @@ def read_sheet_rows(data, sheet_name):
                 except KeyError:
                     raise RuntimeError('Không đọc được nội dung sheet đã chọn.')
         raise RuntimeError(f'Không tìm thấy sheet "{sheet_name}" trong file.')
-
-
-# ===== Normalize (issue #53) — header→field mapping + gộp status + khoá diff =====
-#
-# Đầu vào = rows thô từ parse_xlsx (dict keyed theo TÊN header gốc + `_sheet`).
-# Đầu ra  = {bugs:[...], unmapped:[...]} (xem docstring normalize).
-#
-# Nguyên tắc:
-#   - Map theo TÊN header (chuẩn hoá lower+trim), KHÔNG theo index → chống schema drift.
-#   - Gộp 3 cột status (Status tổng / Test status / Dev status) → 1 lifecycle.
-#   - Khoá diff = {project}#{month}#{bug_no}; month = tên sheet (STT restart mỗi tháng).
-#   - Thiếu/trùng bug_no → đẩy vào `unmapped`, KHÔNG vào diff (best-effort tới khi STT kỷ luật).
-
-def _norm_header(h):
-    """Chuẩn hoá tên header để map defensive: trim + gộp khoảng trắng + lower."""
-    return re.sub(r'\s+', ' ', str(h or '').strip()).lower()
-
-
-def _remove_accents(s):
-    if not isinstance(s, str):
-        return s
-    s = s.replace('Đ', 'D').replace('đ', 'd')
-    return unicodedata.normalize('NFKD', s).encode('ASCII', 'ignore').decode('utf-8')
-
-
-# normalized header -> field. Cột KHÔNG có ở đây (Urgent, Bug, Bug (T), Team Dev,
-# Bug (D), PIC cũ (Dev)) bị bỏ qua. 3 cột status xử lý riêng ở _lifecycle_status.
-_FIELD_MAP = {
-    'stt': 'bug_no',
-    'chức năng': 'feature',
-    'mô tả bug': 'summary',
-    'ảnh': 'screenshot_urls',
-    'severity': 'severity',
-    'kết quả mong muốn': 'expected',
-    'ngày': 'created',
-    'thời gian xử lý bug': 'handle_time',
-    'pic (test)': 'qa_pic',
-    'pic (dev)': 'dev_pic',
-    'note': 'note',
-}
-
-
-def _lifecycle_status(total, test, dev):
-    """Gộp 3 status → 1 vòng đời (New→Fixing→Fixed→Closed, nhánh Reopen/Rejected).
-
-    Cột "Status" tổng (total) là MASTER và trong file Bảo Kim NÓ ĐÃ là công thức gộp sẵn
-    Test status (O) + Dev status (S):
-        Closed (O=Closed & S=Fixed) · Reject (S=Reject) · Reopen (O=Reopen) ·
-        Fixing (S=Fixing) · Fixed (S=Fixed) · New (O=New) · '' (chưa set)
-    Nên TIN cột master trước, map thẳng từng giá trị nó sinh ra. Chỉ fallback heuristic
-    Test/Dev khi master TRỐNG (file cũ chưa có công thức / cột master để rỗng).
-    `Reject`/`Rejected` ở master = dev từ chối bug → 'Rejected' ("Bị từ chối")."""
-    t = (total or '').strip().lower()
-    if t == 'closed':
-        return 'Closed'
-    if t in ('reject', 'rejected'):
-        return 'Rejected'              # dev từ chối bug
-    if t == 'reopen':
-        return 'Reopen'
-    if t == 'fixed':
-        return 'Fixed'
-    if t == 'fixing':
-        return 'Fixing'
-    if t == 'new':
-        return 'New'
-    # master trống / giá trị lạ -> fallback heuristic theo Test/Dev (tương thích file cũ).
-    d = (dev or '').strip().lower()
-    tt = (test or '').strip().lower()
-    if d in ('reject', 'rejected'):
-        return 'Rejected'
-    if d == 'fixed':
-        return 'Fixed'
-    if d == 'fixing':
-        return 'Fixing'
-    if tt == 'closed':
-        return 'Closed'
-    if tt == 'reopen':
-        return 'Reopen'
-    return 'New'
-
-
-def project_from_filename(filename):
-    """Tên file Drive -> mã project (vd 'Logbug_DA6_2026.xlsx' -> 'DA6', 'Bug VĐT' -> 'VĐT').
-
-    Bỏ đuôi + tiền tố 'Logbug'/'Bug log'/'Bug', lấy token mã dự án (chữ+số) đầu tiên."""
-    base = re.sub(r'\.[^.]+$', '', filename or '').strip()
-    base = re.sub(r'^(log\s*bug|bug\s*log|bug)[\s_-]*', '', base, flags=re.IGNORECASE)
-    m = re.search(r'[A-Za-z]+\d+[A-Za-z0-9]*', base)
-    if m:
-        return m.group(0).upper()
-    # Không có mã dạng chữ+số -> tên dự án nhiều chữ ('Thu Hộ', 'Chi Hộ'): GIỮ CẢ CỤM,
-    # chỉ bỏ token năm. Trước chỉ lấy token đầu nên 'Bug Thu Hộ' ra 'THU' -> legend/bug id
-    # hiện sai tên dự án (Decision #93).
-    parts = [t for t in re.split(r'[\s_-]+', base) if t and not re.fullmatch(r'\d{2,4}', t)]
-    return (' '.join(parts) if parts else base).strip().upper()
-
-
-_T_SHEET_Y_NL = re.compile(r'^T(\d{1,2})(\d{4})$')   # 'T12026' -> 2026-01 (năm tường minh)
-_T_SHEET_NL = re.compile(r'^T(\d{1,2})$')            # 'T7' -> tháng 7, năm lấy từ created
-
-
-def _sheet_ym(month, created):
-    """Tên sheet (Tn) -> 'YYYY-MM' để so tuổi giữa các bản copy. Sheet module/không phải Tn
-    -> fallback tháng của created. Cùng luật với _month_of (bug_backlog) / monthOf (JS)."""
-    mo = (month or '').strip()
-    m = _T_SHEET_Y_NL.match(mo)
-    if m and 1 <= int(m.group(1)) <= 12:
-        return f"{int(m.group(2)):04d}-{int(m.group(1)):02d}"
-    m = _T_SHEET_NL.match(mo)
-    if m and 1 <= int(m.group(1)) <= 12:
-        yr = (created or '')[:4]
-        if re.match(r'^\d{4}$', yr):
-            return f"{yr}-{int(m.group(1)):02d}"
-    return (created or '')[:7]
-
-
-def normalize(rows, project='', service=''):
-    """rows thô (parse_xlsx) -> {bugs:[...], unmapped:[...]}.
-
-    bug = {bug_no, month, project, feature, summary, status, severity, qa_pic, dev_pic,
-           screenshot_urls, created, note, expected, handle_time, service}.
-    - status = _lifecycle_status (gộp 3 cột).
-    - month  = tên sheet (rec['_sheet']); created đã là 'YYYY-MM-DD' từ parse.
-    - Khoá diff = {project}#{service}#{month}#{bug_no} (nếu có service) hoặc {project}#{month}#{bug_no}.
-      Thiếu bug_no -> unmapped (reason 'no_stt');
-      trùng khoá -> MỌI dòng cùng khoá vào unmapped (reason 'dup_stt') vì không phân biệt được.
-    - Cột "Bug" quyết định dòng có phải bug hay không, và phân loại LAN theo nội dung: các dòng
-      cùng summary (bản copy sang sheet tháng mới) lấy phân loại của bản MỚI NHẤT -> đánh dấu
-      lại 1 dòng là "không phải bug" thì bản ở sheet tháng cũ cũng bị loại (hết tồn đọng oan).
-    `project` nên do caller suy từ tên file (project_from_filename)."""
-    project = (project or '').strip()
-    service = (service or '').strip()
-    parsed = []
-    for idx, rec in enumerate(rows):
-        month = str(rec.get('_sheet', '')).strip()
-        nrec = {_norm_header(k): v for k, v in rec.items() if k not in ('_sheet', '_row')}
-
-        # Phân loại theo cột "Bug": CHỈ dòng loại = 'Bug'/'bug' là bug. Ô trống hoặc giá trị
-        # khác (Improvement, Task, nghiệp vụ mới, ...) -> KHÔNG phải bug. Sheet KHÔNG có cột
-        # "Bug" -> 'bug' vắng khỏi nrec -> coi là bug (backward-compat file/sheet cũ).
-        is_bug = (str(nrec.get('bug', '')).strip().lower() == 'bug') if 'bug' in nrec else True
-
-        bug = {'month': month, 'project': project}
-        for nh, field in _FIELD_MAP.items():
-            val = nrec.get(nh, [] if field == 'screenshot_urls' else '')
-            if field in ('qa_pic', 'dev_pic') and isinstance(val, str):
-                val = _remove_accents(val).strip()
-            bug[field] = val
-        if not isinstance(bug['screenshot_urls'], list):
-            bug['screenshot_urls'] = []
-
-        bug['status'] = _lifecycle_status(
-            nrec.get('status', ''), nrec.get('test status', ''), nrec.get('dev status', ''))
-        # status_raw = CỘT "Status" gốc trong Excel (đã là công thức gộp dev+test status).
-        # Dùng cho metric dashboard "bug theo từng status" — user muốn sát file, KHÔNG gộp
-        # lifecycle. Migration-safe: bug cache cũ thiếu field này -> coi như '' (xem #...).
-        bug['status_raw'] = str(nrec.get('status', '') or '').strip()
-
-        bug['bug_no'] = str(bug.get('bug_no', '')).strip()
-        bug['service'] = service
-        base_key = f"{project}#{service}#{month}#{bug['bug_no']}" if service else f"{project}#{month}#{bug['bug_no']}"
-        bug['key'] = base_key if bug['bug_no'] else ''
-        bug['_is_bug'] = is_bug
-        bug['_idx'] = idx
-        bug['_row'] = rec.get('_row', 0)   # số dòng Excel — chỉ đi kèm unmapped (xem cuối hàm)
-        parsed.append(bug)
-
-    # ----- Phân loại lan theo NỘI DUNG: bản MỚI NHẤT thắng -----
-    # Team bê bug tồn sang sheet tháng mới rồi đánh dấu lại cột "Bug" (vd bỏ khỏi diện bug vì
-    # thực chất là nghiệp vụ mới). Nếu chỉ lọc từng dòng thì bản ở sheet tháng CŨ vẫn còn ->
-    # vẫn bị đếm là bug đang mở (tồn đọng oan). Nên gom các dòng CÙNG NỘI DUNG (fingerprint =
-    # project|service|summary — trong 1 lần normalize thì project/service cố định nên chỉ cần
-    # summary đã chuẩn hoá, KHỎI phải nhân bản fingerprint()) rồi lấy phân loại của bản MỚI
-    # NHẤT (theo THÁNG của sheet) áp cho CẢ nhóm:
-    #   - tháng mới nhất của nhóm KHÔNG còn dòng nào là bug -> bỏ TOÀN BỘ nhóm (gồm bản ở
-    #     sheet tháng cũ);
-    #   - còn dòng 'Bug' ở tháng mới nhất -> giữ như cũ (chỉ dòng đánh 'Bug' được giữ).
-    # Chọn "tháng mới nhất thắng" (không phải "hễ có 1 dòng non-bug là bỏ hết") để dòng cũ CHƯA
-    # kịp điền cột Bug không xoá oan bản mới đã đánh dấu đúng. So theo THÁNG (không theo từng
-    # dòng) nên 2 dòng trùng nội dung TRONG CÙNG sheet — 1 đánh 'Bug', 1 bỏ trống (dedup tay) —
-    # thì "là bug" thắng, không xoá oan dòng bug thật.
-    # CHỈ dòng CÓ STT được bỏ phiếu: dòng thiếu STT là dòng rác/spill (vốn đã vào unmapped),
-    # cột "Bug" của nó thường trống nên nếu cho bỏ phiếu sẽ xoá oan bản bug thật cùng summary.
-    latest = {}
-    for b in parsed:
-        if not b.get('bug_no'):
-            continue
-        fp = ' '.join((b.get('summary') or '').strip().lower().split())
-        if not fp:
-            continue                                  # summary rỗng -> không gom nhóm
-        ym = _sheet_ym(b.get('month'), b.get('created'))
-        cur = latest.get(fp)
-        if cur is None or ym > cur[0]:
-            latest[fp] = (ym, b['_is_bug'])
-        elif ym == cur[0] and b['_is_bug']:
-            latest[fp] = (ym, True)                   # cùng tháng: 'là bug' thắng
-    declassified = {fp for fp, (_, ok) in latest.items() if not ok}
-
-    parsed = [b for b in parsed
-              if b['_is_bug']
-              and ' '.join((b.get('summary') or '').strip().lower().split()) not in declassified]
-    for b in parsed:
-        b.pop('_is_bug', None)
-        b.pop('_idx', None)
-
-    # đếm khoá để bắt trùng (chỉ tính dòng CÓ bug_no)
-    key_count = {}
-    for b in parsed:
-        if b['key']:
-            key_count[b['key']] = key_count.get(b['key'], 0) + 1
-
-    bugs, unmapped = [], []
-    for b in parsed:
-        # `_row` chỉ có ý nghĩa cho unmapped (user phải mở file sửa đúng dòng) -> pop khỏi bug
-        # để dict bug lưu cache/diff không đổi hình dạng.
-        row_no = b.pop('_row', 0)
-        if not b['bug_no']:
-            unmapped.append({**b, 'reason': 'no_stt', 'row': row_no})
-        elif key_count[b['key']] > 1:
-            unmapped.append({**b, 'reason': 'dup_stt', 'row': row_no})
-        else:
-            bugs.append(b)
-    return {'bugs': bugs, 'unmapped': unmapped}
-
-
-# ===== Entry =====
-def _resolve_file_id(file_id):
-    if file_id:
-        return file_id
-    sources = load_sources()
-    if not sources:
-        raise RuntimeError('Chưa cấu hình file Drive nguồn (Quản lý Drive Link).')
-    return sources[0]['id']
-
-
-def fetch_meta(file_id=None):
-    """Chỉ lấy metadata (Tầng-1, rẻ) -> meta {fileId, name, modifiedTime, md5Checksum}.
-
-    Dùng để check file có đổi không TRƯỚC khi tải binary (tránh download lãng phí khi
-    file y nguyên). file_id=None -> nguồn đầu tiên trong cấu hình."""
-    fid = _resolve_file_id(file_id)
-    m = file_metadata(fid)
-    return {
-        'fileId': fid,
-        'name': m.get('name', ''),
-        'modifiedTime': m.get('modifiedTime', ''),
-        'md5Checksum': m.get('md5Checksum', ''),
-        'mimeType': m.get('mimeType', ''),
-    }
-
-
-def fetch_content(file_id=None, mime_type=None):
-    """Tải nội dung + parse 1 file bug log -> rows. CHỈ gọi khi đã biết file đổi (Tầng-2).
-
-    mime_type nên truyền sẵn từ Tầng-1 (fetch_meta) để khỏi gọi metadata lần nữa; None ->
-    download_file tự lấy."""
-    fid = _resolve_file_id(file_id)
-    return parse_xlsx(download_file(fid, mime_type))
-
-
-def fetch_rows(file_id=None):
-    """Tải + parse 1 file bug log. Trả (rows, meta).
-
-    file_id=None -> lấy nguồn đầu tiên trong cấu hình. Raise RuntimeError (đã redact token)
-    nếu chưa kết nối Drive / chưa cấu hình nguồn / file lỗi — caller (#54) bắt để báo mềm.
-
-    Giữ để tương thích; scan() (#54) nay dùng fetch_meta + fetch_content (Tầng-1/Tầng-2)."""
-    fid = _resolve_file_id(file_id)
-    meta = fetch_meta(fid)
-    rows = fetch_content(fid, mime_type=meta.get('mimeType', ''))
-    return rows, meta

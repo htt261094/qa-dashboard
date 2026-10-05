@@ -18,7 +18,7 @@ Lưu trữ (`.bug_log.json` local = full; Jira property = full hoặc bản nh�
     "synced_at": iso
   }
 
-Layer: config -> {jira_api, bug_log, bug_log_source, drive_token} -> (this). Không cycle.
+Layer: config -> {jira_api, bug_source_jira, bug_log_source, remote_store} -> (this). Không cycle.
 """
 import json
 import sys
@@ -32,10 +32,7 @@ from jira_api import run_parallel
 # LWW của synced_* (sẽ làm tụt count). Chỉ đổi backend Jira->KV qua remote_get/remote_put, GIỮ
 # nguyên merge-before-write. KV value tới 25MB (Jira ~32KB) nên light-split ít khi cần nhưng giữ.
 from remote_store import remote_get as load_property, remote_put as save_property
-from bug_log import (fetch_meta, fetch_content, normalize, project_from_filename,
-                     _redact, _sheet_ym)
-from bug_log_source import load_sources, provider_of
-from drive_token import has_drive_token, load_refresh_token
+from bug_log_source import load_sources
 
 BUG_LOG_PROP = 'qa-dashboard-bug-log'
 # Watermark "admin đã xem popup thay đổi" per-user (email -> mốc `when` lớn nhất đã xem).
@@ -48,8 +45,6 @@ _STARTUP_DELAY = 20         # đợi server lên + đỡ chậm khởi động t
 _ACT_CAP = 200
 _ACT_PRUNE_DAYS = 14
 _PROP_MAX_BYTES = 30_000    # Jira property ~32KB; vượt -> chỉ sync bản nhẹ (không kèm bugs)
-_MISSING_CAP_FILE = 60      # cap dòng "thiếu STT" lưu per-file (giữ cache/property gọn)
-_MISSING_CAP_RESULT = 120   # cap gửi ra popup 1 lượt
 
 # scan() chạy từ daemon thread VÀ từ POST /sync-bug-log -> serialize để không đua ghi cache.
 _scan_lock = threading.Lock()
@@ -549,175 +544,44 @@ def _apply_jira_reopens(reopen_map, cur_bugs):
     return changed
 
 
-def _seed_current_reopens(reopen_map, cur_bugs):
-    """Hướng A (#146): bug ĐANG ở status 'Reopen' mà chưa có entry -> seed count, fix=1.
-
-    Lý do: bug ở trạng thái Reopen tất phải đã Fixed >=1 lần rồi bị QA dội -> đếm tối thiểu 1.
-    Bù cho transition bị lỡ TRƯỚC khi bật theo dõi / sau khi accumulator bị reset (mà
-    _count_reopens transition-based không bắt được). Chạy MỖI scan trên TẤT CẢ bug hiện tại
-    (kể cả file Tầng-1 skip) -> tự chữa ngay, không cần file đổi.
-
-    CARRY qua sheet tháng (user chốt 2026-07-15, case 2): bug tồn đọng được QA copy sang sheet
-    tháng mới (key = {project}#{service}#{sheet}#{STT} đổi vì sheet+STT đổi) mà đang Reopen ->
-    seed count = SỐ REOPEN LIFETIME của chính bug đó (định danh theo FINGERPRINT nội dung) lấy
-    từ entry sheet tháng trước, thay vì =1. Sau đó _count_reopens cộng tiếp reopen mới ở tháng
-    T lên key mới này -> "reopen T-1 (chốt cuối T-1) + reopen mới ở T". Vì carry chỉ đổi GIÁ TRỊ
-    count của seed (không đổi việc có/không entry) nên distinctTotal + tỷ lệ reopen KHÔNG đổi;
-    chỉ số "N lần reopen"/"số lần fix" chi tiết thành đúng lifetime.
-
-    Backfill fp cho entry cũ (ghi trước bản này) khi dòng bug gốc còn trong file -> carry chạy
-    được cả cho reopen ghi nhận trước khi bật fp. Dòng gốc đã xoá khỏi file + entry chưa stamp
-    fp -> không suy được fp -> seed 1 như cũ (caveat: chuẩn tuyệt đối từ chu kỳ tháng sau).
-
-    Idempotent + KHÔNG double với transition: chỉ seed khi `key not in reopen_map`. Trả số
-    thay đổi (seed + backfill) để caller set dirty."""
-    from bug_backlog import fingerprint   # lazy: tránh cycle với bug_backlog
-    changed = 0
-    # 1) Backfill fp cho entry cũ có dòng gốc còn trong file (để làm nguồn carry ngay lượt này).
-    for key, b in cur_bugs.items():
-        e = reopen_map.get(key)
-        if e is not None and not e.get('fp'):
-            e['fp'] = fingerprint(b)
-            changed += 1
-    # 2) fp -> reopen lifetime lớn nhất trong các entry đã biết (nguồn carry). Lấy MAX vì entry
-    #    tháng sau đã được seed cộng dồn từ tháng trước -> max = lifetime mới nhất.
-    fp_max = {}
-    for e in reopen_map.values():
-        f = e.get('fp')
-        if f:
-            c = int(e.get('count') or 0)
-            if c > fp_max.get(f, 0):
-                fp_max[f] = c
-    # 3) Seed bug đang Reopen chưa có entry: carry lifetime (else 1 như cũ).
-    for key, b in cur_bugs.items():
-        if (b.get('status') or '') == 'Reopen' and key not in reopen_map:
-            f = fingerprint(b)
-            carried = fp_max.get(f, 0)
-            reopen_map[key] = {
-                'count': carried if carried > 0 else 1, 'fix': 1, 'last': _now_iso(),
-                'dev': b.get('dev_pic', '') or '',
-                'project': b.get('project', '') or '',
-                'month': b.get('month', '') or '',
-                'fp': f,
-            }
-            changed += 1
-    return changed
-
-
-def _missing_id_rows(unmapped, file_name):
-    """unmapped (từ normalize) -> danh sách dòng "đủ thông tin nhưng CHƯA có STT".
-
-    Vì sao tách riêng khỏi popup thay đổi: dòng thiếu STT KHÔNG có khoá diff nên không bao
-    giờ vào bugs/activity — nó im lặng rơi khỏi mọi metric. User cần thấy để mở file đánh
-    lại STT (Decision #88).
-
-    Lọc `reason == 'no_stt'` (dòng trùng STT là ca khác, không đưa vào đây) + "đủ thông
-    tin" = có `summary` (parse đã ép non-empty) VÀ ít nhất 1 field nghiệp vụ đã điền
-    (ngày / status gốc / QA / dev / severity) -> loại dòng ghi chú, dòng spill khi copy.
-    """
-    out = []
-    for b in unmapped:
-        if b.get('reason') != 'no_stt':
-            continue
-        if not str(b.get('summary') or '').strip():
-            continue
-        if not any(str(b.get(f) or '').strip()
-                   for f in ('created', 'status_raw', 'qa_pic', 'dev_pic', 'severity')):
-            continue
-        out.append({
-            'file': file_name or '',
-            'sheet': b.get('month', '') or '',
-            'row': int(b.get('row') or 0),
-            'summary': (str(b.get('summary') or '').strip())[:300],
-            'feature': str(b.get('feature') or '').strip()[:120],
-            'created': str(b.get('created') or '').strip()[:20],
-            'status': str(b.get('status') or '').strip()[:30],
-            'qa_pic': str(b.get('qa_pic') or '').strip()[:60],
-            'dev_pic': str(b.get('dev_pic') or '').strip()[:60],
-        })
-        if len(out) >= _MISSING_CAP_FILE:
-            break
-    return out
-
 
 def _prune_activity(activity):
     cutoff = (datetime.now() - timedelta(days=_ACT_PRUNE_DAYS)).isoformat()
     return [a for a in activity if a.get('when', '') >= cutoff][:_ACT_CAP]
 
 
-# ===== scan() — tầng-1 metadata check -> tầng-2 fetch+diff =====
+# ===== scan() — kéo bug từ nguồn Jira "Bug Testing" (#104) =====
 def _scan_one(src, prev, force=False):
-    """Xử lý 1 file Drive — PHẦN THUẦN (không ghi state chung) để chạy song song an toàn.
-
-    Tầng-1: chỉ lấy metadata; nếu (modifiedTime, md5) y lần trước -> 'unchanged', KHÔNG tải.
-    Tầng-2 (chỉ khi đổi): tải binary + parse + normalize. Trả dict cho merge tuần tự ở scan().
-    Bắt MỌI lỗi vào 'error' (không raise) -> 1 file hỏng không kéo sập cả lượt scan.
-
-    force=True (đồng bộ THỦ CÔNG từ UI): BỎ QUA Tầng-1 -> luôn tải + parse lại từ Drive, kể cả
-    khi metadata y hệt lần trước. Lý do: metadata Drive có thể trễ/không đổi (native Sheet không
-    có md5, modifiedTime lan truyền chậm) nên "sync ngay" mà tin metadata thì user sửa file xong
-    bấm sync vẫn thấy số cũ. Poll nền vẫn force=False để giữ lợi ích Tầng-1 (đỡ tải)."""
+    """Xử lý 1 nguồn bug Jira — PHẦN THUẦN (không ghi state chung) để chạy song song an toàn.
+    Gọi bug_source_jira.scan_source; soft-fail per-source (lỗi -> {'error'}). `prev`/`force`
+    giữ chữ ký cũ nhưng không dùng (Jira fetch mỗi lượt — volume nhỏ, không cần Tầng-1 metadata)."""
     fid = src.get('id')
     if not fid:
         return None
-    # Nguồn Jira (placeholder #61): route sang bug_source_jira. Khi toggle tắt (mặc định) ->
-    # pending -> no-op (unchanged) -> KHÔNG đụng store. Khi bật + có bug -> dựng cur_bugs y
-    # nhánh Drive để merge/diff/reopen dùng lại toàn bộ. Lazy-import: chỉ trả giá khi thật dùng.
-    if provider_of(src) == 'jira':
-        import bug_source_jira
-        res = bug_source_jira.scan_source(src)
-        if res.get('error'):
-            return {'fid': fid, 'error': res['error']}
-        bugs = res.get('bugs') or []
-        if res.get('pending') or not bugs:
-            return {'fid': fid, 'unchanged': True, 'count': len(prev.get('bugs', {}))}
-        cur_bugs = {b['key']: b for b in bugs if b.get('key')}
-        project = src.get('label', '') or (res.get('meta') or {}).get('project', '')
-        meta = {'name': src.get('label', '') or fid,
-                'modifiedTime': (res.get('meta') or {}).get('modifiedTime', ''),
-                'md5Checksum': ''}
-        return {'fid': fid, 'meta': meta, 'project': project,
-                'norm': {'bugs': bugs, 'unmapped': res.get('unmapped') or []},
-                'cur_bugs': cur_bugs}
-    try:
-        meta = fetch_meta(fid)   # Tầng-1: rẻ, không tải binary
-        unchanged = (not force
-                     and prev.get('modifiedTime') == meta.get('modifiedTime')
-                     and prev.get('md5Checksum') == meta.get('md5Checksum')
-                     and 'bugs' in prev
-                     and prev.get('_version') == 5)
-        if unchanged:
-            return {'fid': fid, 'unchanged': True, 'count': len(prev.get('bugs', {}))}
-        # Tầng-2: chỉ tới đây mới tải + parse + normalize (file đã đổi). Truyền mimeType từ
-        # Tầng-1 để download_file biết native Sheet (->/export) vs .xlsx (->alt=media), không
-        # gọi metadata lần nữa.
-        rows = fetch_content(fid, mime_type=meta.get('mimeType', ''))
-        project = project_from_filename(src.get('label', '') or meta.get('name', ''))
-        norm = normalize(rows, project=project, service=src.get('service', ''))
-        cur_bugs = {b['key']: b for b in norm['bugs'] if b.get('key')}
-        return {'fid': fid, 'meta': meta, 'project': project,
-                'norm': norm, 'cur_bugs': cur_bugs}
-    except Exception as e:   # noqa: BLE001 — soft-fail per-file (RuntimeError + lỗi lạ)
-        return {'fid': fid, 'error': _safe(e)}
+    import bug_source_jira   # lazy — giữ layer sạch
+    res = bug_source_jira.scan_source(src)
+    if res.get('error'):
+        return {'fid': fid, 'error': res['error']}
+    bugs = res.get('bugs') or []
+    if res.get('pending') or not bugs:
+        return {'fid': fid, 'unchanged': True, 'count': len(prev.get('bugs', {}))}
+    cur_bugs = {b['key']: b for b in bugs if b.get('key')}
+    project = src.get('label', '') or (res.get('meta') or {}).get('project', '')
+    meta = {'name': src.get('label', '') or fid, 'modifiedTime': '', 'md5Checksum': ''}
+    return {'fid': fid, 'meta': meta, 'project': project,
+            'norm': {'bugs': bugs, 'unmapped': []}, 'cur_bugs': cur_bugs}
 
 
 def scan(force=False):
-    """Quét tất cả nguồn Drive 1 lượt. Trả dict tổng kết:
-       {ok, synced_at, count, changed, unmapped, errors}.
+    """Quét tất cả nguồn Jira "Bug Testing" 1 lượt. Trả {ok, synced_at, count, changed, errors}.
 
-    force=True (POST /sync-bug-log — user bấm "Đồng bộ ngay"): bỏ qua Tầng-1, đọc lại từ
-    source cho MỌI file dù metadata chưa đổi. Poll nền gọi force=False.
-
-    Tầng-1: nếu file (modifiedTime,md5) y lần trước -> bỏ qua tải. Tầng-2: tải+parse+
-    normalize -> diff -> gom event. Ghi cache + sync property 1 lần ở cuối.
-
-    Các file fetch+parse SONG SONG (_scan_one, không đụng state chung); MERGE/diff chạy
-    TUẦN TỰ theo đúng thứ tự `sources` -> không race, thứ tự activity event ổn định.
-    Lỗi 1 file KHÔNG chặn file khác; lỗi chung -> giữ cache cũ."""
+    force giữ chữ ký cũ (route /sync-bug-log truyền True) — Jira fetch mỗi lượt nên không khác.
+    Mỗi nguồn fetch SONG SONG (_scan_one, không đụng state chung); MERGE/diff TUẦN TỰ theo thứ tự
+    `sources` -> thứ tự activity event ổn định. Lỗi 1 nguồn KHÔNG chặn nguồn khác."""
     with _scan_lock:
         result = {'ok': True, 'synced_at': '', 'count': 0, 'changed': 0,
                   'unmapped': 0, 'errors': [], 'changes': [],
-                  'missing': [], 'missing_total': 0}
+                  'missing': [], 'missing_total': 0}   # missing: giữ key cho JS cũ, luôn rỗng (Jira)
         try:
             sources = load_sources()
         except RuntimeError as e:
@@ -728,13 +592,6 @@ def scan(force=False):
             result['ok'] = False
             result['errors'].append('Chưa cấu hình nguồn Bug Log.')
             return result
-        # Drive CHỈ cần khi còn nguồn provider='drive' (cut-over #104: mặc định toàn Jira, không
-        # cần Drive token). Toàn Jira -> bỏ qua gate này.
-        has_drive_src = any(provider_of(s) == 'drive' for s in sources)
-        if has_drive_src and not has_drive_token():
-            result['ok'] = False
-            result['errors'].append('Chưa kết nối Drive (còn nguồn Drive trong cấu hình).')
-            return result
 
         data = _load_data()
         files = data.setdefault('files', {})
@@ -744,13 +601,13 @@ def scan(force=False):
         new_events = []
         dirty = False
 
-        # PHẦN THUẦN — fetch + parse song song (I/O mạng Drive). Key = index để KHÔNG gộp
+        # PHẦN THUẦN — fetch song song mỗi nguồn (I/O mạng Jira). Key = index để KHÔNG gộp
         # nhầm khi 2 nguồn trùng id; _scan_one tự bắt lỗi nên run_parallel không re-raise.
         jobs = {str(i): (lambda s=src, p=files.get(src.get('id'), {}): _scan_one(s, p, force))
                 for i, src in enumerate(sources)}
         parallel = run_parallel(jobs) if jobs else {}
 
-        # MERGE TUẦN TỰ theo thứ tự sources (giữ nguyên thứ tự activity event như bản cũ).
+        # MERGE TUẦN TỰ theo thứ tự sources (giữ thứ tự activity event ổn định).
         for i, src in enumerate(sources):
             r = parallel.get(str(i))
             if not r:
@@ -760,63 +617,28 @@ def scan(force=False):
                 continue
             fid = r['fid']
             if r.get('unchanged'):
-                result['count'] += r.get('count', 0)   # vẫn cộng để tổng kết đúng thực tế
+                result['count'] += r.get('count', 0)
                 continue
-            # Tầng-2 đã làm trong _scan_one; ở đây chỉ diff + ghi state chung
             prev = files.get(fid, {})
             meta, norm, cur_bugs = r['meta'], r['norm'], r['cur_bugs']
             new_events.extend(_diff_events(prev.get('bugs', {}), cur_bugs, meta.get('name', '')))
-            # Reopen: nguồn Jira (#104) đếm từ changelog (xử lý sau vòng lặp) — KHÔNG dùng diff.
-            # Chỉ nguồn Drive mới suy reopen bằng accumulator transition giữa 2 snapshot.
-            if provider_of(src) != 'jira' and _count_reopens(reopen, prev.get('bugs', {}), cur_bugs):
-                dirty = True
             if _update_metrics(metrics, fid, _metric_snapshot(cur_bugs)):
                 dirty = True
             files[fid] = {
-                'modifiedTime': meta.get('modifiedTime', ''),
-                'md5Checksum': meta.get('md5Checksum', ''),
                 'name': meta.get('name', ''),
                 'project': r['project'],
                 'bugs': cur_bugs,
                 'count': len(cur_bugs),
-                'unmapped': len(norm['unmapped']),
-                # Dòng "đủ thông tin nhưng thiếu STT" — lưu theo file để popup sau đồng bộ
-                # nêu được CẢ file mà Tầng-1 vừa skip (#88).
-                'missing': _missing_id_rows(norm['unmapped'], meta.get('name', '')),
                 'scanned_at': _now_iso(),
-                '_version': 5,   # 5: +missing (dòng thiếu STT). 4: _lifecycle_status tin cột master. 3: +status_raw
             }
             result['count'] += len(cur_bugs)
-            result['unmapped'] += len(norm['unmapped'])
             dirty = True
 
-        # Dòng thiếu STT: gom từ MỌI file trong cache (kể cả file Tầng-1 vừa skip) để popup
-        # luôn nêu đủ hiện trạng, không chỉ file vừa đổi (#88). Sắp theo file rồi sheet/dòng
-        # cho khớp thứ tự user nhìn trong Excel.
-        # CHỈ tháng hiện tại: sheet tháng cũ đã chốt/đã gửi report, nhắc lại chỉ làm nhiễu —
-        # user chỉ đi đánh lại STT cho tháng đang chạy. Lọc ở ĐÂY (lúc dựng result) chứ không
-        # lúc lưu, để sang tháng mới file bị Tầng-1 skip không đọng lại dòng của tháng trước.
-        cur_ym = datetime.now().strftime('%Y-%m')
-        missing_all = []
-        for f in files.values():
-            for m in (f.get('missing') or []):
-                if _sheet_ym(m.get('sheet', ''), m.get('created', '')) == cur_ym:
-                    missing_all.append(m)
-        missing_all.sort(key=lambda m: (m.get('file', ''), m.get('sheet', ''), m.get('row', 0)))
-        result['missing_total'] = len(missing_all)
-        result['missing'] = missing_all[:_MISSING_CAP_RESULT]
-
-        # Hướng A (#146): seed reopen cho bug đang ở Reopen nhưng thiếu entry (transition bị
-        # lỡ / sau reset accumulator). Chạy trên MỌI bug hiện tại (gồm file Tầng-1 skip) ->
-        # tự chữa ngay kể cả khi không file nào đổi. Idempotent (chỉ seed key chưa có).
+        # Reopen (#104): set THẲNG từ bug['reopen_count'] (đếm changelog Jira, chính xác).
         all_cur_bugs = {}
         for f in files.values():
             all_cur_bugs.update(f.get('bugs', {}))
-        # Nguồn Jira (#104): set reopen THẲNG từ bug['reopen_count'] (đếm changelog, chính xác).
         if _apply_jira_reopens(reopen, all_cur_bugs):
-            dirty = True
-        # Nguồn Drive (nếu còn): seed theo trạng thái Reopen hiện tại như cũ.
-        if has_drive_src and _seed_current_reopens(reopen, all_cur_bugs):
             dirty = True
 
         # Hướng B (tồn đọng T-1): chốt snapshot status per-bug theo tháng tạo. Tự dedup +
@@ -828,14 +650,8 @@ def scan(force=False):
         except Exception as e:   # noqa: BLE001 — archive KHÔNG được làm sập lượt scan
             _log('backlog archive warn: ' + _safe(e))
 
-        # Stamp fingerprint lên link bug->task — CHỈ cần cho nguồn Drive (key sheet đổi khi copy).
-        # Nguồn Jira (#104): key = issue.key ổn định -> không cần fp carry. Soft-fail.
-        if has_drive_src:
-            try:
-                from task_link import backfill_fingerprints as _backfill_link_fp
-                _backfill_link_fp(all_cur_bugs)
-            except Exception as e:   # noqa: BLE001
-                _log('link fp backfill warn: ' + _safe(e))
+        # Link bug<->task (task_link) đã gỡ (#104): bug mang link native Jira trong `tasks`,
+        # không cần stamp fingerprint carry.
 
         if new_events:
             data['activity'] = _prune_activity(new_events + activity)
@@ -867,13 +683,8 @@ def scan(force=False):
 
 
 def _safe(exc):
-    """Redact token khỏi message lỗi (fetch_rows đã redact, đây là lớp chắn cuối)."""
-    rt = None
-    try:
-        rt = load_refresh_token()
-    except Exception:
-        rt = None
-    return _redact(exc, rt) if rt else str(exc)
+    """Message lỗi an toàn. Token Jira do jira_api redact sẵn; đây chỉ là lớp chắn cuối."""
+    return str(exc)
 
 
 # ===== Daemon thread =====

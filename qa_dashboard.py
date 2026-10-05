@@ -38,11 +38,10 @@ from bug_log_store import (scan as bug_log_scan, start_scheduler as start_bug_lo
                            load_bug_log, unseen_changes as bug_log_unseen,
                            mark_changes_seen as bug_log_mark_seen, search_bugs)
 from bug_log_source import load_sources
-from task_link import load_links, set_task_links, tasks_of, fp_of
-from bug_backlog import fingerprint as bug_fingerprint, load_backlog
+from bug_backlog import load_backlog
 from jira_api import (fetch_all_shared, scope_data, fetch_activity_feed, load_dismissed,
                       dismiss_activities, run_parallel, fetch_issue_detail,
-                      search_parent_tasks, search_people, search_qa_tasks, global_search,
+                      search_parent_tasks, search_people, global_search,
                       fetch_subtasks)
 from docs import load_docs, save_docs, valid_tree, ensure_process_folder
 from pat_store import save_user_pat, has_pat, delete_user_pat
@@ -243,59 +242,26 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         return self._user_email() or '_local'
 
     def _bugs_for_task(self, task_key):
-        """Chiều ngược của task_link: list bug ĐÃ LINK tới `task_key`, cho drawer detail.
-        Nguồn = load_links() (bugKey->task) ∩ load_bug_log() (chi tiết bug). Đọc cache
-        local/property -> nhẹ. Lỗi -> [] (drawer vẫn mở bình thường, chỉ thiếu mục bug)."""
-        try:
-            links = load_links()
-        except Exception:
-            return []
-        # Entry link tới task này + fingerprint đã stamp (để bám bug qua copy sang sheet mới).
-        # So khớp theo CANON key (bền qua đổi project key mỗi kỳ nửa năm, xem config.canon_key).
+        """Chiều ngược (#104): list bug Jira "Bug Testing" có link native (parent / Relates to)
+        tới `task_key`, cho drawer detail. Mỗi bug mang sẵn `tasks` = issue liên quan (đọc từ
+        Jira lúc scan) -> so khớp theo CANON key (bền qua đổi project key mỗi kỳ, config.canon_key).
+        Lỗi -> [] (drawer vẫn mở, chỉ thiếu mục bug)."""
         ck = canon_key(task_key)
-        linked = [(bk, fp_of(v)) for bk, v in links.items()
-                  if ck in {canon_key(t) for t in tasks_of(v)}]
-        if not linked:
-            return []
         try:
             files = (load_bug_log() or {}).get('files', {}) or {}
-        except Exception:
+        except Exception:   # noqa: BLE001
             return []
-        by_key, by_fp = {}, {}
+        out = []
         for f in files.values():
-            for k, b in (f.get('bugs', {}) or {}).items():
-                by_key[k] = b
-                by_fp.setdefault(bug_fingerprint(b), []).append(b)
-
-        def _newest(bugs):
-            # Bản mới nhất thắng: bug live có created lớn nhất (khi cùng nội dung sang nhiều sheet).
-            return max(bugs, key=lambda x: (x.get('created', '') or ''))
-
-        out, seen = [], set()
-        for bk, fp in linked:
-            # Đã có fingerprint -> resolve THUẦN theo nội dung bug user đã link (Decision #50).
-            # KHÔNG trộn occupant STT hiện tại (by_key): STT không ổn định — chèn/xoá/sắp lại dòng
-            # trong sheet làm key trỏ sang bug KHÁC; nếu bug đó created mới hơn sẽ thắng max(created)
-            # và hiển thị nhầm bug không liên quan. Chỉ entry legacy CHƯA có fp mới fallback theo key.
-            if fp:
-                cands = by_fp.get(fp, [])
-            else:
-                cands = [by_key[bk]] if bk in by_key else []
-            if not cands:
-                continue
-            b = _newest(cands)
-            # Dedupe theo bug đã resolve (nhiều entry link có thể trỏ về cùng 1 bug live).
-            ident = bug_fingerprint(b) or id(b)
-            if ident in seen:
-                continue
-            seen.add(ident)
-            out.append({
-                'id': f"{b.get('project', '')}-{b.get('service') + '-' if b.get('service') else ''}{b.get('bug_no', '')}".strip('-'),
-                'summary': b.get('summary', ''),
-                'severity': b.get('severity', ''),
-                'status': b.get('status', ''),
-                'module': b.get('feature', ''),
-            })
+            for b in (f.get('bugs', {}) or {}).values():
+                if ck in {canon_key(t) for t in (b.get('tasks') or [])}:
+                    out.append({
+                        'id': f"{b.get('project', '')}-{b.get('service') + '-' if b.get('service') else ''}{b.get('bug_no', '')}".strip('-'),
+                        'summary': b.get('summary', ''),
+                        'severity': b.get('severity', ''),
+                        'status': b.get('status', ''),
+                        'module': b.get('feature', ''),
+                    })
         return out
 
     def _wants_fresh(self):
@@ -447,9 +413,6 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         if path == '/parent-subtasks':
             self._get_parent_subtasks()
             return
-        if path == '/search-tasks':
-            self._get_search_tasks()
-            return
         if path == '/global-search':
             self._get_global_search()
             return
@@ -542,10 +505,8 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         # Bug Log (#55): bug từ Excel/Drive (cache bug_log_store) + link app-side (task_link)
         # + chuông notif. Không gọi Jira search (cache đọc local/property) -> nhẹ.
         try:
-            res = run_parallel({'bug': load_bug_log, 'links': load_links,
+            res = run_parallel({'bug': load_bug_log,
                                 'sources': load_sources, 'bell': self._bell_activities})
-            # Bug Log mở cho MỌI QA (kể cả non-admin): liên kết Task + quản lý link
-            # drive nguồn. editable=True cho mọi user đã authed (route đã gate authed).
             # Popup thay đổi tích luỹ chỉ cho admin (lens quản lý) — non-admin -> None.
             pending = None
             if self._is_admin():
@@ -554,8 +515,7 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
                                              activity=(res['bug'] or {}).get('activity'))
                 except Exception:   # noqa: BLE001 — popup là phụ trợ, lỗi -> bỏ qua
                     pending = None
-            self._html(render_bug_log_v2(res['bug'], res['links'],
-                                         editable=True,
+            self._html(render_bug_log_v2(res['bug'],
                                          user=self._user_ctx(), activities=res['bell'],
                                          sources=res['sources'], pending=pending))
         except RuntimeError as e:
@@ -641,16 +601,6 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         try:
             self._json(200, json.dumps(
                 {'ok': True, 'results': fetch_subtasks(key)}).encode('utf-8'))
-        except RuntimeError:
-            self._json(400, b'{"ok":false}')
-
-    def _get_search_tasks(self):
-        # type-ahead task của QA team cho Bug Log linkbar (link bug -> task QA đang làm,
-        # KHÔNG phải Task-PTSP của dev). Read-only PAT chung.
-        q = (parse_qs(urlparse(self.path).query).get('q') or [''])[0]
-        try:
-            self._json(200, json.dumps(
-                {'ok': True, 'results': search_qa_tasks(q)}).encode('utf-8'))
         except RuntimeError:
             self._json(400, b'{"ok":false}')
 
@@ -752,9 +702,6 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         if path == '/seen-bug-log-changes':
             self._post_seen_bug_log_changes()
             return
-        if path == '/link-task':
-            self._post_link_task()
-            return
         if path == '/set-custom-status':
             self._post_set_custom_status()
             return
@@ -827,7 +774,7 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         import re
         from urllib.parse import quote
         from xlsx_export import build_xlsx
-        HEADERS = ['ID', 'Module', 'Mô tả bug', 'Ngày', 'Severity', 'Trạng thái',
+        HEADERS = ['ID', 'Mô tả bug', 'Ngày', 'Severity', 'Trạng thái',
                    'Tester', 'Dev in charge']
         try:
             length = int(self.headers.get('Content-Length', 0))
@@ -900,32 +847,6 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         except Exception:   # noqa: BLE001
             pass
         self._json(200, b'{"ok":true}')
-
-    def _post_link_task(self):
-        # Liên kết / gỡ link list test-case (bug key) <-> 1 Jira task (#55).
-        # Mở cho MỌI QA authed (khớp editable=True ở render). Lưu app-side, không ghi Jira.
-        out = None
-        try:
-            length = int(self.headers.get('Content-Length', 0))
-            if 0 < length <= 50_000:
-                payload = json.loads(self.rfile.read(length).decode('utf-8'))
-                if isinstance(payload, dict):
-                    keys = payload.get('keys')
-                    task = payload.get('task', '')
-                    op = payload.get('op', 'add')
-                    # task = str (1 task) hoặc list[str] (multi-select link bar #55)
-                    task_ok = isinstance(task, str) or (
-                        isinstance(task, list) and all(isinstance(x, str) for x in task))
-                    if (isinstance(keys, list) and all(isinstance(x, str) for x in keys)
-                            and task_ok and op in ('add', 'remove', 'clear')):
-                        task = task[:50] if isinstance(task, list) else task
-                        out = set_task_links(self._user_email(), keys[:500], task, op)
-        except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
-            out = None
-        if out is not None:
-            self._json(200, json.dumps({'ok': True, 'links': out}).encode('utf-8'))
-        else:
-            self._json(400, b'{"ok":false}')
 
     # _post_upload_file -> routes/uploads.py (UploadsMixin, B3/#115)
 

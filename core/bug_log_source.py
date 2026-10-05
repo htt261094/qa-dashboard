@@ -1,13 +1,12 @@
-"""Nguồn file bug log trên Drive — list {id, label} (issue #52, UI quản lý ở #55).
+"""Nguồn Bug Log = JQL Jira "Bug Testing" (Decision #104; trước là file Drive #52).
 
-KHÔNG hardcode file ID vào .env. Lưu danh sách file Drive nguồn vào Jira property
-`qa-dashboard-bug-log-source` (sync chéo máy như docs/roadmap) + cache local
-`.bug_log_source.json`. Mỗi entry = {"id": <Drive file id>, "label": <tên hiển thị>}.
+Lưu danh sách nguồn vào Cloudflare KV `qa-dashboard-bug-log-source` (sync chéo máy) + cache
+local `.bug_log_source.json`. Mỗi entry = {"id", "label", "provider":"jira", "query": <JQL>}.
+Mặc định (chưa cấu hình) = 1 nguồn Jira toàn bộ Bug Testing (xem load_sources).
 
-Layer: config -> jira_api -> (this). Không cycle.
+Layer: config -> remote_store -> (this). Không cycle.
 """
 import json
-import re
 
 from config import BUG_LOG_SOURCE_FILE, atomic_write
 from remote_store import synced_load, synced_save
@@ -15,63 +14,26 @@ from remote_store import synced_load, synced_save
 BUG_LOG_SOURCE_PROP = 'qa-dashboard-bug-log-source'
 
 MAX_SOURCES = 50
-# Drive file id: ký tự alnum + - _ , độ dài hợp lý. Cũng nhận link Drive -> rút id.
-_ID_RE = re.compile(r'^[A-Za-z0-9_-]{10,200}$')
-_LINK_ID_RE = re.compile(r'/d/([A-Za-z0-9_-]{10,200})')
-
-# Nguồn bug: 'drive' (Google Sheet trên Drive — hiện tại) hoặc 'jira' (placeholder, Decision #61).
-# Thiếu field 'provider' = 'drive' (backward-compat tuyệt đối với source cũ).
-PROVIDERS = ('drive', 'jira')
-
-
-def provider_of(src):
-    """Provider của 1 source; mặc định 'drive' để tương thích data cũ (không có field này)."""
-    return (src or {}).get('provider') or 'drive'
-
-
-def extract_file_id(s):
-    """Rút Drive file id từ chuỗi: nhận id trần hoặc link /file/d/<id>/... hoặc ?id=<id>."""
-    s = (s or '').strip()
-    if not s:
-        return ''
-    m = _LINK_ID_RE.search(s)
-    if m:
-        return m.group(1)
-    m = re.search(r'[?&]id=([A-Za-z0-9_-]{10,200})', s)
-    if m:
-        return m.group(1)
-    return s if _ID_RE.match(s) else ''
 
 
 def valid_sources(data):
-    """list[{id, label, service, provider?, query?}] và <= MAX_SOURCES.
-
-    - provider='drive' (mặc định): `id` phải là Drive file id (`_ID_RE`, 10+ ký tự alnum/-/_).
-    - provider='jira' (placeholder #61): model CHƯA chốt -> nới `id` = chuỗi non-empty <=500
-      (project key / JQL ngắn) + field optional `query` (JQL đầy đủ) <=2000. Không match Drive id.
-    """
+    """list[{id, label, service?, provider?, query}] và <= MAX_SOURCES. Nguồn Jira (#104):
+    `id` = chuỗi non-empty <=500, `query` = JQL <=2000. Entry Drive cũ (nếu còn trong cache) bị
+    coi là KHÔNG hợp lệ -> load bỏ qua, dùng default Jira."""
     if not isinstance(data, list) or len(data) > MAX_SOURCES:
         return False
     for it in data:
         if not isinstance(it, dict):
             return False
-        prov = it.get('provider', 'drive')
-        if not isinstance(prov, str) or prov not in PROVIDERS:
+        if (it.get('provider') or 'jira') != 'jira':
             return False
-        if not isinstance(it.get('label', ''), str):
+        if not isinstance(it.get('label', ''), str) or not isinstance(it.get('service', ''), str):
             return False
-        if not isinstance(it.get('service', ''), str):
+        if not isinstance(it.get('id'), str) or not (0 < len(it['id']) <= 500):
             return False
-        if prov == 'jira':
-            # Model chưa chốt -> ràng buộc lỏng, chỉ chặn rác/quá dài.
-            if not isinstance(it.get('id'), str) or not (0 < len(it['id']) <= 500):
-                return False
-            q = it.get('query', '')
-            if not isinstance(q, str) or len(q) > 2000:
-                return False
-        else:
-            if not isinstance(it.get('id'), str) or not _ID_RE.match(it['id']):
-                return False
+        q = it.get('query', '')
+        if not isinstance(q, str) or len(q) > 2000:
+            return False
     return True
 
 

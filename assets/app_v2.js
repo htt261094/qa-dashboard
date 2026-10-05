@@ -45,26 +45,20 @@ function phIcon(name, extra, weight){
   var ph=PHMAP[name]||name;
   return '<span class="material-symbols-rounded'+(extra?' '+extra:'')+' ph-'+(weight||'light')+' ph-'+ph+'"></span>';
 }
-// ---------- Severity: thang 3 mức DÙNG CHUNG (Decision #85) ----------
-// Các file bug log dùng LẪN 2 thang chữ cho cùng 1 mức -> quy về ĐÚNG 3 mức (user chốt
-// 2026-08-10): Major=High · Normal=Medium · Minor=Low. Ô trống/giá trị lạ -> 'none'.
-// PHẢI khớp _SEV_MAP/_SEV_ORDER/_SEV_PIE/_sev_bucket phía Python (bug_backlog.py).
+// ---------- Severity DÙNG CHUNG (Decision #104) ----------
+// Severity = ĐÚNG giá trị field Jira (Blocker/Critical/High/Medium/Low — không convert về 3 mức
+// như #85 thời Google Sheet). Ô trống / giá trị lạ -> 'none' (Chưa phân loại, không vẽ trong pie).
+// PHẢI khớp _SEV_ORDER/_SEV_PIE/_SEV_LABEL/_sev_bucket phía Python (bug_backlog.py).
 // Đặt ở scope chung vì DÙNG Ở 2 NƠI: pie chart /analytics + cột Severity bảng /bug-log.
-var SEV_ORDER = ['major','normal','minor','none'];
-var SEV_PIE   = ['major','normal','minor'];
-var SEV_LABEL = { major:'Major (High)', normal:'Normal (Medium)', minor:'Minor (Low)',
-                  none:'Chưa phân loại' };
-var SEV_COLOR = { major:'#ff5630', normal:'#ffab00', minor:'#36b37e', none:'#97a0af' };
-var SEV_MAP = {
-  'major':'major','high':'major','cao':'major',
-  'blocker':'major','critical':'major','crit':'major',
-  'nghiêm trọng':'major','nghiem trong':'major',
-  'normal':'normal','medium':'normal','trung bình':'normal','trung binh':'normal',
-  'minor':'minor','minior':'minor','low':'minor','thấp':'minor','thap':'minor','trivial':'minor'
-};
+var SEV_ORDER = ['blocker','critical','high','medium','low','none'];
+var SEV_PIE   = ['blocker','critical','high','medium','low'];
+var SEV_LABEL = { blocker:'Blocker', critical:'Critical', high:'High', medium:'Medium',
+                  low:'Low', none:'Chưa phân loại' };
+var SEV_COLOR = { blocker:'#7a0916', critical:'#de350b', high:'#ff5630', medium:'#ffab00',
+                  low:'#36b37e', none:'#97a0af' };
 function sevOf(b){
-  var s = (''+(b.severity||'')).trim().toLowerCase().split(/\s+/).filter(Boolean).join(' ');
-  return SEV_MAP[s] || 'none';
+  var s = (''+(b.severity||'')).trim().toLowerCase();
+  return SEV_PIE.indexOf(s) >= 0 ? s : 'none';
 }
 // Pager numbered DÙNG CHUNG toàn app (đồng bộ: range info + số trang + ellipsis + mũi tên).
 // data-pg = số trang TUYỆT ĐỐI; container tự bắt click qua delegation. start là index 0-based.
@@ -3238,22 +3232,16 @@ window.__smSetCustom=function(t, key, val, onChanged){
 // ================= BUG LOG (guard #bugLogData) =================
 (function(){
   var DATA = readJSON('bugLogData'); if(!DATA) return;
-  var BUGS = DATA.bugs||[], MONTHS = DATA.months||[], EDIT = !!DATA.editable;
-  var SOURCES = DATA.sources||[];    // [{id,label}] file Drive nguồn đã cấu hình
+  var BUGS = DATA.bugs||[], MONTHS = DATA.months||[];
+  var SOURCES = DATA.sources||[];    // (nguồn Jira cố định — mảng rỗng; giữ cho fileBugs/activeFid no-op)
   var REOPEN = DATA.reopen||{};      // {bugKey:{count,dev,project,month,last}} reopen tích luỹ
   var base = window.__jiraBase || '';
-  // activeFid = file Drive đang xem riêng ('' = tất cả). Nhớ qua localStorage, validate còn tồn tại.
-  var activeFid = '';
-  try{ activeFid = localStorage.getItem('qa-buglog-file')||''; }catch(e){}
-  if(activeFid && !SOURCES.some(function(s){ return s.id===activeFid; })) activeFid='';
+  var activeFid = '';                // (dead sau #104: không còn picker file; luôn '' = xem tất cả)
   var curMonth = MONTHS.length ? MONTHS[0] : '';
   var page = 1, PER = 15;
-  var sel = {};            // bugKey -> true (test case đang tick)
-  var taskSel = [];        // các task key đã chọn ở ô tìm (multi-select chip)
   var testerFilter = '';   // lọc bảng theo tester (qa_pic); '' = tất cả
   var devFilter = '';      // lọc bảng theo dev in charge (dev_pic); '' = tất cả
-  var sevFilter = '';      // lọc theo severity đã quy chuẩn: ''=tất cả, major/normal/minor/none
-  var linkFilter = '';     // lọc theo trạng thái liên kết task: ''=tất cả, 'linked', 'unlinked'
+  var sevFilter = '';      // lọc theo severity Jira: ''=tất cả, blocker/critical/high/medium/low/none
   // thu gọn nhóm tồn đọng / mới trong tháng (nhớ qua localStorage)
   // nhóm đang xem: 'back' = tồn đọng từ tháng trước · 'new' = mới trong tháng (2 tab riêng)
   var grpTab = 'new';
@@ -3326,22 +3314,25 @@ window.__smSetCustom=function(t, key, val, onChanged){
     if(/cao|high|major/.test(t)) return 'sev-high';
     if(/th[ấa]p|low|minor|trivial/.test(t)) return 'sev-low';
     return 'sev-med'; }
-  var ST = { 'New':['st-open','Mới'], 'Fixing':['st-fixing','Đang fix'],
-    'Fixed':['st-fixed','Đã fix (chờ retest)'], 'Reopen':['st-reopen','Reopen'],
-    'Rejected':['st-rejected','Bị từ chối'], 'Closed':['st-closed','Đã đóng'] };
-  function stCell(s){ var m=ST[s]||['st-default', s||'—'];
-    return '<span class="st-badge '+m[0]+'">'+esc(m[1])+'</span>'; }
-  // nhãn trạng thái dạng text (giống badge trên bảng) -> dùng cho export Excel
-  function statusLabel(s){ var m=ST[s]; return m?m[1]:(s||''); }
+  // Trạng thái = ĐÚNG status Jira (#104, không map lifecycle). Màu badge theo tên status
+  // workflow Bug Testing; tên lạ -> badge mặc định.
+  var JST = {
+    'TRIAGE':'st-open', 'Open':'st-open', 'To Do':'st-open', 'TO DO':'st-open',
+    'In Progress':'st-fixing', 'TESTING':'st-fixing', 'PENDING':'st-fixing',
+    'Reopened':'st-reopen',
+    'REJECTED':'st-rejected',
+    'Done':'st-closed', 'DONE':'st-closed', 'CANCELLED':'st-closed'
+  };
+  function stCell(s){ s=s||''; return '<span class="st-badge '+(JST[s]||'st-default')+'">'+esc(s||'—')+'</span>'; }
+  // nhãn trạng thái dạng text cho export Excel = chính status Jira.
+  function statusLabel(s){ return s||''; }
 
+  // Cột "Liên kết": issue liên quan native Jira (parent + Relates), read-only — #104.
   function taskCell(b){
     var tasks = b.tasks || [];
     if(tasks.length){
-      // 1 bug có thể link nhiều task -> mỗi task 1 chip, × gỡ riêng task đó.
-      // × để NGOÀI <a> (nếu nằm trong sẽ đi theo href + bị bắt nhầm).
       return '<span class="bl-jira-wrap">' + tasks.map(function(t){
-        var unlink = EDIT ? '<span class="unlink material-symbols-rounded ph-light ph-x mi-xs" data-unlink="'+esc(b.key)+'" data-task="'+esc(t)+'" title="Gỡ liên kết"></span>' : '';
-        return '<span class="bl-jira-chip"><a class="bl-jira" href="'+esc(base)+'/browse/'+esc(t)+'" target="_blank" rel="noopener">🔗 '+esc(t)+'</a>'+unlink+'</span>';
+        return '<span class="bl-jira-chip"><a class="bl-jira" href="'+esc(base)+'/browse/'+esc(t)+'" target="_blank" rel="noopener">🔗 '+esc(t)+'</a></span>';
       }).join('') + '</span>';
     }
     return '<span class="bl-nolink">⛓️‍💥 Chưa liên kết</span>';
@@ -3353,7 +3344,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
   function availMonths(){ var fb=fileBugs(); return MONTHS.filter(function(m){ return fb.some(function(b){ return b.month===m; }); }); }
   // bug của ĐÚNG tháng đang chọn (không kèm filter tester/dev/link) -> nguồn cho dropdown lọc
   function monthScopeBugs(){ return fileBugs().filter(function(b){ return b.month===curMonth; }); }
-  // Predicate lọc-xem (tester/dev/severity/link) — KHÔNG gồm điều kiện tháng, để dùng chung cho
+  // Predicate lọc-xem (tester/dev/severity) — KHÔNG gồm điều kiện tháng, để dùng chung cho
   // cả "mới trong tháng" lẫn "tồn đọng từ tháng trước" (nợ cũ nằm ở tháng khác — #104).
   function passFilters(b){
     if(testerFilter && (b.qa||'')!==testerFilter) return false;
@@ -3361,12 +3352,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
       if(devFilter==='__none__'){ if((b.dev||'').trim()) return false; }
       else if((b.dev||'')!==devFilter) return false;
     }
-    if(sevFilter && sevOf(b)!==sevFilter) return false;   // 'none' = chưa phân loại (#85)
-    if(linkFilter){
-      var linked = (b.tasks||[]).length>0;
-      if(linkFilter==='linked' && !linked) return false;
-      if(linkFilter==='unlinked' && linked) return false;
-    }
+    if(sevFilter && sevOf(b)!==sevFilter) return false;   // 'none' = chưa phân loại (#104)
     return true;
   }
   // bug ĐANG MỞ (parity Python bug_backlog.is_open: Closed/Rejected = đóng).
@@ -3441,24 +3427,21 @@ window.__smSetCustom=function(t, key, val, onChanged){
     }).join('');
   }
 
-  // Ô Severity: quy về 3 mức chung (#85). 'none' = ô trống / giá trị lạ trong file -> hiện
-  // gạch ngang mờ kèm giá trị thô ở title, KHÔNG ép về Normal (cần thấy sheet còn thiếu).
+  // Ô Severity: hiện ĐÚNG giá trị Jira (#104). Màu theo SEV_COLOR (inline, khỏi phụ thuộc CSS
+  // class 5 mức). 'none' = field trống / giá trị lạ -> gạch ngang mờ, title nêu giá trị thô.
   function sevCell(b){
     var k = sevOf(b), raw = (b.severity||'').trim();
-    if(k==='none') return '<span class="bl-sev none" title="'
-      + (raw ? 'Giá trị trong file: '+esc(raw) : 'Chưa phân loại severity')+'">—</span>';
-    return '<span class="bl-sev '+k+'" title="'+esc(SEV_LABEL[k])
-      + (raw ? ' · file: '+esc(raw) : '')+'">'+esc(SEV_LABEL[k].split(' ')[0])+'</span>';
+    if(k==='none') return '<span class="bl-sev" style="background:transparent;color:var(--on-surface-variant);border:1px solid var(--outline)" title="'
+      + (raw ? 'Giá trị lạ: '+esc(raw) : 'Chưa phân loại severity')+'">—</span>';
+    return '<span class="bl-sev" style="background:'+SEV_COLOR[k]+';color:#fff" title="'+esc(SEV_LABEL[k])+'">'+esc(SEV_LABEL[k])+'</span>';
   }
   function rowHTML(b){
-    var chk = EDIT ? '<td><input type="checkbox" class="bl-check bl-row-chk" data-k="'+esc(b.key)+'"'+(sel[b.key]?' checked':'')+'></td>' : '';
-    return '<tr data-bug="'+esc(b.key)+'">'+chk
+    return '<tr data-bug="'+esc(b.key)+'">'
       +'<td><a class="bl-id key" href="'+esc(base)+'/browse/'+encodeURIComponent(b.key)+'" target="_blank" rel="noopener" title="Mở trên Jira">'+esc(b.id)+'</a></td>'
-      +'<td>'+esc(b.module)+'</td>'
       +'<td><b>'+esc(b.summary)+'</b></td>'
       +'<td style="white-space:nowrap">'+esc(formatCreated(b.created))+'</td>'
       +'<td>'+sevCell(b)+'</td>'
-      +'<td>'+stCell(b.status)+'</td>'
+      +'<td>'+stCell(b.statusRaw||b.status)+'</td>'
       +'<td>'+esc(b.qa||'—')+'</td>'
       +'<td>'+esc(b.dev||'—')+'</td>'
       +'<td>'+taskCell(b)+'</td></tr>';
@@ -3490,7 +3473,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var total = ordered.length, pages = Math.max(1, Math.ceil(total/PER));
     if(page>pages) page=pages;
     var start=(page-1)*PER, slice=ordered.slice(start, start+PER);
-    var cols = EDIT?10:9;   // +1 = cột Severity
+    var cols = 8;   // ID/Mô tả/Ngày/Severity/Trạng thái/Tester/Dev/Liên kết
 
     // 2 tab nhóm (ẩn khi tháng không có bug nào)
     var sb=$('blSplitBar');
@@ -3524,8 +3507,6 @@ window.__smSetCustom=function(t, key, val, onChanged){
     cnt.textContent = 'Hiển thị '+slice.length+' / '+total+' bản ghi';
     // pager (dùng chung — số trang + ellipsis + range info)
     pager.innerHTML = total ? pagerHTML(page, pages, total, start, slice.length, 'bản ghi') : '';
-    syncCheckAll();
-    updateLinkBtn();
   }
 
   // đổi tab nhóm -> về trang 1 (tập phân trang đổi)
@@ -3536,14 +3517,6 @@ window.__smSetCustom=function(t, key, val, onChanged){
   (function(){ var sb=$('blSplitBar'); if(!sb) return;
     sb.addEventListener('click', function(e){ var c=e.target.closest('[data-grp]');
       if(c) setGroup(c.getAttribute('data-grp')); }); })();
-
-  function syncCheckAll(){ var all=$('blCheckAll'); if(!all) return;
-    var list=visibleBugs(); all.checked = list.length>0 && list.every(function(b){return sel[b.key];}); }
-  function selCount(){ return Object.keys(sel).filter(function(k){return sel[k];}).length; }
-  function updateLinkBtn(){ var btn=$('blLinkBtn'); if(!btn) return;
-    var n=selCount(); $('blSelCount').textContent = n?('('+n+')'):'';
-    // cần: có test case tick (n>0) VÀ có ít nhất 1 task đã chọn
-    btn.disabled = !(n>0 && taskSel.length>0); }
 
   // ----- events: tabs -----
   tabs.addEventListener('click', function(e){ var t=e.target.closest('.bl-tab'); if(!t) return;
@@ -3560,18 +3533,15 @@ window.__smSetCustom=function(t, key, val, onChanged){
   // ----- events: lọc theo severity -----
   (function(){ var sf=$('blSevFilter'); if(!sf) return;
     sf.addEventListener('change', function(){ sevFilter=sf.value||''; page=1; render(); }); })();
-  // ----- events: lọc theo trạng thái liên kết task -----
-  (function(){ var lf=$('blLinkFilter'); if(!lf) return;
-    lf.addEventListener('change', function(){ linkFilter=lf.value||''; page=1; render(); }); })();
-  // ----- export bảng ĐANG XEM ra .xlsx (đúng file + tháng + filter hiện tại) -----
+  // ----- export bảng ĐANG XEM ra .xlsx (đúng tháng + filter hiện tại) -----
   function exportExcel(){
     var list=visibleBugs();   // đúng bảng đang xem: file + tháng + tester/dev/link + tab nhóm
     if(!list.length){ toast('Không có bug nào để export', false); return; }
     var rows=list.map(function(b){
-      var sk = sevOf(b);   // cột Severity: xuất nhãn đã quy về 3 mức (#85), 'none' -> rỗng
-      return [ b.id||'', b.module||'', b.summary||'', formatCreated(b.created),
-               (sk==='none' ? '' : SEV_LABEL[sk].split(' ')[0]),
-               statusLabel(b.status), b.qa||'', b.dev||'' ]; });
+      var sk = sevOf(b);   // Severity: xuất ĐÚNG mức Jira (#104), 'none' -> rỗng
+      return [ b.id||'', b.summary||'', formatCreated(b.created),
+               (sk==='none' ? '' : SEV_LABEL[sk]),
+               statusLabel(b.statusRaw||b.status), b.qa||'', b.dev||'' ]; });
     var lbl=(activeLabel()||'tat-ca').replace(/[^\w]+/g,'-').replace(/^-+|-+$/g,'');
     var mon=(curMonth||'').replace(/[\/]/g,'-');
     var grp=(splitGroups().active==='new') ? 'moi' : 'ton-dong';
@@ -3591,13 +3561,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
   }
   (function(){ var eb=$('blExportBtn'); if(!eb) return;
     eb.addEventListener('click', exportExcel); })();
-  // ----- events: tick + unlink (delegate trên tbody) -----
-  rows.addEventListener('click', function(e){
-    var u=e.target.closest('[data-unlink]');
-    if(u){ e.preventDefault(); doLink([u.getAttribute('data-unlink')], u.getAttribute('data-task')||'', 'remove'); return; }
-    var c=e.target.closest('.bl-row-chk');
-    if(c){ var k=c.getAttribute('data-k'); if(c.checked) sel[k]=true; else delete sel[k]; syncCheckAll(); updateLinkBtn(); }
-  });
+  // Liên kết bug<->task thủ công (tick + unlink) đã gỡ (#104): cột "Liên kết" đọc link native Jira.
 
   // Quản lý link Drive đã gỡ (#104): nguồn Bug Log cố định = Jira "Bug Testing".
 
@@ -3805,89 +3769,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
 
   // Picker file + modal CRUD link Drive đã gỡ (#104): nguồn Bug Log = Jira "Bug Testing" cố định.
 
-  // ----- editable: check-all + link bar typeahead -----
-  if(EDIT){
-    var all=$('blCheckAll');
-    if(all) all.addEventListener('change', function(){
-      // chỉ tick/bỏ tick các bug ĐANG HIỂN THỊ (theo tab nhóm), không đụng nhóm kia
-      visibleBugs().forEach(function(b){ if(all.checked) sel[b.key]=true; else delete sel[b.key]; });
-      render(); });
-
-    var inp=$('blTaskInp'), res=$('blTaskRes'), chips=$('blTaskChips'), taT;
-
-    // guard: nếu markup link bar chưa có (vd server chưa restart sau khi đổi render.py)
-    // thì bỏ qua phần typeahead — KHÔNG để throw làm chết cả controller (mất bảng/tab).
-    if(inp && res && chips){
-    // vẽ lại các chip task đã chọn (đứng trước input trong cùng field)
-    function renderChips(){
-      chips.querySelectorAll('.bl-ta-chip').forEach(function(c){ c.remove(); });
-      taskSel.forEach(function(k){
-        var el=document.createElement('span'); el.className='bl-ta-chip';
-        el.innerHTML='<b>'+esc(k)+'</b><span class="x material-symbols-rounded ph-light ph-x mi-sm" data-rm="'+esc(k)+'"></span>';
-        chips.insertBefore(el, inp);
-      });
-    }
-    function addTask(k){ if(k && taskSel.indexOf(k)<0){ taskSel.push(k); renderChips(); }
-      inp.value=''; res.classList.remove('open'); updateLinkBtn(); inp.focus(); }
-    function rmTask(k){ taskSel=taskSel.filter(function(t){return t!==k;}); renderChips(); updateLinkBtn(); }
-
-    inp.addEventListener('input', function(){
-      var q=inp.value.trim(); clearTimeout(taT);
-      if(q.length<2){ res.classList.remove('open'); return; }
-      taT=setTimeout(function(){
-        getJSON('/search-tasks?q='+encodeURIComponent(q), 15000).then(function(j){
-          var rs=(j&&j.results)||[];
-          // bỏ task đã chọn khỏi gợi ý
-          rs=rs.filter(function(r){ return taskSel.indexOf(r.key)<0; });
-          if(!rs.length){ res.innerHTML='<div class="opt">Không có task phù hợp.</div>'; res.classList.add('open'); return; }
-          res.innerHTML = rs.map(function(r){
-            var meta=[r.assignee, r.status].filter(Boolean).map(esc).join(' · ');
-            return '<div class="opt" data-k="'+esc(r.key)+'"><b>'+esc(r.key)+'</b> — '+esc(r.summary)
-              +(meta?'<span class="bl-opt-meta">'+meta+'</span>':'')+'</div>'; }).join('');
-          res.classList.add('open');
-        }).catch(function(){ res.classList.remove('open'); });
-      }, 250);
-    });
-    // Backspace ở ô rỗng = gỡ chip cuối
-    inp.addEventListener('keydown', function(e){
-      if(e.key==='Backspace' && !inp.value && taskSel.length){ rmTask(taskSel[taskSel.length-1]); }
-    });
-    res.addEventListener('click', function(e){ var o=e.target.closest('.opt[data-k]'); if(!o) return;
-      addTask(o.getAttribute('data-k')); });
-    // ✕ trên chip = bỏ task khỏi danh sách đang chọn
-    chips.addEventListener('click', function(e){ var x=e.target.closest('[data-rm]'); if(!x) return;
-      rmTask(x.getAttribute('data-rm')); });
-    document.addEventListener('click', function(e){ if(!e.target.closest('#blTaskTA')) res.classList.remove('open'); });
-    }  // end guard typeahead
-
-    var lbtn=$('blLinkBtn');
-    if(lbtn) lbtn.addEventListener('click', function(){
-      var keys=Object.keys(sel).filter(function(k){return sel[k];});
-      if(!keys.length) return;
-      if(!taskSel.length) { toast('Vui lòng tìm và chọn task ở ô bên trái để liên kết', false); return; }
-      doLink(keys, taskSel.slice());
-    });
-  }
-
-  // op: 'add' (thêm task(s) vào bug), 'remove' (gỡ 1 task khỏi bug), 'clear' (gỡ hết)
-  // task: str (1 task — vd unlink) hoặc list[str] (multi-select link bar)
-  function doLink(keys, task, op){
-    op = op || 'add';
-    var tList = Array.isArray(task) ? task : [task];
-    postJSON('/link-task', { keys: keys, task: task, op: op }, 20000).then(function(j){
-      if(j && j.ok && j.links){
-        var m=j.links;   // {bugKey: [tasks...]} trạng thái mới
-        BUGS.forEach(function(b){ if(m.hasOwnProperty(b.key)) b.tasks = m[b.key]||[]; });
-        if(op==='add'){ keys.forEach(function(k){ delete sel[k]; });
-          taskSel=[]; var inp=$('blTaskInp'), ch=$('blTaskChips');
-          if(inp) inp.value=''; if(ch) ch.querySelectorAll('.bl-ta-chip').forEach(function(c){ c.remove(); });
-          toast('Đã liên kết '+keys.length+' mục với '+tList.join(', ')+' ✓', true); }
-        else toast('Đã gỡ liên kết ✓', true);
-        renderTabs(); render();
-      } else toast('Lỗi lưu liên kết', false);
-    }).catch(function(){ toast('Lỗi mạng khi liên kết', false); });
-  }
-
+  // Link bar + liên kết task thủ công đã gỡ (#104): cột "Liên kết" đọc issue liên quan từ Jira.
 
   if(activeFid){ var av0=availMonths(); if(av0.indexOf(curMonth)<0) curMonth = av0.length?av0[0]:''; }
 
@@ -3898,9 +3780,9 @@ window.__smSetCustom=function(t, key, val, onChanged){
   if(deepBug){
     var db = BUGS.filter(function(b){ return b.key===deepBug; })[0];
     if(db){
-      testerFilter=''; devFilter=''; linkFilter=''; sevFilter='';
-      var tf=$('blTesterFilter'), df=$('blDevFilter'), lf=$('blLinkFilter'), svf=$('blSevFilter');
-      if(tf) tf.value=''; if(df) df.value=''; if(lf) lf.value=''; if(svf) svf.value='';
+      testerFilter=''; devFilter=''; sevFilter='';
+      var tf=$('blTesterFilter'), df=$('blDevFilter'), svf=$('blSevFilter');
+      if(tf) tf.value=''; if(df) df.value=''; if(svf) svf.value='';
       if(db.fid && SOURCES.some(function(s){ return s.id===db.fid; })) activeFid=db.fid;
       if(db.month) curMonth=db.month;
       var list0=monthBugs();
@@ -3930,12 +3812,62 @@ window.__smSetCustom=function(t, key, val, onChanged){
   function curYm(){ var d=new Date(); return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2); }
   var PIE_COLORS = ['#4c9aff','#36b37e','#ffab00','#ff5630','#6554c0','#00b8d9','#ff7452','#57d9a3','#8777d9','#ff8b00','#2684ff','#172b4d'];
 
-  // Metric từ Jira (sắp có) — placeholder chờ chuyển nguồn bug sang Jira (#61). Card empty-state
-  // đã render sẵn server-side; khi có data thật, đổ số vào từng card [data-jm] tại đây.
+  // Metric từ Jira — nguồn bug đã chuyển sang Jira (#104). Option A (#105): 'open_age' tính thuần
+  // client-side (created + status), không cần resolutiondate/changelog. Card [data-jm] render
+  // empty-state server-side; hàm này thay body bằng số thật (giữ nguyên empty-state nếu không có bug mở).
+  // Bug "đang mở" = lifecycle KHÔNG phải Closed/Rejected (dùng chung isClosed/isReject bên dưới).
+  var OA_BUCKETS = [  // [nhãn, maxNgày (inclusive, null = vô cực), màu — xanh->đỏ theo tuổi]
+    ['≤3 ngày', 3, '#36b37e'], ['4–7 ngày', 7, '#57d9a3'], ['8–14 ngày', 14, '#ffab00'],
+    ['15–30 ngày', 30, '#ff7452'], ['>30 ngày', null, '#ff5630']
+  ];
+  function _ageDays(iso){
+    if(!iso) return null;
+    var d = new Date(iso + 'T00:00:00'); if(isNaN(d)) return null;
+    var ms = Date.now() - d.getTime();
+    return ms < 0 ? 0 : Math.floor(ms / 86400000);
+  }
   function renderJiraMetrics(){
-    var JM = DATA.jiraMetrics || {};
-    // TODO(#61): với mỗi id trong JM, thay .jm-empty của card [data-jm="<id>"] bằng chart/KPI thật.
-    // Hiện JM rỗng -> giữ nguyên empty-state "Chờ dữ liệu bug từ Jira".
+    var card = document.querySelector('[data-jm="open_age"]'); if(!card) return;
+    var body = card.querySelector('.jm-empty'); if(!body) return;
+    var open = BUGS.filter(function(b){ return b.created && !isClosed(b.status) && !isReject(b.status); });
+    var ages = open.map(function(b){ return _ageDays(b.created); }).filter(function(a){ return a != null; });
+    if(!ages.length){
+      body.innerHTML = '<div class="es-ic"><span class="material-symbols-rounded">task_alt</span></div>'
+        + '<div class="es-title">Không có bug nào đang mở</div>'
+        + '<div class="es-hint">Mọi bug đều đã đóng hoặc bị từ chối.</div>';
+      return;
+    }
+    var counts = OA_BUCKETS.map(function(){ return 0; }), maxC = 0;
+    ages.forEach(function(a){
+      for(var i=0;i<OA_BUCKETS.length;i++){ if(OA_BUCKETS[i][1]==null || a<=OA_BUCKETS[i][1]){ counts[i]++; break; } }
+    });
+    counts.forEach(function(c){ if(c>maxC) maxC = c; });
+    var sorted = ages.slice().sort(function(x,y){ return x-y; });
+    var mid = Math.floor(sorted.length/2);
+    var median = sorted.length%2 ? sorted[mid] : Math.round((sorted[mid-1]+sorted[mid])/2);
+    var maxAge = sorted[sorted.length-1];
+    var bars = OA_BUCKETS.map(function(bk, i){
+      var c = counts[i], pct = maxC ? (c/maxC*100) : 0;
+      return '<div style="display:flex; align-items:center; gap:10px; margin-bottom:8px; font-size:13px;">'
+        + '<span style="flex:0 0 78px; color:var(--on-surface-variant); text-align:right;">'+bk[0]+'</span>'
+        + '<div style="flex:1; height:20px; background:var(--surface-variant,rgba(0,0,0,.06)); border-radius:4px; overflow:hidden;">'
+        +   '<div style="height:100%; width:'+Math.max(c?6:0,pct)+'%; background:'+bk[2]+'; border-radius:4px;"></div>'
+        + '</div>'
+        + '<span style="flex:0 0 32px; font-weight:700; color:var(--on-surface); text-align:left; font-variant-numeric:tabular-nums;">'+c+'</span>'
+        + '</div>';
+    }).join('');
+    var head = '<div style="display:flex; gap:28px; margin-bottom:16px;">'
+      + '<div><div style="font-size:26px; font-weight:800; color:var(--on-surface); font-variant-numeric:tabular-nums;">'+open.length+'</div>'
+      +   '<div style="font-size:12px; color:var(--on-surface-variant);">bug đang mở</div></div>'
+      + '<div><div style="font-size:26px; font-weight:800; color:var(--on-surface); font-variant-numeric:tabular-nums;">'+median+'</div>'
+      +   '<div style="font-size:12px; color:var(--on-surface-variant);">tuổi trung vị (ngày)</div></div>'
+      + '<div><div style="font-size:26px; font-weight:800; color:#ff5630; font-variant-numeric:tabular-nums;">'+maxAge+'</div>'
+      +   '<div style="font-size:12px; color:var(--on-surface-variant);">bug mở lâu nhất (ngày)</div></div>'
+      + '</div>';
+    // Thay cả body (bỏ class empty-state để hết canh giữa dọc) -> dùng wrapper padding thường.
+    body.className = 'jm-filled';
+    body.setAttribute('style', 'padding:4px 20px 20px;');
+    body.innerHTML = head + bars;
   }
   renderJiraMetrics();
 
