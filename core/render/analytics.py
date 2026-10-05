@@ -37,42 +37,11 @@ def _flatten_bugs(data):
     return bugs, sorted((m for m in months if m), reverse=True)
 
 
-# Metric tận dụng dữ liệu Jira mà Google Sheet không có. Nguồn bug đã chuyển sang Jira (#104) nên
-# phần này điền dần (Option A — Decision #105): hiện có 'open_age' (tuổi bug đang mở) tính thuần
-# client-side từ created + status. Các metric cần resolutiondate/changelog (resolution_time,
-# throughput, first_response) để sau. Card render empty-state server-side, JS đổ số vào [data-jm].
-_JIRA_METRICS = [
-    ('open_age', 'hourglass_empty', 'Tuổi bug đang mở',
-     'Phân bố số ngày các bug chưa đóng đã tồn tại'),
-]
-
-
-def _jira_metrics_placeholder():
-    """Section 'Metric từ Jira' — card empty-state chốt layout, JS (#analyticsData) đổ số thật."""
-    cards = ''
-    for mid, icon, title, hint in _JIRA_METRICS:
-        cards += (
-            f'<div class="card metric-card jira-soon" data-jm="{esc(mid)}" '
-            'style="flex:1; min-width:360px; margin-top:0;">'
-            '<div class="metric-header"><div class="table-title">'
-            f'<span>{esc(title)}</span></div></div>'
-            '<div class="empty-state jm-empty">'
-            f'<div class="es-ic"><span class="material-symbols-rounded">{esc(icon)}</span></div>'
-            '<div class="es-title">Chờ dữ liệu bug từ Jira</div>'
-            f'<div class="es-hint">{esc(hint)}</div>'
-            '</div></div>'
-        )
-    return (
-        '<div class="metric-section-head" style="margin-top:32px;">'
-        '<h3 class="table-title" style="font-size:18px;">Metric từ Jira</h3></div>'
-        '<div class="metrics-row" style="display:flex; gap:24px; align-items:stretch; '
-        'margin-top:16px; flex-wrap:wrap;">' + cards + '</div>'
-    )
-
-
 def render_analytics_v2(data, user=None, activities=None, backlog=None):
-    """Trang Analytics: 3 khối metric (Valid Bug Rate · Bug theo dev/dự án · Tỷ lệ Reopen)
-    + Tồn đọng T-1 vs Mới phát sinh. Toàn bộ render client-side bởi `#analyticsData`."""
+    """Trang Analytics (redesign Decision #106) — toàn bộ render client-side bởi `#analyticsData`:
+    hàng 4 KPI (Valid · Reject · Reopen · Open) · section Tuổi bug đang mở · 2 cột (chart bug
+    theo squad/dev chồng severity | bảng Reopen chất lượng fix + drawer chi tiết) · footer công thức.
+    Server chỉ dựng skeleton + id; JS đổ số. Control chung (tháng + Export PDF) nằm ở page-head."""
     data = data or {}
     bugs, month_list = _flatten_bugs(data)
     reopen = data.get('reopen', {}) or {}
@@ -84,61 +53,106 @@ def render_analytics_v2(data, user=None, activities=None, backlog=None):
     synced = data.get('synced_at', '') or ''
     synced_disp = synced.replace('T', ' ')[:16] if synced else 'chưa đồng bộ'
 
+    def _kpi_card(cid, title):
+        # Card rỗng, JS (renderKpis) đổ badge + số + footer vào .ank-body.
+        return (f'<div class="card ank-card" id="{cid}">'
+                f'<div class="ank-head"><span class="ank-title">{title}</span>'
+                '<span class="ank-badge"></span></div>'
+                '<div class="ank-body"></div>'
+                '<div class="ank-foot"></div></div>')
+
     content = (
-        '<div class="page-head"><div>'
+        # ===== page-head: tiêu đề + sync (trái) · control tháng + Export PDF (phải) =====
+        '<div class="page-head an-head">'
+        '<div>'
         '<h2 class="page-title">Analytics</h2>'
         f'<div class="bl-sub"><span class="bl-dot"></span> Dữ liệu bug đồng bộ: {esc(synced_disp)}</div>'
+        '</div>'
+        '<div class="an-ctl">'
+        '<div class="an-ctl-month"><span class="material-symbols-rounded ph-light ph-calendar-dots mi-sm"></span>'
+        '<select id="anMonth"></select></div>'
+        '<button class="lbtn ghost an-ctl-export" id="anExport" title="Export PDF biểu đồ bug">'
+        '<span class="material-symbols-rounded ph-light ph-file-pdf mi-sm"></span> Export PDF</button>'
         '</div></div>'
 
-        # ----- KPI Valid Bug Rate -----
-        '<div class="card metric-card" style="margin-top:0;">'
-        '<div class="metric-header">'
-        '<div class="table-title"><span>Valid & Rejected Bug Rate (Tháng)</span></div>'
-        '<div class="metric-filter"><span class="material-symbols-rounded ph-light ph-calendar-dots mi-sm"></span> '
-        '<select id="anValidMonth"></select></div>'
+        # ===== hàng 4 KPI =====
+        '<div class="ank-row">'
+        + _kpi_card('anKpiValid', 'Tỷ lệ Bug Hợp lệ (Valid Rate)')
+        + _kpi_card('anKpiReject', 'Tỷ lệ Reject')
+        + _kpi_card('anKpiReopen', 'Tỷ lệ Reopen')
+        + _kpi_card('anKpiOpen', 'Bug Đang Mở (Open)')
+        + '</div>'
+
+        # ===== section: Tuổi bug đang mở =====
+        '<div class="card an-sec" id="anAgeSec">'
+        '<div class="an-sec-head">'
+        '<div><h3 class="an-sec-title">Tuổi bug đang mở '
+        '<span class="an-chip-soft">Metric từ Jira</span></h3>'
+        '<div class="an-sec-sub">Thời gian tồn đọng của các bug chưa được đóng hoặc giải quyết</div></div>'
+        '<div class="an-age-pills" id="anAgePills"></div>'
         '</div>'
-        '<div class="an-valid" id="anValidBox" style="display:flex; gap:32px;"></div>'
-        '<div class="bl-reopen-note">Valid Bug Rate = Closed / (Tổng bug − Reject) · Rejected Bug Rate = Reject / Tổng bug. '
-        'Bug bị Reject coi như không hợp lệ nên loại khỏi mẫu số của Valid Bug Rate.</div>'
+        '<div class="an-age-body" id="anAgeDist"></div>'
         '</div>'
 
-        # ----- metrics row: bar chart + reopen table -----
-        '<div class="metrics-row" style="display:flex; gap:24px; align-items:flex-start; margin-top:24px; flex-wrap:wrap;">'
+        # ===== 2 cột: chart squad/dev | bảng reopen =====
+        '<div class="an-grid2">'
 
-        # bar chart bug theo dev/dự án
-        '<div class="card metric-card" style="flex:1; min-width:400px; margin-top:0;">'
-        '<div class="metric-header">'
-        # Pie severity render CHUNG vào #anMetricCharts (không tách card) để lọt vào ảnh
-        # Export PDF/PNG mà reporter tháng chụp gửi CTO — xem Decision #85.
-        '<div class="table-title"><span>Bug của Dev theo dự án &amp; mức độ nghiêm trọng (Tháng)</span></div>'
-        '<div class="metric-filter" style="display:flex; align-items:center; gap:8px;">'
-        '<button class="lbtn ghost" id="anExportChart" title="Export PDF ảnh chart" style="padding:4px 8px; font-size:13px;">'
-        '<span class="material-symbols-rounded ph-light ph-file-pdf mi-sm"></span> Export PDF</button>'
-        '<span class="material-symbols-rounded ph-light ph-calendar-dots mi-sm"></span> <select id="anMetricMonth"></select></div>'
+        # -- chart bug theo squad & dev, chồng severity --
+        '<div class="card an-sec" id="anChartCard">'
+        '<div class="an-sec-head an-sec-head-wrap">'
+        '<div><h3 class="an-sec-title">Phân bổ Bug theo Squad &amp; Dev '
+        '<span class="an-chip-soft" id="anChartSquadBadge"></span></h3>'
+        '<div class="an-sec-sub">Bug mới phát sinh trong tháng, nhóm theo squad và lập trình viên</div></div>'
+        '<div class="an-chart-stats" id="anChartStats"></div>'
         '</div>'
-        '<div id="anMetricCharts" style="padding:20px; display:flex; gap:24px; flex-wrap:wrap; justify-content:center;"></div>'
-        # Dải tồn đọng T-1: TÁCH khỏi #anMetricCharts để biểu đồ cột (Export PDF) chỉ còn bug
-        # tháng T; thông tin tồn đọng vẫn hiển thị trên dashboard (Decision: user chốt 2026-08-03).
-        '<div id="anBacklogStrip" style="padding:0 20px 20px;"></div>'
-        '</div>'
-
-        # reopen table
-        '<div class="card metric-card" style="flex:1; min-width:400px; margin-top:0;">'
-        '<div class="metric-header">'
-        '<div class="table-title"><span>Tỷ lệ Reopen — chất lượng fix của dev (Tháng)</span></div>'
-        '<div class="metric-filter"><span class="material-symbols-rounded ph-light ph-calendar-dots mi-sm"></span> <select id="anReopenMonth"></select></div>'
-        '</div>'
-        '<div class="bl-reopen-kpi" id="anReopenKpi"></div>'
-        '<div style="overflow-x:auto"><table class="bl-table metric-table"><thead><tr id="anReopenHead"></tr></thead><tbody id="anReopenRows"></tbody></table></div>'
-        '<div class="bl-reopen-note">Số lần fix = số lần reopen + 1 nếu bug đang ở trạng thái đã giao fix (Fixed/Closed) — mỗi lần reopen là 1 lần fix bị QA trả lại. '
-        'Chỉ tính bug còn trong file (bug đã xoá/đổi sheet/không phải type Bug không được đếm). '
-        'Số reopen dội trước khi bật theo dõi, hoặc round-trip gọn trong 1 nhịp quét, có thể bị sót.</div>'
+        '<div class="an-chart-bar">'
+        '<div class="an-squad-tabs" id="anSquadTabs"></div>'
+        '<div class="an-sev-legend">'
+        f'{_sev_legend_html()}'
+        '</div></div>'
+        '<div id="anMetricCharts" class="an-chart-canvas"></div>'
+        '<div id="anBacklogStrip" class="an-backlog"></div>'
+        '<div id="anSevStrip" class="an-sevstrip"></div>'
         '</div>'
 
-        '</div>'  # end metrics-row
+        # -- bảng Reopen + drawer --
+        '<div class="card an-sec" id="anReopenCard">'
+        '<div class="an-sec-head">'
+        '<div><h3 class="an-sec-title">Tỷ lệ Reopen — Chất lượng fix của Dev '
+        '<span class="an-chip-soft" id="anReopenCountBadge"></span></h3>'
+        '<div class="an-sec-sub">Đánh giá độ ổn định và chất lượng fix bug qua các đợt QA verify</div></div>'
+        '<div class="an-reopen-avg" id="anReopenAvg"></div>'
+        '</div>'
+        '<div class="an-reopen-tablewrap"><table class="anrt-table">'
+        '<thead><tr id="anReopenHead"></tr></thead><tbody id="anReopenRows"></tbody></table></div>'
+        '<div class="an-reopen-tip" id="anReopenTip"></div>'
+        '<div class="an-reopen-formula">'
+        '<strong>Công thức:</strong> Số lần fix = số reopen + 1 (nếu bug đang ở trạng thái đã giao fix '
+        'Fixed/Closed). Tỷ lệ reopen = số bug bị reopen / tổng bug dev phụ trách trong tháng. '
+        'Chỉ tính bug còn trong dữ liệu; reopen dội trước khi theo dõi có thể bị sót.</div>'
+        '</div>'
 
-        # ----- Metric từ Jira (sắp có) — placeholder chờ chuyển nguồn bug sang Jira (#61) -----
-        + _jira_metrics_placeholder()
+        '</div>'  # end an-grid2
+
+        # ===== footer công thức =====
+        '<div class="an-foot-bar">'
+        '<div>Valid Bug Rate = Closed / (Tổng bug − Reject) &nbsp;•&nbsp; '
+        'Rejected Bug Rate = Reject / Tổng bug</div>'
+        '<div>Jira Bug Intelligence • Đồng bộ thời gian thực</div></div>'
+
+        # ===== drawer chi tiết bug reopen của 1 dev =====
+        '<div class="an-drawer" id="anDrawer" aria-hidden="true">'
+        '<div class="an-drawer-backdrop" id="anDrawerBackdrop"></div>'
+        '<div class="an-drawer-panel" role="dialog" aria-modal="true">'
+        '<div class="an-drawer-head">'
+        '<div><h3 class="an-drawer-title">Chi tiết Bug bị Reopen '
+        '<span class="an-chip-soft" id="anDrawerDev"></span></h3>'
+        '<div class="an-sec-sub">Danh sách bug QA trả lại — dữ liệu từ Jira</div></div>'
+        '<button class="an-drawer-x" id="anDrawerClose" title="Đóng (Esc)">'
+        '<span class="material-symbols-rounded ph-light ph-x"></span></button>'
+        '</div>'
+        '<div class="an-drawer-body" id="anDrawerBody"></div>'
+        '</div></div>'
 
         + _json_script('analyticsData', {
             'bugs': bugs, 'months': month_list, 'reopen': reopen,
@@ -146,8 +160,16 @@ def render_analytics_v2(data, user=None, activities=None, backlog=None):
             'backlogMonths': backlog_months,
             'carryMonths': carry_months,
             'chartMonths': chart_months,
-            'jiraMetrics': {},   # hook: JS đổ số thật khi bug log chuyển sang Jira
         })
     )
     return _document_v2(content, 'analytics', user, activities or [],
                         title='QA Workspace — Analytics')
+
+
+def _sev_legend_html():
+    """Chú thích màu severity cho header chart. Màu khớp SEV_COLOR (JS) — xem Decision #104."""
+    items = [('High', '#ff5630'), ('Medium', '#ffab00'), ('Low', '#36b37e')]
+    out = ''
+    for lbl, col in items:
+        out += (f'<span class="an-sev-li"><span class="an-sev-sw" style="background:{col}"></span>{lbl}</span>')
+    return out
