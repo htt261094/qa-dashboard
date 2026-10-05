@@ -64,10 +64,7 @@ def _jira_metrics_placeholder():
         )
     return (
         '<div class="metric-section-head" style="margin-top:32px;">'
-        '<h3 class="table-title" style="font-size:18px;">Metric từ Jira</h3>'
-        '<div class="bl-reopen-note" style="margin-top:4px;">Tận dụng trường Jira mà Google Sheet '
-        'không có. Tuổi bug đang mở = số ngày từ lúc tạo tới nay của các bug chưa đóng/bị từ chối.'
-        '</div></div>'
+        '<h3 class="table-title" style="font-size:18px;">Metric từ Jira</h3></div>'
         '<div class="metrics-row" style="display:flex; gap:24px; align-items:stretch; '
         'margin-top:16px; flex-wrap:wrap;">' + cards + '</div>'
     )

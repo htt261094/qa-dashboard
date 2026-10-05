@@ -1667,3 +1667,27 @@ tr.row-flash{animation:rowFlash 2.2s var(--ease-out) 1}
   .td-row{flex-wrap:wrap}
   .td-due{min-width:0;text-align:left}
 }
+
+/* ===== Analytics — card "Tuổi bug đang mở" (open_age, Decision #105) ===== */
+.jm-filled{padding:6px 20px 20px}
+.oa-kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:22px}
+.oa-tile{background:var(--surface-low);border:1px solid var(--outline-variant);
+         border-radius:var(--r-md);padding:14px 16px}
+.oa-tile .v{font-size:30px;font-weight:800;line-height:1;letter-spacing:-.02em;
+            color:var(--on-surface);font-variant-numeric:tabular-nums}
+.oa-tile .l{font-size:12.5px;color:var(--on-surface-variant);margin-top:7px;line-height:1.3}
+.oa-tile.warn .v{color:var(--error)}
+.oa-dist-title{font-size:11.5px;font-weight:700;color:var(--on-surface-variant);
+               margin:0 0 14px;text-transform:uppercase;letter-spacing:.05em}
+.oa-row{display:grid;grid-template-columns:86px 1fr 62px;align-items:center;
+        gap:12px;margin-bottom:11px;font-size:13px}
+.oa-row .lab{color:var(--on-surface-variant);text-align:right;white-space:nowrap}
+.oa-track{height:22px;background:var(--surface-low);border:1px solid var(--outline-variant);
+          border-radius:6px;overflow:hidden}
+.oa-fill{height:100%;border-radius:5px;min-width:0;transition:width var(--dur-3) var(--ease-out)}
+.oa-cnt{text-align:right;font-weight:700;font-variant-numeric:tabular-nums;color:var(--on-surface)}
+.oa-cnt .pc{display:block;font-weight:500;color:var(--on-surface-variant);font-size:11px;margin-top:1px}
+@media (max-width:760px){
+  .oa-kpis{grid-template-columns:1fr;gap:10px}
+  .oa-row{grid-template-columns:72px 1fr 54px;gap:8px}
+}
