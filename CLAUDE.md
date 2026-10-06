@@ -524,6 +524,12 @@ Client đã vá tại chỗ sau transition (#24), nhưng mọi lần render SAU 
 - Mutate issue dict **tại chỗ** (object nằm trong cache SWR) → mọi bản copy trong RAM thống nhất.
 **Ranh giới có chủ đích**: CHỈ status Jira (nhãn nội bộ đã là store local #21; duedate vẫn chỉ vá client-side). RAM per-process, KHÔNG sync chéo máy — trễ nằm ở cache/index của CHÍNH process đang serve. Chỉ ghi đè **tên** status, không dựng `statusCategory` (không code nào đọc field đó); count-only KPI (`done_total`/`created_week`/`resolved_week`) KHÔNG đổi theo overlay.
 
+### 111. Checklist "Cần soát trước khi chốt sprint" ở Analytics *(2026-10-06, code: `sprintChecklist` trong IIFE ANALYTICS `app_v2.js`)*
+Mở rộng section "Tình trạng theo Sprint" (#107): 2 leader duyệt cuối sprint cần thấy bug **đang mở trong active sprint thiếu metadata** — enforce quy tắc "mọi Bug Testing phải gắn sprint + dev + severity".
+- **Thuần JS** (`sprintChecklist(openBugs)` append vào `#anSprintBody` sau khối backlog): từ bug đang mở (`isOpenBug`) ∩ active sprint (`inActive`), tách 2 nhóm — **Chưa gán dev** (`!b.dev`) · **Chưa đặt severity** (`sevOf(b)==='none'`). 1 bug có thể ở cả 2 nhóm. Mỗi dòng = key→link Jira + summary + squad.
+- Cả 2 rỗng → dòng xanh "Mọi bug trong sprint đã đủ dev + severity". (Bug rớt sprint đã nêu ở khối backlog trên đó, không lặp.)
+**Ranh giới**: chỉ bug ĐANG MỞ (Closed/Rejected không cần metadata đầy đủ); 0 call thêm (dùng `BUGS` của `analyticsData`). Không ghi Jira — chỉ liệt kê để leader vào Jira sửa.
+
 ### 110. Nút "Copy standup" ở `/today` *(2026-10-06, code: `core/render/today.py` + IIFE cuối `app_v2.js`)*
 Sub-lead (role mới) commit 30% 1 squad vẫn phải standup/báo cáo phần việc đó → gõ tay mỗi ngày. Nút sinh text copy-paste từ data đã có (`_my_work_bundle`, **0 call Jira thêm**).
 - **Dựng server-side** (`build_standup(tasks, groups, now)` + `format_standup(st, now)`, thuần, test được): 3 nhóm — **Đã xong** (task DONE có `doneAt` trong cửa sổ nhìn lại: Thứ Hai = 3 ngày gộp cuối tuần, else 1) · **Hôm nay** (quá hạn + đến hạn hôm nay + In Progress) · **Blocker** (kẹt ≥ STUCK_DAYS + task mang nhãn nội bộ #21 = lý do đang chờ). Text nhét vào `<pre id="standupText" hidden>`.
@@ -735,6 +741,8 @@ qa-dashboard/
 ## Last Updated
 
 2026-10-06 — Role user đổi Acting QA Manager → **QA sub-lead** (30% effort 1 squad); cập nhật Project Purpose + bảng QA team.
+
+2026-10-06 (#111) — Checklist "Cần soát trước khi chốt sprint" ở Analytics: bug active-sprint đang mở thiếu dev / severity, cho 2 leader duyệt. Thuần JS trong section Sprint (#107).
 
 2026-10-06 (#110) — Nút "Copy standup" ở `/today`: sinh text 3 nhóm (Đã xong / Hôm nay / Blocker) từ data my-work (0 call Jira), copy-paste vào standup. Thêm `doneAt` vào done task.
 

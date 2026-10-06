@@ -1982,6 +1982,23 @@ html[data-theme="dark"] .anrt-risk.c-warn,html[data-theme="dark"] .anrt-ava.c-wa
 .an-sp-bl.ok{color:#1f9d57}
 html[data-theme="dark"] .an-sp-bl.ok{color:#57d9a3}
 .an-sp-bl.ok .material-symbols-rounded{vertical-align:-3px}
+
+/* ===== Analytics — checklist soát sprint (#111) ===== */
+.an-ck{margin-top:16px;padding-top:14px;border-top:1px dashed var(--outline-variant)}
+.an-ck.ok{display:flex;align-items:center;gap:7px;font-size:12.5px;color:#1f9d57;border-top:0;margin-top:12px;padding-top:0}
+html[data-theme="dark"] .an-ck.ok{color:#57d9a3}
+.an-ck-title{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:700;color:var(--warning);margin-bottom:10px}
+.an-ck-grp{margin-bottom:10px}
+.an-ck-head{font-size:11.5px;font-weight:600;color:var(--on-surface-variant);margin-bottom:5px}
+.an-ck-head b{color:var(--error);font-variant-numeric:tabular-nums}
+.an-ck-list{display:flex;flex-direction:column;gap:2px}
+.an-ck-row{display:flex;align-items:center;gap:10px;padding:5px 8px;border-radius:8px;text-decoration:none;
+           font-size:12.5px;color:var(--on-surface)}
+.an-ck-row:hover{background:var(--surface-low)}
+.an-ck-key{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--primary);font-weight:600;white-space:nowrap}
+.an-ck-sum{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.an-ck-squad{font-size:11px;color:var(--on-surface-variant);white-space:nowrap}
+
 @media (max-width:640px){ .an-sp-tiles{grid-template-columns:1fr} }
 
 /* #106/B fix — nhịp dọc giữa các block top-level Analytics (trước dính liền) */

@@ -4126,7 +4126,35 @@ window.__smSetCustom=function(t, key, val, onChanged){
         + sq.map(function(p){ return '<span class="an-sevp mut">'+esc(p)+': <b>'+backlogBySquad[p]+'</b></span>'; }).join('')
         + '</div>'
       : '<div class="an-sp-bl ok"><span class="material-symbols-rounded ph-light ph-check-circle mi-sm"></span> Không có bug nào kẹt ngoài sprint.</div>';
-    el.innerHTML = tiles + '<div class="an-sp-bar">'+bar+'</div>' + blList;
+    el.innerHTML = tiles + '<div class="an-sp-bar">'+bar+'</div>' + blList + sprintChecklist(openBugs);
+  }
+
+  // Checklist review cuối sprint (#111): bug ĐANG MỞ trong active sprint thiếu metadata mà 2
+  // leader phải soát — chưa gán dev / chưa đặt severity. (Bug rớt sprint đã nêu ở khối backlog.)
+  function sprintChecklist(openBugs){
+    var act=openBugs.filter(inActive);
+    var noDev=act.filter(function(b){ return !(b.dev||'').trim(); });
+    var noSev=act.filter(function(b){ return sevOf(b)==='none'; });
+    if(!noDev.length && !noSev.length){
+      return '<div class="an-ck ok"><span class="material-symbols-rounded ph-light ph-check-circle mi-sm"></span>'
+        + ' Mọi bug trong sprint đã đủ dev + severity.</div>';
+    }
+    function rows(list){
+      return list.map(function(b){
+        return '<a class="an-ck-row" href="'+JBASE+'/browse/'+encodeURIComponent(b.key)+'" target="_blank" rel="noopener">'
+          + '<span class="an-ck-key">'+esc(b.key)+'</span>'
+          + '<span class="an-ck-sum">'+esc(b.summary||'')+'</span>'
+          + '<span class="an-ck-squad">'+esc(b.project||'—')+'</span></a>';
+      }).join('');
+    }
+    function group(title, list){
+      if(!list.length) return '';
+      return '<div class="an-ck-grp"><div class="an-ck-head">'+esc(title)+' <b>'+list.length+'</b></div>'
+        + '<div class="an-ck-list">'+rows(list)+'</div></div>';
+    }
+    return '<div class="an-ck"><div class="an-ck-title">'
+      + '<span class="material-symbols-rounded ph-light ph-clipboard-text mi-sm"></span> Cần soát trước khi chốt sprint</div>'
+      + group('Chưa gán dev', noDev) + group('Chưa đặt severity', noSev) + '</div>';
   }
 
   // ---------- helper (giữ lại cho dedup/compBar) ----------
