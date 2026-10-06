@@ -367,6 +367,16 @@ REALIZES #61 (bật `provider='jira'` thật) + SUPERSEDES #75 (tồn đọng sh
 - **Bảng bug**: BỎ cột "Module" (service/feature đã bỏ); cột "Trạng thái" hiện ĐÚNG status Jira (`status_raw`: Open/TRIAGE/Reopened/In Progress/TESTING/REJECTED/Done) qua `JST` map màu badge, KHÔNG map lifecycle. `bug['status']` (lifecycle) VẪN giữ cho logic tồn đọng/mở (splitGroups/computeBacklog); chỉ phần HIỂN THỊ dùng `statusRaw`. Export Excel bỏ cột Module.
 - **Gỡ sạch Drive dead code**: `core/drive_token.py` xoá; `core/bug_log.py` còn MỖI `list_sheet_names`/`read_sheet_rows` (+ primitive xlsx) cho `file_preview`; `bug_log_store` bỏ nhánh Drive (`_count_reopens`/`_seed_current_reopens`/`_missing_id_rows`/Tầng-1 metadata/gate has_drive_token); `auth.py` bỏ `drive_login_url`/`exchange_code_tokens`/`refresh_access_token`/`DRIVE_SCOPE`/`DRIVE_STATE_COOKIE`; `bug_log_source` jira-only (bỏ `extract_file_id`/provider drive). Còn sót dormant: JS popup `#blMissOv` (missing-STT, luôn rỗng — để yên vì chung máy với popup thay đổi); `activeFid`/`SOURCES` trong JS bug-log (luôn ''/[]). `DRIVE_TOKEN_FILE` gỡ khỏi config.
 
+### 108. Trang `/bug-log` chia tab theo SQUAD + Backlog (bỏ lăng kính tháng) *(2026-10-05, code: IIFE BUG LOG trong `app_v2.js` + `core/render/bug_log.py`)*
+SUPERSEDES #72/#75 (2 tab tồn đọng/mới theo tháng) cho màn Bug Log — nối tiếp #107 (Analytics đã theo active sprint). User chốt: đang quản lý theo sprint → màn Bug Log cũng bỏ tab tháng, chia **5 tab**: 4 tab squad **CỐ ĐỊNH** `SIT1..SIT4` + 1 tab **Backlog**.
+- **Tab squad** = bug `sprintState==='active'` (`isActive`) của đúng squad đó, **MỌI status** (user chốt "tất cả bug trong sprint", KHÔNG lọc Closed/Rejected). `squadOf(b)` = `b.project` nếu ∈ SIT1-4, else `'Khác'`.
+- **Tab Backlog** = bug **NGOÀI** active sprint (future + backlog #107) **và CÒN MỞ** (`bugOpen`: bỏ Closed/Rejected — backlog là việc chờ xử lý, không lôi bug cũ đã đóng). Bên trong chia tiếp theo squad bằng **section-header row** (`tr.bl-section`, chèn khi squad đổi so dòng liền trước trong danh sách đầy đủ → đúng cả khi phân trang); `'Khác'` (project lạ) xuống cuối (`squadRank`).
+- Sort: tab squad = created mới→cũ; Backlog = theo squadRank rồi created mới→cũ.
+- Badge tab + bảng đều áp filter tester/dev/severity (đổi filter gọi `renderTabs()+render()`). Tab nhớ qua `localStorage qa-buglog-tab`. Export Excel theo tab đang xem (`bug-log_<squad|backlog>.xlsx`). Deep-link `?bug=` suy tab chứa bug (active→squad, else backlog) rồi tính trang.
+- **Payload**: `render/bug_log.py` thêm `sprintState`/`sprint` vào mỗi bug của `bugLogData` (lấy từ `bug['sprint_state']`/`['sprint']` do `bug_source_jira` gắn — #107).
+- **Gỡ**: toàn bộ lăng kính tháng trong IIFE bug-log — `curMonth`/`MONTHS` tab, `splitGroups`/`setGroup`/`tabYm`/`_sheetMY`/`monthScopeBugs`/`monthBugs`/`availMonths`/`FULL_MONTH_YEARS`, element `#blSplitBar`. `activeFid`/`SOURCES`/`MONTHS` còn khai báo nhưng dead (giữ no-op).
+**Ranh giới**: bug active-sprint có project NGOÀI SIT1-4 (`'Khác'`) không có tab → không hiện ở màn này (user chốt 4 squad cố định; hiện data chỉ có SIT1-4). Twin Python month-based (`prev_month_backlog`/`splitGroups` cũ) giờ **không còn caller JS** ở màn Bug Log — thành dead giống #107 đã làm với Analytics.
+
 ### 88. Sau đồng bộ = 2 popup song song (thay đổi file | dòng thiếu STT) *(2026-08-14)*
 Dòng bug **có đủ thông tin nhưng chưa đánh STT** rơi vào `unmapped` (#25/normalize) → không có khoá diff → không vào `bugs`, không vào activity, không vào bất kỳ metric nào. Trước đây chỉ còn lại con số `unmapped` trong log stderr → team không biết mà sửa. Giờ tách **2 popup hiện song song** sau mỗi lần sync:
 - **Popup 1** `#blChgOv` — thay đổi file (giữ nguyên hành vi cũ).
@@ -602,7 +612,7 @@ KHÔNG được:
 - Ghi Jira bằng PAT cá nhân: đổi status, comment (@-mention), đổi due date, tạo sub-task hàng loạt nhiều cha
 - Custom status overlay, ghi chú riêng theo task (#101), notification short-poll 60s + thông báo desktop (#103), command palette Ctrl+K
 - Auto-login chính chủ khi mở từ localhost (#98), autostart lúc logon (#99)
-- Bug Log nguồn **Jira "Bug Testing" (10382)** — chia theo squad, reopen từ changelog, backlog created-based, export Excel (#104). Drive đã gỡ.
+- Bug Log nguồn **Jira "Bug Testing" (10382)** — trang `/bug-log` chia **5 tab**: 4 squad SIT1-4 (bug active-sprint) + Backlog (ngoài sprint, chia squad bên trong) (#108); reopen từ changelog, export Excel (#104). Drive đã gỡ.
 - Viewer tài liệu inline (PDF/ảnh/Office/text/HTML sandbox), folder Quy Trình dạng tab
 
 ### Known Limitations
@@ -710,6 +720,8 @@ qa-dashboard/
 - Khi thêm/đổi cấu trúc: **tự ghi Decision mới** vào file này (số kế tiếp), không đợi user nhắc.
 
 ## Last Updated
+
+2026-10-05 (#108) — Trang `/bug-log` chia 5 tab theo squad + backlog thay lăng kính tháng (nối tiếp #107): 4 tab SIT1-4 (bug active-sprint, mọi status) + tab Backlog (bug ngoài sprint còn mở, chia squad bằng section-header). Payload thêm `sprintState`/`sprint`. Gỡ toàn bộ month-tab/`splitGroups` trong IIFE bug-log. SUPERSEDES #72/#75 cho màn Bug Log.
 
 2026-10-05 (#107) — Analytics scope theo ACTIVE SPRINT: thêm `sprint_state` (field customfield_10020) vào bug dict, toàn trang tính trên bug sprint đang chạy, section "Tình trạng theo Sprint" (active/future/backlog chờ PO), bỏ selector tháng + freeze. Squad lệch nhịp vẫn đúng (state per board). Divergence chủ ý với twin Python month-based (dead code #100). Bắt buộc Bug Testing gắn sprint.
 

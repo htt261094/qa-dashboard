@@ -1147,6 +1147,10 @@ body.bl-pair #blMissOv .modal{pointer-events:auto}
 .bl-check{width:16px;height:16px;accent-color:var(--primary);cursor:pointer}
 .bl-id{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--primary);font-weight:600}
 .bl-count{font-size:13px;color:var(--on-surface-variant)}
+/* section header theo squad trong tab Backlog (Decision #108) */
+.bl-table tr.bl-section td{background:var(--surface-variant);font-weight:800;font-size:13px;letter-spacing:.3px;color:var(--on-surface);padding:9px 16px;border-top:1px solid var(--outline-variant)}
+.bl-table tr.bl-section .mi-sm{vertical-align:middle;opacity:.7}
+.bl-sec-n{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:19px;padding:0 6px;margin-left:4px;border-radius:999px;background:var(--surface);color:var(--on-surface-variant);font-size:12px;font-weight:800;font-variant-numeric:tabular-nums}
 /* tách tồn đọng vs mới — 2 tab nhóm trên bảng (thay cho collapse) */
 .bl-split{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-end;margin:0 0 14px;border-bottom:1px solid var(--outline-variant)}
 .bl-grptab{font-size:14px}
