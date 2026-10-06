@@ -4276,7 +4276,59 @@ window.__smSetCustom=function(t, key, val, onChanged){
     } else doExport();
   });
 
-  function renderAll(){ renderKpis(); renderSprint(); renderAge(); renderMetric(); renderReopen(); }
+  // ===== Xu hướng Reopen qua các Sprint (#112) — suy thẳng từ data sẵn có, 0 store/0 call =====
+  // Gom TẤT CẢ bug theo tên sprint (mọi bug mang field sprint + reopen từ changelog), tính tỷ lệ
+  // reopen per-dev mỗi sprint = matrix dev x sprint. Bug không gắn sprint -> bỏ qua.
+  function sprintNum(s){ var m=(s||'').match(/(\d+)\s*$/); return m ? +m[1] : 1e9; }
+  function sprintSort(a,b){ var na=sprintNum(a), nb=sprintNum(b); return na!==nb ? na-nb : (a<b?-1:a>b?1:0); }
+  function roCls(p){ return p===null ? '' : (+p<=10 ? 'ok' : (+p<=25 ? 'warn' : 'bad')); }
+  function renderReopenTrend(){
+    var el=$('anTrendBody'); if(!el) return;
+    var bySprint={};
+    BUGS.forEach(function(b){ var s=(b.sprint||'').trim(); if(!s) return; (bySprint[s]||(bySprint[s]=[])).push(b); });
+    var sprints=Object.keys(bySprint).sort(sprintSort);
+    if(!sprints.length){ el.innerHTML='<div class="an-empty">Chưa có bug nào gắn sprint để dựng xu hướng.</div>'; return; }
+    var roBy={}, devSet={};
+    sprints.forEach(function(s){ var ro=computeReopen(bySprint[s]); roBy[s]=ro;
+      Object.keys(ro.perDev).forEach(function(d){ if(d) devSet[d]=1; }); });
+    var devs=Object.keys(devSet).sort();
+    // hàng tổng mỗi sprint (gộp mọi dev) — số bug + % reopen chung
+    var head='<tr><th class="ant-dev">Developer</th>'
+      + sprints.map(function(s){ return '<th class="ant-sp">'+esc(s)+'</th>'; }).join('')
+      + '<th class="ant-sp ant-trend">Xu hướng</th></tr>';
+    function cell(p, n){
+      if(p===null) return '<td class="ant-cell"><span class="ant-na">—</span></td>';
+      return '<td class="ant-cell"><span class="ant-pct '+roCls(p)+'">'+p+'%</span>'
+        + '<span class="ant-n">'+n+' bug</span></td>';
+    }
+    var rows=devs.map(function(d){
+      var cells='', series=[];
+      sprints.forEach(function(s){ var pd=roBy[s].perDev[d];
+        if(pd && pd.denom>0){ var p=reopenPct(pd.nb, pd.denom); series.push(p===null?null:+p); cells+=cell(p, pd.denom); }
+        else { series.push(null); cells+=cell(null,0); }
+      });
+      return '<tr><td class="ant-dev">'+esc(d)+'</td>'+cells+'<td class="ant-cell ant-trend">'+trendArrow(series)+'</td></tr>';
+    }).join('');
+    // hàng "Tất cả" (chung mọi dev) ở cuối
+    var allCells='', allSeries=[];
+    sprints.forEach(function(s){ var ro=roBy[s], p=reopenPct(ro.distinctTotal, ro.totalBugs);
+      allSeries.push(p===null?null:+p); allCells+=cell(p, ro.totalBugs); });
+    var allRow='<tr class="ant-all"><td class="ant-dev">Tất cả</td>'+allCells
+      +'<td class="ant-cell ant-trend">'+trendArrow(allSeries)+'</td></tr>';
+    el.innerHTML='<div class="an-trend-wrap"><table class="ant-table">'
+      + '<thead>'+head+'</thead><tbody>'+rows+allRow+'</tbody></table></div>';
+  }
+  // Mũi tên xu hướng: so 2 giá trị không-null gần nhất. Reopen GIẢM = tốt lên (xanh ▼).
+  function trendArrow(series){
+    var pts=series.filter(function(v){ return v!=null; });
+    if(pts.length<2) return '<span class="ant-flat">·</span>';
+    var last=pts[pts.length-1], prev=pts[pts.length-2];
+    if(last<prev) return '<span class="ant-up" title="Giảm reopen — tốt lên">▼ '+(prev-last).toFixed(0)+'%</span>';
+    if(last>prev) return '<span class="ant-down" title="Tăng reopen — tệ đi">▲ '+(last-prev).toFixed(0)+'%</span>';
+    return '<span class="ant-flat" title="Không đổi">→</span>';
+  }
+
+  function renderAll(){ renderKpis(); renderSprint(); renderAge(); renderMetric(); renderReopen(); renderReopenTrend(); }
   renderAll();   // không còn selector tháng — toàn trang theo active sprint (#106/B)
 })();
 

@@ -1999,6 +1999,29 @@ html[data-theme="dark"] .an-ck.ok{color:#57d9a3}
 .an-ck-sum{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .an-ck-squad{font-size:11px;color:var(--on-surface-variant);white-space:nowrap}
 
+/* ===== Analytics — matrix Xu hướng Reopen theo sprint (#112) ===== */
+.an-trend-body{padding:6px 20px 20px}
+.an-trend-wrap{overflow-x:auto}
+.ant-table{width:100%;border-collapse:collapse;font-size:12.5px}
+.ant-table th,.ant-table td{text-align:center;padding:8px 10px;border-bottom:1px solid var(--divider)}
+.ant-table th{font-size:11px;font-weight:600;color:var(--on-surface-variant);white-space:nowrap}
+.ant-dev{text-align:left!important;font-weight:600;color:var(--on-surface);white-space:nowrap;position:sticky;left:0;background:var(--surface)}
+.ant-cell{min-width:92px}
+.ant-pct{font-weight:700;font-variant-numeric:tabular-nums}
+.ant-pct.ok{color:#1f9d57}
+html[data-theme="dark"] .ant-pct.ok{color:#57d9a3}
+.ant-pct.warn{color:var(--warning)}
+.ant-pct.bad{color:var(--error)}
+.ant-n{display:block;font-size:10.5px;color:var(--on-surface-variant);margin-top:2px}
+.ant-na{color:var(--on-surface-variant);opacity:.6}
+.ant-all{font-weight:700}
+.ant-all td{border-top:2px solid var(--outline-variant);background:var(--surface-low)}
+.ant-trend{min-width:72px}
+.ant-up{color:#1f9d57;font-weight:700;white-space:nowrap}
+html[data-theme="dark"] .ant-up{color:#57d9a3}
+.ant-down{color:var(--error);font-weight:700;white-space:nowrap}
+.ant-flat{color:var(--on-surface-variant)}
+
 @media (max-width:640px){ .an-sp-tiles{grid-template-columns:1fr} }
 
 /* #106/B fix — nhịp dọc giữa các block top-level Analytics (trước dính liền) */

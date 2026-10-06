@@ -524,6 +524,12 @@ Client đã vá tại chỗ sau transition (#24), nhưng mọi lần render SAU 
 - Mutate issue dict **tại chỗ** (object nằm trong cache SWR) → mọi bản copy trong RAM thống nhất.
 **Ranh giới có chủ đích**: CHỈ status Jira (nhãn nội bộ đã là store local #21; duedate vẫn chỉ vá client-side). RAM per-process, KHÔNG sync chéo máy — trễ nằm ở cache/index của CHÍNH process đang serve. Chỉ ghi đè **tên** status, không dựng `statusCategory` (không code nào đọc field đó); count-only KPI (`done_total`/`created_week`/`resolved_week`) KHÔNG đổi theo overlay.
 
+### 112. Section "Xu hướng Reopen qua các Sprint" ở Analytics *(2026-10-06, code: `renderReopenTrend` trong IIFE ANALYTICS `app_v2.js` + `#anTrendSec` trong `core/render/analytics.py`)*
+#107 đổi Analytics sang active-sprint = ảnh chụp HIỆN TẠI → mất so sánh sprint-qua-sprint. Khôi phục bằng cách **suy thẳng từ data sẵn có** (user chốt hướng nhẹ nhất, không snapshot store): mọi bug đã mang field `sprint` (tên) + reopen từ changelog (`REOPEN` map) → dựng matrix **dev × sprint** của tỷ lệ reopen.
+- **Thuần JS, 0 store/0 call**: gom TẤT CẢ `BUGS` theo `b.sprint` (bỏ bug không gắn sprint), mỗi sprint chạy `computeReopen(list)`; cell = `reopenPct(perDev[d].nb, perDev[d].denom)`. Hàng "Tất cả" = `reopenPct(distinctTotal, totalBugs)`. Cột cuối "Xu hướng" = `trendArrow` so 2 giá trị non-null gần nhất (reopen GIẢM = ▼ xanh tốt lên · TĂNG = ▲ đỏ tệ đi). Sort sprint theo số đuôi tên (`sprintNum`).
+- Tái dùng `computeReopen`/`reopenPct`/`sevOf` (đã có) → cùng công thức với bảng Reopen #106, không twin mới.
+**Ranh giới (caveat user đã chấp nhận)**: gom theo TÊN sprint → board các squad trùng tên ("Scrum Sprint 1") bị gộp cột; trend theo dev chính xác trong 1 squad (dev chỉ ở 1 squad), so chéo squad hơi lệch. Bug span nhiều sprint quy về sprint hiện tại của nó (gần đúng). Mũi tên chỉ hiện khi dev có ≥2 sprint dữ liệu. KHÔNG snapshot lịch sử → nếu bug đổi sprint thì số sprint cũ đổi theo (không freeze như #47).
+
 ### 111. Checklist "Cần soát trước khi chốt sprint" ở Analytics *(2026-10-06, code: `sprintChecklist` trong IIFE ANALYTICS `app_v2.js`)*
 Mở rộng section "Tình trạng theo Sprint" (#107): 2 leader duyệt cuối sprint cần thấy bug **đang mở trong active sprint thiếu metadata** — enforce quy tắc "mọi Bug Testing phải gắn sprint + dev + severity".
 - **Thuần JS** (`sprintChecklist(openBugs)` append vào `#anSprintBody` sau khối backlog): từ bug đang mở (`isOpenBug`) ∩ active sprint (`inActive`), tách 2 nhóm — **Chưa gán dev** (`!b.dev`) · **Chưa đặt severity** (`sevOf(b)==='none'`). 1 bug có thể ở cả 2 nhóm. Mỗi dòng = key→link Jira + summary + squad.
@@ -741,6 +747,8 @@ qa-dashboard/
 ## Last Updated
 
 2026-10-06 — Role user đổi Acting QA Manager → **QA sub-lead** (30% effort 1 squad); cập nhật Project Purpose + bảng QA team.
+
+2026-10-06 (#112) — Section "Xu hướng Reopen qua các Sprint" ở Analytics: matrix dev × sprint tỷ lệ reopen + mũi tên xu hướng, suy thẳng từ data (0 store/0 call). Khôi phục so sánh sprint-qua-sprint mà #107 bỏ.
 
 2026-10-06 (#111) — Checklist "Cần soát trước khi chốt sprint" ở Analytics: bug active-sprint đang mở thiếu dev / severity, cho 2 leader duyệt. Thuần JS trong section Sprint (#107).
 

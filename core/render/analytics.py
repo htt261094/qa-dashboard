@@ -145,6 +145,16 @@ def render_analytics_v2(data, user=None, activities=None, backlog=None):
 
         '</div>'  # end an-grid2
 
+        # ===== section: Xu hướng Reopen theo Sprint (#112) =====
+        '<div class="card an-sec" id="anTrendSec">'
+        '<div class="an-sec-head">'
+        '<div><h3 class="an-sec-title">Xu hướng Reopen qua các Sprint</h3>'
+        '<div class="an-sec-sub">Tỷ lệ reopen của mỗi dev qua từng sprint — xem dev đang tốt lên hay tệ đi. '
+        'Gom theo tên sprint (board các squad có thể trùng tên sprint).</div></div>'
+        '</div>'
+        '<div id="anTrendBody" class="an-trend-body"></div>'
+        '</div>'
+
         # ===== footer công thức =====
         '<div class="an-foot-bar">'
         '<div>Valid Bug Rate = Closed / (Tổng bug − Reject) &nbsp;•&nbsp; '
