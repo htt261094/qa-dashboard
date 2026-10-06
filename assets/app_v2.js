@@ -3237,38 +3237,22 @@ window.__smSetCustom=function(t, key, val, onChanged){
   var REOPEN = DATA.reopen||{};      // {bugKey:{count,dev,project,month,last}} reopen tích luỹ
   var base = window.__jiraBase || '';
   var activeFid = '';                // (dead sau #104: không còn picker file; luôn '' = xem tất cả)
-  var curMonth = MONTHS.length ? MONTHS[0] : '';
   var page = 1, PER = 15;
   var testerFilter = '';   // lọc bảng theo tester (qa_pic); '' = tất cả
   var devFilter = '';      // lọc bảng theo dev in charge (dev_pic); '' = tất cả
   var sevFilter = '';      // lọc theo severity Jira: ''=tất cả, blocker/critical/high/medium/low/none
-  // thu gọn nhóm tồn đọng / mới trong tháng (nhớ qua localStorage)
-  // nhóm đang xem: 'back' = tồn đọng từ tháng trước · 'new' = mới trong tháng (2 tab riêng)
-  var grpTab = 'new';
-  try{ var _gt=localStorage.getItem('qa-buglog-grp'); if(_gt==='back'||_gt==='new') grpTab=_gt; }catch(e){}
-  function saveGrpTab(){ try{ localStorage.setItem('qa-buglog-grp', grpTab); }catch(e){} }
+  // ===== TAB = squad / backlog (Decision #108) =====
+  // 4 tab squad CỐ ĐỊNH (user chốt): mỗi tab = bug ĐANG trong active sprint của squad đó (MỌI
+  // status). Tab cuối "backlog" = bug NGOÀI active sprint (future + backlog #107) & còn mở,
+  // chia tiếp theo 4 squad bằng section header trong bảng. Thay hẳn lăng kính tháng cũ (#75).
+  var SQUADS = ['SIT1','SIT2','SIT3','SIT4'];
+  function squadRank(sq){ var i=SQUADS.indexOf(sq); return i<0 ? 99 : i; }   // 'Khác' xuống cuối
+  function squadOf(b){ var p=(b.project||'').trim(); return SQUADS.indexOf(p)>=0 ? p : 'Khác'; }
+  var tab = SQUADS[0];
+  try{ var _t=localStorage.getItem('qa-buglog-tab');
+       if(_t && (_t==='backlog' || SQUADS.indexOf(_t)>=0)) tab=_t; }catch(e){}
+  function saveTab(){ try{ localStorage.setItem('qa-buglog-tab', tab); }catch(e){} }
   var tabs=$('blTabs'), rows=$('blRows'), pager=$('blPager'), cnt=$('blCount');
-
-  var FULL_MONTH_YEARS = [];
-  (function(){
-    var years = {};
-    years[new Date().getFullYear()] = true;
-    BUGS.forEach(function(b){
-      if(b.created) { var p = b.created.split('-'); if(p.length >= 1 && p[0]) years[parseInt(p[0], 10)] = true; }
-    });
-    Object.keys(years).sort().reverse().forEach(function(y) {
-      if(y && !isNaN(y)) {
-        for(var i=1; i<=12; i++) {
-          var mm = i<10 ? '0'+i : ''+i;
-          FULL_MONTH_YEARS.push(mm+'/'+y);
-        }
-      }
-    });
-  })();
-  var curMetricMonth = (function(){
-    var d = new Date(); var m = d.getMonth()+1;
-    return (m<10?'0'+m:m)+'/'+d.getFullYear();
-  })();
 
   function formatCreated(iso) {
     if(!iso) return '—';
@@ -3276,37 +3260,6 @@ window.__smSetCustom=function(t, key, val, onChanged){
     if(p.length >= 3) return p[2]+'/'+p[1]+'/'+p[0];
     return iso;
   }
-  function getCreatedMonthYear(iso) {
-    if(!iso) return '';
-    var p = iso.split('-');
-    if(p.length >= 2) return p[1]+'/'+p[0];
-    return '';
-  }
-
-  // ---- Tách "tồn đọng" vs "mới trong tháng" (content-based, khớp fingerprint app) ----
-  // Fingerprint = project|service|summary (Decision #54) — PHẢI khớp _fpOf phía analytics
-  // + fingerprint() phía Python để nhận đúng bug bị copy sang sheet tháng mới (đổi STT/ngày).
-  function _bnorm(s){ return (s==null?'':(''+s)).toLowerCase().split(/\s+/).filter(Boolean).join(' '); }
-  function _fpOf(b){ return _bnorm(b.project)+'|'+_bnorm(b.service)+'|'+_bnorm(b.summary); }
-  // Tên sheet -> 'MM/YYYY' (Decision #49): Tn năm tường minh; Tn bare lấy năm từ created.
-  function _sheetMY(mo, createdIso){
-    mo = (''+(mo||'')).trim();
-    var m = /^T(\d{1,2})(\d{4})$/.exec(mo);
-    if(m){ var a=+m[1]; if(a>=1&&a<=12) return (a<10?'0'+a:''+a)+'/'+m[2]; }
-    m = /^T(\d{1,2})$/.exec(mo);
-    if(m){ var b2=+m[1]; if(b2>=1&&b2<=12){ var cr=(''+(createdIso||'')); var yy=/^\d{4}/.test(cr)?cr.slice(0,4):(''+new Date().getFullYear()); return (b2<10?'0'+b2:''+b2)+'/'+yy; } }
-    return '';
-  }
-  // Tháng (YYYY-MM) mà tab hiện tại đại diện — suy từ tên sheet (ưu tiên) hoặc created.
-  function tabYm(){
-    var mb = monthScopeBugs(), cr='';
-    for(var i=0;i<mb.length;i++){ if(mb[i].created){ cr=mb[i].created; break; } }
-    var my = _sheetMY(curMonth, cr) || getCreatedMonthYear(cr);   // MM/YYYY
-    var p=(my||'').split('/'); return p.length>=2 ? p[1]+'-'+p[0] : '';
-  }
-  // (SHEET-BASED, Decision #75) tồn đọng vs mới tách theo NGÀY CREATED của chính dòng đó
-  // so với tháng của sheet đang xem: created < tháng-sheet = tồn đọng (mang sang từ tháng cũ,
-  // team bê bug GIỮ NGUYÊN created). Đọc thẳng sheet, KHÔNG fingerprint — khớp computeBacklog.
 
   // ----- map mức độ / trạng thái -> class + nhãn -----
   function sevCls(s){ var t=(s||'').toLowerCase();
@@ -3338,14 +3291,8 @@ window.__smSetCustom=function(t, key, val, onChanged){
     return '<span class="bl-nolink">⛓️‍💥 Chưa liên kết</span>';
   }
 
-  // file đang xem: '' = tất cả, else chỉ bug có fid===activeFid
-  function fileBugs(){ return activeFid ? BUGS.filter(function(b){ return b.fid===activeFid; }) : BUGS; }
-  // tháng có mặt trong file đang xem (giữ thứ tự MONTHS)
-  function availMonths(){ var fb=fileBugs(); return MONTHS.filter(function(m){ return fb.some(function(b){ return b.month===m; }); }); }
-  // bug của ĐÚNG tháng đang chọn (không kèm filter tester/dev/link) -> nguồn cho dropdown lọc
-  function monthScopeBugs(){ return fileBugs().filter(function(b){ return b.month===curMonth; }); }
-  // Predicate lọc-xem (tester/dev/severity) — KHÔNG gồm điều kiện tháng, để dùng chung cho
-  // cả "mới trong tháng" lẫn "tồn đọng từ tháng trước" (nợ cũ nằm ở tháng khác — #104).
+  function fileBugs(){ return BUGS; }   // activeFid đã chết (#104): luôn xem tất cả
+  // Predicate lọc-xem (tester/dev/severity) — áp chung cho mọi tab.
   function passFilters(b){
     if(testerFilter && (b.qa||'')!==testerFilter) return false;
     if(devFilter){
@@ -3357,27 +3304,38 @@ window.__smSetCustom=function(t, key, val, onChanged){
   }
   // bug ĐANG MỞ (parity Python bug_backlog.is_open: Closed/Rejected = đóng).
   function bugOpen(s){ s=(s||''); return s!=='Closed' && s!=='Rejected'; }
-  function monthBugs(){ return fileBugs().filter(function(b){ return b.month===curMonth && passFilters(b); }); }
-  // danh sách tester (qa_pic) phân biệt trong file đang xem -> đổ vào dropdown lọc
+  function isActive(b){ return (b.sprintState||'backlog')==='active'; }   // trong active sprint (#107)
+  // --- membership từng tab (Decision #108) ---
+  //   tab squad  = bug active-sprint của squad đó, MỌI status (user chốt "tất cả bug trong sprint").
+  //   tab backlog= bug NGOÀI active sprint (future + backlog #107) & CÒN MỞ (bỏ Closed/Rejected —
+  //                backlog = việc chờ xử lý, không lôi bug cũ đã đóng), chia tiếp theo squad.
+  function activeBugs(sq){ return fileBugs().filter(function(b){
+    return isActive(b) && squadOf(b)===sq && passFilters(b); }); }
+  function backlogBugs(){ return fileBugs().filter(function(b){
+    return !isActive(b) && bugOpen(b.status) && passFilters(b); }); }
+  // Bug có thể xuất hiện ở ĐÂU ĐÓ trên trang (active mọi status ∪ backlog còn mở) -> nguồn dropdown.
+  function scopeBugs(){ return fileBugs().filter(function(b){
+    return isActive(b) || bugOpen(b.status); }); }
+
+  // danh sách tester (qa_pic) phân biệt -> đổ vào dropdown lọc
   function populateTesters(){
     var sel0=$('blTesterFilter'); if(!sel0) return;
     var seen={}, list=[];
-    monthScopeBugs().forEach(function(b){ var q=(b.qa||'').trim();
+    scopeBugs().forEach(function(b){ var q=(b.qa||'').trim();
       if(q && !seen[q]){ seen[q]=true; list.push(q); } });
     list.sort(function(a,b){ return a.localeCompare(b); });
-    if(testerFilter && list.indexOf(testerFilter)<0) testerFilter='';   // tester biến mất khi đổi file
+    if(testerFilter && list.indexOf(testerFilter)<0) testerFilter='';
     sel0.innerHTML='<option value="">Tất cả tester</option>'+list.map(function(q){
       return '<option value="'+esc(q)+'"'+(q===testerFilter?' selected':'')+'>'+esc(q)+'</option>'; }).join('');
     populateDevs();
   }
-  // danh sách dev (dev_pic) phân biệt trong file đang xem -> đổ vào dropdown lọc
+  // danh sách dev (dev_pic) phân biệt -> đổ vào dropdown lọc
   function populateDevs(){
     var sel0=$('blDevFilter'); if(!sel0) return;
     var seen={}, list=[], hasNone=false;
-    monthScopeBugs().forEach(function(b){ var d=(b.dev||'').trim();
+    scopeBugs().forEach(function(b){ var d=(b.dev||'').trim();
       if(d){ if(!seen[d]){ seen[d]=true; list.push(d); } } else hasNone=true; });
     list.sort(function(a,b){ return a.localeCompare(b); });
-    // dev đang chọn biến mất khi đổi file -> reset (giữ '__none__' nếu file vẫn có bug chưa gán)
     if(devFilter && devFilter!=='__none__' && list.indexOf(devFilter)<0) devFilter='';
     if(devFilter==='__none__' && !hasNone) devFilter='';
     var noneOpt = hasNone ? '<option value="__none__"'+(devFilter==='__none__'?' selected':'')+'>(Chưa gán dev)</option>' : '';
@@ -3385,46 +3343,19 @@ window.__smSetCustom=function(t, key, val, onChanged){
       return '<option value="'+esc(d)+'"'+(d===devFilter?' selected':'')+'>'+esc(d)+'</option>'; }).join('');
   }
 
-  function activeLabel(){
-    if(!activeFid) return '';
-    var s=SOURCES.filter(function(x){ return x.id===activeFid; })[0];
-    return s ? (s.label||s.name||'File Drive') : '';
-  }
-  function setActiveFid(fid){
-    if(fid===activeFid){ return; }
-    activeFid = fid;
-    try{ if(fid) localStorage.setItem('qa-buglog-file', fid); else localStorage.removeItem('qa-buglog-file'); }catch(e){}
-    var av=availMonths();
-    if(av.indexOf(curMonth)<0) curMonth = av.length ? av[0] : '';
-    page=1; renderTabs(); render(); updateActiveChip(); updateSrcLine();
-    toast(activeFid ? ('Đang xem: '+activeLabel()) : 'Đang xem: tất cả file', true);
-  }
-  function updateActiveChip(){ var c=$('blActiveFile'); if(!c) return;
-    if(activeFid){ c.textContent='📄 '+activeLabel(); c.style.display=''; }
-    else c.style.display='none';
-  }
-  // Dòng tên file nguồn: chọn 1 file -> CHỈ hiện tên file đó; '' -> hiện tất cả (HTML gốc render server-side).
-  var ORIG_SRC_LINE = null;
-  function updateSrcLine(){ var el=$('blSrcLine'); if(!el) return;
-    if(ORIG_SRC_LINE===null) ORIG_SRC_LINE = el.innerHTML;
-    if(activeFid){
-      var s=SOURCES.filter(function(x){ return x.id===activeFid; })[0];
-      var nm = s ? (s.name||s.label||'File Drive') : 'File Drive';
-      var n = BUGS.filter(function(b){ return b.fid===activeFid; }).length;
-      el.innerHTML = '<b>'+esc(nm)+'</b> — '+n+' bản ghi';
-    } else el.innerHTML = ORIG_SRC_LINE;
-  }
-
+  // số bug mỗi tab (đã áp filter -> badge khớp bảng)
+  function tabCount(t){ return t==='backlog' ? backlogBugs().length : activeBugs(t).length; }
   function renderTabs(){
-    var av = availMonths();
-    if(!av.length){ populateTesters(); tabs.innerHTML='<span class="bl-count">Chưa có dữ liệu cho file này.</span>'; return; }
-    if(av.indexOf(curMonth)<0) curMonth=av[0];
-    populateTesters();   // sau khi chốt curMonth -> dropdown chỉ liệt kê dev/tester của đúng tháng
-    tabs.innerHTML = av.map(function(m){
-      var n = fileBugs().filter(function(b){return b.month===m;}).length;
-      return '<button class="bl-tab'+(m===curMonth?' active':'')+'" data-m="'+esc(m)+'">'
-        +'<span class="material-symbols-rounded ph-light ph-calendar-dots"></span> '+esc(m)+' ('+n+')</button>';
+    populateTesters();
+    var h = SQUADS.map(function(sq){
+      return '<button class="bl-tab'+(tab===sq?' active':'')+'" data-tab="'+esc(sq)+'">'
+        +'<span class="material-symbols-rounded ph-light ph-users-three"></span> '
+        +esc(sq)+' <span class="bl-grptab-n">'+tabCount(sq)+'</span></button>';
     }).join('');
+    h += '<button class="bl-tab'+(tab==='backlog'?' active':'')+'" data-tab="backlog">'
+      +'<span class="material-symbols-rounded ph-light ph-tray"></span> '
+      +'Backlog <span class="bl-grptab-n">'+tabCount('backlog')+'</span></button>';
+    tabs.innerHTML = h;
   }
 
   // Ô Severity: hiện ĐÚNG giá trị Jira (#104). Màu theo SEV_COLOR (inline, khỏi phụ thuộc CSS
@@ -3446,60 +3377,54 @@ window.__smSetCustom=function(t, key, val, onChanged){
       +'<td>'+esc(b.dev||'—')+'</td>'
       +'<td>'+taskCell(b)+'</td></tr>';
   }
-  // Tách tồn đọng vs mới trong tháng -> 2 tab riêng (CREATED-BASED cho nguồn Jira — #104,
-  // parity Python prev_month_backlog):
-  //   - Mới trong tháng  = bug created TRONG tháng của tab (b.month===curMonth).
-  //   - Tồn đọng từ tháng trước = bug created < tháng tab VÀ CÒN MỞ tới giờ (lấy từ MỌI tháng,
-  //     không chỉ tháng tab) -> nợ cũ chưa đóng. (Jira key ổn định, status live -> tính trực tiếp.)
-  // Trả {back, fresh, active}: `active` tự lùi sang nhóm còn lại nếu nhóm đang chọn rỗng.
-  function splitGroups(){
-    var ym = tabYm(), back=[], fresh=[];
-    fileBugs().forEach(function(b){
-      if(!passFilters(b)) return;
-      var cm=(b.created||'').slice(0,7);
-      if(ym && cm && cm < ym){ if(bugOpen(b.status)) back.push(b); }   // nợ cũ còn treo
-      else if(b.month===curMonth) fresh.push(b);                       // mới trong tháng tab
-    });
-    var act = grpTab;
-    if(act==='back' && !back.length && fresh.length) act='new';
-    else if(act==='new' && !fresh.length && back.length) act='back';
-    return {back:back, fresh:fresh, active:act};
+  // danh sách bug đang xem của tab hiện tại (đã sort, dùng cho render + export).
+  //   tab squad  -> active-sprint squad đó, sort created mới trước.
+  //   tab backlog-> gom theo squad (SIT1..SIT4..Khác), trong mỗi squad sort created mới trước.
+  function orderedBugs(){
+    if(tab==='backlog'){
+      return backlogBugs().slice().sort(function(a,b){
+        var ra=squadRank(squadOf(a)), rb=squadRank(squadOf(b));
+        if(ra!==rb) return ra-rb;
+        return (b.created||'').localeCompare(a.created||'');
+      });
+    }
+    return activeBugs(tab).slice().sort(function(a,b){
+      return (b.created||'').localeCompare(a.created||''); });
   }
-  // danh sách bug ĐANG HIỂN THỊ (theo tab nhóm) — dùng cho check-all + export
-  function visibleBugs(){ var g=splitGroups(); return g.active==='new' ? g.fresh : g.back; }
+  // dùng cho export (toàn bộ bug tab hiện tại, không phân trang)
+  function visibleBugs(){ return orderedBugs(); }
 
   function render(){
-    var g = splitGroups(), ordered = g.active==='new' ? g.fresh : g.back;
+    var isBack = (tab==='backlog');
+    var ordered = orderedBugs();
     var total = ordered.length, pages = Math.max(1, Math.ceil(total/PER));
     if(page>pages) page=pages;
     var start=(page-1)*PER, slice=ordered.slice(start, start+PER);
     var cols = 8;   // ID/Mô tả/Ngày/Severity/Trạng thái/Tester/Dev/Liên kết
 
-    // 2 tab nhóm (ẩn khi tháng không có bug nào)
-    var sb=$('blSplitBar');
-    if(sb){
-      if(g.back.length+g.fresh.length>0){
-        sb.style.display='';
-        function tabHTML(k, ic, label, n){
-          return '<button type="button" class="bl-tab bl-grptab g-'+(k==='back'?'back':'new')
-            + (g.active===k?' active':'')+'" data-grp="'+k+'">'
-            + '<span class="material-symbols-rounded ph-light '+ic+' mi-sm"></span>'
-            + label+' <span class="bl-grptab-n">'+n+'</span></button>';
+    var html='';
+    if(isBack){
+      // đếm từng squad (cho section header) 1 lần
+      var secN={}; ordered.forEach(function(b){ var s=squadOf(b); secN[s]=(secN[s]||0)+1; });
+      for(var i=0;i<slice.length;i++){
+        var b=slice[i], gi=start+i, sq=squadOf(b);
+        // header khi: đầu trang, hoặc squad khác dòng liền trước trong danh sách đầy đủ
+        if(i===0 || squadOf(ordered[gi-1])!==sq){
+          html += '<tr class="bl-section"><td colspan="'+cols+'">'
+            + '<span class="material-symbols-rounded ph-light ph-users-three mi-sm"></span> '
+            + esc(sq)+' <span class="bl-sec-n">'+secN[sq]+'</span></td></tr>';
         }
-        sb.innerHTML = tabHTML('back','ph-folder-open','Tồn đọng từ tháng trước', g.back.length)
-                     + tabHTML('new','ph-sparkle','Mới trong tháng', g.fresh.length);
-      } else sb.style.display='none';
+        html += rowHTML(b);
+      }
+    } else {
+      html = slice.map(rowHTML).join('');
     }
-
-    var html = slice.map(rowHTML).join('');
     if(!total){
-      var noneAtAll = !(g.back.length+g.fresh.length);
       html = '<tr><td colspan="'+cols+'"><div class="empty-state">'
         +'<span class="es-ic"><span class="material-symbols-rounded ph-light ph-bug-beetle"></span></span>'
-        +'<div class="es-title">'+(noneAtAll ? 'Không có bug nào trong tháng này'
-            : (g.active==='new' ? 'Không có bug mới trong tháng' : 'Không có bug tồn đọng từ tháng trước'))+'</div>'
-        +'<div class="es-hint">'+(noneAtAll ? 'Đổi tháng hoặc bộ lọc tester/dev để xem bug khác.'
-            : 'Chuyển sang tab còn lại hoặc đổi bộ lọc.')+'</div>'
+        +'<div class="es-title">'+(isBack ? 'Không có bug nào ngoài sprint đang chờ'
+            : 'Squad '+esc(tab)+' chưa có bug trong sprint đang chạy')+'</div>'
+        +'<div class="es-hint">Đổi tab squad/backlog hoặc bỏ bộ lọc tester/dev/severity để xem bug khác.</div>'
         +'</div></td></tr>';
     }
     rows.innerHTML = html;
@@ -3509,43 +3434,37 @@ window.__smSetCustom=function(t, key, val, onChanged){
     pager.innerHTML = total ? pagerHTML(page, pages, total, start, slice.length, 'bản ghi') : '';
   }
 
-  // đổi tab nhóm -> về trang 1 (tập phân trang đổi)
-  function setGroup(g){
-    if((g!=='back' && g!=='new') || g===grpTab) return;
-    grpTab=g; saveGrpTab(); page=1; render();
+  // đổi tab squad/backlog -> về trang 1, dựng lại badge tab + bảng
+  function setTab(t){
+    if((t!=='backlog' && SQUADS.indexOf(t)<0) || t===tab) return;
+    tab=t; saveTab(); page=1; renderTabs(); render();
   }
-  (function(){ var sb=$('blSplitBar'); if(!sb) return;
-    sb.addEventListener('click', function(e){ var c=e.target.closest('[data-grp]');
-      if(c) setGroup(c.getAttribute('data-grp')); }); })();
-
   // ----- events: tabs -----
   tabs.addEventListener('click', function(e){ var t=e.target.closest('.bl-tab'); if(!t) return;
-    curMonth=t.getAttribute('data-m'); page=1; renderTabs(); render(); });
+    setTab(t.getAttribute('data-tab')); });
   // ----- events: pager -----
   pager.addEventListener('click', function(e){ var b=e.target.closest('[data-pg]'); if(!b||b.disabled) return;
     page=parseInt(b.getAttribute('data-pg'),10)||1; render(); });
+  // filter đổi -> cập nhật cả badge tab (đếm theo filter) lẫn bảng
   // ----- events: lọc theo tester -----
   (function(){ var tf=$('blTesterFilter'); if(!tf) return;
-    tf.addEventListener('change', function(){ testerFilter=tf.value||''; page=1; render(); }); })();
+    tf.addEventListener('change', function(){ testerFilter=tf.value||''; page=1; renderTabs(); render(); }); })();
   // ----- events: lọc theo dev in charge -----
   (function(){ var df=$('blDevFilter'); if(!df) return;
-    df.addEventListener('change', function(){ devFilter=df.value||''; page=1; render(); }); })();
+    df.addEventListener('change', function(){ devFilter=df.value||''; page=1; renderTabs(); render(); }); })();
   // ----- events: lọc theo severity -----
   (function(){ var sf=$('blSevFilter'); if(!sf) return;
-    sf.addEventListener('change', function(){ sevFilter=sf.value||''; page=1; render(); }); })();
-  // ----- export bảng ĐANG XEM ra .xlsx (đúng tháng + filter hiện tại) -----
+    sf.addEventListener('change', function(){ sevFilter=sf.value||''; page=1; renderTabs(); render(); }); })();
+  // ----- export bảng ĐANG XEM ra .xlsx (tab squad/backlog + filter hiện tại) -----
   function exportExcel(){
-    var list=visibleBugs();   // đúng bảng đang xem: file + tháng + tester/dev/link + tab nhóm
+    var list=visibleBugs();   // toàn bộ bug tab đang xem (squad/backlog) + tester/dev/sev filter
     if(!list.length){ toast('Không có bug nào để export', false); return; }
     var rows=list.map(function(b){
       var sk = sevOf(b);   // Severity: xuất ĐÚNG mức Jira (#104), 'none' -> rỗng
       return [ b.id||'', b.summary||'', formatCreated(b.created),
                (sk==='none' ? '' : SEV_LABEL[sk]),
                statusLabel(b.statusRaw||b.status), b.qa||'', b.dev||'' ]; });
-    var lbl=(activeLabel()||'tat-ca').replace(/[^\w]+/g,'-').replace(/^-+|-+$/g,'');
-    var mon=(curMonth||'').replace(/[\/]/g,'-');
-    var grp=(splitGroups().active==='new') ? 'moi' : 'ton-dong';
-    var fname='bug-log_'+lbl+(mon?'_'+mon:'')+'_'+grp+'.xlsx';
+    var fname='bug-log_'+(tab==='backlog'?'backlog':tab.toLowerCase())+'.xlsx';
     var btn=$('blExportBtn'); if(btn){ btn.disabled=true; }
     fetch('/export-bug-log',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({rows:rows,filename:fname})})
@@ -3771,9 +3690,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
 
   // Link bar + liên kết task thủ công đã gỡ (#104): cột "Liên kết" đọc issue liên quan từ Jira.
 
-  if(activeFid){ var av0=availMonths(); if(av0.indexOf(curMonth)<0) curMonth = av0.length?av0[0]:''; }
-
-  // Deep-link ?bug=<key> (từ command palette): nhảy đúng file + tháng + trang,
+  // Deep-link ?bug=<key> (từ command palette): nhảy đúng tab squad/backlog + trang,
   // highlight dòng. Copy pattern ?folder= của test-cases.
   var deepBug = null;
   try{ deepBug = new URLSearchParams(location.search).get('bug'); }catch(e){}
@@ -3783,15 +3700,16 @@ window.__smSetCustom=function(t, key, val, onChanged){
       testerFilter=''; devFilter=''; sevFilter='';
       var tf=$('blTesterFilter'), df=$('blDevFilter'), svf=$('blSevFilter');
       if(tf) tf.value=''; if(df) df.value=''; if(svf) svf.value='';
-      if(db.fid && SOURCES.some(function(s){ return s.id===db.fid; })) activeFid=db.fid;
-      if(db.month) curMonth=db.month;
-      var list0=monthBugs();
+      // tab chứa bug: active-sprint -> tab squad của nó; ngoài sprint -> backlog.
+      var dtab = isActive(db) ? squadOf(db) : 'backlog';
+      if(dtab==='backlog' || SQUADS.indexOf(dtab)>=0) tab=dtab;
+      var list0=orderedBugs();
       var idx=-1; list0.forEach(function(b,i){ if(b.key===deepBug) idx=i; });
       if(idx>=0) page=Math.floor(idx/PER)+1;
     } else { deepBug=null; toast('Bug không còn trong log', false); }
   }
 
-  renderTabs(); render(); updateActiveChip(); updateSrcLine();
+  renderTabs(); render();
   if(deepBug){
     var flashTr=rows.querySelector('tr[data-bug="'+CSS.escape(deepBug)+'"]');
     if(flashTr){ flashTr.classList.add('row-flash');

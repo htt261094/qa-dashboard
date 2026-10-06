@@ -53,6 +53,8 @@ def build_bug_log_payload(data, sources=None):
                 'dev': b.get('dev_pic', ''),
                 'created': (b.get('created', '') or '')[:10],
                 'tasks': list(b.get('tasks', []) or []),   # link native Jira (parent + Relates)
+                'sprintState': b.get('sprint_state', '') or '',   # active/future/backlog (#107) -> chia tab squad/backlog (#108)
+                'sprint': b.get('sprint', '') or '',              # tên sprint (hiển thị)
             })
     month_list = sorted((m for m in months if m), reverse=True)
 
@@ -134,11 +136,9 @@ def render_bug_log_v2(data, user=None, activities=None, sources=None, pending=No
         '<span class="ic material-symbols-rounded ph-light ph-bug-beetle"></span>'
         '<div class="bl-src-info"><div class="lbl">NGUỒN: JIRA — Bug Testing (issuetype 10382)</div>'
         f'<div class="fname" id="blSrcLine">{src_line}</div></div></div>'
-        # tab tháng
+        # tab squad (SIT1-4) + backlog — Decision #108 (controller dựng client-side)
         '<div class="bl-tabs" id="blTabs"></div>'
         + linkbar
-        # thanh tóm tắt: đếm bug tồn đọng (T-1) vs mới trong tháng của tab đang xem
-        + '<div class="bl-split" id="blSplitBar" style="display:none"></div>'
         # table
         + '<div class="card"><div class="table-header"><div class="table-title">'
         '<span class="material-symbols-rounded ph-light ph-bug-beetle"></span>'
