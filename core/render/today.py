@@ -7,7 +7,7 @@ cờ phụ hiện thành badge. Click mở drawer dùng chung (shared drawer —
 """
 from datetime import datetime, timedelta
 
-from config import STUCK_DAYS, canon_key
+from config import STUCK_DAYS, canon_key, JIRA_URL
 from issues import esc, parse_date
 from custom_status import CUSTOM_STATUSES
 from task_notes import index_by_canon
@@ -18,6 +18,10 @@ from render.shell import _document_v2, _conn_error_card
 _WEEKDAYS = ('Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy', 'Chủ Nhật')
 _CUST = dict(CUSTOM_STATUSES)
 _UPCOMING_DAYS = 7
+# Bug mở "chưa đụng" >= ngưỡng này -> coi là tồn đọng, nhắc ở /today (#109). Dùng STUCK_DAYS
+# cho đồng nhất với "task kẹt". Bug đã Closed/Rejected (vòng đời) không tính.
+_BUG_STALE_DAYS = STUCK_DAYS
+_BUG_DONE = ('closed', 'rejected')
 
 
 def _jira_cls(v):
@@ -117,7 +121,83 @@ def build_today_groups(tasks, notes=None, now=None):
     return g
 
 
-def render_today_v2(data, activities, cmap, user, notes=None, stale=False, jira_error=False):
+def _flatten_open_bugs(bug_data):
+    """load_bug_log() = {files:{fid:{bugs:{key:bug}}}} -> list bug dict ĐANG MỞ (bỏ Closed/Rejected)."""
+    out = []
+    for _fid, f in ((bug_data or {}).get('files', {}) or {}).items():
+        for _key, b in (f.get('bugs', {}) or {}).items():
+            if (b.get('status') or '').strip().lower() in _BUG_DONE:
+                continue
+            out.append(b)
+    return out
+
+
+def build_bug_aging(bugs, now=None, threshold=_BUG_STALE_DAYS):
+    """bugs (bug mở đã lọc Closed/Rejected) -> bug "chưa đụng" >= threshold ngày, gom theo squad.
+    Thuần, test được. Tuổi = số ngày từ `updated` (lần đụng gần nhất); cache cũ thiếu `updated`
+    -> fallback `created`. Trả {total, squads:[{squad,count,oldest_days}], items:[bug+_age]}."""
+    today = (now or datetime.now()).replace(hour=0, minute=0, second=0, microsecond=0)
+    stale = []
+    for b in bugs:
+        d = parse_date(b.get('updated') or b.get('created') or '')
+        if not d:
+            continue
+        age = (today - d).days
+        if age >= threshold:
+            stale.append({**b, '_age': age})
+    stale.sort(key=lambda x: x['_age'], reverse=True)
+    squads = {}
+    for b in stale:
+        s = b.get('project') or 'Khác'
+        q = squads.setdefault(s, {'squad': s, 'count': 0, 'oldest_days': 0})
+        q['count'] += 1
+        q['oldest_days'] = max(q['oldest_days'], b['_age'])
+    squad_list = sorted(squads.values(), key=lambda x: (-x['oldest_days'], -x['count']))
+    return {'total': len(stale), 'squads': squad_list, 'items': stale}
+
+
+def _age_cls(age):
+    if age >= 14:
+        return 'tba-hot'
+    if age >= _BUG_STALE_DAYS * 2:
+        return 'tba-warm'
+    return ''
+
+
+def _bug_aging_section(ag, limit=8):
+    """Render card "Bug tồn đọng" cho /today. '' khi không có bug nào quá ngưỡng."""
+    if not ag or not ag.get('total'):
+        return ''
+    chips = ''.join(
+        f'<span class="tba-chip"><b>{esc(s["squad"])}</b> {s["count"]}'
+        f'<span class="tba-old">· cũ nhất {s["oldest_days"]}d</span></span>'
+        for s in ag['squads'])
+    rows = ''
+    for b in ag['items'][:limit]:
+        key = b.get('key', '') or ''
+        age = b.get('_age', 0)
+        rows += (
+            f'<div class="td-row">'
+            f'<a class="key" href="{esc(JIRA_URL)}/browse/{esc(key)}" target="_blank" rel="noopener">{esc(key)}</a>'
+            f'<div class="td-main"><div class="td-sum">{esc(b.get("summary", ""))}</div></div>'
+            f'<span class="tba-squad">{esc(b.get("project") or "—")}</span>'
+            f'<span class="tba-age {_age_cls(age)}">{age} ngày</span>'
+            '</div>')
+    more = ag['total'] - min(limit, len(ag['items']))
+    more_html = (f'<a class="tba-more" href="/bug-log">+{more} bug nữa · mở Bug Log →</a>'
+                 if more > 0 else '')
+    return (
+        '<section class="card td-sec td-bugage tone-warn">'
+        '<div class="td-head"><span class="material-symbols-rounded ph-light ph-bug-beetle"></span>'
+        f'<h3>Bug tồn đọng · chưa đụng ≥ {_BUG_STALE_DAYS} ngày</h3>'
+        f'<span class="tcount">{ag["total"]}</span></div>'
+        f'<div class="tba-squads">{chips}</div>'
+        f'<div class="td-list">{rows}{more_html}</div></section>'
+    )
+
+
+def render_today_v2(data, activities, cmap, user, notes=None, stale=False, jira_error=False,
+                    bug_data=None):
     now = datetime.now()
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
     hello = f'{_WEEKDAYS[now.weekday()]}, {now.strftime("%d/%m/%Y")}'
@@ -160,6 +240,8 @@ def render_today_v2(data, activities, cmap, user, notes=None, stale=False, jira_
                 '<div class="es-title">Không có gì gấp hôm nay 🎉</div>'
                 '<div class="es-hint">Không quá hạn, không kẹt, không ai đang chờ bạn trả lời.</div>'
                 '</div></div>') + secs
-    content = head + kpis + f'<div class="td-grid" id="todayPage">{secs}</div>'
+    # Bug tồn đọng (#109) — cross-squad, nằm trên lưới task cá nhân vì là việc review của leader.
+    bug_sec = _bug_aging_section(build_bug_aging(_flatten_open_bugs(bug_data), now))
+    content = head + kpis + bug_sec + f'<div class="td-grid" id="todayPage">{secs}</div>'
     return _document_v2(content, 'today', user, activities, title='Hôm nay — QA Workspace',
                         stale=stale, stale_note=_snap_note(data) if stale else '')

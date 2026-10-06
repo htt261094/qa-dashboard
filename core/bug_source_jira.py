@@ -126,6 +126,7 @@ def _issue_to_bug(issue):
         'status_raw': status_raw,
         'severity': _severity(f),
         'created': created,
+        'updated': (f.get('updated') or '')[:10],                    # lần đụng gần nhất (aging "chưa đụng" — #109)
         'month': created[:7],                                        # tháng tạo (không còn tab Tn)
         'qa_pic': _user_name(f.get('reporter')),                     # QA log bug = reporter
         'dev_pic': _user_name(f.get('assignee')),                    # dev fix = assignee

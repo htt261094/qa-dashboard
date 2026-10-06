@@ -6,7 +6,7 @@ Context cho Claude Code khi làm việc trên project này.
 
 Custom HTML dashboard **dùng riêng cho 1 người** (`thanhht1`, chạy trên chính máy host — Decision #96/#97), pull data live từ Jira qua REST API + đọc bug log từ Google Drive. Thay cho Jira native dashboard (xấu, buggy, không merge cell, không conditional formatting).
 
-**User là Acting QA Manager.** Từ 2026-10-02 dashboard chỉ còn việc của chính user (Việc của tôi · Bug Log · Analytics · Tài liệu); dashboard team, roadmap, test case, đánh giá leader, app Android đã gỡ (#97). Phần tự gửi report tháng cho CTO cũng đã gỡ (#100) — Analytics vẫn giữ nguyên để xem số.
+**User là QA sub-lead** (từ ~2026-10-06; trước là Acting QA Manager), đang commit **30% effort hands-on vào 1 squad** + phần còn lại review cấp leader cùng 1 leader khác. Từ 2026-10-02 dashboard chỉ còn việc của chính user (Việc của tôi · Bug Log · Analytics · Tài liệu); dashboard team, roadmap, test case, đánh giá leader, app Android đã gỡ (#97). Phần tự gửi report tháng cho CTO cũng đã gỡ (#100) — Analytics vẫn giữ nguyên để xem số.
 
 ## Tech Stack
 
@@ -50,7 +50,7 @@ Status categories (filter an toàn hơn tên status): `new` → TO DO · `indete
 | `nhungnh` | Nhung | QA |
 | `phuongct` | Phương | QA |
 | `tholt` | Thơ | QA |
-| `thanhht1` | Thành | QA (acting manager, admin) |
+| `thanhht1` | Thành | QA sub-lead (admin, 30% effort 1 squad) |
 | `hiennt19` | Hiền | QA Manager (maternity leave) |
 
 Hiền THƯỜNG là reporter task QA team được giao (cô tạo rồi assign).
@@ -524,7 +524,13 @@ Client đã vá tại chỗ sau transition (#24), nhưng mọi lần render SAU 
 - Mutate issue dict **tại chỗ** (object nằm trong cache SWR) → mọi bản copy trong RAM thống nhất.
 **Ranh giới có chủ đích**: CHỈ status Jira (nhãn nội bộ đã là store local #21; duedate vẫn chỉ vá client-side). RAM per-process, KHÔNG sync chéo máy — trễ nằm ở cache/index của CHÍNH process đang serve. Chỉ ghi đè **tên** status, không dựng `statusCategory` (không code nào đọc field đó); count-only KPI (`done_total`/`created_week`/`resolved_week`) KHÔNG đổi theo overlay.
 
-### 103. Thông báo desktop (Notification API) cho noti mới *(2026-10-02, issue #198, code: module chuông `app_v2.js`)*
+### 109. Strip "Bug tồn đọng" ở `/today` + thêm `updated` vào bug dict *(2026-10-06, code: `core/render/today.py` + `core/bug_source_jira.py`)*
+Trang `/today` (#102) chỉ gom task cá nhân; là sub-lead (role mới 2026-10-06, commit 30% 1 squad) cần thấy ngay **bug mở đang rệu rã** để review — không phải mở `/analytics`. Thêm 1 card cross-squad TRÊN lưới task cá nhân.
+- **Nguồn**: `load_bug_log()` (cache local `.bug_log.json`, **0 call Jira**) truyền vào `render_today_v2(bug_data=...)`; lỗi cache → bỏ qua, `/today` vẫn render (degrade mềm).
+- **Logic thuần** (`build_bug_aging(bugs, now, threshold)` + `_flatten_open_bugs`, test được): bug MỞ (lifecycle ∉ {Closed, Rejected}) mà "chưa đụng" ≥ `_BUG_STALE_DAYS` (= `STUCK_DAYS` = 5, parity với "task kẹt") → gom theo squad (`project`). Tuổi = số ngày từ `updated` (lần đụng gần nhất); **cache cũ thiếu `updated` → fallback `created`**.
+- **Thêm field `updated`** vào bug dict (`bug_source_jira._issue_to_bug`) — `_FIELDS` vốn đã fetch `updated` nhưng chưa map. Field thừa, downstream không vỡ; populate đầy đủ sau 1 lần sync bug log.
+- **Render**: chip per-squad (count + "cũ nhất Nd") + list ≤8 bug cũ nhất (key→link Jira, summary, badge tuổi đổi màu: ≥14d đỏ · ≥10d cam · còn lại xám) + "+N bug nữa → Bug Log". **Không có bug quá ngưỡng → card ẩn hẳn** (trả `''`).
+**Ranh giới**: chỉ hiển thị (read-only), không ghi Jira; cross-squad (không lọc theo squad của user vì không lưu "squad của user"). Tươi khi F5 như KPI `/today` (không nhận patch poll #24).
 Mở rộng #24, không thêm endpoint: dùng chính `/activity-feed`. Bật/tắt ở modal Setting (`#setNotifSect`) hoặc palette; quyền do browser giữ theo origin (`localhost` là secure context), cờ bật ở `localStorage qa-desktop-notif`.
 - **Leader 1 tab** qua Web Lock `qa-notif-leader` (giữ tới khi tab đóng, tab khác tự lên thay): CHỈ leader được poll khi tab ẩn (#24 vốn bỏ qua tab ẩn — tab ẩn khác vẫn nghỉ) và CHỈ leader bắn → nhiều tab không trùng.
 - **Không bắn khi bạn đang nhìn**: cờ chung `qa-focus` (focus → `1`, blur/pagehide → `0`) + `document.hasFocus()`. Noti tới lúc đang focus bị bỏ hẳn (đã có toast + chuông), không dồn lại bắn sau.
@@ -720,6 +726,10 @@ qa-dashboard/
 - Khi thêm/đổi cấu trúc: **tự ghi Decision mới** vào file này (số kế tiếp), không đợi user nhắc.
 
 ## Last Updated
+
+2026-10-06 — Role user đổi Acting QA Manager → **QA sub-lead** (30% effort 1 squad); cập nhật Project Purpose + bảng QA team.
+
+2026-10-06 (#109) — Strip "Bug tồn đọng" ở `/today`: bug mở chưa đụng ≥5 ngày gom theo squad (cross-squad, read-only, nguồn cache local 0 call Jira). Thêm field `updated` vào bug dict (`bug_source_jira`).
 
 2026-10-05 (#108) — Trang `/bug-log` chia 5 tab theo squad + backlog thay lăng kính tháng (nối tiếp #107): 4 tab SIT1-4 (bug active-sprint, mọi status) + tab Backlog (bug ngoài sprint còn mở, chia squad bằng section-header). Payload thêm `sprintState`/`sprint`. Gỡ toàn bộ month-tab/`splitGroups` trong IIFE bug-log. SUPERSEDES #72/#75 cho màn Bug Log.
 

@@ -1666,10 +1666,27 @@ tr.row-flash{animation:rowFlash 2.2s var(--ease-out) 1}
 .td-due.od{color:var(--error);font-weight:600}
 .td-due.today{color:var(--primary);font-weight:600}
 .td-empty{padding:16px;font-size:13px;color:var(--on-surface-variant)}
+
+/* ===== /today — strip "Bug tồn đọng" (cross-squad, Decision #109) ===== */
+.td-bugage{margin-bottom:var(--sp-4,16px)}
+.tba-squads{display:flex;flex-wrap:wrap;gap:6px;padding:10px 16px;border-bottom:1px solid var(--divider)}
+.tba-chip{display:inline-flex;align-items:center;gap:5px;background:var(--surface-low);
+          border:1px solid var(--outline-variant);border-radius:999px;padding:3px 10px;
+          font-size:12px;color:var(--on-surface);font-variant-numeric:tabular-nums}
+.tba-chip b{font-weight:700}
+.tba-old{color:var(--on-surface-variant);font-size:11px}
+.tba-squad{font-size:11px;color:var(--on-surface-variant);white-space:nowrap}
+.tba-age{font-size:12px;font-weight:600;white-space:nowrap;min-width:64px;text-align:right;
+         font-variant-numeric:tabular-nums;color:var(--on-surface-variant)}
+.tba-age.tba-warm{color:var(--warning)}
+.tba-age.tba-hot{color:var(--error)}
+.tba-more{display:block;padding:10px 16px;font-size:12.5px;color:var(--primary);text-decoration:none}
+.tba-more:hover{text-decoration:underline}
 @media (max-width:760px){
   .td-kpis{grid-template-columns:repeat(2,1fr)}
   .td-row{flex-wrap:wrap}
   .td-due{min-width:0;text-align:left}
+  .tba-age{min-width:0;text-align:left}
 }
 
 /* ===== Analytics — card "Tuổi bug đang mở" (open_age, Decision #105) ===== */

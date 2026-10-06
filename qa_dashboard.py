@@ -462,8 +462,13 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             self._html(render_today_v2(None, self._bell_activities(), None, self._user_ctx(),
                                        jira_error=True))
             return
+        # Bug cache local (#109) — đọc đĩa, 0 call Jira; lỗi -> bỏ qua, /today vẫn hiện.
+        try:
+            bug_data = load_bug_log()
+        except Exception:   # noqa: BLE001 — strip bug là phụ trợ
+            bug_data = None
         self._html(render_today_v2(data, bell, overlay, self._user_ctx(),
-                                   notes=notes, stale=stale))
+                                   notes=notes, stale=stale, bug_data=bug_data))
 
     def _my_work_bundle(self, fresh):
         """Fetch + scope snapshot cho lens "Việc của tôi". Trả `(data, overlay, bell, stale, notes)`.
