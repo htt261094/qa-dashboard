@@ -196,22 +196,106 @@ def _bug_aging_section(ag, limit=8):
     )
 
 
+def build_standup(tasks, groups, now=None):
+    """Dựng 3 nhóm cho standup từ data đã có (0 call Jira). Thuần, test được.
+      - done   : task DONE có `doneAt` trong cửa sổ nhìn lại (Thứ Hai = 3 ngày gộp cuối tuần, else 1)
+      - today  : quá hạn + đến hạn hôm nay + đang làm (In Progress)
+      - blockers: task kẹt ≥ STUCK_DAYS + task mang nhãn nội bộ (#21 = lý do đang chờ)
+    Mỗi item = {key, summary, hint}."""
+    now = now or datetime.now()
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    lookback = 3 if today.weekday() == 0 else 1
+    since = today - timedelta(days=lookback)
+
+    done = []
+    for t in tasks:
+        if (t.get('jira') or '').upper() != 'DONE':
+            continue
+        d = parse_date(t.get('doneAt'))
+        if d and d >= since:
+            done.append({'key': t['key'], 'summary': t.get('summary', ''), 'hint': ''})
+    done.sort(key=lambda x: x['key'])
+
+    seen, today_plan = set(), []
+    for t in groups['overdue'] + groups['today']:
+        if t['key'] in seen:
+            continue
+        seen.add(t['key'])
+        hint = 'quá hạn' if t.get('overdue') else 'đến hạn hôm nay'
+        today_plan.append({'key': t['key'], 'summary': t.get('summary', ''), 'hint': hint})
+    for t in tasks:
+        if t['key'] in seen or (t.get('jira') or '') != 'In Progress':
+            continue
+        seen.add(t['key'])
+        today_plan.append({'key': t['key'], 'summary': t.get('summary', ''), 'hint': ''})
+
+    bseen, blockers = set(), []
+    for t in groups['stuck']:
+        bseen.add(t['key'])
+        blockers.append({'key': t['key'], 'summary': t.get('summary', ''),
+                         'hint': f'kẹt ≥ {STUCK_DAYS} ngày'})
+    for t in tasks:
+        if t['key'] in bseen or (t.get('jira') or '').upper() in ('DONE', 'CANCELLED'):
+            continue
+        cs = t.get('customs') or []
+        if cs:
+            bseen.add(t['key'])
+            blockers.append({'key': t['key'], 'summary': t.get('summary', ''),
+                             'hint': ', '.join(_CUST.get(v, v) for v in cs)})
+    return {'done': done, 'today': today_plan, 'blockers': blockers}
+
+
+def format_standup(st, now=None, cap=15):
+    """3 nhóm standup -> text thuần để copy-paste vào chat/standup. Mỗi nhóm cap `cap` dòng."""
+    now = now or datetime.now()
+    head = f'Standup · {_WEEKDAYS[now.weekday()]} {now.strftime("%d/%m/%Y")}'
+
+    def block(title, items):
+        lines = [f'{title} ({len(items)}):']
+        if not items:
+            lines.append('- (không có)')
+        for it in items[:cap]:
+            hint = f' ({it["hint"]})' if it.get('hint') else ''
+            lines.append(f'- {it["key"]} — {it["summary"]}{hint}')
+        if len(items) > cap:
+            lines.append(f'- … +{len(items) - cap} nữa')
+        return '\n'.join(lines)
+
+    return '\n\n'.join([
+        head,
+        block('✅ Đã xong', st['done']),
+        block('🎯 Hôm nay', st['today']),
+        block('⛔ Blocker', st['blockers']),
+    ])
+
+
 def render_today_v2(data, activities, cmap, user, notes=None, stale=False, jira_error=False,
                     bug_data=None):
     now = datetime.now()
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
     hello = f'{_WEEKDAYS[now.weekday()]}, {now.strftime("%d/%m/%Y")}'
-    head = (f'<div class="page-head"><div><div class="page-title">Hôm nay</div>'
-            f'<p>{esc(hello)}</p></div></div>')
     mentions = [a for a in (activities or [])
                 if a.get('mention') and a.get('is_unread')]
     if jira_error:
+        head = (f'<div class="page-head"><div><div class="page-title">Hôm nay</div>'
+                f'<p>{esc(hello)}</p></div></div>')
         content = head + _conn_error_card()
         return _document_v2(content, 'today', user, activities, title='Hôm nay — QA Workspace')
 
     tasks, _meta = build_my_work_payload(data, cmap, notes)
     g = build_today_groups(tasks, notes, now)
     note_idx = index_by_canon(notes or {})
+
+    # Standup digest (#110) — text dựng server-side, nút copy ở page-head (JS: app_v2.js).
+    standup_txt = format_standup(build_standup(tasks, g, now), now)
+    head = (
+        '<div class="page-head"><div><div class="page-title">Hôm nay</div>'
+        f'<p>{esc(hello)}</p></div>'
+        '<button class="btn btn-ghost td-standup-btn" id="copyStandup" title="Sao chép bản tóm tắt standup">'
+        '<span class="material-symbols-rounded ph-light ph-clipboard-text"></span>Copy standup</button>'
+        f'<pre id="standupText" hidden>{esc(standup_txt)}</pre>'
+        '</div>'
+    )
 
     def rows(lst):
         return ''.join(_task_row(t, today, note_idx.get(canon_key(t['key']))) for t in lst)

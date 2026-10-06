@@ -4482,3 +4482,24 @@ window.__smSetCustom=function(t, key, val, onChanged){
   // Về desktop thì luôn reset trạng thái off-canvas
   window.addEventListener('resize', function(){ if(window.innerWidth>820) close(); });
 })();
+
+/* ===== /today — Copy standup (#110): copy text đã dựng server-side vào clipboard =====
+   IIFE top-level (ngoài scope `toast`) -> feedback ngay trên nút, không phụ thuộc helper. */
+(function(){
+  var btn=document.getElementById('copyStandup'), src=document.getElementById('standupText');
+  if(!btn || !src) return;
+  var orig=btn.innerHTML, timer=0;
+  function flash(txt){ btn.textContent=txt; clearTimeout(timer);
+    timer=setTimeout(function(){ btn.innerHTML=orig; }, 1600); }
+  function legacyCopy(txt){
+    try{ var ta=document.createElement('textarea'); ta.value=txt; ta.style.position='fixed'; ta.style.opacity='0';
+      document.body.appendChild(ta); ta.select(); var r=document.execCommand('copy'); document.body.removeChild(ta); return r; }
+    catch(e){ return false; }
+  }
+  btn.addEventListener('click', function(){
+    var txt=src.textContent || '', ok=function(){ flash('✓ Đã copy'); }, fail=function(){ flash('✗ Không copy được'); };
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(txt).then(ok).catch(function(){ legacyCopy(txt)?ok():fail(); });
+    } else { legacyCopy(txt)?ok():fail(); }
+  });
+})();

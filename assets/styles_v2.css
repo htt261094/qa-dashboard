@@ -1667,6 +1667,10 @@ tr.row-flash{animation:rowFlash 2.2s var(--ease-out) 1}
 .td-due.today{color:var(--primary);font-weight:600}
 .td-empty{padding:16px;font-size:13px;color:var(--on-surface-variant)}
 
+/* ===== /today — nút Copy standup (#110) ===== */
+.td-standup-btn{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;font-size:13px;padding:8px 14px}
+.td-standup-btn .material-symbols-rounded{font-size:18px}
+
 /* ===== /today — strip "Bug tồn đọng" (cross-squad, Decision #109) ===== */
 .td-bugage{margin-bottom:var(--sp-4,16px)}
 .tba-squads{display:flex;flex-wrap:wrap;gap:6px;padding:10px 16px;border-bottom:1px solid var(--divider)}

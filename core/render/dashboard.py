@@ -7,7 +7,8 @@ from datetime import datetime, timedelta
 
 from config import JIRA_URL, STUCK_DAYS
 from issues import (parse_date, i_assignee, i_assignee_name, i_status, i_summary,
-                    i_duedate, i_created, i_comment_count, days_overdue, is_stuck)
+                    i_duedate, i_created, i_comment_count, days_overdue, is_stuck,
+                    i_resolved, i_updated)
 from custom_status import values_of
 from task_notes import index_by_canon
 from config import canon_key
@@ -84,6 +85,8 @@ def build_my_work_payload(data, cmap, notes=None):
             'nComments': i_comment_count(iss),
             'hasNote': canon_key(iss['key']) in note_idx,
             'jiraUrl': f'{JIRA_URL}/browse/{iss["key"]}',
+            # Ngày hoàn thành cho standup (#110): resolutiondate thường null (#4b) -> fallback updated.
+            'doneAt': (i_resolved(iss) or i_updated(iss) or '')[:10],
         })
     meta = {'active': len(active), 'overdue': n_over, 'stuck': n_stuck,
             'dueweek': n_dueweek, 'done': len(data['done_week']), 'stuckDays': STUCK_DAYS}

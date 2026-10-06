@@ -524,6 +524,13 @@ Client đã vá tại chỗ sau transition (#24), nhưng mọi lần render SAU 
 - Mutate issue dict **tại chỗ** (object nằm trong cache SWR) → mọi bản copy trong RAM thống nhất.
 **Ranh giới có chủ đích**: CHỈ status Jira (nhãn nội bộ đã là store local #21; duedate vẫn chỉ vá client-side). RAM per-process, KHÔNG sync chéo máy — trễ nằm ở cache/index của CHÍNH process đang serve. Chỉ ghi đè **tên** status, không dựng `statusCategory` (không code nào đọc field đó); count-only KPI (`done_total`/`created_week`/`resolved_week`) KHÔNG đổi theo overlay.
 
+### 110. Nút "Copy standup" ở `/today` *(2026-10-06, code: `core/render/today.py` + IIFE cuối `app_v2.js`)*
+Sub-lead (role mới) commit 30% 1 squad vẫn phải standup/báo cáo phần việc đó → gõ tay mỗi ngày. Nút sinh text copy-paste từ data đã có (`_my_work_bundle`, **0 call Jira thêm**).
+- **Dựng server-side** (`build_standup(tasks, groups, now)` + `format_standup(st, now)`, thuần, test được): 3 nhóm — **Đã xong** (task DONE có `doneAt` trong cửa sổ nhìn lại: Thứ Hai = 3 ngày gộp cuối tuần, else 1) · **Hôm nay** (quá hạn + đến hạn hôm nay + In Progress) · **Blocker** (kẹt ≥ STUCK_DAYS + task mang nhãn nội bộ #21 = lý do đang chờ). Text nhét vào `<pre id="standupText" hidden>`.
+- **`doneAt`** thêm vào done task của `build_my_work_payload` (dashboard.py): `resolutiondate` thường null (#4b) → fallback `updated`. Field thừa, `/my-work` JS không vỡ.
+- **JS**: IIFE **cuối** `app_v2.js` (top-level, NGOÀI scope `toast` của IIFE chính — `toast` không global, xác minh `typeof toast==='undefined'` ở window) → KHÔNG gọi `toast`, feedback ngay trên nút (`flash` đổi text 1.6s). Copy: `navigator.clipboard.writeText` → fallback `execCommand('copy')` khi reject/absent.
+**Ranh giới**: read-only; cửa sổ "đã xong" chỉ 1 ngày (3 ngày Thứ Hai) — không phải toàn bộ done_week. Browser pane Claude chặn clipboard (như Notification #103) → hiện "✗"; browser thật localhost (secure context + user gesture) copy được.
+
 ### 109. Strip "Bug tồn đọng" ở `/today` + thêm `updated` vào bug dict *(2026-10-06, code: `core/render/today.py` + `core/bug_source_jira.py`)*
 Trang `/today` (#102) chỉ gom task cá nhân; là sub-lead (role mới 2026-10-06, commit 30% 1 squad) cần thấy ngay **bug mở đang rệu rã** để review — không phải mở `/analytics`. Thêm 1 card cross-squad TRÊN lưới task cá nhân.
 - **Nguồn**: `load_bug_log()` (cache local `.bug_log.json`, **0 call Jira**) truyền vào `render_today_v2(bug_data=...)`; lỗi cache → bỏ qua, `/today` vẫn render (degrade mềm).
@@ -728,6 +735,8 @@ qa-dashboard/
 ## Last Updated
 
 2026-10-06 — Role user đổi Acting QA Manager → **QA sub-lead** (30% effort 1 squad); cập nhật Project Purpose + bảng QA team.
+
+2026-10-06 (#110) — Nút "Copy standup" ở `/today`: sinh text 3 nhóm (Đã xong / Hôm nay / Blocker) từ data my-work (0 call Jira), copy-paste vào standup. Thêm `doneAt` vào done task.
 
 2026-10-06 (#109) — Strip "Bug tồn đọng" ở `/today`: bug mở chưa đụng ≥5 ngày gom theo squad (cross-squad, read-only, nguồn cache local 0 call Jira). Thêm field `updated` vào bug dict (`bug_source_jira`).
 
