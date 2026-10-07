@@ -1143,7 +1143,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
   var custMap={}; (window.QA_CUSTOM_STATUSES||[]).forEach(function(p){ custMap[p[0]]=p[1]; });
   var COMMENTS={};        // key -> [{author,when,body}] (lazy, dùng cho drawer)
   var DETAIL={};          // key -> {description}
-  var curFilter='all';
+  var dndKey=null, dndInflight={};   // kéo-thả đổi status (giống Jira board)
 
   function jiraCls(v){ v=(v||'').toUpperCase();
     if(v==='DONE') return 'b-done'; if(v==='CANCELLED') return 'b-critical';
@@ -1160,15 +1160,11 @@ window.__smSetCustom=function(t, key, val, onChanged){
       overdue:false, stuck:false, isNew:false,
       jiraUrl:(window.__jiraBase||'')+'/browse/'+key };
   }
-  // KPI = lọc nhanh. 'all' = không lọc (board hiện HẾT, kể cả DONE nằm ở cột riêng).
-  function matchFilter(t,f){ if(f==='overdue') return t.overdue; if(f==='stuck') return t.stuck;
-    if(f==='dueweek') return !!t.dueWeek;
-    if(f==='done') return t.jira.toUpperCase()==='DONE';
-    return true; }
+  // KHÔNG còn lọc bucket (#114) — board luôn hiện HẾT; chỉ còn lọc theo ô tìm kiếm topbar.
   function visibleTasks(){
     var q=(($('searchInp')||{}).value||'').toLowerCase();
-    return TASKS.filter(function(t){ return matchFilter(t,curFilter) &&
-      (!q || (t.key+' '+t.summary).toLowerCase().indexOf(q)>=0); });
+    if(!q) return TASKS.slice();
+    return TASKS.filter(function(t){ return (t.key+' '+t.summary).toLowerCase().indexOf(q)>=0; });
   }
 
   function chipHTML(t){
@@ -1185,7 +1181,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     if(t.overdue) fl+='<span class="bc-flag od" title="Quá hạn"><span class="material-symbols-rounded ph-light ph-calendar-x mi-xs"></span></span>';
     if(t.stuck)   fl+='<span class="bc-flag st" title="Kẹt ≥ '+(META.stuckDays||5)+' ngày"><span class="material-symbols-rounded ph-light ph-hourglass mi-xs"></span></span>';
     var cls='bcard'+(t.overdue?' od':(t.stuck?' st':''));
-    return '<div class="'+cls+'" data-act="detail" data-key="'+esc(t.key)+'">'
+    return '<div class="'+cls+'" draggable="true" data-act="detail" data-key="'+esc(t.key)+'">'
       +'<div class="bc-top"><a class="key" href="'+esc(t.jiraUrl)+'" target="_blank">'+esc(t.key)+'</a>'
       +'<span class="bc-top-r">'+fl
       +'<button class="caret material-symbols-rounded ph-light ph-caret-down mi-sm" data-act="smenu" data-key="'+esc(t.key)+'" title="Đổi trạng thái"></button></span></div>'
@@ -1206,19 +1202,18 @@ window.__smSetCustom=function(t, key, val, onChanged){
     if(!all.length){ board.innerHTML='<div class="empty-state board-empty">'
         +'<span class="es-ic"><span class="material-symbols-rounded ph-light ph-confetti"></span></span>'
         +'<div class="es-title">Không có task nào 🎉</div>'
-        +'<div class="es-hint">Sạch việc ở bộ lọc này — nghỉ tay chút đi.</div>'
+        +'<div class="es-hint">Sạch việc rồi — nghỉ tay chút đi.</div>'
         +'</div>'; return; }
     var groups={};
     all.forEach(function(t){ var s=(t.jira||'').trim()||'—'; (groups[s]=groups[s]||[]).push(t); });
     var order=[];
-    // 'all' -> luôn hiện 4 cột lõi; lọc -> chỉ cột có card (đỡ cột rỗng gây nhiễu).
-    COLS.forEach(function(s){ var has=groups[s]&&groups[s].length;
-      if(has || (curFilter==='all' && CORE[s])) order.push(s); });
+    // Luôn hiện 4 cột lõi (kể cả rỗng) + CANCELLED/status lạ chỉ khi có card.
+    COLS.forEach(function(s){ if(CORE[s] || (groups[s]&&groups[s].length)) order.push(s); });
     Object.keys(groups).forEach(function(s){ if(order.indexOf(s)<0) order.push(s); });
     board.innerHTML = order.map(function(s){
       var list=groups[s]||[];
       var body = list.length ? list.map(cardHTML).join('')
-               : '<div class="bcol-empty">Trống</div>';
+               : '<div class="bcol-empty">Kéo task vào đây</div>';
       return '<div class="bcol" data-col="'+esc(s)+'">'
         +'<div class="bcol-head"><span class="bcol-name"><span class="bcol-dot '+jiraCls(s)+'"></span>'+esc(s)+'</span>'
         +'<span class="cc">'+list.length+'</span></div>'
@@ -1226,9 +1221,6 @@ window.__smSetCustom=function(t, key, val, onChanged){
     }).join('');
     if(window.__smRebind) window.__smRebind();
   }
-  function setFilter(f){ curFilter=f;
-    document.querySelectorAll('#kpis .kpi').forEach(function(k){ k.classList.toggle('sel', k.getAttribute('data-f')===f); });
-    renderBoard(); }
 
   // event delegation (board card: toàn card = mở drawer; caret = đổi status; chip x = bỏ nhãn)
   document.addEventListener('click', function(e){
@@ -1239,9 +1231,59 @@ window.__smSetCustom=function(t, key, val, onChanged){
     if(act==='smenu'){ e.stopPropagation(); openStatusMenu(a); }
     else if(act==='detail'){ openDetail(key); }
   });
-  document.querySelectorAll('#kpis .kpi').forEach(function(k){ k.addEventListener('click', function(){
-    setFilter(k.getAttribute('data-f')); }); });
   var si=$('searchInp'); if(si) si.addEventListener('input', function(){ renderBoard(); });
+
+  // ----- Kéo-thả đổi status giữa cột (giống Jira board) -----
+  // Thả 1 card sang cột khác = chuyển issue sang status của cột đó. Phải đi qua transition
+  // HỢP LỆ của Jira (PAT cá nhân): tra /jira-transitions, tìm bước có `to` = status cột đích;
+  // không có -> báo lỗi, KHÔNG ép. Thành công -> cập nhật task + renderBoard (card nhảy cột).
+  function clearDrop(){ var els=board.querySelectorAll('.bcol.drop-tgt');
+    for(var i=0;i<els.length;i++) els[i].classList.remove('drop-tgt'); }
+  board.addEventListener('dragstart', function(e){
+    var card=e.target.closest('.bcard'); if(!card){ return; }
+    dndKey=card.getAttribute('data-key'); card.classList.add('dragging');
+    if(e.dataTransfer){ e.dataTransfer.effectAllowed='move';
+      try{ e.dataTransfer.setData('text/plain', dndKey); }catch(_){} }
+  });
+  board.addEventListener('dragend', function(){
+    var d=board.querySelector('.bcard.dragging'); if(d) d.classList.remove('dragging');
+    clearDrop(); dndKey=null;
+  });
+  board.addEventListener('dragover', function(e){
+    if(!dndKey) return; var col=e.target.closest('.bcol'); if(!col) return;
+    e.preventDefault(); if(e.dataTransfer) e.dataTransfer.dropEffect='move';
+    if(!col.classList.contains('drop-tgt')){ clearDrop(); col.classList.add('drop-tgt'); }
+  });
+  board.addEventListener('drop', function(e){
+    if(!dndKey) return; var col=e.target.closest('.bcol'); if(!col) return;
+    e.preventDefault();
+    var target=col.getAttribute('data-col'), key=dndKey;
+    clearDrop();
+    var t=taskByKey(key); if(!t){ return; }
+    if((t.jira||'').trim()===target) return;         // thả lại cột cũ -> bỏ qua
+    moveCard(t, key, target);
+  });
+  function moveCard(t, key, target){
+    if(dndInflight[key]) return; dndInflight[key]=true;
+    toast(key+': đang chuyển sang "'+target+'"…', true);
+    postJSON('/jira-transitions', { key:key }, 20000).then(function(j){
+      if(patToast(j)){ dndInflight[key]=false; return; }
+      if(!j || !j.ok){ dndInflight[key]=false; toast((j&&j.msg)||'Lỗi tải bước chuyển', false); return; }
+      var tr=(j.transitions||[]).filter(function(x){
+        return (x.to||'').trim().toUpperCase()===target.toUpperCase(); })[0];
+      if(!tr){ dndInflight[key]=false;
+        toast('Không có bước chuyển "'+t.jira+'" → "'+target+'" trên Jira', false); return; }
+      postJSON('/do-transition', { key:key, id:tr.id, to:tr.to }, 20000).then(function(r){
+        dndInflight[key]=false; if(patToast(r)) return;
+        if(r.ok){ var st=r.status||tr.to; t.jira=st;
+          var can=(st==='TO DO'||st==='In Progress'); if(!can) t.customs=[]; t.canCustom=can;
+          renderBoard(); toast(key+' → '+st+' ✓', true);
+          var dEl=$('drawer'); if(dEl && dEl.classList.contains('open')){
+            var ka=dEl.querySelector('.key'); if(ka && ka.textContent===key) renderDrawer(t); } }
+        else toast(r.msg||('Lỗi đổi status '+key), false);
+      }).catch(function(){ dndInflight[key]=false; toast('Lỗi mạng khi đổi status', false); });
+    }).catch(function(){ dndInflight[key]=false; toast('Lỗi mạng khi tải bước chuyển', false); });
+  }
 
   // ----- comment fetch (dùng cho drawer) -----
   function fetchComments(key){ return getJSON('/issue-comments?key='+encodeURIComponent(key), 20000)
@@ -1361,7 +1403,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     if(t && !!t.hasNote!==has){ t.hasNote=has; renderBoard(); }
   };
 
-  setFilter('all');
+  renderBoard();
 })();
 
 // ============== SHARED DRAWER (trang KHÔNG có bảng task: roadmap, docs) ==============

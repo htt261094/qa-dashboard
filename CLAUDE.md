@@ -251,9 +251,11 @@ Popup của `<select>` do OS vẽ → không style được: list trắng giữa
 User chốt: trang `/my-work` thấy hết việc cùng lúc, KHÔNG phải bấm từng bucket (tab Quá hạn/Bị kẹt + KPI-filter) mới xem được. Thay **1 bảng + tabs** bằng **board kiểu Jira**: cột theo status (`TO DO · In Progress · PENDING · DONE` luôn hiện + `CANCELLED`/status lạ chỉ khi có card), card trong cột.
 - **Payload KHÔNG đổi**: `build_my_work_payload` giữ nguyên (`tasks`+`meta`) — chỉ đổi cách render. Python bỏ `.tabs` + `<table id="rows">` + pager, thêm `<div class="board" id="board">`; KPI giữ nguyên.
 - **IIFE đổi guard `#rows` → `#board`**, `renderRows`→`renderBoard` (gom task theo `t.jira`, dựng cột). **MỌI hook giữ nguyên tên**: `__applyTaskPatch`/`__applyDuePatch`/`__applyFieldPatch`/`__applyNotePatch`/`__rerenderRows`/`__openDetail` + drawer + `openStatusMenu`/`qaOnChanged`/`rmCust` + `dueValHTML` inline (đổi hạn tại chỗ trên card). Poll #24/#90 vá card tại chỗ như cũ.
-- **KPI vẫn lọc nhanh** (`matchFilter`): `'all'` = hiện HẾT (DONE nằm cột riêng, KHÁC bảng cũ nơi `'all'` loại DONE) · `overdue`/`stuck`/`dueweek`/`done` = chỉ card khớp, lúc đó ẩn cột rỗng. Card quá hạn viền trái đỏ + icon, kẹt viền cam + icon → vẫn thấy ngay không cần lọc.
-- **GỠ khỏi IIFE**: comment panel inline (`openCmt`/`cmtRow`/`toggleCmt`/`sendComment`) + pager (`curPage`/`PER_PAGE`/`pagerHTML`) — comment giờ chỉ trong drawer (click card → drawer). `pagerHTML` helper (#41) vẫn còn cho bug-log.
-SUPERSEDES phần "1 bảng + tabs" của #17/#19 cho màn `/my-work` (shell/drawer/smenu/#38 token vẫn nguyên). Ranh giới: cột DONE có thể nhiều card (done_week cap 500, #4b) nhưng cuộn trong cột; KHÔNG kéo-thả đổi status (dùng caret `__openSmenu` như cũ — an toàn, qua đúng transition hợp lệ).
+- **BỎ filter bucket** (user chốt lần 2): KPI chỉ còn là **số tổng quan thuần** (không `data-f`, không click, CSS `#kpis .kpi` tắt hover). Board **luôn hiện HẾT** mọi cột lõi; chỉ còn lọc theo ô tìm kiếm topbar. Card quá hạn viền trái đỏ + icon, kẹt viền cam + icon → thấy ngay không cần lọc.
+- **Kéo-thả đổi status giữa cột** (HTML5 DnD, giống Jira board): card `draggable`, thả sang cột khác → `moveCard` tra `/jira-transitions` (PAT cá nhân) tìm bước có `to` = status cột đích rồi `/do-transition` (tái dùng đúng endpoint smenu #39). KHÔNG có bước hợp lệ → toast báo, KHÔNG ép. Thành công → cập nhật task + renderBoard (card nhảy cột) + vá drawer nếu đang mở. Thả lại cột cũ = no-op. `.bcol.drop-tgt` sáng viền khi rê qua; `.bcard.dragging` mờ đi.
+- **Cột CHIỀU CAO BẰNG NHAU** (`align-items:stretch` + `.bcol height:calc(100vh-250px)`): cột rỗng (vd PENDING) không còn lùn → hết bug "cột rỗng lệch khi cuộn"; cột rỗng thành vùng thả dashed "Kéo task vào đây" full chiều cao. `.bcol-head` bỏ sticky (header là flex item, chỉ `.bcol-body` cuộn).
+- **GỠ khỏi IIFE**: filter (`matchFilter`/`setFilter`/`curFilter` + bind KPI click) + comment panel inline (`openCmt`/`cmtRow`/`toggleCmt`/`sendComment`) + pager (`curPage`/`PER_PAGE`/`pagerHTML`) — comment giờ chỉ trong drawer (click card → drawer). `pagerHTML` helper (#41) vẫn còn cho bug-log.
+SUPERSEDES phần "1 bảng + tabs" của #17/#19 cho màn `/my-work` (shell/drawer/smenu/#38 token vẫn nguyên). Ranh giới: cột DONE có thể nhiều card (done_week cap 500, #4b) nhưng cuộn trong cột; kéo-thả chỉ đi qua transition HỢP LỆ của Jira (cột đích không nằm trong transition hợp lệ của issue thì không làm được — đúng như Jira board).
 
 ## Tab: Tài liệu
 
@@ -764,7 +766,7 @@ qa-dashboard/
 
 ## Last Updated
 
-2026-10-08 (#114) — `/my-work` đổi từ 1 bảng + tabs sang **board kiểu Jira** (cột theo status TO DO/In Progress/PENDING/DONE, card có flag quá hạn/kẹt). Thấy hết việc cùng lúc, không phải bấm từng bucket. KPI vẫn lọc nhanh; mọi hook poll/drawer/smenu/đổi hạn giữ nguyên. Gỡ comment-panel inline + pager khỏi IIFE. SUPERSEDES phần bảng+tabs của #17/#19.
+2026-10-08 (#114) — `/my-work` đổi từ 1 bảng + tabs sang **board kiểu Jira** (cột theo status TO DO/In Progress/PENDING/DONE, card có flag quá hạn/kẹt). Thấy hết việc cùng lúc. **Bỏ hẳn filter bucket** (KPI thành số thuần), **thêm kéo-thả đổi status giữa cột** (qua transition hợp lệ Jira), cột bằng chiều cao (cột rỗng = drop zone, hết bug lệch). Mọi hook poll/drawer/smenu/đổi hạn giữ nguyên. Gỡ comment-panel inline + pager khỏi IIFE. SUPERSEDES phần bảng+tabs của #17/#19.
 
 2026-10-07 (#113) — Thêm form "Tạo task" createmeta-động (giống dialog Create của Jira): chọn Project + Issue Type → field render theo createmeta, tạo task bất kỳ bằng PAT cá nhân (cha optional). Dùng endpoint createmeta legacy vì bản granular 404 trên instance. **GỠ HẲN sub-task QA** (#22/#52/#57/#58/#59/#77): modal + IIFE + route + handler + hàm backend; topbar chỉ còn 1 nút "Tạo task".
 
