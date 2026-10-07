@@ -247,6 +247,14 @@ Popup của `<select>` do OS vẽ → không style được: list trắng giữa
 ⚠ Bỏ qua khi `multiple` / `size>1` / có `data-noxsel` → cần select native chỗ nào thì gắn `data-noxsel`.
 **Giới hạn**: inline `style="width:…"` đặt trên `<select>` không còn tác dụng (nằm trên native đã ẩn) — muốn đổi bề rộng phải style ở CSS cho `.xsel-btn`.
 
+### 114. "Việc của tôi" = board kiểu Jira (cột theo status), bỏ bảng + tabs *(2026-10-08, code: `core/render/dashboard.py:render_qa_v2` + IIFE `#board` trong `app_v2.js` + `.board`/`.bcol*`/`.bcard*` trong `styles_v2.css`)*
+User chốt: trang `/my-work` thấy hết việc cùng lúc, KHÔNG phải bấm từng bucket (tab Quá hạn/Bị kẹt + KPI-filter) mới xem được. Thay **1 bảng + tabs** bằng **board kiểu Jira**: cột theo status (`TO DO · In Progress · PENDING · DONE` luôn hiện + `CANCELLED`/status lạ chỉ khi có card), card trong cột.
+- **Payload KHÔNG đổi**: `build_my_work_payload` giữ nguyên (`tasks`+`meta`) — chỉ đổi cách render. Python bỏ `.tabs` + `<table id="rows">` + pager, thêm `<div class="board" id="board">`; KPI giữ nguyên.
+- **IIFE đổi guard `#rows` → `#board`**, `renderRows`→`renderBoard` (gom task theo `t.jira`, dựng cột). **MỌI hook giữ nguyên tên**: `__applyTaskPatch`/`__applyDuePatch`/`__applyFieldPatch`/`__applyNotePatch`/`__rerenderRows`/`__openDetail` + drawer + `openStatusMenu`/`qaOnChanged`/`rmCust` + `dueValHTML` inline (đổi hạn tại chỗ trên card). Poll #24/#90 vá card tại chỗ như cũ.
+- **KPI vẫn lọc nhanh** (`matchFilter`): `'all'` = hiện HẾT (DONE nằm cột riêng, KHÁC bảng cũ nơi `'all'` loại DONE) · `overdue`/`stuck`/`dueweek`/`done` = chỉ card khớp, lúc đó ẩn cột rỗng. Card quá hạn viền trái đỏ + icon, kẹt viền cam + icon → vẫn thấy ngay không cần lọc.
+- **GỠ khỏi IIFE**: comment panel inline (`openCmt`/`cmtRow`/`toggleCmt`/`sendComment`) + pager (`curPage`/`PER_PAGE`/`pagerHTML`) — comment giờ chỉ trong drawer (click card → drawer). `pagerHTML` helper (#41) vẫn còn cho bug-log.
+SUPERSEDES phần "1 bảng + tabs" của #17/#19 cho màn `/my-work` (shell/drawer/smenu/#38 token vẫn nguyên). Ranh giới: cột DONE có thể nhiều card (done_week cap 500, #4b) nhưng cuộn trong cột; KHÔNG kéo-thả đổi status (dùng caret `__openSmenu` như cũ — an toàn, qua đúng transition hợp lệ).
+
 ## Tab: Tài liệu
 
 ### 11. Tab "Tài liệu" (`/docs`) — cây thư mục + link Google Drive
@@ -755,6 +763,8 @@ qa-dashboard/
 - Khi thêm/đổi cấu trúc: **tự ghi Decision mới** vào file này (số kế tiếp), không đợi user nhắc.
 
 ## Last Updated
+
+2026-10-08 (#114) — `/my-work` đổi từ 1 bảng + tabs sang **board kiểu Jira** (cột theo status TO DO/In Progress/PENDING/DONE, card có flag quá hạn/kẹt). Thấy hết việc cùng lúc, không phải bấm từng bucket. KPI vẫn lọc nhanh; mọi hook poll/drawer/smenu/đổi hạn giữ nguyên. Gỡ comment-panel inline + pager khỏi IIFE. SUPERSEDES phần bảng+tabs của #17/#19.
 
 2026-10-07 (#113) — Thêm form "Tạo task" createmeta-động (giống dialog Create của Jira): chọn Project + Issue Type → field render theo createmeta, tạo task bất kỳ bằng PAT cá nhân (cha optional). Dùng endpoint createmeta legacy vì bản granular 404 trên instance. **GỠ HẲN sub-task QA** (#22/#52/#57/#58/#59/#77): modal + IIFE + route + handler + hàm backend; topbar chỉ còn 1 nút "Tạo task".
 

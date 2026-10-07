@@ -207,6 +207,47 @@ html[data-theme="dark"] .nrsn.mention{background:#2a2342;color:#b3a6f0}
 .kpi .value{font-size:34px;font-weight:700;letter-spacing:-.02em;line-height:1;display:flex;align-items:center;gap:6px}
 .kpi.warn .value{color:var(--error)}.kpi.stuck .value{color:var(--warning)}.kpi.success .value{color:var(--success)}
 
+/* ===== Board kiểu Jira (Việc của tôi) — cột theo status, card ===== */
+.board{display:flex;gap:16px;align-items:flex-start;overflow-x:auto;padding-bottom:8px}
+.bcol{flex:0 0 300px;min-width:300px;background:var(--surface-low);border:1px solid var(--outline-variant);
+      border-radius:var(--r-lg);display:flex;flex-direction:column;max-height:calc(100vh - 230px)}
+.bcol-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:11px 14px;
+           border-bottom:1px solid var(--outline-variant);position:sticky;top:0;background:var(--surface-low);
+           border-radius:var(--r-lg) var(--r-lg) 0 0;z-index:1}
+.bcol-name{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;letter-spacing:.04em;
+           text-transform:uppercase;color:var(--on-surface-variant)}
+.bcol-dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+/* điểm màu cột tái dùng bảng màu badge status */
+.bcol-dot.b-todo{background:var(--outline)}.bcol-dot.b-checking{background:var(--primary)}
+.bcol-dot.b-blocked{background:var(--warning)}.bcol-dot.b-done{background:var(--success)}
+.bcol-dot.b-critical{background:var(--error)}
+.bcol-head .cc{background:var(--surface-container);color:var(--on-surface-variant);font-size:11px;font-weight:700;
+               min-width:20px;text-align:center;padding:1px 7px;border-radius:10px;font-variant-numeric:tabular-nums}
+.bcol-body{padding:10px;display:flex;flex-direction:column;gap:10px;overflow-y:auto}
+.bcol-empty{color:var(--on-surface-variant);font-size:12px;text-align:center;padding:10px 0;opacity:.6}
+.bcard{background:var(--card);border:1px solid var(--outline-variant);border-radius:var(--r-md);
+       padding:10px 12px;box-shadow:var(--e1);cursor:pointer;transition:border-color var(--dur-1),box-shadow var(--dur-1),transform var(--dur-1)}
+.bcard:hover{border-color:var(--primary);box-shadow:var(--e2);transform:translateY(-1px)}
+.bcard.od{border-left:3px solid var(--error)}
+.bcard.st{border-left:3px solid var(--warning)}
+.bc-top{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:6px}
+.bc-top-r{display:inline-flex;align-items:center;gap:4px}
+.bc-flag{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:6px}
+.bc-flag.od{background:var(--error-bg);color:var(--error-on)}
+.bc-flag.st{background:var(--warning-bg);color:var(--warning-on)}
+.bc-title{font-size:13.5px;font-weight:500;line-height:1.35;color:var(--on-surface);
+          display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.bcard .caret{background:none;border:none;color:var(--on-surface-variant);cursor:pointer;padding:0;opacity:.7}
+.bcard .caret:hover{opacity:1;color:var(--primary)}
+.bc-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:9px}
+.bc-foot-r{display:inline-flex;align-items:center;gap:8px}
+.bc-foot .assignee{font-size:12px;color:var(--on-surface-variant);overflow:hidden}
+.bc-foot .assignee .av{width:22px;height:22px;flex:0 0 auto}
+.bc-cmt{display:inline-flex;align-items:center;gap:2px;font-size:11px;color:var(--on-surface-variant);
+        font-variant-numeric:tabular-nums}
+.empty-state.board-empty{width:100%;padding:48px 0}
+@media (max-width:720px){.bcol{flex-basis:84vw;min-width:84vw}}
+
 /* ===== Table ===== */
 .card{background:var(--card);border:1px solid var(--outline-variant);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--e1)}
 table{width:100%;border-collapse:collapse}
