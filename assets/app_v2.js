@@ -456,7 +456,7 @@ function skelComments(){
     {label:'Tài liệu', href:'/docs', icon:'description'}
   ].filter(Boolean);
   var ACTS=[
-    {label:'Tạo Sub-task', icon:'add_task', run:function(){ var b=$('createSubBtn'); if(b) b.click(); }},
+    {label:'Tạo task', icon:'add', run:function(){ var b=$('createIssueBtn'); if(b) b.click(); }},
     {label:'Đổi giao diện sáng / tối', icon:'contrast', run:function(){ var b=$('themeBtn'); if(b) b.click(); }},
     {label:'Cài đặt API token / Drive', icon:'key', run:function(){ var o=$('setOverlay'); if(o) o.classList.add('open'); }},
     {label:'Bật / tắt thông báo desktop', icon:'notifications', run:function(){ var d=window.__desktopNotif; if(!d) return;
@@ -2938,295 +2938,254 @@ window.__smSetCustom=function(t, key, val, onChanged){
   applyUrlState();
 })();
 
-// ---------- Tạo Sub-task (modal type-ahead, NHIỀU task cha, dùng chung mọi trang v2) ----------
+// ---------- Tạo task (createmeta-động, giống dialog Create của Jira — Decision #113) ----------
+// Chọn Dự án -> Loại task -> form field render THEO createmeta của (project, issuetype).
+// Field bắt buộc + schema do Jira trả; JS dựng widget tương ứng. Tạo bằng API token cá nhân.
 (function(){
-  var ov = $('subOverlay'); if(!ov) return;
-  var openBtn = $('createSubBtn');
-  var leader = { name:'', display:'' };  // user đã chọn (optional, dùng chung mọi nhóm)
-  var groupsBox = $('subGroups'), groupTpl = $('subGroupTpl'), rowTpl = $('subRowTpl');
+  var ov=$('ciOverlay'); if(!ov) return;
+  var openBtn=$('createIssueBtn');
+  var projInp=$('ciProjInp'), projRes=$('ciProjRes'), projChip=$('ciProjChip');
+  var typeSel=$('ciType'), fieldsBox=$('ciFields'), hint=$('ciHint');
+  var parentWrap=$('ciParentWrap'), parentInp=$('ciParentInp'), parentRes=$('ciParentRes'),
+      parentChip=$('ciParentChip'), parentLbl=$('ciParentLbl');
+  var createBtn=$('ciCreate');
+  var proj=null;               // {key,name}
+  var types=[];                // [{id,name,subtask}]
+  var parentKey='';            // key task cha đã chọn
+  var userVals={};             // {fieldId:[{name,display}]} cho field user
+  var uchipTpl=$('ciUserChipTpl');
 
-  function stripPrefix(s){ return (s||'').trim().replace(/^\[[^\]]*\]\s*/,''); }
-  // Ngày cuối tháng hiện tại (YYYY-MM-DD) — default cho Hạn chót
-  function endOfMonth(){
-    var d=new Date(), e=new Date(d.getFullYear(), d.getMonth()+1, 0);
-    var mm=('0'+(e.getMonth()+1)).slice(-2), dd=('0'+e.getDate()).slice(-2);
-    return e.getFullYear()+'-'+mm+'-'+dd;
-  }
-  function open(){ ov.classList.add('open');
-    var due=$('subDue'); if(due && !due.value){ due.value=endOfMonth(); }
-    updateCount();
-    var p=$('subParentInp'); if(p) setTimeout(function(){ p.focus(); }, 60); }
-  function close(){ ov.classList.remove('open'); if(subPop) subPop.classList.remove('open'); }
   function debounce(fn, ms){ var t; return function(){ var a=arguments, self=this;
     clearTimeout(t); t=setTimeout(function(){ fn.apply(self, a); }, ms||260); }; }
 
-  // --- generic type-ahead: gắn input -> results, gọi search(url), chọn 1 mục ---
-  // noChip=true -> chọn xong KHÔNG hiện chip mà xoá input để chọn tiếp (dùng cho ô "thêm task cha")
-  function wireTA(inpId, resId, chipId, url, fmt, onPick, noChip){
-    var inp=$(inpId), res=$(resId), chip=chipId?$(chipId):null, opts=[], active=-1;
-    function place(){ var r=inp.getBoundingClientRect();   // toạ độ viewport cho position:fixed
+  function open(){ reset(); ov.classList.add('open');
+    setTimeout(function(){ if(projInp) projInp.focus(); }, 60); }
+  function close(){ ov.classList.remove('open'); projRes.classList.remove('open'); parentRes.classList.remove('open'); }
+  function reset(){
+    proj=null; types=[]; parentKey=''; userVals={};
+    projInp.value=''; projInp.style.display=''; projChip.style.display='none'; projChip.innerHTML='';
+    typeSel.innerHTML='<option value="">— Chọn dự án trước —</option>'; typeSel.disabled=true;
+    fieldsBox.innerHTML=''; hint.style.display='block';
+    hint.textContent='Chọn dự án và loại task để hiện các trường cần nhập.';
+    parentWrap.style.display='none'; parentInp.value=''; parentInp.style.display='';
+    parentChip.style.display='none'; parentChip.innerHTML='';
+    createBtn.disabled=true;
+  }
+
+  // ===== typeahead đơn (project / parent): input -> results fixed-position, chọn 1 -> chip =====
+  function wireTA(inp, res, chip, loader, fmt, onPick, minLen){
+    function place(){ var r=inp.getBoundingClientRect();
       res.style.top=(r.bottom+4)+'px'; res.style.left=r.left+'px'; res.style.width=r.width+'px'; }
-    function hide(){ res.classList.remove('open'); res.innerHTML=''; opts=[]; active=-1; }
+    function hide(){ res.classList.remove('open'); res.innerHTML=''; res._opts=[]; res._act=-1; }
     function show(){ place(); res.classList.add('open'); }
-    function showChip(label){ if(!chip) return; chip.innerHTML = label +
+    function showChip(label){ chip.innerHTML=label+
         '<button type="button" class="ta-x material-symbols-rounded ph-light ph-x mi-sm" title="Bỏ chọn"></button>';
       chip.style.display='flex'; inp.style.display='none';
       chip.querySelector('.ta-x').addEventListener('click', function(){
-        chip.style.display='none'; chip.innerHTML=''; inp.style.display=''; inp.value=''; onPick(null); inp.focus(); });
-    }
-    var run = debounce(function(){
+        chip.style.display='none'; chip.innerHTML=''; inp.style.display=''; inp.value=''; onPick(null); inp.focus(); }); }
+    var run=debounce(function(){
       var q=(inp.value||'').trim();
-      if(q.length<2){ hide(); return; }
-      getJSON(url+encodeURIComponent(q)).then(function(j){
-        opts=(j&&j.results)||[]; active=-1;
-        if(!opts.length){ res.innerHTML='<div class="ta-empty">Không tìm thấy</div>'; show(); return; }
-        res.innerHTML = opts.map(function(o,i){ return '<div class="ta-opt" data-i="'+i+'">'+fmt(o)+'</div>'; }).join('');
+      if(q.length<(minLen||0) && !(minLen===0)){ hide(); return; }
+      loader(q).then(function(opts){
+        res._opts=opts||[]; res._act=-1;
+        if(!res._opts.length){ res.innerHTML='<div class="ta-empty">Không tìm thấy</div>'; show(); return; }
+        res.innerHTML=res._opts.map(function(o,i){ return '<div class="ta-opt" data-i="'+i+'">'+fmt(o)+'</div>'; }).join('');
         show();
       }).catch(function(){ hide(); });
-    }, 260);
+    }, 240);
     inp.addEventListener('input', run);
-    // dropdown position:fixed -> bám lại input khi cuộn/đổi kích thước (lúc đang mở)
+    inp.addEventListener('focus', function(){ if((inp.value||'').trim().length>=(minLen||0)) run(); });
     window.addEventListener('scroll', function(){ if(res.classList.contains('open')) place(); }, true);
     window.addEventListener('resize', function(){ if(res.classList.contains('open')) place(); });
     inp.addEventListener('keydown', function(e){
       if(!res.classList.contains('open')) return;
+      var opts=res._opts||[];
       if(e.key==='ArrowDown'||e.key==='ArrowUp'){ e.preventDefault();
-        active += (e.key==='ArrowDown'?1:-1);
-        if(active<0) active=opts.length-1; if(active>=opts.length) active=0;
-        res.querySelectorAll('.ta-opt').forEach(function(el,i){ el.classList.toggle('act', i===active); });
-      } else if(e.key==='Enter'){ e.preventDefault(); if(active>=0) pick(active); }
-      else if(e.key==='Escape'){ hide(); }
-    });
+        res._act+=(e.key==='ArrowDown'?1:-1);
+        if(res._act<0) res._act=opts.length-1; if(res._act>=opts.length) res._act=0;
+        res.querySelectorAll('.ta-opt').forEach(function(el,i){ el.classList.toggle('act', i===res._act); });
+      } else if(e.key==='Enter'){ e.preventDefault(); if(res._act>=0) pick(res._act); }
+      else if(e.key==='Escape'){ hide(); } });
     res.addEventListener('mousedown', function(e){ var el=e.target.closest('.ta-opt'); if(el) pick(+el.getAttribute('data-i')); });
-    inp.addEventListener('blur', function(){ setTimeout(hide, 150); });  // click ra ngoài -> đóng (mousedown pick chạy trước)
-    function pick(i){ var o=opts[i]; if(!o) return;
-      if(noChip){ onPick(o); inp.value=''; hide(); inp.focus(); }   // giữ input để thêm cha kế
-      else { onPick(o); showChip(fmt(o)); hide(); }
-    }
-    return {
-      reset:function(){ if(chip){ chip.style.display='none'; chip.innerHTML=''; } inp.style.display=''; inp.value=''; hide(); },
-      set:function(o){ if(!o){ onPick(null); return; } onPick(o); if(!noChip) showChip(fmt(o)); }
-    };
+    inp.addEventListener('blur', function(){ setTimeout(hide, 150); });
+    function pick(i){ var o=(res._opts||[])[i]; if(!o) return; onPick(o); showChip(fmt(o)); hide(); }
   }
 
-  // Chọn 1 task cha -> thêm 1 NHÓM mới (không hiện chip; giữ input để chọn cha tiếp)
-  var parentTA = wireTA('subParentInp','subParentRes',null,'/search-parents?q=',
+  wireTA(projInp, projRes, projChip,
+    function(q){ return getJSON('/create-projects?q='+encodeURIComponent(q)).then(function(j){
+        if(j && j.code==='no_pat'){ patToast(j); return []; } return (j&&j.results)||[]; }); },
+    function(o){ return '<b>'+esc(o.key)+'</b>'+esc(o.name||''); },
+    function(o){ pickProject(o); }, 0);
+  wireTA(parentInp, parentRes, parentChip,
+    function(q){ return getJSON('/search-parents?q='+encodeURIComponent(q)).then(function(j){ return (j&&j.results)||[]; }); },
     function(o){ return '<b>'+esc(o.key)+'</b>'+esc(o.summary||''); },
-    function(o){ if(o && o.key) addGroup(o.key, o.summary||''); }, true);
-  var leaderTA = wireTA('subLeaderInp','subLeaderRes','subLeaderChip','/search-people?q=',
-    function(o){ return '<b>'+esc(o.display||o.name)+'</b><small>'+esc(o.name)+'</small>'; },
-    function(o){ leader = o ? {name:o.name, display:o.display||o.name} : {name:'',display:''}; });
+    function(o){ parentKey=o?(o.key||''):''; }, 2);
 
-  // ===== Nhóm sub-task theo task cha =====
-  function groupEls(){ return groupsBox ? Array.prototype.slice.call(groupsBox.querySelectorAll('.st-group')) : []; }
-  function findGroup(key){
-    var hit=null; groupEls().forEach(function(g){ if(g.getAttribute('data-parent')===key) hit=g; }); return hit;
-  }
-  function addRow(listEl, title, assignee){
-    if(!listEl || !rowTpl) return;
-    var node = rowTpl.content.firstElementChild.cloneNode(true);
-    var ti = node.querySelector('.st-title'), se = node.querySelector('.st-assignee');
-    if(ti) ti.value = title||'';
-    if(se){ se.value = assignee||''; se.classList.toggle('unset', !se.value); }
-    listEl.appendChild(node); renumber(listEl);
-  }
-  function ensureGroupRow(listEl){ if(listEl && !listEl.querySelector('.st-row')) addRow(listEl, '', ''); }
-  function renumber(listEl){
-    if(!listEl) return;
-    listEl.querySelectorAll('.st-row').forEach(function(r,i){
-      var idx=r.querySelector('.st-idx'); if(idx) idx.textContent=(i+1); });
-  }
-  function addGroup(key, summary){
-    if(!groupsBox || !groupTpl || !key) return;
-    var exist=findGroup(key);
-    if(exist){   // đã có nhóm cho cha này -> không nhân đôi, cuộn tới + nhấp nháy
-      exist.scrollIntoView({block:'center', behavior:'smooth'});
-      exist.classList.add('st-group-flash'); setTimeout(function(){ exist.classList.remove('st-group-flash'); }, 900);
-      toast('Task cha '+key+' đã có trong danh sách', false); return;
-    }
-    var node = groupTpl.content.firstElementChild.cloneNode(true);
-    node.setAttribute('data-parent', key);
-    var gk=node.querySelector('.st-gkey'), gs=node.querySelector('.st-gsum');
-    if(gk) gk.textContent = key;
-    if(gs) gs.textContent = summary||'';
-    var listEl = node.querySelector('.st-list');
-    // Auto-gen 2 dòng: "[QA] Viết testcase <cha>" + "[QA] Test <cha>" (QA để "Chưa gán")
-    var t=stripPrefix(summary);
-    addRow(listEl, '[QA] Viết testcase '+t, ''); addRow(listEl, '[QA] Test '+t, '');
-    groupsBox.appendChild(node);
-    // hover chip -> popup sub-task đang có của cha này
-    var chip=node.querySelector('.st-gchip');
-    if(chip){
-      chip.addEventListener('mouseenter', function(){ clearTimeout(subPopTimer); showPop(node, key, chip); });
-      chip.addEventListener('mouseleave', hidePop);
-    }
-    preloadSubtasks(key);   // warm cache cho popup
-    reflectEmpty(); updateCount();
-  }
-  function removeGroup(g){ if(g) g.remove(); reflectEmpty(); updateCount(); }
-  function reflectEmpty(){
-    var empty=$('subGroupsEmpty'); if(empty) empty.style.display = groupEls().length ? 'none' : 'block';
-  }
-  function getGroups(){
-    return groupEls().map(function(g){
-      var items=[];
-      g.querySelectorAll('.st-row').forEach(function(r){
-        var t=(r.querySelector('.st-title')||{}).value||'';
-        var a=(r.querySelector('.st-assignee')||{}).value||'';
-        t=t.trim(); if(t) items.push({summary:t, assignee:a});
-      });
-      return {parent:g.getAttribute('data-parent'), summary:(g.querySelector('.st-gsum')||{}).textContent||'', items:items};
-    }).filter(function(gr){ return gr.parent && gr.items.length; });
-  }
-  function updateCount(){
-    var groups=getGroups(), n=0, assigned=0;
-    groups.forEach(function(gr){ n+=gr.items.length;
-      assigned += gr.items.filter(function(x){return x.assignee;}).length; });
-    var c=$('subCount'), b=$('subCreate');
-    if(c){
-      if(!n){ c.textContent=''; }
-      else { c.textContent = groups.length+' task cha · '+n+' sub-task · '+assigned+' QA được gán'
-        + (n-assigned>0 ? (' · '+(n-assigned)+' chưa gán') : ''); }
-    }
-    if(b) b.textContent = n>1 ? ('Tạo '+n+' sub-task') : 'Tạo sub-task';
-  }
-  function reset(){
-    leader={name:'',display:''};
-    parentTA.reset(); leaderTA.reset();
-    if(groupsBox) groupsBox.innerHTML='';
-    var d=$('subDue'); if(d) d.value='';
-    if(subPop) subPop.classList.remove('open');
-    reflectEmpty(); updateCount();
+  function pickProject(o){
+    if(!o){ proj=null; typeSel.disabled=true; typeSel.innerHTML='<option value="">— Chọn dự án trước —</option>';
+      fieldsBox.innerHTML=''; parentWrap.style.display='none'; createBtn.disabled=true; return; }
+    proj=o; fieldsBox.innerHTML=''; parentWrap.style.display='none'; parentKey=''; createBtn.disabled=true;
+    typeSel.disabled=true; typeSel.innerHTML='<option value="">Đang tải…</option>';
+    hint.style.display='block'; hint.textContent='Đang tải loại task của '+o.key+'…';
+    getJSON('/create-issuetypes?project='+encodeURIComponent(o.key)).then(function(j){
+      if(j && j.code==='no_pat'){ patToast(j); return; }
+      if(!j || !j.ok){ typeSel.innerHTML='<option value="">(lỗi tải loại task)</option>';
+        hint.textContent=(j&&j.msg)||'Không tải được loại task.'; return; }
+      types=j.results||[];
+      typeSel.innerHTML='<option value="">— Chọn loại task —</option>'+types.map(function(t){
+        return '<option value="'+esc(t.id)+'" data-sub="'+(t.subtask?1:0)+'">'+esc(t.name)+'</option>'; }).join('');
+      typeSel.disabled=false; hint.textContent='Chọn loại task để hiện các trường.';
+    }).catch(function(){ typeSel.innerHTML='<option value="">(lỗi mạng)</option>';
+      hint.textContent='Lỗi mạng khi tải loại task.'; });
   }
 
-  // Delegation trên container: xoá nhóm / thêm dòng / xoá dòng / đổi tiêu đề / đổi QA
-  if(groupsBox){
-    groupsBox.addEventListener('click', function(e){
-      var gdel=e.target.closest('.st-gdel');
-      if(gdel){ removeGroup(gdel.closest('.st-group')); return; }
-      var addR=e.target.closest('.st-add-row');
-      if(addR){ var list=addR.closest('.st-group').querySelector('.st-list');
-        addRow(list,'',''); updateCount();
-        var last=list.querySelector('.st-row:last-child .st-title'); if(last) last.focus(); return; }
-      var del=e.target.closest('.st-del');
-      if(del){ var row=del.closest('.st-row'), list2=del.closest('.st-list');
-        if(row) row.remove(); ensureGroupRow(list2); renumber(list2); updateCount(); return; }
-    });
-    groupsBox.addEventListener('input', function(e){
-      if(e.target.classList.contains('st-title')) updateCount();
-    });
-    groupsBox.addEventListener('change', function(e){
-      if(e.target.classList.contains('st-assignee')){
-        e.target.classList.toggle('unset', !e.target.value); updateCount();
-      }
-    });
-  }
-
-  // --- popup "sub-task đang có" của task cha: hover chip -> list zoom-in, bấm 1 mục -> thêm dòng QA vào ĐÚNG nhóm ---
-  var subCache={}, subPop=null, subPopTimer=null, popGroup=null, popChip=null;
-  function preloadSubtasks(key){
-    if(!key || subCache[key]) return;
-    getJSON('/parent-subtasks?key='+encodeURIComponent(key))
-      .then(function(j){ subCache[key]=(j&&j.results)||[]; })
-      .catch(function(){});
-  }
-  function buildPop(){
-    if(subPop) return subPop;
-    subPop=document.createElement('div'); subPop.className='st-pop';
-    document.body.appendChild(subPop);
-    subPop.addEventListener('mouseenter', function(){ clearTimeout(subPopTimer); });
-    subPop.addEventListener('mouseleave', hidePop);
-    subPop.addEventListener('click', function(e){
-      var it=e.target.closest('.stp-item'); if(!it || !popGroup) return;
-      // Bấm 1 sub-task -> sinh 2 dòng QA vào nhóm của cha đang hover: "Viết testcase" + "Test"
-      var list=popGroup.querySelector('.st-list'); if(!list) return;
-      var s=stripPrefix(it.getAttribute('data-sum')||'');
-      addRow(list, '[QA] Viết testcase '+s, ''); addRow(list, '[QA] Test '+s, ''); updateCount();
-      it.classList.add('added'); toast('Đã thêm 2 dòng QA cho: '+s, true);
-    });
-    return subPop;
-  }
-  function placePop(){
-    if(!subPop || !popChip) return;
-    var r=popChip.getBoundingClientRect();
-    subPop.style.top=(r.bottom+6)+'px'; subPop.style.left=r.left+'px';
-    subPop.style.width=Math.max(r.width, 320)+'px';
-  }
-  function renderPop(list){
-    var p=buildPop();
-    if(!list.length){ p.innerHTML='<div class="stp-empty">Task cha chưa có sub-task nào</div>'; return; }
-    p.innerHTML='<div class="stp-head">'+list.length+' sub-task đang có <small>· bấm để thêm dòng QA</small></div>'+
-      list.map(function(s){
-        var cls=/done|cancel/i.test(s.status||'')?'done':'';
-        return '<div class="stp-item '+cls+'" data-sum="'+esc(s.summary||'')+'" title="'+esc(s.summary||'')+'">'+
-          '<span class="stp-key">'+esc(s.key)+'</span>'+
-          '<span class="stp-sum">'+esc(s.summary||'')+'</span>'+
-          '<span class="stp-st">'+esc(s.status||'')+'</span>'+
-          '<span class="stp-add material-symbols-rounded ph-light ph-plus mi-sm"></span></div>';
-      }).join('');
-  }
-  function showPop(groupEl, key, chip){
-    if(!key || !chip) return;
-    popGroup=groupEl; popChip=chip;
-    var p=buildPop(); p.classList.add('open');
-    if(subCache[key]){ renderPop(subCache[key]); placePop(); return; }
-    p.innerHTML='<div class="stp-loading">Đang tải sub-task…</div>'; placePop();
-    var want=key;
-    getJSON('/parent-subtasks?key='+encodeURIComponent(want)).then(function(j){
-      var list=(j&&j.results)||[]; subCache[want]=list;
-      if(p.classList.contains('open') && popChip===chip){ renderPop(list); placePop(); }
-    }).catch(function(){ if(p.classList.contains('open')) p.innerHTML='<div class="stp-empty">Lỗi tải sub-task</div>'; });
-  }
-  function hidePop(){ subPopTimer=setTimeout(function(){ if(subPop) subPop.classList.remove('open'); }, 180); }
-
-  // Chưa có PAT -> không mở form tạo, mở thẳng modal Cài đặt PAT (create cần PAT cá nhân).
-  if(openBtn) openBtn.addEventListener('click', function(){
-    getJSON('/has-pat').then(function(j){
-      if(j && j.ok && !j.hasPat){
-        var so=$('setOverlay'); if(so) so.classList.add('open');
-        toast('Bạn cần cấu hình PAT trước khi tạo sub-task', false);
-      } else { open(); }
-    }).catch(function(){ open(); });   // lỗi check -> vẫn mở form, backend tự chặn
+  typeSel.addEventListener('change', function(){
+    var id=typeSel.value||''; fieldsBox.innerHTML=''; createBtn.disabled=true;
+    if(!id){ parentWrap.style.display='none'; hint.style.display='block';
+      hint.textContent='Chọn loại task để hiện các trường.'; return; }
+    var t=null; for(var i=0;i<types.length;i++){ if(types[i].id===id){ t=types[i]; break; } }
+    var isSub=!!(t && t.subtask);
+    parentWrap.style.display=isSub?'block':'none';
+    if(parentLbl) parentLbl.innerHTML=isSub?'Task cha <span class="ci-req">*</span>':'Task cha <small class="mhint">(sub-task)</small>';
+    hint.style.display='block'; hint.textContent='Đang tải các trường…';
+    getJSON('/create-fields?project='+encodeURIComponent(proj.key)+'&type='+encodeURIComponent(id)).then(function(j){
+      if(j && j.code==='no_pat'){ patToast(j); return; }
+      if(!j || !j.ok){ hint.textContent=(j&&j.msg)||'Không tải được các trường.'; return; }
+      renderFields(j.fields||[]);
+    }).catch(function(){ hint.textContent='Lỗi mạng khi tải các trường.'; });
   });
-  var c1=$('subClose'), c2=$('subCancel');
-  if(c1) c1.addEventListener('click', close);
-  if(c2) c2.addEventListener('click', close);
-  ov.addEventListener('click', function(e){ if(e.target===ov) close(); });
-  document.addEventListener('keydown', function(e){ if(e.key==='Escape' && ov.classList.contains('open')) close(); });
 
-  var createBtn=$('subCreate');
-  if(createBtn) createBtn.addEventListener('click', function(){
-    var groups=getGroups();
-    var start=($('subStart').value||'').trim();
-    var due=($('subDue').value||'').trim();
-    if(!groups.length){ toast('Chưa chọn task cha nào', false); return; }
-    if(!start){ toast('Chưa chọn ngày bắt đầu', false); return; }
-    if(!due){ toast('Chưa chọn hạn chót', false); return; }
+  // ===== render field động theo schema createmeta =====
+  var SKIP_SYS={ parent:1 };   // parent render riêng (ô Task cha ở trên)
+  function fieldHtml(m){
+    var t=m.type, items=m.items||'', av=m.allowedValues||[];
+    var req=m.required?' <span class="ci-req">*</span>':'';
+    var lbl='<label>'+esc(m.name)+req+'</label>';
+    if(!m.supported){
+      return '<div class="ci-field ci-unsup"><label>'+esc(m.name)+req+'</label>'
+        +'<div class="ci-note">Trường này không nhập được ở đây — sửa trực tiếp trên Jira sau khi tạo.</div></div>'; }
+    var ctrl='';
+    if(t==='user' || (t==='array'&&items==='user')){
+      ctrl='<div class="ci-user" data-multi="'+(t==='array'?1:0)+'"><div class="ci-uchips"></div>'
+        +'<div class="typeahead"><input type="text" class="ci-uinp" placeholder="Gõ tên người…" autocomplete="off" spellcheck="false">'
+        +'<div class="ta-results ci-ures"></div></div></div>';
+    } else if(av.length && (t==='option'||t==='priority'||t==='resolution'||t==='securitylevel'
+         ||t==='version'||t==='component'||t==='group'
+         ||(t==='array'&&(items==='option'||items==='version'||items==='component'||items==='group')))){
+      var multi=(t==='array');
+      var o=multi?'':'<option value="">— Không chọn —</option>';
+      o+=av.map(function(a){ return '<option value="'+esc(a.id)+'">'+esc(a.label)+'</option>'; }).join('');
+      ctrl='<select class="ci-inp"'+(multi?' multiple size="4" data-noxsel':'')+'>'+o+'</select>';
+    } else if(t==='array' && items==='string'){
+      ctrl='<input type="text" class="ci-inp" placeholder="Nhiều giá trị, cách nhau dấu phẩy" autocomplete="off">';
+    } else if(t==='number'){
+      ctrl='<input type="number" class="ci-inp" step="any" autocomplete="off">';
+    } else if(t==='date'){
+      ctrl='<input type="date" class="ci-inp">';
+    } else if(t==='datetime'){
+      ctrl='<input type="datetime-local" class="ci-inp">';
+    } else if(t==='string' && (m.system==='description'||m.system==='environment')){
+      ctrl='<textarea class="ci-inp" rows="3"></textarea>';
+    } else {
+      ctrl='<input type="text" class="ci-inp" autocomplete="off" spellcheck="false">';
+    }
+    return '<div class="ci-field" data-fid="'+esc(m.id)+'" data-type="'+esc(t)+'" data-items="'+esc(items)+'" data-req="'+(m.required?1:0)+'">'+lbl+ctrl+'</div>';
+  }
+  function renderFields(metas){
+    // summary lên đầu, required trước optional (giữ ổn định bằng thứ tự Jira trong mỗi nhóm)
+    var shown=metas.filter(function(m){ return !SKIP_SYS[m.system]; });
+    shown.sort(function(a,b){
+      var ra=(a.system==='summary')?0:(a.required?1:2), rb=(b.system==='summary')?0:(b.required?1:2);
+      return ra-rb; });
+    fieldsBox.innerHTML=shown.map(fieldHtml).join('');
+    hint.style.display='none'; createBtn.disabled=false;
+    var first=fieldsBox.querySelector('.ci-inp, .ci-uinp'); if(first) try{ first.focus(); }catch(e){}
+  }
+
+  // user field typeahead (delegation trên fieldsBox) — chọn user -> chip + đẩy userVals[fid]
+  (function(){
+    function uField(el){ return el.closest ? el.closest('.ci-field') : null; }
+    function fidOf(f){ return f ? f.getAttribute('data-fid') : ''; }
+    function renderChips(f){
+      var fid=fidOf(f), box=f.querySelector('.ci-uchips'), list=userVals[fid]||[];
+      box.innerHTML='';
+      list.forEach(function(u, idx){
+        var c=uchipTpl.content.firstElementChild.cloneNode(true);
+        c.querySelector('.ci-uchip-t').textContent=u.display||u.name;
+        c.querySelector('.ci-uchip-x').addEventListener('click', function(){
+          userVals[fid].splice(idx,1); renderChips(f); });
+        box.appendChild(c); }); }
+    var run=debounce(function(inp){
+      var f=uField(inp), res=f.querySelector('.ci-ures'), q=(inp.value||'').trim();
+      function place(){ var r=inp.getBoundingClientRect();
+        res.style.top=(r.bottom+4)+'px'; res.style.left=r.left+'px'; res.style.width=r.width+'px'; }
+      if(q.length<1){ res.classList.remove('open'); res.innerHTML=''; return; }
+      getJSON('/search-people?q='+encodeURIComponent(q)).then(function(j){
+        var opts=(j&&j.results)||[]; res._opts=opts;
+        if(!opts.length){ res.innerHTML='<div class="ta-empty">Không tìm thấy</div>'; }
+        else res.innerHTML=opts.map(function(o,i){ return '<div class="ta-opt" data-i="'+i+'"><b>'+esc(o.display||o.name)+'</b><small>'+esc(o.name)+'</small></div>'; }).join('');
+        place(); res.classList.add('open');
+      }).catch(function(){ res.classList.remove('open'); }); }, 240);
+    fieldsBox.addEventListener('input', function(e){
+      if(e.target.classList && e.target.classList.contains('ci-uinp')) run(e.target); });
+    fieldsBox.addEventListener('mousedown', function(e){
+      var opt=e.target.closest('.ci-opt, .ta-opt'); if(!opt) return;
+      var res=opt.closest('.ci-ures'); if(!res) return;
+      var f=uField(res), fid=fidOf(f), o=(res._opts||[])[+opt.getAttribute('data-i')]; if(!o) return;
+      var multi=f.querySelector('.ci-user').getAttribute('data-multi')==='1';
+      if(!userVals[fid]) userVals[fid]=[];
+      if(!multi) userVals[fid]=[];
+      if(!userVals[fid].some(function(u){ return u.name===o.name; })) userVals[fid].push({name:o.name, display:o.display||o.name});
+      renderChips(f); res.classList.remove('open'); res.innerHTML='';
+      var inp=f.querySelector('.ci-uinp'); inp.value=''; inp.focus(); });
+    fieldsBox.addEventListener('blur', function(e){
+      if(e.target.classList && e.target.classList.contains('ci-uinp')){
+        var res=uField(e.target).querySelector('.ci-ures'); setTimeout(function(){ res.classList.remove('open'); }, 160); } }, true);
+  })();
+
+  function collect(){
+    var out={};
+    fieldsBox.querySelectorAll('.ci-field').forEach(function(f){
+      if(f.classList.contains('ci-unsup')) return;
+      var fid=f.getAttribute('data-fid'), t=f.getAttribute('data-type'), items=f.getAttribute('data-items');
+      if(f.querySelector('.ci-user')){
+        var arr=(userVals[fid]||[]).map(function(u){ return u.name; });
+        out[fid]=(f.querySelector('.ci-user').getAttribute('data-multi')==='1')?arr:(arr[0]||''); return; }
+      var el=f.querySelector('.ci-inp'); if(!el) return;
+      if(el.tagName==='SELECT' && el.multiple){
+        out[fid]=Array.prototype.slice.call(el.selectedOptions).map(function(o){ return o.value; }).filter(Boolean);
+      } else if(t==='array' && items==='string'){
+        out[fid]=(el.value||'').split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+      } else { out[fid]=el.value; }
+    });
+    return out;
+  }
+
+  createBtn.addEventListener('click', function(){
+    if(!proj || !proj.key){ toast('Chưa chọn dự án', false); return; }
+    var type=typeSel.value||''; if(!type){ toast('Chưa chọn loại task', false); return; }
+    if(parentWrap.style.display!=='none' && !parentKey){
+      // chỉ bắt buộc khi loại là sub-task (label có dấu *)
+      if(parentLbl && /ci-req/.test(parentLbl.innerHTML)){ toast('Sub-task cần chọn task cha', false); return; } }
     createBtn.disabled=true;
-    // Nhiều cha -> gửi `groups`. Timeout dài vì tạo tuần tự N issue trên nhiều cha.
-    var payloadGroups=groups.map(function(gr){ return {parent:gr.parent, items:gr.items}; });
-    postJSON('/create-subtasks', { groups:payloadGroups, startDate:start,
-        duedate:due, leader:leader.name }, 90000)
+    postJSON('/create-issue', { project:proj.key, type:type, parent:parentKey, fields:collect() }, 90000)
       .then(function(j){
         createBtn.disabled=false;
-        if(!j){ toast('Lỗi tạo sub-task', false); return; }
+        if(!j){ toast('Lỗi tạo task', false); return; }
         if(j.code==='no_pat'){ patToast(j); return; }
-        var created=(j.created||[]), failed=(j.failed||[]);
-        if(!created.length){
-          // Tất cả fail -> báo lỗi cụ thể, GIỮ modal để sửa & thử lại
-          var m = failed.length ? ('Không tạo được: '+failed[0].msg) : (j.msg||'Lỗi tạo sub-task');
-          toast(m, false); return;
-        }
-        if(failed.length){
-          toast('Đã tạo '+created.length+', lỗi '+failed.length, false);
-          setTimeout(function(){ location.reload(); }, 2200);
-        } else {
-          toast('Đã tạo '+created.length+' sub-task ✓', true); reset(); close();
-          setTimeout(function(){ location.reload(); }, 1100);
-        }
+        if(j.ok){ toast(j.msg||'Đã tạo task ✓', true); close();
+          setTimeout(function(){ location.reload(); }, 1100); }
+        else { toast(j.msg||'Không tạo được task', false); }    // GIỮ modal để sửa & thử lại
       })
-      .catch(function(){ createBtn.disabled=false; toast('Lỗi mạng khi tạo sub-task', false); });
+      .catch(function(){ createBtn.disabled=false; toast('Lỗi mạng khi tạo task', false); });
   });
+
+  if(openBtn) openBtn.addEventListener('click', open);
+  var cbtn=$('ciCancel'), xbtn=$('ciClose');
+  if(cbtn) cbtn.addEventListener('click', close);
+  if(xbtn) xbtn.addEventListener('click', close);
+  ov.addEventListener('mousedown', function(e){ if(e.target===ov) close(); });
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape' && ov.classList.contains('open')) close(); });
 })();
 
 // ================= BUG LOG (guard #bugLogData) =================

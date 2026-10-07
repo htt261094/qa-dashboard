@@ -313,6 +313,15 @@ Hover chip cha → popup zoom-in list sub-task hiện có (`GET /parent-subtasks
 Ô "Thêm task cha" (type-ahead, noChip) → mỗi cha 1 **nhóm** (chip cha + list dòng riêng + nút bỏ nhóm); chọn cha đã có nhóm → không nhân đôi (cuộn tới + flash). Popup hover per-group (`popGroup`) → click item thêm dòng vào ĐÚNG nhóm.
 Payload `groups:[{parent,items}]` + start/due/leader chung → `create_subtasks_multi`: verify **mỗi cha đúng 1 lần**, tạo tuần tự; cha verify fail → chỉ item của cha đó vào `failed`. Cap **40** sub-task/lần. Backward-compat payload 1-cha giữ nguyên.
 
+### 113. Tạo task ĐỘC LẬP createmeta-động — form "mở" như dialog Create của Jira *(2026-10-07, code: `jira_write.create_issue` + `routes/write.py` + modal `#ciOverlay` + IIFE "Tạo task" trong `app_v2.js`)*
+Modal QA sub-task (#22/#57/#58/#77) bị khoá cứng vào 1 issuetype (`SUBTASK_TYPE_ID` + field QA cố định) → không tạo được Task/Story/Bug… User chốt: form **tạo task bất kỳ** — chọn **Project + Issue Type**, form render **đúng field theo createmeta** của cặp đó (cha KHÔNG bắt buộc, chỉ bắt buộc khi type là sub-task). SUPERSEDES #22/#52/#57/#58/#59/#77 — **đã GỠ HẲN modal + flow bulk sub-task QA** (user chốt bỏ luôn): xoá `_subtask_modal_v2`, IIFE "Tạo Sub-task" trong `app_v2.js`, action palette, nút topbar `#createSubBtn`, route `/create-subtask`+`/create-subtasks`+`/parent-subtasks`, handler `_handle_create_subtask(s)(_multi)`+`_get_parent_subtasks`, hàm `create_subtask`/`create_subtasks`/`create_subtasks_multi`/`_create_one_subtask`/`_resolve_parent` + `fetch_subtasks`. Topbar giờ chỉ còn 1 nút **"Tạo task"**. (`search_parent_tasks`/`/search-parents` + `search_people`/`/search-people` GIỮ vì form mới dùng cho ô Task cha + field user.) CSS `.st-*`/`#subOverlay` + config `SUBTASK_*`/`START_DATE_FIELD`/`LEADER_FIELD`/`DEPARTMENT_FIELD`/`BK_TEAM_FIELD` còn trong file nhưng dead (để yên, low-risk).
+- **Đọc + ghi đều bằng PAT cá nhân** (KHÔNG token chung): field bắt buộc + quyền tạo khớp đúng cái user thật sẽ tạo được. GET `/create-projects` (`/project/search?action=create`) · `/create-issuetypes` · `/create-fields` · POST `/create-issue` — tất cả load PAT, chưa có PAT → `code:no_pat` → FE mở modal Cài đặt.
+- **createmeta dùng endpoint LEGACY** `/rest/api/2/issue/createmeta?projectKeys=&[issuetypeIds=&]expand=projects.issuetypes[.fields]`: endpoint granular mới (`/createmeta/{p}/issuetypes/{id}`) **404 "No endpoint"** trên baokim.atlassian.net (đã verify live) → classic vẫn 200 + trả đủ. `_createmeta()` parse `projects[0].issuetypes[].fields` (fields = **dict** `{fieldId: meta}`).
+- **create_fields** trả `{id,name,required,type,items,custom,system,allowedValues:[{id,label}],hasDefault,supported}`. Loại không có widget (`attachment`/`issuelink(s)`/`timetracking`/`worklog`/`any`, array items `json`/`any`) → `supported=False` → FE ẩn + note "sửa trên Jira sau". `project`/`issuetype`/`reporter` lọc bỏ (set tự động / reporter = chủ token). `parent` (system=`parent`) GIỮ nhưng render ô riêng.
+- **create_issue** fetch lại createmeta để biết schema → `_coerce_field` ép từng field về shape Jira theo `type`/`items` (string/number/date/datetime/user→`user_ref`/option+priority+version+component→`{id}`/group→`{name}`/array tương ứng/labels→`[str]`), validate required (trống + không default → "Thiếu field bắt buộc: …" TRƯỚC khi POST), `summary` cap 250. `parent` xử lý riêng qua `parent_key`; type là sub-task mà thiếu cha → chặn sớm.
+- **FE** (`#ciFields`): widget theo schema — text/textarea(description/environment)/number/date/datetime-local/select(allowedValues, xsel enhance)/`<select multiple data-noxsel>`(array option)/text CSV(labels)/user-typeahead (chip + `/search-people`, cap 1 nếu không phải array). Project + parent dùng typeahead fixed-position (reuse `/create-projects` + `/search-parents`). Submit → `/create-issue` → toast + reload; lỗi GIỮ modal để sửa.
+**Ranh giới**: field binary/phức tạp phải sửa trên Jira sau khi tạo; Sprint (array/json) = unsupported; dùng endpoint "deprecated" vì instance chưa bật bản granular (nếu sau này bật thì chuyển, parser phân trang `values`/`issueTypes`/`fields` khác nhau). KHÔNG đụng `create_subtask*` (#22/#57/#58/#77) — độc lập.
+
 ## Bug Log (nguồn Google Drive)
 
 ### 25. Sync nhanh: Tầng-1 metadata-first + parallel + poll cấu hình
@@ -605,7 +614,8 @@ Cái "New" còn thấy là **nguồn KHÁC, giữ nguyên**: pill New ở `rende
 | 60 | Cổng QA gate — chuông "chuyển READY PRODUCTION nhưng CHƯA có sub-task QA" (`fetch_ready_prod_gaps`, `READY_PROD_*`) | ❌ gỡ hẳn 2026-10-02 theo yêu cầu user (noti cũ 86 ngày, không còn giá trị khi dashboard dùng riêng — #97) |
 | 89 | Bỏ pill "New" ở dashboard team | ❌ dashboard team đã gỡ — #97 |
 | 82 | Report tháng gửi CTO qua Google Chat (`monthly_reporter_chat_app.py` + Scheduled Task) | ❌ gỡ — #100 (Analytics giữ nguyên) |
-| 52 | Tạo nhiều sub-task dưới 1 cha (textarea mỗi dòng 1 sub-task) | ⛔ mở rộng bởi #58 (assignee từng dòng) + #77 (nhiều cha) |
+| 52 | Tạo nhiều sub-task dưới 1 cha (textarea mỗi dòng 1 sub-task) | ⛔ mở rộng bởi #58/#77 → cả cụm GỠ HẲN ở #113 |
+| 22 / 57 / 58 / 59 / 77 | Tạo Sub-task QA trên dashboard (parent bất kỳ, auto-gen 2 dòng, assignee/leader riêng, nhiều cha, popup sub-task đang có) | ❌ GỠ HẲN — #113 (thay bằng "Tạo task" createmeta-động; user chốt bỏ luôn sub-task QA) |
 
 ---
 
@@ -634,7 +644,7 @@ KHÔNG được:
 ### Works
 - Server `ThreadingHTTPServer` + Google OAuth login, chỉ phục vụ localhost (LOCAL_ONLY #96), chỉ tracking task của chính chủ (#97)
 - Hôm nay (`/today`, `/` redirect về đây — #102), Việc của tôi (`/my-work`), Tài liệu (`/docs`), Bug Log (`/bug-log`), Analytics (`/analytics`), Cài đặt (`/settings`)
-- Ghi Jira bằng PAT cá nhân: đổi status, comment (@-mention), đổi due date, tạo sub-task hàng loạt nhiều cha
+- Ghi Jira bằng PAT cá nhân: đổi status, comment (@-mention), đổi due date, **tạo task bất kỳ** (chọn Project + Issue Type, field động theo createmeta — #113; sub-task QA cũ đã gỡ)
 - Custom status overlay, ghi chú riêng theo task (#101), notification short-poll 60s + thông báo desktop (#103), command palette Ctrl+K
 - Auto-login chính chủ khi mở từ localhost (#98), autostart lúc logon (#99)
 - Bug Log nguồn **Jira "Bug Testing" (10382)** — trang `/bug-log` chia **5 tab**: 4 squad SIT1-4 (bug active-sprint) + Backlog (ngoài sprint, chia squad bên trong) (#108); reopen từ changelog, export Excel (#104). Drive đã gỡ.
@@ -745,6 +755,8 @@ qa-dashboard/
 - Khi thêm/đổi cấu trúc: **tự ghi Decision mới** vào file này (số kế tiếp), không đợi user nhắc.
 
 ## Last Updated
+
+2026-10-07 (#113) — Thêm form "Tạo task" createmeta-động (giống dialog Create của Jira): chọn Project + Issue Type → field render theo createmeta, tạo task bất kỳ bằng PAT cá nhân (cha optional). Dùng endpoint createmeta legacy vì bản granular 404 trên instance. **GỠ HẲN sub-task QA** (#22/#52/#57/#58/#59/#77): modal + IIFE + route + handler + hàm backend; topbar chỉ còn 1 nút "Tạo task".
 
 2026-10-06 — Role user đổi Acting QA Manager → **QA sub-lead** (30% effort 1 squad); cập nhật Project Purpose + bảng QA team.
 

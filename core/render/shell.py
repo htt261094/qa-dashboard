@@ -5,7 +5,6 @@ settings). Page submodules call `_document_v2` to assemble
 the full document. Assets inline per-render via render.base. See issue #104 / #86.
 """
 import json
-from datetime import datetime
 
 from config import (JIRA_URL, USERS, LOCAL_AUTOLOGIN, OWNER_EMAIL, display_name,
                     username_from_email)
@@ -106,8 +105,8 @@ def render_topbar_v2():
         '<div class="search"><span class="si material-symbols-rounded ph-light ph-magnifying-glass mi-sm"></span>'
         '<input type="text" id="searchInp" placeholder="Tìm task, kế hoạch...  (Ctrl+K mở bảng lệnh)"></div>'
         '<div class="top-right">'
-        '<button class="topcreate" id="createSubBtn" title="Tạo sub-task QA dưới 1 task">'
-        '<span class="material-symbols-rounded ph-light ph-plus mi-sm"></span> Tạo Sub-task</button>'
+        '<button class="topcreate" id="createIssueBtn" title="Tạo task mới trên Jira (chọn dự án + loại task)">'
+        '<span class="material-symbols-rounded ph-light ph-plus mi-sm"></span> Tạo task</button>'
         '<button class="iconbtn" id="bellBtn" title="Thông báo">'
         '<span class="material-symbols-rounded ph-light ph-bell mi-lg"></span>'
         '<span class="badge-dot" id="bellDot" style="display:none">0</span></button>'
@@ -160,67 +159,44 @@ def _settings_modal_v2(user=None):
     )
 
 
-def _subtask_modal_v2():
-    """Modal tạo Sub-task QA dưới NHIỀU task cha (dùng chung mọi trang v2).
-    Chọn 1 task cha -> sinh 1 NHÓM (2 dòng QA mặc định) dưới nhãn task cha đó; chọn thêm task
-    cha khác -> thêm nhóm mới. Mỗi dòng: ô tiêu đề + dropdown QA RIÊNG. Hover chip task cha ->
-    popup sub-task đang có, bấm để thêm dòng QA vào ĐÚNG nhóm đó. Leader = type-ahead dùng chung.
-    Start date default hôm nay. JS điều khiển + clone #subGroupTpl/#subRowTpl trong app_v2.js."""
-    today = datetime.now().strftime('%Y-%m-%d')
-    opts = '<option value="">— Chưa gán —</option>'
-    for u in USERS:
-        opts += f'<option value="{esc(u)}">{esc(display_name(u))}</option>'
+def _create_issue_modal_v2():
+    """Modal 'Tạo task' createmeta-động (Decision #113) — giống dialog Create của Jira.
+    Chọn Dự án -> Loại task -> form field RENDER THEO createmeta của (project, issuetype):
+    field bắt buộc + schema do Jira trả, JS dựng widget tương ứng (app_v2.js). Task cha
+    optional (bắt buộc khi loại là sub-task). Tạo bằng API token cá nhân (reporter = chính chủ)."""
     return (
-        '<div class="overlay" id="subOverlay"><div class="modal">'
+        '<div class="overlay" id="ciOverlay"><div class="modal modal-wide">'
         '<div class="modal-head"><span class="material-symbols-rounded ph-light ph-plus-circle"></span>'
-        '<h3>Tạo Sub-task</h3>'
-        '<button type="button" class="x material-symbols-rounded ph-light ph-x" id="subClose"></button></div>'
+        '<h3>Tạo task</h3>'
+        '<button type="button" class="x material-symbols-rounded ph-light ph-x" id="ciClose"></button></div>'
         '<div class="modal-body">'
-        '<div class="mfield"><label>Thêm task cha *</label>'
-        '<div class="typeahead" id="subParentTA">'
-        '<input type="text" id="subParentInp" placeholder="Gõ key hoặc tên task cha…" autocomplete="off" spellcheck="false">'
-        '<div class="ta-results" id="subParentRes"></div></div>'
-        '<div class="st-parent-hint" id="subParentHint">'
-        '<span class="material-symbols-rounded ph-light ph-list-magnifying-glass mi-sm"></span>'
-        'Mỗi task cha đã chọn tạo 1 nhóm sub-task riêng · di chuột vào tên task cha để xem sub-task đang có</div></div>'
-        '<div class="mfield"><label>Nhóm sub-task theo task cha *</label>'
-        '<div class="st-groups" id="subGroups"></div>'
-        '<div class="st-groups-empty" id="subGroupsEmpty">Chưa có task cha nào — chọn ở ô trên để bắt đầu.</div>'
-        '<div class="st-summary mcount" id="subCount"></div></div>'
         '<div class="mfield row2">'
-        f'<div><label>Ngày bắt đầu *</label><input type="date" id="subStart" value="{today}"></div>'
-        '<div><label>Hạn chót *</label><input type="date" id="subDue"></div>'
+        '<div><label>Dự án *</label>'
+        '<div class="typeahead" id="ciProjTA">'
+        '<input type="text" id="ciProjInp" placeholder="Gõ tên hoặc mã dự án…" autocomplete="off" spellcheck="false">'
+        '<div class="ta-results" id="ciProjRes"></div></div>'
+        '<div class="ta-chip" id="ciProjChip" style="display:none"></div></div>'
+        '<div><label>Loại task *</label>'
+        '<select id="ciType" disabled><option value="">— Chọn dự án trước —</option></select></div>'
         '</div>'
-        '<div class="mfield"><label>Leader <small class="mhint">(dùng chung)</small></label>'
-        '<div class="typeahead" id="subLeaderTA">'
-        '<input type="text" id="subLeaderInp" placeholder="Gõ tên leader…" autocomplete="off" spellcheck="false">'
-        '<div class="ta-results" id="subLeaderRes"></div></div>'
-        '<div class="ta-chip" id="subLeaderChip" style="display:none"></div></div>'
+        '<div class="mfield" id="ciParentWrap" style="display:none">'
+        '<label id="ciParentLbl">Task cha <small class="mhint">(sub-task)</small></label>'
+        '<div class="typeahead" id="ciParentTA">'
+        '<input type="text" id="ciParentInp" placeholder="Gõ key hoặc tên task cha…" autocomplete="off" spellcheck="false">'
+        '<div class="ta-results" id="ciParentRes"></div></div>'
+        '<div class="ta-chip" id="ciParentChip" style="display:none"></div></div>'
+        '<div id="ciFields"></div>'
+        '<div class="ci-hint" id="ciHint">Chọn dự án và loại task để hiện các trường cần nhập.</div>'
         '</div>'
         '<div class="modal-foot">'
-        '<button type="button" class="btn btn-ghost" id="subCancel">Huỷ</button>'
-        '<button type="button" class="btn btn-primary" id="subCreate">Tạo sub-task</button>'
+        '<button type="button" class="btn btn-ghost" id="ciCancel">Huỷ</button>'
+        '<button type="button" class="btn btn-primary" id="ciCreate" disabled>Tạo task</button>'
         '</div></div></div>'
-        # Template 1 NHÓM (JS clone): đầu nhóm = chip task cha + nút bỏ; thân = danh sách dòng
-        '<template id="subGroupTpl">'
-        '<div class="st-group">'
-        '<div class="st-group-head">'
-        '<span class="st-gchip"><span class="st-gkey"></span><span class="st-gsum"></span></span>'
-        '<button type="button" class="st-gdel material-symbols-rounded ph-light ph-x mi-sm" title="Bỏ task cha này"></button>'
-        '</div>'
-        '<div class="st-head"><span class="h-idx">#</span><span>Tiêu đề</span><span>QA xử lý</span><span></span></div>'
-        '<div class="st-list"></div>'
-        '<button type="button" class="st-add st-add-row">'
-        '<span class="material-symbols-rounded ph-light ph-plus mi-sm"></span>Thêm sub-task</button>'
-        '</div></template>'
-        # Template 1 dòng sub-task (JS clone): ô tiêu đề + dropdown QA + nút xoá
-        '<template id="subRowTpl">'
-        '<div class="st-row">'
-        '<span class="st-idx"></span>'
-        '<input type="text" class="st-title" placeholder="Tiêu đề sub-task…" autocomplete="off" spellcheck="false">'
-        f'<select class="st-assignee unset">{opts}</select>'
-        '<button type="button" class="st-del material-symbols-rounded ph-light ph-trash mi-sm" title="Xoá dòng"></button>'
-        '</div></template>'
+        # Template 1 user-chip cho field user (JS clone)
+        '<template id="ciUserChipTpl">'
+        '<span class="ci-uchip"><span class="ci-uchip-t"></span>'
+        '<button type="button" class="ci-uchip-x material-symbols-rounded ph-light ph-x mi-sm"></button></span>'
+        '</template>'
     )
 
 
@@ -278,7 +254,7 @@ def _document_v2(content_inner, active, user, activities, title='QA Suite',
 <div class="main">{render_topbar_v2()}
 <div class="content">{banner}{content_inner}</div></div></div>
 {_settings_modal_v2(user)}
-{_subtask_modal_v2()}
+{_create_issue_modal_v2()}
 {_palette_modal_v2()}
 <div class="drawer-ov" id="drawerOv"></div><aside class="drawer" id="drawer"></aside>
 <div class="smenu" id="smenu"></div>

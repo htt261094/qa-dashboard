@@ -41,8 +41,7 @@ from bug_log_source import load_sources
 from bug_backlog import load_backlog
 from jira_api import (fetch_all_shared, scope_data, fetch_activity_feed, load_dismissed,
                       dismiss_activities, run_parallel, fetch_issue_detail,
-                      search_parent_tasks, search_people, global_search,
-                      fetch_subtasks)
+                      search_parent_tasks, search_people, global_search)
 from docs import load_docs, save_docs, valid_tree, ensure_process_folder
 from pat_store import save_user_pat, has_pat, delete_user_pat
 from custom_status import (load_bundle, load_overlay, values_of,
@@ -410,9 +409,6 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         if path == '/search-parents':
             self._get_search_parents()
             return
-        if path == '/parent-subtasks':
-            self._get_parent_subtasks()
-            return
         if path == '/global-search':
             self._get_global_search()
             return
@@ -421,6 +417,15 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             return
         if path == '/search-people':
             self._get_search_people()
+            return
+        if path == '/create-projects':
+            self._get_create_projects()
+            return
+        if path == '/create-issuetypes':
+            self._get_create_issuetypes()
+            return
+        if path == '/create-fields':
+            self._get_create_fields()
             return
         if path in ('/settings', '/settings.html'):
             self._get_settings()
@@ -581,8 +586,7 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             self._json(400, b'{"ok":false}')
 
     def _get_has_pat(self):
-        # FE check trước khi mở form tạo sub-task: chưa có PAT -> mở luôn modal Cài đặt PAT.
-        # Lỗi Jira -> bỏ qua (ok=false) để FE vẫn mở form, backend /create-subtask tự chặn.
+        # FE check PAT đã cấu hình chưa (dùng ở Cài đặt). Lỗi -> ok=false, không chặn UI.
         try:
             self._json(200, json.dumps(
                 {'ok': True, 'hasPat': has_pat(self._user_email())}).encode('utf-8'))
@@ -596,16 +600,6 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         try:
             self._json(200, json.dumps(
                 {'ok': True, 'results': search_parent_tasks(q)}).encode('utf-8'))
-        except RuntimeError:
-            self._json(400, b'{"ok":false}')
-
-    def _get_parent_subtasks(self):
-        # Sub-task hiện có của 1 task cha (popup 'sub-task đang có' ở form tạo sub-task).
-        # Read-only PAT chung.
-        key = (parse_qs(urlparse(self.path).query).get('key') or [''])[0]
-        try:
-            self._json(200, json.dumps(
-                {'ok': True, 'results': fetch_subtasks(key)}).encode('utf-8'))
         except RuntimeError:
             self._json(400, b'{"ok":false}')
 
@@ -717,11 +711,8 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
                          '/duedate-perm', '/set-duedate', '/edit-perms', '/update-issue'):
             self._handle_jira_write()
             return
-        if path == '/create-subtask':
-            self._handle_create_subtask()
-            return
-        if path == '/create-subtasks':
-            self._handle_create_subtasks()
+        if path == '/create-issue':
+            self._handle_create_issue()
             return
         if path == '/upload-file':
             self._post_upload_file()

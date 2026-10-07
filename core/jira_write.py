@@ -12,10 +12,7 @@ import re
 
 import requests
 
-from config import (JIRA_URL, SUBTASK_TYPE_ID,
-                    START_DATE_FIELD, LEADER_FIELD,
-                    DEPARTMENT_FIELD, BK_TEAM_FIELD,
-                    SUBTASK_DEPARTMENT_ID, SUBTASK_BK_TEAM_ID)
+from config import JIRA_URL
 from jira_cloud import (basic_auth, split_cred, canon_status, user_ref,
                         mentions_to_accounts)
 
@@ -113,53 +110,214 @@ def transition_to_status(key, target_name, pat):
     return do_transition(key, match['id'], pat)
 
 
-def _resolve_parent(parent_key, pat):
-    """Lấy project key từ parent + verify parent hợp lệ để gắn sub-task (chấp nhận BẤT KỲ
-    task, KHÔNG giới hạn Task-PTSP nữa — chỉ chặn khi cha chính là sub-task vì Jira không
-    cho lồng sub-task dưới sub-task). Trả (True, '<PROJECT_KEY>') hoặc (False, '<lỗi>')."""
+# ===== TẠO TASK ĐỘC LẬP — createmeta-động (Decision #113) =====
+# Đọc + ghi đều bằng API token CÁ NHÂN (PAT): field bắt buộc + quyền tạo khớp đúng cái user
+# thật sẽ tạo được (token chung có thể khác quyền). Form render field theo đúng createmeta của
+# từng project+issuetype, nên "mở" như dialog Create của Jira thay vì bộ field cố định QA.
+
+# Widget FE dựng được -> field hiện trên form. Loại dưới đây không có widget (binary/phức tạp)
+# -> ẩn, KHÔNG gửi: nếu Jira bắt buộc thì POST sẽ 400 với tên field cụ thể (báo rõ cho user).
+_UNSUPPORTED_SCHEMA = {'attachment', 'issuelink', 'issuelinks', 'timetracking', 'worklog',
+                       'comments-page', 'sd-approvals', 'any'}
+_UNSUPPORTED_ARRAY_ITEMS = {'json', 'any', 'attachment', 'worklog'}
+
+
+def _createmeta(project_key, pat, type_id=None, with_fields=False):
+    """Đọc createmeta kiểu LEGACY (`?projectKeys=&expand=projects.issuetypes[.fields]`).
+
+    Instance baokim.atlassian.net KHÔNG bật endpoint granular mới
+    (`/createmeta/{p}/issuetypes/{id}` trả 404 'No endpoint') nên dùng endpoint classic này —
+    vẫn 200 và trả đủ issuetypes + fields. Trả (True, project_dict) hoặc (False, msg)."""
+    expand = 'projects.issuetypes.fields' if with_fields else 'projects.issuetypes'
+    params = {'projectKeys': project_key, 'expand': expand}
+    if type_id:
+        params['issuetypeIds'] = str(type_id)
     try:
-        r = requests.get(f"{JIRA_URL}/rest/api/2/issue/{parent_key}",
-                         headers=_headers(pat), params={'fields': 'project,issuetype'},
-                         timeout=_TIMEOUT)
+        r = requests.get(f"{JIRA_URL}/rest/api/2/issue/createmeta",
+                         headers=_headers(pat), params=params, timeout=_TIMEOUT)
     except requests.RequestException as e:
         return False, _redact(f'Lỗi mạng: {e}', pat)
     if r.status_code != 200:
         return False, _err_for(r.status_code, pat)
-    pf = r.json().get('fields', {})
-    project_key = (pf.get('project') or {}).get('key')
-    ptype = pf.get('issuetype') or {}
-    if not project_key:
-        return False, 'Không xác định được dự án của task cha.'
-    if ptype.get('subtask'):
-        return False, f'Task cha không được là sub-task (đang là {ptype.get("name") or "?"}).'
-    return True, project_key
+    projs = (r.json() or {}).get('projects') or []
+    if not projs:
+        return False, 'Bạn không có quyền tạo issue trong dự án này (hoặc dự án không tồn tại).'
+    return True, projs[0]
 
 
-def _create_one_subtask(project_key, parent_key, summary, duedate, start_date,
-                        assignee=None, leader=None, pat=None):
-    """POST tạo 1 sub-task (giả định parent đã verify). Trả (True, '<KEY>') / (False, '<lỗi>')."""
-    fields = {
-        'project': {'key': project_key},
-        'parent': {'key': parent_key},
-        'issuetype': {'id': str(SUBTASK_TYPE_ID)},
-        'summary': summary[:250],
-        'duedate': duedate,
-        START_DATE_FIELD: start_date,
-        # Auto-tick sẵn (multi-checkbox): Department=IT (10123), BK Team=IT-QA (10128)
-        DEPARTMENT_FIELD: [{'id': SUBTASK_DEPARTMENT_ID}],
-        BK_TEAM_FIELD: [{'id': SUBTASK_BK_TEAM_ID}],
-    }
-    # Cloud (#197): user-picker ghi bằng accountId, không còn {'name': username}.
-    if assignee:
-        ref = user_ref(assignee)
+def list_projects(query, pat, limit=50):
+    """Project user (theo PAT) thấy + tạo được issue, cho dropdown chọn dự án.
+    Trả (True, [{key, name, id}]) hoặc (False, msg)."""
+    try:
+        r = requests.get(f"{JIRA_URL}/rest/api/2/project/search", headers=_headers(pat),
+                         params={'query': (query or '').strip(), 'maxResults': limit,
+                                 'orderBy': 'name', 'action': 'create'}, timeout=_TIMEOUT)
+    except requests.RequestException as e:
+        return False, _redact(f'Lỗi mạng: {e}', pat)
+    if r.status_code != 200:
+        return False, _err_for(r.status_code, pat)
+    out = []
+    for p in (r.json() or {}).get('values') or []:
+        out.append({'key': p.get('key') or '', 'name': p.get('name') or '',
+                    'id': str(p.get('id') or '')})
+    return True, out
+
+
+def create_issuetypes(project_key, pat):
+    """Issue type user được tạo trong project này (createmeta). Trả (True, [{id,name,subtask}])."""
+    ok, proj = _createmeta(project_key, pat)
+    if not ok:
+        return False, proj
+    out = []
+    for t in proj.get('issuetypes') or []:
+        out.append({'id': str(t.get('id') or ''), 'name': t.get('name') or '',
+                    'subtask': bool(t.get('subtask'))})
+    return True, out
+
+
+def _norm_allowed(av):
+    """Chuẩn hoá 1 allowedValue -> {id, label}. Jira dùng key khác nhau theo loại field."""
+    label = (av.get('value') or av.get('name') or av.get('label')
+             or av.get('key') or '')
+    return {'id': str(av.get('id') or av.get('key') or av.get('value') or ''),
+            'label': str(label)}
+
+
+def create_fields(project_key, type_id, pat):
+    """Field trên màn Create của (project, issuetype) — đúng tập Jira hiện, kèm required +
+    schema để FE render widget. Loại field không có widget -> gắn supported=False (FE ẩn).
+    Trả (True, [field_meta...]) hoặc (False, msg). field_meta:
+      {id, name, required, type, items, custom, system, allowedValues:[{id,label}], hasDefault}."""
+    ok, proj = _createmeta(project_key, pat, type_id=type_id, with_fields=True)
+    if not ok:
+        return False, proj
+    its = proj.get('issuetypes') or []
+    if not its:
+        return False, 'Loại task không hợp lệ cho dự án này.'
+    fmap = its[0].get('fields') or {}   # {fieldId: meta}
+    out = []
+    for fid, f in fmap.items():
+        sc = f.get('schema') or {}
+        system = sc.get('system') or ''
+        ftype = sc.get('type') or ''
+        items = sc.get('items') or ''
+        # project/issuetype đã chọn ở trên; reporter = chủ token -> không đưa vào form.
+        if system in ('project', 'issuetype', 'reporter'):
+            continue
+        supported = (ftype not in _UNSUPPORTED_SCHEMA
+                     and not (ftype == 'array' and items in _UNSUPPORTED_ARRAY_ITEMS))
+        # parent luôn giữ (FE render ô Task cha riêng) dù schema là issuelink.
+        if system == 'parent':
+            supported = True
+        out.append({
+            'id': fid,
+            'name': f.get('name') or fid,
+            'required': bool(f.get('required')),
+            'type': ftype,
+            'items': sc.get('items') or '',
+            'custom': bool(sc.get('custom')),
+            'system': system,
+            'allowedValues': [_norm_allowed(a) for a in (f.get('allowedValues') or [])],
+            'hasDefault': bool(f.get('hasDefaultValue')),
+            'supported': supported,
+        })
+    return True, out
+
+
+def _coerce_field(meta, value):
+    """Ép giá trị client gửi về shape payload Jira theo schema. Trả (ok, coerced|msg).
+    coerced=None nghĩa 'bỏ trống' (không gửi field)."""
+    t = meta.get('type') or ''
+    items = meta.get('items') or ''
+    if value is None or value == '' or value == []:
+        return True, None
+    if t == 'string':
+        return True, str(value)
+    if t == 'number':
+        try:
+            s = str(value)
+            return True, (float(s) if '.' in s else int(s))
+        except (TypeError, ValueError):
+            return False, f'"{meta.get("name")}" phải là số.'
+    if t == 'date':
+        return True, str(value)[:10]
+    if t == 'datetime':
+        return True, str(value)
+    if t == 'user':
+        ref = user_ref(str(value))
         if not ref:
-            return False, f'Không tìm thấy tài khoản Jira của "{assignee}".'
-        fields['assignee'] = ref
-    if leader:
-        ref = user_ref(leader)
-        if not ref:
-            return False, f'Không tìm thấy tài khoản Jira của leader "{leader}".'
-        fields[LEADER_FIELD] = ref
+            return False, f'Không tìm thấy tài khoản Jira cho "{meta.get("name")}".'
+        return True, ref
+    if t in ('option', 'priority', 'resolution', 'securitylevel', 'version',
+             'component', 'group', 'option-with-child'):
+        if t == 'group':
+            return True, {'name': str(value)}
+        return True, {'id': str(value)}
+    if t == 'array':
+        vals = value if isinstance(value, list) else [value]
+        vals = [v for v in vals if v not in (None, '')]
+        if not vals:
+            return True, None
+        if items == 'user':
+            refs = []
+            for v in vals:
+                ref = user_ref(str(v))
+                if not ref:
+                    return False, f'Không tìm thấy tài khoản Jira cho "{meta.get("name")}".'
+                refs.append(ref)
+            return True, refs
+        if items == 'group':
+            return True, [{'name': str(v)} for v in vals]
+        if items in ('option', 'version', 'component'):
+            return True, [{'id': str(v)} for v in vals]
+        if items == 'string':   # labels và tương tự
+            return True, [str(v) for v in vals]
+        return True, [str(v) for v in vals]
+    # loại khác (vd string đặc biệt) -> gửi nguyên
+    return True, value
+
+
+def create_issue(project_key, type_id, raw_fields, parent_key=None, pat=None):
+    """Tạo issue bất kỳ (project + issuetype + field động theo createmeta), NHÂN DANH chủ PAT.
+
+    `raw_fields` = {fieldId: value} client gửi. Fetch lại createmeta để biết schema + required,
+    ép từng field về shape Jira, validate required, rồi POST. parent_key (optional) cho subtask.
+    Trả (True, '<KEY>') hoặc (False, '<lỗi tiếng Việt>')."""
+    if not project_key or not type_id:
+        return False, 'Thiếu dự án hoặc loại task.'
+    ok, metas = create_fields(project_key, type_id, pat)
+    if not ok:
+        return False, metas
+    fields = {'project': {'key': project_key}, 'issuetype': {'id': str(type_id)}}
+    raw_fields = raw_fields if isinstance(raw_fields, dict) else {}
+    missing, parent_meta = [], None
+    for m in metas:
+        fid = m['id']
+        # parent (sub-task) xử lý riêng ở dưới qua parent_key — KHÔNG đi qua vòng coerce.
+        if fid == 'parent' or m.get('system') == 'parent':
+            parent_meta = m
+            continue
+        if not m.get('supported'):
+            continue
+        c_ok, coerced = _coerce_field(m, raw_fields.get(fid))
+        if not c_ok:
+            return False, coerced
+        if coerced is None:
+            # required mà trống + không có default -> chặn sớm (báo đẹp thay vì 400 trần)
+            if m.get('required') and not m.get('hasDefault'):
+                missing.append(m.get('name') or fid)
+            continue
+        if fid == 'summary' and isinstance(coerced, str):
+            coerced = coerced[:250]
+        fields[fid] = coerced
+    if missing:
+        return False, 'Thiếu field bắt buộc: ' + ', '.join(missing) + '.'
+    if parent_key:
+        if parent_meta:
+            fields['parent'] = {'key': parent_key}
+        # type không nhận parent -> bỏ qua parent_key, không gây 400
+    elif parent_meta and parent_meta.get('required') and not parent_meta.get('hasDefault'):
+        return False, 'Loại task này là sub-task — hãy chọn task cha.'
     try:
         r = requests.post(f"{JIRA_URL}/rest/api/2/issue",
                           headers=_headers(pat), json={'fields': fields}, timeout=_TIMEOUT)
@@ -167,7 +325,6 @@ def _create_one_subtask(project_key, parent_key, summary, duedate, start_date,
         return False, _redact(f'Lỗi mạng: {e}', pat)
     if r.status_code in (200, 201):
         return True, r.json().get('key') or ''
-    # Jira 400 -> trả lỗi field cụ thể (vd Leader không tồn tại, due sai định dạng)
     try:
         err = r.json()
         msgs = list((err.get('errors') or {}).values()) + (err.get('errorMessages') or [])
@@ -176,128 +333,6 @@ def _create_one_subtask(project_key, parent_key, summary, duedate, start_date,
     except ValueError:
         pass
     return False, _err_for(r.status_code, pat)
-
-
-def create_subtask(parent_key, summary, duedate, start_date,
-                   assignee=None, leader=None, pat=None):
-    """Tạo Sub-task QA dưới 1 Task-PTSP, NHÂN DANH chủ PAT (reporter = người đăng nhập).
-
-    Field bắt buộc (theo createmeta Cloud): summary, duedate, start_date (START_DATE_FIELD).
-    assignee/leader optional (username nội bộ -> {'accountId': ...} qua jira_cloud).
-    Trả (True, '<KEY mới>') hoặc (False, '<thông báo lỗi tiếng Việt>')."""
-    summary = (summary or '').strip()
-    if not summary:
-        return False, 'Thiếu tiêu đề sub-task.'
-    if not duedate:
-        return False, 'Thiếu hạn chót (Due date).'
-    if not start_date:
-        return False, 'Thiếu ngày bắt đầu (Start date).'
-    ok, res = _resolve_parent(parent_key, pat)
-    if not ok:
-        return False, res
-    return _create_one_subtask(res, parent_key, summary, duedate, start_date,
-                               assignee, leader, pat)
-
-
-def create_subtasks(parent_key, items, duedate, start_date, leader=None, pat=None):
-    """Tạo NHIỀU sub-task QA dưới CÙNG 1 task cha (verify cha 1 lần, tạo tuần tự).
-
-    `items` = list; mỗi phần tử là dict {'summary', 'assignee'} (assignee optional -> gán QA
-    RIÊNG từng dòng) hoặc str (chỉ tiêu đề, không assignee — tương thích ngược). Chung
-    parent/due/start/leader.
-    Trả (overall_ok, {'created': [{'key','summary'}],
-                      'failed': [{'summary','assignee','msg'}]}).
-    overall_ok = True nếu tạo được ÍT NHẤT 1 (partial). Verify cha fail -> (False, {'msg': ...})."""
-    norm = []   # [(summary, assignee|None)]
-    for it in (items or []):
-        if isinstance(it, dict):
-            s = (it.get('summary') or '').strip()
-            a = (it.get('assignee') or '').strip() or None
-        elif isinstance(it, str):
-            s, a = it.strip(), None
-        else:
-            continue
-        if s:
-            norm.append((s, a))
-    if not norm:
-        return False, {'msg': 'Thiếu tiêu đề sub-task.'}
-    if not duedate:
-        return False, {'msg': 'Thiếu hạn chót (Due date).'}
-    if not start_date:
-        return False, {'msg': 'Thiếu ngày bắt đầu (Start date).'}
-    ok, res = _resolve_parent(parent_key, pat)
-    if not ok:
-        return False, {'msg': res}
-    project_key = res
-    created, failed = [], []
-    for title, assignee in norm:
-        one_ok, one_res = _create_one_subtask(project_key, parent_key, title, duedate,
-                                              start_date, assignee, leader, pat)
-        if one_ok:
-            created.append({'key': one_res, 'summary': title})
-        else:
-            failed.append({'summary': title, 'assignee': assignee or '', 'msg': one_res})
-    return bool(created), {'created': created, 'failed': failed}
-
-
-def create_subtasks_multi(groups, duedate, start_date, leader=None, pat=None):
-    """Tạo sub-task dưới NHIỀU task cha trong 1 lần, NHÂN DANH chủ PAT.
-
-    `groups` = list; mỗi phần tử là dict {'parent': '<KEY>', 'items': [ {summary,assignee}|str ]}.
-    Mỗi cha verify 1 lần rồi tạo tuần tự các item của nó (mỗi item gán QA riêng). Chung
-    duedate/start_date/leader cho MỌI cha.
-    Trả (overall_ok, {'created': [{'key','summary','parent'}],
-                      'failed':  [{'summary','assignee','parent','msg'}]}).
-    overall_ok = True nếu tạo được ÍT NHẤT 1 issue. Cha verify fail -> mọi item của cha đó
-    vào `failed` (không làm hỏng các cha khác). Không có group hợp lệ -> (False, {'msg': ...})."""
-    if not duedate:
-        return False, {'msg': 'Thiếu hạn chót (Due date).'}
-    if not start_date:
-        return False, {'msg': 'Thiếu ngày bắt đầu (Start date).'}
-    # Chuẩn hoá từng group: (parent_key, [(summary, assignee|None)])
-    norm_groups = []
-    for g in (groups or []):
-        if not isinstance(g, dict):
-            continue
-        pkey = (g.get('parent') or '').strip()
-        if not pkey:
-            continue
-        rows = []
-        for it in (g.get('items') or []):
-            if isinstance(it, dict):
-                s = (it.get('summary') or '').strip()
-                a = (it.get('assignee') or '').strip() or None
-            elif isinstance(it, str):
-                s, a = it.strip(), None
-            else:
-                continue
-            if s:
-                rows.append((s, a))
-        if rows:
-            norm_groups.append((pkey, rows))
-    if not norm_groups:
-        return False, {'msg': 'Chưa có task cha hoặc sub-task nào để tạo.'}
-    created, failed = [], []
-    parent_cache = {}   # parent_key -> (ok, project_key|msg) — verify mỗi cha đúng 1 lần
-    for pkey, rows in norm_groups:
-        if pkey not in parent_cache:
-            parent_cache[pkey] = _resolve_parent(pkey, pat)
-        p_ok, p_res = parent_cache[pkey]
-        if not p_ok:
-            for title, assignee in rows:
-                failed.append({'summary': title, 'assignee': assignee or '',
-                               'parent': pkey, 'msg': p_res})
-            continue
-        project_key = p_res
-        for title, assignee in rows:
-            one_ok, one_res = _create_one_subtask(project_key, pkey, title, duedate,
-                                                  start_date, assignee, leader, pat)
-            if one_ok:
-                created.append({'key': one_res, 'summary': title, 'parent': pkey})
-            else:
-                failed.append({'summary': title, 'assignee': assignee or '',
-                               'parent': pkey, 'msg': one_res})
-    return bool(created), {'created': created, 'failed': failed}
 
 
 def can_edit_duedate(key, pat):
