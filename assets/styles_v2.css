@@ -208,14 +208,11 @@ html[data-theme="dark"] .nrsn.mention{background:#2a2342;color:#b3a6f0}
 .kpi.warn .value{color:var(--error)}.kpi.stuck .value{color:var(--warning)}.kpi.success .value{color:var(--success)}
 
 /* ===== Board kiểu Jira (Việc của tôi) — cột theo status, card ===== */
-/* KPI chỉ còn là số tổng quan (#114) — bỏ ảo giác bấm được (hover nhấc + viền). */
-#kpis .kpi{cursor:default}
-#kpis .kpi:hover{transform:none;border-color:var(--outline-variant);box-shadow:var(--e1)}
 /* Cột CHIỀU CAO BẰNG NHAU (align-items:stretch + height cố định) -> cột rỗng không bị lùn,
    header thẳng hàng, cả cột rỗng thành vùng thả rộng. */
 .board{display:flex;gap:16px;align-items:stretch;overflow-x:auto;padding-bottom:8px}
 .bcol{flex:0 0 300px;min-width:300px;background:var(--surface-low);border:1px solid var(--outline-variant);
-      border-radius:var(--r-lg);display:flex;flex-direction:column;height:calc(100vh - 250px);min-height:320px}
+      border-radius:var(--r-lg);display:flex;flex-direction:column;height:calc(100vh - 150px);min-height:320px}
 .bcol-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:11px 14px;
            border-bottom:1px solid var(--outline-variant);background:var(--surface-low);
            border-radius:var(--r-lg) var(--r-lg) 0 0;flex:0 0 auto}

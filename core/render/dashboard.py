@@ -107,24 +107,13 @@ def render_qa_v2(data, activities, cmap, user, nav_active='mywork',
                             title='QA Workspace — Việc của tôi')
 
     tasks, meta = build_my_work_payload(data, cmap, notes)
-    n_over, n_stuck, n_dueweek = meta['overdue'], meta['stuck'], meta['dueweek']
 
-    # KPI = số tổng quan thuần (KHÔNG còn lọc bucket — user chốt bỏ #114). Card quá hạn/kẹt đã
-    # tô viền ngay trên board nên không cần lọc để thấy.
-    kpis = (
-        '<div class="kpis" id="kpis">'
-        f'<div class="kpi"><div class="label">Active của tôi</div><div class="value">{meta["active"]}</div></div>'
-        f'<div class="kpi warn"><div class="label">Quá hạn</div><div class="value">{n_over}</div></div>'
-        f'<div class="kpi stuck"><div class="label">Kẹt ≥ {STUCK_DAYS} ngày</div><div class="value">{n_stuck}</div></div>'
-        f'<div class="kpi"><div class="label">Due tuần này</div><div class="value">{n_dueweek}</div></div>'
-        f'<div class="kpi success"><div class="label">Done</div><div class="value">{meta["done"]}</div></div>'
-        '</div>'
-    )
-    # Board kiểu Jira: cột theo status, card render client-side từ qaData (#24 poll vá tại chỗ).
+    # Bỏ cả hàng KPI (user chốt #114) — chỉ còn board. Card quá hạn/kẹt tô viền ngay trên board.
+    # `meta` vẫn nhúng trong qaData (JS đọc META.stuckDays cho tooltip flag).
     board = '<div class="board" id="board"></div>'
     content = (
         '<div class="page-head"><div class="page-title">Tổng quan — Việc của tôi</div></div>'
-        + kpis + board
+        + board
         + _json_script('qaData', {'tasks': tasks, 'meta': meta})
     )
     return _document_v2(content, nav_active, user, activities, title='QA Workspace — Việc của tôi',
