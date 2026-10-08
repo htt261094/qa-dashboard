@@ -212,10 +212,13 @@ html[data-theme="dark"] .nrsn.mention{background:#2a2342;color:#b3a6f0}
    header thẳng hàng, cả cột rỗng thành vùng thả rộng. */
 .board{display:flex;gap:16px;align-items:stretch;overflow-x:auto;padding-bottom:8px}
 .bcol{flex:0 0 300px;min-width:300px;background:var(--surface-low);border:1px solid var(--outline-variant);
-      border-radius:var(--r-lg);display:flex;flex-direction:column;height:calc(100vh - 150px);min-height:320px}
+      border-radius:var(--r-lg);display:flex;flex-direction:column;height:calc(100vh - 150px);min-height:220px}
 .bcol-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:11px 14px;
            border-bottom:1px solid var(--outline-variant);background:var(--surface-low);
-           border-radius:var(--r-lg) var(--r-lg) 0 0;flex:0 0 auto}
+           border-radius:var(--r-lg) var(--r-lg) 0 0;flex:0 0 auto;
+           /* Pin header khi CẢ TRANG cuộn (cửa sổ thấp -> min-height ép cột tràn -> .content cuộn).
+              Khi chỉ body cột cuộn thì header vốn đã đứng yên (sibling trên body). */
+           position:sticky;top:0;z-index:2}
 .bcol-name{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;letter-spacing:.04em;
            text-transform:uppercase;color:var(--on-surface-variant)}
 .bcol-dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
