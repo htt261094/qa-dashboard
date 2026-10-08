@@ -1324,6 +1324,21 @@ window.__smSetCustom=function(t, key, val, onChanged){
       }).catch(function(){ dndInflight[key]=false; toast('Lỗi mạng khi đổi status', false); });
     });
   }
+  // Warm trCache TRƯỚC khi kéo để màu cột hiện NGAY (không chờ round-trip lúc dragstart):
+  //  - nhấn chuột xuống card = tra sớm hơn dragstart vài trăm ms (đủ cho card sắp kéo);
+  //  - nền lúc load: tra sẵn các card KHÔNG phải DONE/CANCELLED (card hay kéo), tuần tự cho nhẹ.
+  board.addEventListener('mousedown', function(e){
+    var card=e.target.closest('.bcard'); if(card) fetchTr(card.getAttribute('data-key'));
+  });
+  var _warmed=false;
+  function warmTransitions(){
+    if(_warmed) return; _warmed=true;
+    var keys=[], seen={};
+    TASKS.forEach(function(t){ var s=(t.jira||'').toUpperCase();
+      if(s==='DONE'||s==='CANCELLED'||seen[t.key]) return; seen[t.key]=1; keys.push(t.key); });
+    (function next(i){ if(i>=keys.length) return;
+      fetchTr(keys[i]).then(function(){ next(i+1); }, function(){ next(i+1); }); })(0);
+  }
 
   // ----- comment fetch (dùng cho drawer) -----
   function fetchComments(key){ return getJSON('/issue-comments?key='+encodeURIComponent(key), 20000)
@@ -1411,7 +1426,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
   window.__applyTaskPatch=function(map){
     var changed=false;
     TASKS.forEach(function(t){ var p=map[t.key]; if(!p) return;
-      if(p.status && p.status!==t.jira){ t.jira=p.status; changed=true; }
+      if(p.status && p.status!==t.jira){ t.jira=p.status; delete trCache[t.key]; changed=true; }  // status đổi -> transitions cũ vô hiệu
       if(p.customs){ var a=(t.customs||[]).join(','), b=p.customs.join(',');
         if(a!==b){ t.customs=p.customs; changed=true; } }
     });
@@ -1444,6 +1459,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
   };
 
   renderBoard();
+  warmTransitions();
 })();
 
 // ============== SHARED DRAWER (trang KHÔNG có bảng task: roadmap, docs) ==============
