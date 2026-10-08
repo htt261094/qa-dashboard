@@ -231,8 +231,11 @@ html[data-theme="dark"] .nrsn.mention{background:#2a2342;color:#b3a6f0}
 .bcol-body{padding:10px;display:flex;flex-direction:column;gap:10px;overflow-y:auto;flex:1 1 auto}
 .bcol-empty{flex:1 1 auto;display:flex;align-items:center;justify-content:center;color:var(--on-surface-variant);
             font-size:12px;border:1.5px dashed var(--outline-variant);border-radius:var(--r-md);opacity:.55}
-/* cột đang là đích thả */
-.bcol.drop-tgt{outline:2px dashed var(--primary);outline-offset:-2px}
+/* trong lúc kéo: cột chuyển được (xanh) / không chuyển được (mờ) theo workflow+quyền Jira */
+.bcol.can-drop{outline:1.5px dashed var(--success);outline-offset:-2px}
+.bcol.no-drop{opacity:.45}
+/* cột đang là đích thả (hover) — đặt SAU để thắng .can-drop khi cùng xuất hiện */
+.bcol.drop-tgt{outline:2px solid var(--primary);outline-offset:-2px;opacity:1}
 .bcol.drop-tgt .bcol-empty{border-color:var(--primary);color:var(--primary-strong);opacity:.85}
 .bcard{background:var(--card);border:1px solid var(--outline-variant);border-radius:var(--r-md);
        padding:10px 12px;box-shadow:var(--e1);cursor:grab;transition:border-color var(--dur-1),box-shadow var(--dur-1),transform var(--dur-1)}
@@ -2084,7 +2087,7 @@ html[data-theme="dark"] .an-ck.ok{color:#57d9a3}
 .an-ck-squad{font-size:11px;color:var(--on-surface-variant);white-space:nowrap}
 
 /* ===== Analytics — matrix Xu hướng Reopen theo sprint (#112) ===== */
-.an-trend-body{padding:6px 20px 20px}
+.an-trend-body{padding:6px 0 2px}
 .an-trend-wrap{overflow-x:auto}
 .ant-table{width:100%;border-collapse:collapse;font-size:12.5px}
 .ant-table th,.ant-table td{text-align:center;padding:8px 10px;border-bottom:1px solid var(--divider)}

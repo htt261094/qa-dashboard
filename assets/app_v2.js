@@ -1235,46 +1235,86 @@ window.__smSetCustom=function(t, key, val, onChanged){
 
   // ----- Kéo-thả đổi status giữa cột (giống Jira board) -----
   // Thả 1 card sang cột khác = chuyển issue sang status của cột đó. Phải đi qua transition
-  // HỢP LỆ của Jira (PAT cá nhân): tra /jira-transitions, tìm bước có `to` = status cột đích;
-  // không có -> báo lỗi, KHÔNG ép. Thành công -> cập nhật task + renderBoard (card nhảy cột).
-  function clearDrop(){ var els=board.querySelectorAll('.bcol.drop-tgt');
-    for(var i=0;i<els.length;i++) els[i].classList.remove('drop-tgt'); }
+  // HỢP LỆ của Jira (PAT cá nhân) -> chính là workflow + quyền của chính chủ:
+  //  - lúc dragstart: tra /jira-transitions (cache theo key) rồi SÁNG cột chuyển được
+  //    (.can-drop) / MỜ cột không chuyển được (.no-drop) -> biết TRƯỚC khi thả.
+  //  - dragover: chỉ nhận thả ở cột hợp lệ (con trỏ cấm ở cột no-drop).
+  //  - drop: dùng transition đã cache (không round-trip lại), không có -> báo, KHÔNG ép.
+  var trCache={};   // key -> [{id,to}] | 'nopat' (undefined = chưa tra / lỗi mạng tạm)
+  function fetchTr(key){
+    if(trCache[key]!==undefined) return Promise.resolve(trCache[key]);
+    return postJSON('/jira-transitions', { key:key }, 20000).then(function(j){
+      if(j && j.code==='no_pat'){ trCache[key]='nopat'; return 'nopat'; }
+      if(j && j.ok){ trCache[key]=j.transitions||[]; return trCache[key]; }
+      return false;                                  // lỗi -> KHÔNG cache (lần kéo sau thử lại)
+    }).catch(function(){ return false; });
+  }
+  function clearMarks(){
+    board.querySelectorAll('.bcol.drop-tgt,.bcol.can-drop,.bcol.no-drop').forEach(function(c){
+      c.classList.remove('drop-tgt','can-drop','no-drop'); });
+  }
+  function markTargets(key){
+    if(dndKey!==key) return;                          // drag đã xong/đổi card
+    var trs=trCache[key]; if(!Array.isArray(trs)) return;   // nopat/lỗi -> không tô, drop tự báo
+    var t=taskByKey(key), cur=((t&&t.jira)||'').trim().toUpperCase();
+    var set={}; trs.forEach(function(x){ set[(x.to||'').trim().toUpperCase()]=1; });
+    board.querySelectorAll('.bcol').forEach(function(c){
+      var s=(c.getAttribute('data-col')||'').trim().toUpperCase();
+      c.classList.remove('can-drop','no-drop');
+      if(s===cur) return;                             // cột hiện tại: trung tính (no-op)
+      if(set[s]) c.classList.add('can-drop'); else c.classList.add('no-drop');
+    });
+  }
+  function droppable(col){                            // cột này có nhận thả card đang kéo không
+    if(!dndKey) return false;
+    var t=taskByKey(dndKey), s=(col.getAttribute('data-col')||'').trim();
+    if((t&&t.jira||'').trim()===s) return true;       // thả lại cột cũ = no-op, cho qua
+    var trs=trCache[dndKey];
+    if(!Array.isArray(trs)) return true;              // chưa biết -> cho thả, drop validate sau
+    var up=s.toUpperCase();
+    return trs.some(function(x){ return (x.to||'').trim().toUpperCase()===up; });
+  }
   board.addEventListener('dragstart', function(e){
     var card=e.target.closest('.bcard'); if(!card){ return; }
     dndKey=card.getAttribute('data-key'); card.classList.add('dragging');
     if(e.dataTransfer){ e.dataTransfer.effectAllowed='move';
       try{ e.dataTransfer.setData('text/plain', dndKey); }catch(_){} }
+    var key=dndKey; fetchTr(key).then(function(){ markTargets(key); });   // tô cột theo workflow+quyền
   });
   board.addEventListener('dragend', function(){
     var d=board.querySelector('.bcard.dragging'); if(d) d.classList.remove('dragging');
-    clearDrop(); dndKey=null;
+    clearMarks(); dndKey=null;
   });
   board.addEventListener('dragover', function(e){
     if(!dndKey) return; var col=e.target.closest('.bcol'); if(!col) return;
+    if(!droppable(col)) return;                       // cột cấm -> không preventDefault -> con trỏ "cấm"
     e.preventDefault(); if(e.dataTransfer) e.dataTransfer.dropEffect='move';
-    if(!col.classList.contains('drop-tgt')){ clearDrop(); col.classList.add('drop-tgt'); }
+    if(!col.classList.contains('drop-tgt')){
+      board.querySelectorAll('.bcol.drop-tgt').forEach(function(c){ c.classList.remove('drop-tgt'); });
+      col.classList.add('drop-tgt'); }
   });
   board.addEventListener('drop', function(e){
     if(!dndKey) return; var col=e.target.closest('.bcol'); if(!col) return;
     e.preventDefault();
-    var target=col.getAttribute('data-col'), key=dndKey;
-    clearDrop();
-    var t=taskByKey(key); if(!t){ return; }
-    if((t.jira||'').trim()===target) return;         // thả lại cột cũ -> bỏ qua
+    var target=col.getAttribute('data-col'), key=dndKey, t=taskByKey(key);
+    clearMarks();
+    if(!t) return;
+    if((t.jira||'').trim()===target) return;          // thả lại cột cũ -> bỏ qua
     moveCard(t, key, target);
   });
   function moveCard(t, key, target){
     if(dndInflight[key]) return; dndInflight[key]=true;
-    toast(key+': đang chuyển sang "'+target+'"…', true);
-    postJSON('/jira-transitions', { key:key }, 20000).then(function(j){
-      if(patToast(j)){ dndInflight[key]=false; return; }
-      if(!j || !j.ok){ dndInflight[key]=false; toast((j&&j.msg)||'Lỗi tải bước chuyển', false); return; }
-      var tr=(j.transitions||[]).filter(function(x){
+    fetchTr(key).then(function(trs){                  // dùng cache đã tra lúc dragstart
+      if(trs==='nopat'){ dndInflight[key]=false;
+        patToast({ code:'no_pat', msg:'Cần API token Jira để đổi status — vào ⚙ Cài đặt' }); return; }
+      if(!Array.isArray(trs)){ dndInflight[key]=false; toast('Lỗi tải bước chuyển', false); return; }
+      var tr=trs.filter(function(x){
         return (x.to||'').trim().toUpperCase()===target.toUpperCase(); })[0];
       if(!tr){ dndInflight[key]=false;
         toast('Không có bước chuyển "'+t.jira+'" → "'+target+'" trên Jira', false); return; }
+      toast(key+': đang chuyển sang "'+target+'"…', true);
       postJSON('/do-transition', { key:key, id:tr.id, to:tr.to }, 20000).then(function(r){
-        dndInflight[key]=false; if(patToast(r)) return;
+        dndInflight[key]=false; delete trCache[key]; if(patToast(r)) return;   // status đổi -> cache cũ vô hiệu
         if(r.ok){ var st=r.status||tr.to; t.jira=st;
           var can=(st==='TO DO'||st==='In Progress'); if(!can) t.customs=[]; t.canCustom=can;
           renderBoard(); toast(key+' → '+st+' ✓', true);
@@ -1282,7 +1322,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
             var ka=dEl.querySelector('.key'); if(ka && ka.textContent===key) renderDrawer(t); } }
         else toast(r.msg||('Lỗi đổi status '+key), false);
       }).catch(function(){ dndInflight[key]=false; toast('Lỗi mạng khi đổi status', false); });
-    }).catch(function(){ dndInflight[key]=false; toast('Lỗi mạng khi tải bước chuyển', false); });
+    });
   }
 
   // ----- comment fetch (dùng cho drawer) -----
