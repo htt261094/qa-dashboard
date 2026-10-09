@@ -107,35 +107,13 @@ def render_qa_v2(data, activities, cmap, user, nav_active='mywork',
                             title='QA Workspace — Việc của tôi')
 
     tasks, meta = build_my_work_payload(data, cmap, notes)
-    n_over, n_stuck, n_dueweek = meta['overdue'], meta['stuck'], meta['dueweek']
 
-    tabs = (
-        '<div class="tabs" id="tabs">'
-        f'<button class="active" data-f="all">Task của tôi <span class="tcount">{meta["active"]}</span></button>'
-        f'<button data-f="overdue">Quá hạn <span class="tcount">{n_over}</span></button>'
-        f'<button data-f="stuck">Bị kẹt <span class="tcount">{n_stuck}</span></button>'
-        '</div>'
-    )
-    kpis = (
-        '<div class="kpis" id="kpis">'
-        f'<div class="kpi sel" data-f="all"><div class="label">Active của tôi</div><div class="value">{meta["active"]}</div></div>'
-        f'<div class="kpi warn" data-f="overdue"><div class="label">Quá hạn</div><div class="value">{n_over}</div></div>'
-        f'<div class="kpi stuck" data-f="stuck"><div class="label">Kẹt ≥ {STUCK_DAYS} ngày</div><div class="value">{n_stuck}</div></div>'
-        f'<div class="kpi" data-f="dueweek"><div class="label">Due tuần này</div><div class="value">{n_dueweek}</div></div>'
-        f'<div class="kpi success" data-f="done"><div class="label">Done</div><div class="value">{meta["done"]}</div></div>'
-        '</div>'
-    )
-    table = (
-        '<div class="card"><table><thead><tr>'
-        '<th style="width:90px">ID</th><th>Tiêu đề</th><th style="width:160px">Trạng thái</th>'
-        '<th style="width:150px">Người xử lý</th><th style="width:110px">Ngày tạo</th><th style="width:130px">Hạn chót</th>'
-        '<th style="width:70px">Thao tác</th>'
-        '</tr></thead><tbody id="rows"></tbody></table></div>'
-        '<div class="pager-row"><div class="pager" id="pager"></div></div>'
-    )
+    # Bỏ cả hàng KPI (user chốt #114) — chỉ còn board. Card quá hạn/kẹt tô viền ngay trên board.
+    # `meta` vẫn nhúng trong qaData (JS đọc META.stuckDays cho tooltip flag).
+    board = '<div class="board" id="board"></div>'
     content = (
         '<div class="page-head"><div class="page-title">Tổng quan — Việc của tôi</div></div>'
-        + tabs + kpis + table
+        + board
         + _json_script('qaData', {'tasks': tasks, 'meta': meta})
     )
     return _document_v2(content, nav_active, user, activities, title='QA Workspace — Việc của tôi',

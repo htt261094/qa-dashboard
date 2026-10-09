@@ -1130,19 +1130,20 @@ window.__smSetCustom=function(t, key, val, onChanged){
   setTimeout(poll, 300);
 })();
 
-// ================= DASHBOARD (guard #rows) =================
+// ================= DASHBOARD — board kiểu Jira (guard #board) =================
+// Cột theo status Jira (TO DO · In Progress · PENDING · DONE · CANCELLED), card render
+// client-side -> thấy hết việc cùng lúc, KHÔNG phải bấm từng bucket. KPI vẫn lọc nhanh được.
 (function(){
-  var tbody=$('rows'); if(!tbody) return;
+  var board=$('board'); if(!board) return;
   var DATA = readJSON('qaData') || { tasks:[], meta:{} };
   var TASKS = DATA.tasks || [];
+  var META = DATA.meta || {};
   window.__jiraBase = (TASKS[0] && TASKS[0].jiraUrl ? TASKS[0].jiraUrl.replace(/\/browse\/.*$/, '') : (window.__jiraBase||''));
 
   var custMap={}; (window.QA_CUSTOM_STATUSES||[]).forEach(function(p){ custMap[p[0]]=p[1]; });
-  var COMMENTS={};        // key -> [{author,when,body}] (lazy)
+  var COMMENTS={};        // key -> [{author,when,body}] (lazy, dùng cho drawer)
   var DETAIL={};          // key -> {description}
-  var openCmt={};         // key -> panel mở
-  var curFilter='all', curPage=1, PER_PAGE=8;
-  var inflight={};
+  var dndKey=null, dndInflight={};   // kéo-thả đổi status (giống Jira board)
 
   function jiraCls(v){ v=(v||'').toUpperCase();
     if(v==='DONE') return 'b-done'; if(v==='CANCELLED') return 'b-critical';
@@ -1159,14 +1160,11 @@ window.__smSetCustom=function(t, key, val, onChanged){
       overdue:false, stuck:false, isNew:false,
       jiraUrl:(window.__jiraBase||'')+'/browse/'+key };
   }
-  function matchFilter(t,f){ if(f==='overdue') return t.overdue; if(f==='stuck') return t.stuck;
-    if(f==='dueweek') return !!t.dueWeek;
-    if(f==='done') return t.jira.toUpperCase()==='DONE';
-    return t.jira.toUpperCase()!=='DONE'; }
+  // KHÔNG còn lọc bucket (#114) — board luôn hiện HẾT; chỉ còn lọc theo ô tìm kiếm topbar.
   function visibleTasks(){
     var q=(($('searchInp')||{}).value||'').toLowerCase();
-    return TASKS.filter(function(t){ return matchFilter(t,curFilter) &&
-      (!q || (t.key+' '+t.summary).toLowerCase().indexOf(q)>=0); });
+    if(!q) return TASKS.slice();
+    return TASKS.filter(function(t){ return (t.key+' '+t.summary).toLowerCase().indexOf(q)>=0; });
   }
 
   function chipHTML(t){
@@ -1176,115 +1174,178 @@ window.__smSetCustom=function(t, key, val, onChanged){
         +esc(custMap[v]||v)+'<span class="rm material-symbols-rounded ph-light ph-x" data-key="'+esc(t.key)
         +'" data-val="'+esc(v)+'"></span></span>'; }).join('')+'</div>';
   }
-  function rowHTML(t){
-    // COMMENTS[key] là mảng khi đã fetch (dùng số live); chưa fetch (undefined/null=đang tải)
-    // -> dùng số đếm server nhúng sẵn (t.nComments) để hiện NGAY, không cần mở panel/drawer.
+  function cardHTML(t){
+    // COMMENTS[key] là mảng khi đã fetch (số live); chưa fetch -> số server nhúng sẵn (t.nComments).
     var nc=COMMENTS[t.key] ? COMMENTS[t.key].length : (t.nComments||0);
-    var cnt = nc ? '<span class="cmt-count">'+nc+'</span>' : '';
-    return '<tr'+(t.overdue?' class="overdue-row"':'')+' data-key="'+esc(t.key)+'">'
-      +'<td><a class="key" href="'+esc(t.jiraUrl)+'" target="_blank">'+esc(t.key)+'</a></td>'
-      +'<td class="title clickable" data-act="detail" data-key="'+esc(t.key)+'">'+esc(t.summary)
-      +(t.hasNote?' <span class="note-ic material-symbols-rounded ph-light ph-note-pencil mi-xs" title="Có ghi chú riêng"></span>':'')+'</td>'
-      +'<td class="status-cell"><div class="stat-wrap"><span class="badge '+jiraCls(t.jira)+'">'+esc(t.jira)+'</span>'
-      +'<button class="caret material-symbols-rounded ph-light ph-caret-down mi-sm" data-act="smenu" data-key="'+esc(t.key)+'"></button></div>'+chipHTML(t)+'</td>'
-      +'<td><span class="assignee"><span class="av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span> '+esc(t.assignee.name)+'</span></td>'
-      +'<td class="cell-date">'+esc(t.createdDisp)+'</td>'
-      +'<td>'+dueValHTML(t)+'</td>'
-      +'<td><span style="display:inline-flex;align-items:center;gap:2px">'
-      +'<button class="act-btn'+(openCmt[t.key]?' on':'')+'" data-act="cmt" data-key="'+esc(t.key)+'" title="Bình luận">'
-      +'<span class="material-symbols-rounded ph-light ph-chat-circle mi-sm"></span>'+cnt+'</button></span></td>'
-      +'</tr>' + (openCmt[t.key] ? cmtRow(t.key) : '');
+    var fl='';
+    if(t.overdue) fl+='<span class="bc-flag od" title="Quá hạn"><span class="material-symbols-rounded ph-light ph-calendar-x mi-xs"></span></span>';
+    if(t.stuck)   fl+='<span class="bc-flag st" title="Kẹt ≥ '+(META.stuckDays||5)+' ngày"><span class="material-symbols-rounded ph-light ph-hourglass mi-xs"></span></span>';
+    var cls='bcard'+(t.overdue?' od':(t.stuck?' st':''));
+    return '<div class="'+cls+'" draggable="true" data-act="detail" data-key="'+esc(t.key)+'">'
+      +'<div class="bc-top"><a class="key" href="'+esc(t.jiraUrl)+'" target="_blank">'+esc(t.key)+'</a>'
+      +'<span class="bc-top-r">'+fl
+      +'<button class="caret material-symbols-rounded ph-light ph-caret-down mi-sm" data-act="smenu" data-key="'+esc(t.key)+'" title="Đổi trạng thái"></button></span></div>'
+      +'<div class="bc-title">'+esc(t.summary)
+      +(t.hasNote?' <span class="note-ic material-symbols-rounded ph-light ph-note-pencil mi-xs" title="Có ghi chú riêng"></span>':'')+'</div>'
+      +chipHTML(t)
+      +'<div class="bc-foot"><span class="assignee"><span class="av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span> '+esc(t.assignee.name)+'</span>'
+      +'<span class="bc-foot-r">'+dueValHTML(t)
+      +(nc?'<span class="bc-cmt" title="'+nc+' bình luận"><span class="material-symbols-rounded ph-light ph-chat-circle mi-xs"></span>'+nc+'</span>':'')
+      +'</span></div>'
+      +'</div>';
   }
-  function cmtRow(key){
-    var list=COMMENTS[key]||null;
-    var hist;
-    if(list===null) hist=skelComments();
-    else if(!list.length) hist='<div class="cmt-empty">Chưa có bình luận nào</div>';
-    else hist=list.map(function(c){ return '<div class="cmt-item"><span class="av '+avById(c.author)+'">'+esc(initOf(c.author))+'</span>'
-      +'<div class="cmt-main"><div class="cmt-meta"><b>'+esc(c.author)+'</b><span>'+esc((c.when||'').slice(0,16).replace('T',' '))+'</span></div>'
-      +'<div class="cmt-text">'+esc(c.body)+'</div></div></div>'; }).join('');
-    return '<tr class="cmt-row"><td colspan="7"><div class="cmt-panel">'
-      +'<div class="cmt-history">'+hist+'</div>'
-      +'<div class="cmt-box"><textarea id="cmtTa-'+esc(key)+'" placeholder="Viết bình luận của bạn... (gõ @ để nhắc người)"></textarea>'
-      +'<div class="cmt-foot">'
-      +'<button class="lbtn close" data-act="cmt-close" data-key="'+esc(key)+'"><span class="material-symbols-rounded ph-light ph-caret-up mi-xs"></span>Đóng</button>'
-      +'<button class="lbtn primary" data-act="cmt-send" data-key="'+esc(key)+'">Gửi</button>'
-      +'</div></div></div></td></tr>';
-  }
-  function renderRows(anim){
+  // Thứ tự cột cố định như board Jira; CANCELLED/status lạ chỉ hiện khi có card.
+  var COLS=['TO DO','In Progress','PENDING','DONE','CANCELLED'];
+  var CORE={'TO DO':1,'In Progress':1,'PENDING':1,'DONE':1};
+  function renderBoard(){
     var all=visibleTasks();
-    if(!all.length){ tbody.innerHTML='<tr><td colspan="7"><div class="empty-state">'
+    if(!all.length){ board.innerHTML='<div class="empty-state board-empty">'
         +'<span class="es-ic"><span class="material-symbols-rounded ph-light ph-confetti"></span></span>'
         +'<div class="es-title">Không có task nào 🎉</div>'
-        +'<div class="es-hint">Sạch việc ở bộ lọc này — nghỉ tay chút đi.</div>'
-        +'</div></td></tr>';
-      $('pager').innerHTML=''; return; }
-    var pages=Math.max(1, Math.ceil(all.length/PER_PAGE));
-    if(curPage>pages) curPage=pages; if(curPage<1) curPage=1;
-    var start=(curPage-1)*PER_PAGE, slice=all.slice(start, start+PER_PAGE);
-    var html=slice.map(rowHTML).join('');
-    for(var k=slice.length;k<PER_PAGE;k++){
-      html+='<tr class="pager-filler"><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>';
-    }
-    tbody.innerHTML=html;
-    if(anim) animRows(tbody);
-    $('pager').innerHTML=pagerHTML(curPage, pages, all.length, start, slice.length, 'task');
-
+        +'<div class="es-hint">Sạch việc rồi — nghỉ tay chút đi.</div>'
+        +'</div>'; return; }
+    var groups={};
+    all.forEach(function(t){ var s=(t.jira||'').trim()||'—'; (groups[s]=groups[s]||[]).push(t); });
+    var order=[];
+    // Luôn hiện 4 cột lõi (kể cả rỗng) + CANCELLED/status lạ chỉ khi có card.
+    COLS.forEach(function(s){ if(CORE[s] || (groups[s]&&groups[s].length)) order.push(s); });
+    Object.keys(groups).forEach(function(s){ if(order.indexOf(s)<0) order.push(s); });
+    board.innerHTML = order.map(function(s){
+      var list=groups[s]||[];
+      var body = list.length ? list.map(cardHTML).join('')
+               : '<div class="bcol-empty">Kéo task vào đây</div>';
+      return '<div class="bcol" data-col="'+esc(s)+'">'
+        +'<div class="bcol-head"><span class="bcol-name"><span class="bcol-dot '+jiraCls(s)+'"></span>'+esc(s)+'</span>'
+        +'<span class="cc">'+list.length+'</span></div>'
+        +'<div class="bcol-body">'+body+'</div></div>';
+    }).join('');
     if(window.__smRebind) window.__smRebind();
   }
-  function setFilter(f){ curFilter=f; curPage=1;
-    document.querySelectorAll('#tabs button').forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-f')===f); });
-    document.querySelectorAll('#kpis .kpi').forEach(function(k){ k.classList.toggle('sel', k.getAttribute('data-f')===f); });
-    renderRows(true); }
 
-  // dueWeek flag (cho filter) — tính nhanh client từ dueCls? dueweek đã đếm server; ở đây
-  // filter dueweek dùng cờ: task không overdue và dueCls!=overdue và due trong tuần.
-  // Đơn giản: đánh dấu dueWeek nếu meta cần — ở đây bỏ filter dueweek trên bảng (KPI chỉ là số).
-
-  // event delegation
+  // event delegation (board card: toàn card = mở drawer; caret = đổi status; chip x = bỏ nhãn)
   document.addEventListener('click', function(e){
-    var pg=e.target.closest('[data-pg]'); if(pg && !pg.disabled && pg.closest('#pager')){ curPage=parseInt(pg.getAttribute('data-pg'),10)||1; renderRows(true); return; }
     var rm=e.target.closest('.rm[data-val]'); if(rm){ rmCust(rm.getAttribute('data-key'), rm.getAttribute('data-val')); return; }
+    if(e.target.closest('a.key')) return;        // link ID -> mở Jira, KHÔNG mở drawer
     var a=e.target.closest('[data-act]'); if(!a) return;
     var act=a.getAttribute('data-act'), key=a.getAttribute('data-key');
     if(act==='smenu'){ e.stopPropagation(); openStatusMenu(a); }
     else if(act==='detail'){ openDetail(key); }
-    else if(act==='cmt'){ toggleCmt(key); }
-    else if(act==='cmt-close'){ toggleCmt(key); }
-    else if(act==='cmt-send'){ sendComment(key); }
   });
-  document.querySelectorAll('#tabs button').forEach(function(b){ b.addEventListener('click', function(){ setFilter(b.getAttribute('data-f')); }); });
-  document.querySelectorAll('#kpis .kpi').forEach(function(k){ k.addEventListener('click', function(){
-    var f=k.getAttribute('data-f'); setFilter(f); }); });
-  var si=$('searchInp'); if(si) si.addEventListener('input', function(){ curPage=1; renderRows(true); });
+  var si=$('searchInp'); if(si) si.addEventListener('input', function(){ renderBoard(); });
 
-  // ----- comment panel -----
+  // ----- Kéo-thả đổi status giữa cột (giống Jira board) -----
+  // Thả 1 card sang cột khác = chuyển issue sang status của cột đó. Phải đi qua transition
+  // HỢP LỆ của Jira (PAT cá nhân) -> chính là workflow + quyền của chính chủ:
+  //  - lúc dragstart: tra /jira-transitions (cache theo key) rồi SÁNG cột chuyển được
+  //    (.can-drop) / MỜ cột không chuyển được (.no-drop) -> biết TRƯỚC khi thả.
+  //  - dragover: chỉ nhận thả ở cột hợp lệ (con trỏ cấm ở cột no-drop).
+  //  - drop: dùng transition đã cache (không round-trip lại), không có -> báo, KHÔNG ép.
+  var trCache={};   // key -> [{id,to}] | 'nopat' (undefined = chưa tra / lỗi mạng tạm)
+  function fetchTr(key){
+    if(trCache[key]!==undefined) return Promise.resolve(trCache[key]);
+    return postJSON('/jira-transitions', { key:key }, 20000).then(function(j){
+      if(j && j.code==='no_pat'){ trCache[key]='nopat'; return 'nopat'; }
+      if(j && j.ok){ trCache[key]=j.transitions||[]; return trCache[key]; }
+      return false;                                  // lỗi -> KHÔNG cache (lần kéo sau thử lại)
+    }).catch(function(){ return false; });
+  }
+  function clearMarks(){
+    board.querySelectorAll('.bcol.drop-tgt,.bcol.can-drop,.bcol.no-drop').forEach(function(c){
+      c.classList.remove('drop-tgt','can-drop','no-drop'); });
+  }
+  function markTargets(key){
+    if(dndKey!==key) return;                          // drag đã xong/đổi card
+    var trs=trCache[key]; if(!Array.isArray(trs)) return;   // nopat/lỗi -> không tô, drop tự báo
+    var t=taskByKey(key), cur=((t&&t.jira)||'').trim().toUpperCase();
+    var set={}; trs.forEach(function(x){ set[(x.to||'').trim().toUpperCase()]=1; });
+    board.querySelectorAll('.bcol').forEach(function(c){
+      var s=(c.getAttribute('data-col')||'').trim().toUpperCase();
+      c.classList.remove('can-drop','no-drop');
+      if(s===cur) return;                             // cột hiện tại: trung tính (no-op)
+      if(set[s]) c.classList.add('can-drop'); else c.classList.add('no-drop');
+    });
+  }
+  function droppable(col){                            // cột này có nhận thả card đang kéo không
+    if(!dndKey) return false;
+    var t=taskByKey(dndKey), s=(col.getAttribute('data-col')||'').trim();
+    if((t&&t.jira||'').trim()===s) return true;       // thả lại cột cũ = no-op, cho qua
+    var trs=trCache[dndKey];
+    if(!Array.isArray(trs)) return true;              // chưa biết -> cho thả, drop validate sau
+    var up=s.toUpperCase();
+    return trs.some(function(x){ return (x.to||'').trim().toUpperCase()===up; });
+  }
+  board.addEventListener('dragstart', function(e){
+    var card=e.target.closest('.bcard'); if(!card){ return; }
+    dndKey=card.getAttribute('data-key'); card.classList.add('dragging');
+    if(e.dataTransfer){ e.dataTransfer.effectAllowed='move';
+      try{ e.dataTransfer.setData('text/plain', dndKey); }catch(_){} }
+    var key=dndKey; fetchTr(key).then(function(){ markTargets(key); });   // tô cột theo workflow+quyền
+  });
+  board.addEventListener('dragend', function(){
+    var d=board.querySelector('.bcard.dragging'); if(d) d.classList.remove('dragging');
+    clearMarks(); dndKey=null;
+  });
+  board.addEventListener('dragover', function(e){
+    if(!dndKey) return; var col=e.target.closest('.bcol'); if(!col) return;
+    if(!droppable(col)) return;                       // cột cấm -> không preventDefault -> con trỏ "cấm"
+    e.preventDefault(); if(e.dataTransfer) e.dataTransfer.dropEffect='move';
+    if(!col.classList.contains('drop-tgt')){
+      board.querySelectorAll('.bcol.drop-tgt').forEach(function(c){ c.classList.remove('drop-tgt'); });
+      col.classList.add('drop-tgt'); }
+  });
+  board.addEventListener('drop', function(e){
+    if(!dndKey) return; var col=e.target.closest('.bcol'); if(!col) return;
+    e.preventDefault();
+    var target=col.getAttribute('data-col'), key=dndKey, t=taskByKey(key);
+    clearMarks();
+    if(!t) return;
+    if((t.jira||'').trim()===target) return;          // thả lại cột cũ -> bỏ qua
+    moveCard(t, key, target);
+  });
+  function moveCard(t, key, target){
+    if(dndInflight[key]) return; dndInflight[key]=true;
+    fetchTr(key).then(function(trs){                  // dùng cache đã tra lúc dragstart
+      if(trs==='nopat'){ dndInflight[key]=false;
+        patToast({ code:'no_pat', msg:'Cần API token Jira để đổi status — vào ⚙ Cài đặt' }); return; }
+      if(!Array.isArray(trs)){ dndInflight[key]=false; toast('Lỗi tải bước chuyển', false); return; }
+      var tr=trs.filter(function(x){
+        return (x.to||'').trim().toUpperCase()===target.toUpperCase(); })[0];
+      if(!tr){ dndInflight[key]=false;
+        toast('Không có bước chuyển "'+t.jira+'" → "'+target+'" trên Jira', false); return; }
+      toast(key+': đang chuyển sang "'+target+'"…', true);
+      postJSON('/do-transition', { key:key, id:tr.id, to:tr.to }, 20000).then(function(r){
+        dndInflight[key]=false; delete trCache[key]; if(patToast(r)) return;   // status đổi -> cache cũ vô hiệu
+        if(r.ok){ var st=r.status||tr.to; t.jira=st;
+          var can=(st==='TO DO'||st==='In Progress'); if(!can) t.customs=[]; t.canCustom=can;
+          renderBoard(); toast(key+' → '+st+' ✓', true);
+          var dEl=$('drawer'); if(dEl && dEl.classList.contains('open')){
+            var ka=dEl.querySelector('.key'); if(ka && ka.textContent===key) renderDrawer(t); } }
+        else toast(r.msg||('Lỗi đổi status '+key), false);
+      }).catch(function(){ dndInflight[key]=false; toast('Lỗi mạng khi đổi status', false); });
+    });
+  }
+  // Warm trCache TRƯỚC khi kéo để màu cột hiện NGAY (không chờ round-trip lúc dragstart):
+  //  - nhấn chuột xuống card = tra sớm hơn dragstart vài trăm ms (đủ cho card sắp kéo);
+  //  - nền lúc load: tra sẵn các card KHÔNG phải DONE/CANCELLED (card hay kéo), tuần tự cho nhẹ.
+  board.addEventListener('mousedown', function(e){
+    var card=e.target.closest('.bcard'); if(card) fetchTr(card.getAttribute('data-key'));
+  });
+  var _warmed=false;
+  function warmTransitions(){
+    if(_warmed) return; _warmed=true;
+    var keys=[], seen={};
+    TASKS.forEach(function(t){ var s=(t.jira||'').toUpperCase();
+      if(s==='DONE'||s==='CANCELLED'||seen[t.key]) return; seen[t.key]=1; keys.push(t.key); });
+    (function next(i){ if(i>=keys.length) return;
+      fetchTr(keys[i]).then(function(){ next(i+1); }, function(){ next(i+1); }); })(0);
+  }
+
+  // ----- comment fetch (dùng cho drawer) -----
   function fetchComments(key){ return getJSON('/issue-comments?key='+encodeURIComponent(key), 20000)
     .then(function(j){ if(j&&j.ok&&j.detail){ COMMENTS[key]=j.detail.comments||[]; DETAIL[key]=j.detail;
         if(!taskByKey(key)) EXTRA[key]=synthTask(key, j.detail); }
       else COMMENTS[key]=COMMENTS[key]||[]; })
     .catch(function(){ COMMENTS[key]=COMMENTS[key]||[]; }); }
-  function toggleCmt(key){
-    if(openCmt[key]){ delete openCmt[key]; renderRows(); return; }
-    openCmt[key]=true;
-    if(COMMENTS[key]===undefined){ COMMENTS[key]=null; renderRows();
-      fetchComments(key).then(function(){ if(openCmt[key]) renderRows(); }); }
-    else renderRows();
-    var ta=$('cmtTa-'+key); if(ta) ta.focus();
-  }
-  function sendComment(key){
-    var ta=$('cmtTa-'+key); var v=(ta&&ta.value||'').trim();
-    if(!v){ toast('Chưa nhập bình luận', false); return; }
-    if(inflight['c'+key]) return; inflight['c'+key]=true; if(ta) ta.disabled=true;
-    postJSON('/add-comment', { key:key, body:v }, 20000).then(function(j){
-      inflight['c'+key]=false; if(ta) ta.disabled=false;
-      if(patToast(j)) return;
-      if(j.ok){ (COMMENTS[key]=COMMENTS[key]||[]).push({author:'Bạn', when:new Date().toISOString(), body:v});
-        renderRows(); toast(key+': đã gửi comment ✓', true);
-        var h=document.querySelector('.cmt-row .cmt-history'); if(h) h.scrollTop=h.scrollHeight; }
-      else toast(j.msg||('Lỗi gửi comment '+key), false);
-    }).catch(function(){ inflight['c'+key]=false; if(ta) ta.disabled=false; toast('Lỗi mạng khi gửi comment', false); });
-  }
 
   // ----- detail drawer -----
   function openDetail(key){ var t=taskByKey(key);
@@ -1338,14 +1399,14 @@ window.__smSetCustom=function(t, key, val, onChanged){
       var ta=$('dtTa-'+key); var v=(ta&&ta.value||'').trim(); if(!v){ toast('Chưa nhập bình luận', false); return; }
       postJSON('/add-comment', { key:key, body:v }, 20000).then(function(j){ if(patToast(j)) return;
         if(j.ok){ (COMMENTS[key]=COMMENTS[key]||[]).push({author:'Bạn', when:new Date().toISOString(), body:v});
-          renderDrawer(taskByKey(key)); renderRows(); toast('Đã gửi comment ✓', true); }
+          renderDrawer(taskByKey(key)); renderBoard(); toast('Đã gửi comment ✓', true); }
         else toast(j.msg||'Lỗi gửi comment', false); }).catch(function(){ toast('Lỗi mạng', false); }); }
   });
   var dov=$('drawerOv'); if(dov) dov.addEventListener('click', closeDetail);
 
   // ----- status menu: dùng module chung (__openSmenu/__smSetCustom, xem section shared) -----
   function qaOnChanged(kind, key){
-    renderRows();
+    renderBoard();
     var dEl=$('drawer');
     if(dEl && dEl.classList.contains('open')){
       var ka=dEl.querySelector('.key');
@@ -1365,12 +1426,12 @@ window.__smSetCustom=function(t, key, val, onChanged){
   window.__applyTaskPatch=function(map){
     var changed=false;
     TASKS.forEach(function(t){ var p=map[t.key]; if(!p) return;
-      if(p.status && p.status!==t.jira){ t.jira=p.status; changed=true; }
+      if(p.status && p.status!==t.jira){ t.jira=p.status; delete trCache[t.key]; changed=true; }  // status đổi -> transitions cũ vô hiệu
       if(p.customs){ var a=(t.customs||[]).join(','), b=p.customs.join(',');
         if(a!==b){ t.customs=p.customs; changed=true; } }
     });
     if(!changed) return;
-    renderRows();
+    renderBoard();
     var dEl=$('drawer');
     if(dEl && dEl.classList.contains('open')){
       var ka=dEl.querySelector('.key'); var ok=ka&&ka.textContent;
@@ -1380,24 +1441,25 @@ window.__smSetCustom=function(t, key, val, onChanged){
 
   window.__applyDuePatch=function(key, val){
     var t=taskByKey(key); if(!t) return;
-    recomputeDue(t, val); renderRows();
+    recomputeDue(t, val); renderBoard();
   };
   window.__applyFieldPatch=function(key, patch){
     var t=taskByKey(key); if(!t) return;
-    applyTaskFields(t, patch); renderRows();
+    applyTaskFields(t, patch); renderBoard();
     var dEl=$('drawer');
     if(dEl && dEl.classList.contains('open')){
       var ka=dEl.querySelector('.key');
       if(ka && ka.textContent===key) renderDrawer(t);
     }
   };
-  window.__rerenderRows=renderRows;
+  window.__rerenderRows=renderBoard;
   window.__applyNotePatch=function(key, has){
     var t=TASKS.filter(function(x){ return x.key===key; })[0];
-    if(t && !!t.hasNote!==has){ t.hasNote=has; renderRows(); }
+    if(t && !!t.hasNote!==has){ t.hasNote=has; renderBoard(); }
   };
 
-  setFilter('all');
+  renderBoard();
+  warmTransitions();
 })();
 
 // ============== SHARED DRAWER (trang KHÔNG có bảng task: roadmap, docs) ==============
