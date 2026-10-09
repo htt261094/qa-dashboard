@@ -381,17 +381,16 @@ def _diff_events(prev_bugs, cur_bugs, file_name=''):
     """(prev, cur) dict keyed theo bug['key'] -> list activity event (mới nhất trước).
 
     - key mới  -> 'log bug'  (author = qa_pic)
-    - status đổi -> 'Status X → Y'
+    - status đổi -> 'Status X → Y'  (theo status Jira THẬT = `status_raw`, #104/B)
     - key mất  -> 'xoá bug'
     Field khác KHÔNG sinh event (giữ feed gọn — chủ yếu quan tâm vòng đời status).
 
-    ⚠ NOISE COPY-PASTE (issue: QA copy row cũ xuống dòng mới rồi edit thành bug mới):
-    dòng mới thừa hưởng status của bug được copy (vd 'Closed') rồi bị sửa lại thành 'New'
-    -> diff bắt được transition giả 'X → New'. Vòng đời bug thật KHÔNG bao giờ quay lại
-    'New' (New chỉ là trạng thái khởi đầu; reactivation dùng 'Reopen'). Nên BỎ QUA mọi
-    transition có đích = 'New' -> khử noise. Event 'log bug' lúc key lần đầu xuất hiện VẪN
-    giữ (đó là bug mới thật). Đánh đổi: bug bị QA sửa nhầm rồi reset về New sẽ không lên
-    feed — hiếm, và user coi mọi '→ New' là noise.
+    ⚠ Dùng `status_raw` (Open/TRIAGE/In Progress/TESTING/Reopened/REJECTED/Done) chứ KHÔNG
+    phải `status` lifecycle đã map 5 nhãn — để khớp hẳn với bảng `/bug-log` (JST, #104
+    follow-up) + thấy đủ các chuyển trạng thái mà lifecycle gộp mất (TRIAGE→Open,
+    In Progress→TESTING). BỎ guard noise '→ New' cũ: đó là di sản nguồn Drive (QA copy row
+    thừa hưởng status cũ — #43); nguồn giờ là Jira, key issue ổn định nên KHÔNG có
+    transition giả, mọi thay đổi changelog đều thật.
 
     Mỗi event mang `file` (tên file Drive) + `sheet` (= bug['month'], tên tab tháng) để
     popup "sau đồng bộ" nêu rõ thay đổi nằm ở file/sheet nào (issue popup thay đổi)."""
@@ -415,11 +414,11 @@ def _diff_events(prev_bugs, cur_bugs, file_name=''):
                 'new': f"log bug {label(b)}", 'kind': 'new',
                 'file': file_name, 'sheet': sheet,
             })
-        elif (old.get('status') or '') != (b.get('status') or '') and (b.get('status') or '') != 'New':
+        elif (old.get('status_raw') or '') != (b.get('status_raw') or ''):
             events.append({
                 'id': f"{key}#bstat#{stamp}", 'key': key, 'summary': summ,
                 'by': author, 'author': author or '?', 'when': iso,
-                'new': f"Status {label(b)}: {old.get('status') or '?'} → {b.get('status') or '?'}",
+                'new': f"Status {label(b)}: {old.get('status_raw') or '?'} → {b.get('status_raw') or '?'}",
                 'kind': 'status', 'file': file_name, 'sheet': sheet,
             })
     for key, b in prev_bugs.items():
