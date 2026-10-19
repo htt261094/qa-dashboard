@@ -3323,20 +3323,17 @@ window.__smSetCustom=function(t, key, val, onChanged){
     if(sevFilter && sevOf(b)!==sevFilter) return false;   // 'none' = chưa phân loại (#104)
     return true;
   }
-  // bug ĐANG MỞ (parity Python bug_backlog.is_open: Closed/Rejected = đóng).
-  function bugOpen(s){ s=(s||''); return s!=='Closed' && s!=='Rejected'; }
   function isActive(b){ return (b.sprintState||'backlog')==='active'; }   // trong active sprint (#107)
-  // --- membership từng tab (Decision #108) ---
+  // --- membership từng tab (Decision #108; bỏ lọc bugOpen 2026-10-19) ---
   //   tab squad  = bug active-sprint của squad đó, MỌI status (user chốt "tất cả bug trong sprint").
-  //   tab backlog= bug NGOÀI active sprint (future + backlog #107) & CÒN MỞ (bỏ Closed/Rejected —
-  //                backlog = việc chờ xử lý, không lôi bug cũ đã đóng), chia tiếp theo squad.
+  //   tab backlog= bug NGOÀI active sprint (future + backlog #107), MỌI status gồm Closed/Rejected
+  //                (user chốt: đừng ẩn reject/bug ngoài sprint), chia tiếp theo squad.
   function activeBugs(sq){ return fileBugs().filter(function(b){
     return isActive(b) && squadOf(b)===sq && passFilters(b); }); }
   function backlogBugs(){ return fileBugs().filter(function(b){
-    return !isActive(b) && bugOpen(b.status) && passFilters(b); }); }
-  // Bug có thể xuất hiện ở ĐÂU ĐÓ trên trang (active mọi status ∪ backlog còn mở) -> nguồn dropdown.
-  function scopeBugs(){ return fileBugs().filter(function(b){
-    return isActive(b) || bugOpen(b.status); }); }
+    return !isActive(b) && passFilters(b); }); }
+  // Mọi bug đều xuất hiện ở đâu đó trên trang (active squad ∪ backlog) -> nguồn dropdown = tất cả.
+  function scopeBugs(){ return fileBugs(); }
 
   // danh sách tester (qa_pic) phân biệt -> đổ vào dropdown lọc
   function populateTesters(){
@@ -3443,7 +3440,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     if(!total){
       html = '<tr><td colspan="'+cols+'"><div class="empty-state">'
         +'<span class="es-ic"><span class="material-symbols-rounded ph-light ph-bug-beetle"></span></span>'
-        +'<div class="es-title">'+(isBack ? 'Không có bug nào ngoài sprint đang chờ'
+        +'<div class="es-title">'+(isBack ? 'Không có bug nào ngoài sprint'
             : 'Squad '+esc(tab)+' chưa có bug trong sprint đang chạy')+'</div>'
         +'<div class="es-hint">Đổi tab squad/backlog hoặc bỏ bộ lọc tester/dev/severity để xem bug khác.</div>'
         +'</div></td></tr>';
@@ -3765,7 +3762,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
   }
   // Thống kê tuổi bug đang mở (KHÔNG lọc tháng — phản ánh trạng thái HIỆN TẠI của mọi bug mở).
   function computeOpenAge(){
-    var open = BUGS.filter(function(b){ return b.created && inActive(b) && !isClosed(b.status) && !isReject(b.status); });
+    var open = scopeBugs().filter(function(b){ return b.created && !isClosed(b.status) && !isReject(b.status); });
     var ages = open.map(function(b){ return _ageDays(b.created); }).filter(function(a){ return a != null; });
     if(!ages.length) return { open: open.length, ages: [], counts: OA_BUCKETS.map(function(){return 0;}),
                               median: 0, maxAge: 0, total: 0 };
@@ -3846,11 +3843,22 @@ window.__smSetCustom=function(t, key, val, onChanged){
     return l.length ? l : ['Chưa gán'];
   }
 
-  // ===== SCOPE = bug trong sprint đang chạy (#106/B) =====
-  // Toàn trang tính theo active sprint: squad lệch nhịp vẫn đúng vì mỗi bug mang state sprint của
-  // board nó (xác minh probe). Mất lăng kính tháng + freeze/twin Python (dead code, #100) có CHỦ Ý.
+  // ===== SCOPE = bug trong sprint đang chạy (#106/B), toggle "Toàn bộ" (amend 2026-10-19) =====
+  // Mặc định tính theo active sprint: squad lệch nhịp vẫn đúng vì mỗi bug mang state sprint của
+  // board nó (xác minh probe). User chốt thêm toggle "Toàn bộ" -> tính trên MỌI bug (gồm reject,
+  // closed, future, backlog) để không ẩn bug ngoài sprint. Mất lăng kính tháng + freeze/twin
+  // Python (dead code, #100) có CHỦ Ý.
+  var scopeMode = 'active';   // 'active' | 'all'
+  try{ var _s=localStorage.getItem('qa-analytics-scope'); if(_s==='all'||_s==='active') scopeMode=_s; }catch(e){}
+  // filter squad TOÀN TRANG (amend 2026-10-19): 'all' | 'SIT1'..'SIT4' | 'Khác'. Áp cùng scope.
+  var AN_SQUADS = ['SIT1','SIT2','SIT3','SIT4'];
+  function squadOfB(b){ var p=(b.project||'').trim(); return AN_SQUADS.indexOf(p)>=0 ? p : 'Khác'; }
+  var squadFilter = 'all';
+  try{ var _sq=localStorage.getItem('qa-analytics-squad'); if(_sq) squadFilter=_sq; }catch(e){}
   function inActive(b){ return (b.sprintState||'backlog')==='active'; }
-  function scopeBugs(){ return BUGS.filter(inActive); }
+  function inScope(b){ return scopeMode==='all' ? true : inActive(b); }
+  function inSquad(b){ return squadFilter==='all' || squadOfB(b)===squadFilter; }
+  function scopeBugs(){ return BUGS.filter(function(b){ return inScope(b) && inSquad(b); }); }
 
   // ===== compute trên 1 LIST bug (= SCOPE) — không còn month/freeze =====
   function computeValid(list){
@@ -3894,7 +3902,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
 
   // ===== state chung =====
   var metricCharts = $('anMetricCharts');
-  var squadFilter = 'all';   // tab lọc squad cho chart
+  // squadFilter khai báo ở khối SCOPE (filter squad toàn trang, amend 2026-10-19)
 
   // ===== 4 KPI =====
   function fillKpi(cid, badgeCls, badgeTxt, valHtml, sub, footHtml){
@@ -3987,16 +3995,23 @@ window.__smSetCustom=function(t, key, val, onChanged){
         nDev=Object.keys(devCount).length;
     if(badge) badge.textContent=squadList.length+' squad • '+nDev+' dev';
     if(stats) stats.innerHTML=
-        '<div class="an-stile"><b>'+grand+'</b><span>Bug trong sprint</span></div>'
+        '<div class="an-stile"><b>'+grand+'</b><span>Bug'+(scopeMode==='all'?'':' trong sprint')+'</span></div>'
       + '<div class="an-stile"><b class="c-ok">'+fixed+'<i>/'+grand+'</i></b><span>Đã đóng</span></div>';
-    // tabs lọc squad
+    // tabs lọc squad — dựng từ SCOPE (chưa lọc squad) để luôn chuyển được giữa các squad; đồng bộ
+    // với filter squad toàn trang ở page-head (amend 2026-10-19). Bucket theo squadOfB (SIT1-4 + Khác).
     if(tabs){
-      var th='<button class="an-tab'+(squadFilter==='all'?' on':'')+'" data-sq="all">Tất cả <i>'+nDev+' dev • '+grand+'</i></button>';
-      squadList.forEach(function(p){ var sq=squads[p], dc=Object.keys(sq.devs).length;
-        th+='<button class="an-tab'+(squadFilter===p?' on':'')+'" data-sq="'+esc(p)+'">'+esc(p)+' <i>'+dc+' dev • '+sq.total+'</i></button>'; });
+      var scopeAll=BUGS.filter(inScope), tabAgg={}, tabDevSet={};
+      scopeAll.forEach(function(b){ var bk=squadOfB(b), t=tabAgg[bk]||(tabAgg[bk]={devs:{},total:0});
+        devList1(b.dev).forEach(function(d){ t.devs[d]=1; t.total++; tabDevSet[d]=1; }); });
+      var tabSquads=Object.keys(tabAgg).sort(function(a,b){
+        var ra=AN_SQUADS.indexOf(a), rb=AN_SQUADS.indexOf(b); ra=ra<0?99:ra; rb=rb<0?99:rb;
+        return ra-rb || (a<b?-1:a>b?1:0); });
+      var th='<button class="an-tab'+(squadFilter==='all'?' on':'')+'" data-sq="all">Tất cả <i>'+Object.keys(tabDevSet).length+' dev • '+scopeAll.length+'</i></button>';
+      tabSquads.forEach(function(bk){ var t=tabAgg[bk], dc=Object.keys(t.devs).length;
+        th+='<button class="an-tab'+(squadFilter===bk?' on':'')+'" data-sq="'+esc(bk)+'">'+esc(bk)+' <i>'+dc+' dev • '+t.total+'</i></button>'; });
       tabs.innerHTML=th;
     }
-    if(!squadList.length){ metricCharts.innerHTML='<div class="an-empty">Không có bug nào trong sprint đang chạy</div>'; }
+    if(!squadList.length){ metricCharts.innerHTML='<div class="an-empty">Không có bug nào khớp bộ lọc</div>'; }
     else {
       // yMax từ dev đông bug nhất
       var maxDev=0; squadList.forEach(function(p){ var dv=squads[p].devs;
@@ -4035,7 +4050,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
   }
   if($('anSquadTabs')) $('anSquadTabs').addEventListener('click', function(e){
     var b=e.target.closest('.an-tab'); if(!b) return;
-    squadFilter=b.getAttribute('data-sq')||'all'; renderMetric();
+    setSquad(b.getAttribute('data-sq')||'all');   // filter squad toàn trang (amend 2026-10-19)
   });
 
   // ===== bảng Reopen + drawer =====
@@ -4124,7 +4139,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
   }
   function renderSprint(){
     var el=$('anSprintBody'); if(!el) return;
-    var openBugs=BUGS.filter(function(b){ return isOpenBug(b.status); });
+    var openBugs=BUGS.filter(function(b){ return isOpenBug(b.status) && inSquad(b); });
     var buckets={active:0, future:0, backlog:0}, backlogBySquad={};
     openBugs.forEach(function(b){
       var st=b.sprintState||'backlog'; if(!(st in buckets)) st='backlog';
@@ -4306,7 +4321,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
   function renderReopenTrend(){
     var el=$('anTrendBody'); if(!el) return;
     var bySprint={};
-    BUGS.forEach(function(b){ var s=(b.sprint||'').trim(); if(!s) return; (bySprint[s]||(bySprint[s]=[])).push(b); });
+    BUGS.forEach(function(b){ if(!inSquad(b)) return; var s=(b.sprint||'').trim(); if(!s) return; (bySprint[s]||(bySprint[s]=[])).push(b); });
     var sprints=Object.keys(bySprint).sort(sprintSort);
     if(!sprints.length){ el.innerHTML='<div class="an-empty">Chưa có bug nào gắn sprint để dựng xu hướng.</div>'; return; }
     var roBy={}, devSet={};
@@ -4349,8 +4364,57 @@ window.__smSetCustom=function(t, key, val, onChanged){
     return '<span class="ant-flat" title="Không đổi">→</span>';
   }
 
+  // ---- controls page-head: toggle phạm vi (active/all) + filter squad (#107 amend 2026-10-19) ----
+  // Các squad có mặt trong data, thứ tự SIT1-4 rồi 'Khác' (ổn định, không phụ thuộc scope).
+  function squadButtons(){
+    var present={}; BUGS.forEach(function(b){ present[squadOfB(b)]=1; });
+    var order=AN_SQUADS.filter(function(s){ return present[s]; });
+    if(present['Khác']) order.push('Khác');
+    return order;
+  }
+  // squadFilter lưu trong localStorage có thể trỏ squad không còn data -> về 'all'
+  if(squadFilter!=='all' && squadButtons().indexOf(squadFilter)<0) squadFilter='all';
+  function renderSquadSeg(){
+    var seg=$('anSquadSeg'); if(!seg) return;
+    var h='<button class="an-scope-btn'+(squadFilter==='all'?' active':'')+'" data-sq="all">Tất cả squad</button>';
+    squadButtons().forEach(function(s){
+      h+='<button class="an-scope-btn'+(squadFilter===s?' active':'')+'" data-sq="'+esc(s)+'">'+esc(s)+'</button>'; });
+    seg.innerHTML=h;
+  }
+  function updateControls(){
+    var sseg=$('anScopeSeg');
+    if(sseg) sseg.querySelectorAll('.an-scope-btn').forEach(function(b){
+      b.classList.toggle('active', b.getAttribute('data-scope')===scopeMode); });
+    renderSquadSeg();
+    var chip=$('anScopeChip'), note=$('anScopeNote');
+    var allMode=scopeMode==='all', sqTxt=squadFilter==='all'?'':(' · squad '+squadFilter);
+    if(chip) chip.textContent=(allMode?'Toàn bộ bug':'Sprint đang chạy')+(squadFilter==='all'?'':' • '+squadFilter);
+    if(note) note.textContent=(allMode
+      ? 'phạm vi: toàn bộ bug (gồm reject, closed, ngoài sprint, backlog)'
+      : 'phạm vi: bug trong sprint đang chạy')+sqTxt;
+  }
+  function setSquad(sq){
+    sq=sq||'all'; if(sq===squadFilter) return;
+    squadFilter=sq; try{ localStorage.setItem('qa-analytics-squad', sq); }catch(e){}
+    updateControls(); renderAll();
+  }
+  var scopeSeg=$('anScopeSeg');
+  if(scopeSeg) scopeSeg.addEventListener('click', function(e){
+    var b=e.target.closest('.an-scope-btn'); if(!b) return;
+    var m=b.getAttribute('data-scope'); if(m!==scopeMode){
+      scopeMode=m; try{ localStorage.setItem('qa-analytics-scope', m); }catch(e){}
+      updateControls(); renderAll();
+    }
+  });
+  var squadSeg=$('anSquadSeg');
+  if(squadSeg) squadSeg.addEventListener('click', function(e){
+    var b=e.target.closest('.an-scope-btn'); if(!b) return;
+    setSquad(b.getAttribute('data-sq')||'all');
+  });
+
   function renderAll(){ renderKpis(); renderSprint(); renderAge(); renderMetric(); renderReopen(); renderReopenTrend(); }
-  renderAll();   // không còn selector tháng — toàn trang theo active sprint (#106/B)
+  updateControls();
+  renderAll();   // mặc định active sprint (#106/B); toggle "Toàn bộ" + filter squad (amend 2026-10-19)
 })();
 
 

@@ -2055,6 +2055,13 @@ html[data-theme="dark"] .anrt-risk.c-warn,html[data-theme="dark"] .anrt-ava.c-wa
 .an-scope-chip{font-size:11px;font-weight:600;vertical-align:middle;padding:3px 10px;border-radius:999px;
                color:var(--primary);background:color-mix(in srgb,var(--primary) 14%,transparent);
                border:1px solid color-mix(in srgb,var(--primary) 38%,transparent)}
+/* toggle phạm vi Analytics: Sprint đang chạy / Toàn bộ (#107 amend) */
+.an-scope-seg{display:inline-flex;background:var(--surface-low);border:1px solid var(--outline-variant);
+              border-radius:999px;padding:2px}
+.an-scope-btn{padding:5px 13px;font-size:12.5px;font-weight:600;color:var(--on-surface-variant);
+              background:none;border:none;border-radius:999px;cursor:pointer;white-space:nowrap}
+.an-scope-btn.active{color:#fff;background:var(--primary)}
+.an-scope-btn:not(.active):hover{color:var(--on-surface)}
 .an-sprint-body{display:flex;flex-direction:column;gap:14px}
 .an-sp-tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
 .an-sp-tile{background:var(--surface-low);border:1px solid var(--outline-variant);border-radius:var(--r-md);padding:14px 16px}
