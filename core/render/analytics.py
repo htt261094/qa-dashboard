@@ -67,11 +67,18 @@ def render_analytics_v2(data, user=None, activities=None, backlog=None):
         # ===== page-head: tiêu đề + sync (trái) · control tháng + Export PDF (phải) =====
         '<div class="page-head an-head">'
         '<div>'
-        '<h2 class="page-title">Analytics <span class="an-scope-chip">Sprint đang chạy</span></h2>'
+        '<h2 class="page-title">Analytics <span class="an-scope-chip" id="anScopeChip">Sprint đang chạy</span></h2>'
         f'<div class="bl-sub"><span class="bl-dot"></span> Dữ liệu bug đồng bộ: {esc(synced_disp)} '
-        '· phạm vi: bug trong sprint đang chạy của mỗi squad</div>'
+        '· <span id="anScopeNote">phạm vi: bug trong sprint đang chạy của mỗi squad</span></div>'
         '</div>'
         '<div class="an-ctl">'
+        # toggle phạm vi (#107 amend 2026-10-19): mặc định active sprint, bấm "Toàn bộ" để tính trên MỌI bug
+        '<div class="an-scope-seg" id="anScopeSeg" role="tablist" aria-label="Phạm vi tính metric">'
+        '<button class="an-scope-btn active" data-scope="active">Sprint đang chạy</button>'
+        '<button class="an-scope-btn" data-scope="all">Toàn bộ</button>'
+        '</div>'
+        # filter squad toàn trang (JS đổ nút theo squad có trong data — amend 2026-10-19)
+        '<div class="an-scope-seg" id="anSquadSeg" role="tablist" aria-label="Lọc theo squad"></div>'
         '<button class="an-ctl-export" id="anExport" title="Export PDF biểu đồ bug">'
         '<span class="an-exp-ic"><span class="material-symbols-rounded ph-light ph-file-pdf"></span></span>'
         'Export PDF</button>'

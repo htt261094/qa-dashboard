@@ -401,6 +401,8 @@ SUPERSEDES #72/#75 (2 tab tồn đọng/mới theo tháng) cho màn Bug Log — 
 - **Gỡ**: toàn bộ lăng kính tháng trong IIFE bug-log — `curMonth`/`MONTHS` tab, `splitGroups`/`setGroup`/`tabYm`/`_sheetMY`/`monthScopeBugs`/`monthBugs`/`availMonths`/`FULL_MONTH_YEARS`, element `#blSplitBar`. `activeFid`/`SOURCES`/`MONTHS` còn khai báo nhưng dead (giữ no-op).
 **Ranh giới**: bug active-sprint có project NGOÀI SIT1-4 (`'Khác'`) không có tab → không hiện ở màn này (user chốt 4 squad cố định; hiện data chỉ có SIT1-4). Twin Python month-based (`prev_month_backlog`/`splitGroups` cũ) giờ **không còn caller JS** ở màn Bug Log — thành dead giống #107 đã làm với Analytics.
 
+**Bổ sung 2026-10-19 — tab Backlog hiện MỌI status:** user báo bug reject + bug ngoài sprint bị ẩn (tab Backlog cũ lọc `bugOpen` → Closed/Rejected ngoài sprint không vào tab nào). Bỏ lọc `bugOpen` khỏi `backlogBugs()` → tab Backlog = **mọi** bug ngoài active sprint (gồm Closed/Rejected), vẫn chia theo squad. `scopeBugs()` (nguồn dropdown tester/dev) = toàn bộ `fileBugs()`. Hàm `bugOpen` gỡ (hết caller). Empty-state đổi "…đang chờ" → "Không có bug nào ngoài sprint".
+
 ### 88. Sau đồng bộ = 2 popup song song (thay đổi file | dòng thiếu STT) *(2026-08-14)*
 Dòng bug **có đủ thông tin nhưng chưa đánh STT** rơi vào `unmapped` (#25/normalize) → không có khoá diff → không vào `bugs`, không vào activity, không vào bất kỳ metric nào. Trước đây chỉ còn lại con số `unmapped` trong log stderr → team không biết mà sửa. Giờ tách **2 popup hiện song song** sau mỗi lần sync:
 - **Popup 1** `#blChgOv` — thay đổi file (giữ nguyên hành vi cũ).
@@ -505,6 +507,12 @@ User chốt: đang quản lý theo sprint → toàn trang Analytics tính trên 
 - **Section mới "Tình trạng theo Sprint"** (`renderSprint`, `#anSprintBody`): bug đang mở phân 3 tile **Trong sprint (active)** / **Đã xếp kỳ sau (future)** / **Backlog chờ PO (backlog)** + thanh tỷ lệ + danh sách backlog theo squad — đây là danh sách 2 leader review mỗi khi hết sprint.
 - **Bỏ selector tháng** (page-head chỉ còn Export PDF) + chip "Sprint đang chạy". `computeValid`/`computeReopen` đổi chữ ký: nhận LIST (SCOPE) thay vì tháng, **bỏ freeze/frozenFor**. Chart bỏ dải tồn đọng T-1 (month-based).
 **SUPERSEDES #75 (tồn đọng tháng) + #85-strip cho read-path Analytics; divergence CHỦ Ý với twin Python month-based (#47/#49/#81/#75) — các hàm đó là dead code (#100), KHÔNG còn twin với JS Analytics nữa.** Ranh giới: mất khả năng so tháng-qua-tháng (active = ảnh chụp hiện tại); không suy được "PO đã xem & cố ý để lại", chỉ biết "chưa xếp vào sprint". Dead JS: `monthOf`/`frozenFor`/`fillMonth`/`computeBacklog`/`backlogSegs`/`curSheetOf`/`FULL_MONTH_YEARS` còn trong file nhưng không caller. **BẮT BUỘC quy trình: mọi Bug Testing phải gắn sprint** (2 leader enforce) — field rỗng thì bug rơi vào backlog bucket.
+
+**Bổ sung 2026-10-19 — toggle phạm vi "Sprint đang chạy / Toàn bộ" + filter squad toàn trang:** user báo bug reject + bug ngoài sprint bị ẩn hết ở Analytics (scope active-sprint loại sạch reopen/reject ngoài sprint).
+- **Toggle phạm vi**: segmented ở page-head (`#anScopeSeg`, state `scopeMode ∈ {active, all}`, nhớ `localStorage qa-analytics-scope`, mặc định `active`). `inScope(b) = scopeMode==='all' ? true : inActive(b)` → chế độ "Toàn bộ" tính KPI/chart/bảng Reopen/tuổi bug trên MỌI bug (gồm reject, closed, future, backlog).
+- **Filter squad toàn trang**: segmented thứ 2 `#anSquadSeg` (JS đổ nút `Tất cả + SIT1-4 + Khác` theo data; state `squadFilter`, nhớ `localStorage qa-analytics-squad`). `squadOfB(b)` bucket SIT1-4/Khác; `inSquad(b)` áp trong `scopeBugs()` → lọc cả KPI/chart/Reopen/tuổi bug/renderSprint/renderReopenTrend. Tab squad trong card chart (`#anSquadTabs`) giờ **đồng bộ** với filter này (click gọi `setSquad`→`renderAll`), tab list dựng từ scope-only để luôn chuyển được giữa squad.
+- `scopeBugs() = BUGS.filter(inScope && inSquad)`; `computeOpenAge()` đi qua `scopeBugs()`.
+- `renderSprint` (tình trạng theo sprint) + `sprintChecklist` (chốt sprint) vẫn theo `inActive` cố ý (nói riêng về active sprint) nhưng có áp `inSquad`; `renderReopenTrend` cross-sprint chỉ áp `inSquad` (không áp scope). Chip + note page-head đổi chữ theo mode + squad. KHÔNG đụng công thức, chỉ đổi tập đầu vào.
 
 ### 106. Redesign toàn trang Analytics — 4 KPI + squad chart + reopen drawer *(2026-10-05, code: `core/render/analytics.py:render_analytics_v2` + IIFE ANALYTICS trong `app_v2.js` + `.an-*`/`.ank-*`/`.anrt-*`/`.andr-*` trong `styles_v2.css`)*
 User chốt bố cục mới (mockup Tailwind/dark). Dựng lại theo mockup nhưng **giữ token app** (hợp light+dark, khớp sidebar), **KHÔNG Tailwind/không đổi color scheme**; **mọi công thức + freeze + twin Python↔JS giữ nguyên** — chỉ đổi cách trình bày + thêm tương tác. User chọn 3 hướng: token app · chart gom squad+chồng severity · drawer chỉ field có sẵn.
@@ -770,6 +778,8 @@ qa-dashboard/
 - Khi thêm/đổi cấu trúc: **tự ghi Decision mới** vào file này (số kế tiếp), không đợi user nhắc.
 
 ## Last Updated
+
+2026-10-19 (#107/#108 amend) — Bỏ ẩn bug reject + bug ngoài sprint. Bug Log: tab Backlog hiện MỌI status ngoài active sprint (bỏ lọc `bugOpen`). Analytics: thêm 2 control page-head — toggle "Sprint đang chạy / Toàn bộ" (`scopeMode`) + filter squad "Tất cả / SIT1-4 / Khác" (`squadFilter`), đều nhớ localStorage. Chế độ Toàn bộ tính KPI/chart/Reopen/tuổi bug trên mọi bug; filter squad áp toàn trang (đồng bộ với tab squad trong chart). Section "Tình trạng theo Sprint" + checklist vẫn theo active sprint. Không đụng công thức, chỉ đổi tập đầu vào.
 
 2026-10-08 (#114) — `/my-work` đổi từ 1 bảng + tabs sang **board kiểu Jira** (cột theo status TO DO/In Progress/PENDING/DONE, card có flag quá hạn/kẹt). Thấy hết việc cùng lúc. **Bỏ hẳn hàng KPI** (chỉ còn tiêu đề + board), **kéo-thả đổi status giữa cột** qua transition hợp lệ Jira — lúc kéo SÁNG cột chuyển được / MỜ cột không chuyển được theo **workflow + quyền** (`/jira-transitions` cache per-key, chặn thả vào cột cấm ở con trỏ). Cột bằng chiều cao (cột rỗng = drop zone, hết bug lệch). Mọi hook poll/drawer/smenu/đổi hạn giữ nguyên. Gỡ comment-panel inline + pager khỏi IIFE. SUPERSEDES phần bảng+tabs của #17/#19.
 
