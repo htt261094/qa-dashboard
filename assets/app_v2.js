@@ -462,7 +462,7 @@ function skelComments(){
   var ACTS=[
     {label:'Tạo task', icon:'add', run:function(){ var b=$('createIssueBtn'); if(b) b.click(); }},
     {label:'Đổi giao diện sáng / tối', icon:'contrast', run:function(){ var b=$('themeBtn'); if(b) b.click(); }},
-    {label:'Cài đặt API token / Drive', icon:'key', run:function(){ var o=$('setOverlay'); if(o) o.classList.add('open'); }},
+    {label:'Cài đặt Linear API key', icon:'key', run:function(){ var o=$('setOverlay'); if(o) o.classList.add('open'); }},
     {label:'Bật / tắt thông báo desktop', icon:'notifications', run:function(){ var d=window.__desktopNotif; if(!d) return;
       if(d.on()) d.disable(); else d.enable(); }},
     isAdmin?{label:'Sync bug log ngay', icon:'sync', run:function(){
@@ -497,19 +497,12 @@ function skelComments(){
     if(q.length>=2){
       sec('Linear Issues', taskRows===null
         ? [{ icon:'hourglass_empty', html:'<span class="skel skel-line w80" style="margin:0"></span>', run:function(){} }]
-        : taskRows.map(function(r){ return { icon:'assignment',
+        : taskRows.map(function(r){ return { icon:(r.type==='Bug'?'bug_report':'assignment'),
             html:'<b class="cp-key">'+esc(r.key)+'</b> '+esc(r.summary||''),
             right:(r.status?'<span class="st-badge '+(ST[r.status]||'st-default')+'">'+esc(r.status)+'</span>':''),
             run:(function(key){ return function(){
               if(window.__openDetail) window.__openDetail(key);
               else window.open((window.__jiraBase||'')+'/issue/'+encodeURIComponent(key), '_blank'); }; })(r.key) }; }));
-      sec('Bug (bug log)', bugRows===null
-        ? [{ icon:'hourglass_empty', html:'<span class="skel skel-line w60" style="margin:0"></span>', run:function(){} }]
-        : bugRows.map(function(b){ return { icon:'bug_report',
-            html:'<b class="cp-key">'+esc(b.id||'')+'</b> '+esc(b.summary||''),
-            right:(b.status?'<span class="st-badge '+(BUG_CLS[b.status]||'st-default')+'">'+esc(b.status)+'</span>':''),
-            run:(function(key){ return function(){
-              location.href='/bug-log?bug='+encodeURIComponent(key); }; })(b.key) }; }));
     }
     if(!flat.length) h='<div class="cp-empty">Không có kết quả cho "'+esc(q)+'"</div>';
     if(active>=flat.length) active=Math.max(0, flat.length-1);
@@ -519,13 +512,10 @@ function skelComments(){
   }
   function fetchAsync(){
     var my=++seq;
-    taskRows=null; bugRows=null; render();
+    taskRows=null; bugRows=[]; render();
     getJSON('/global-search?q='+encodeURIComponent(q), 15000).then(function(j){
-      if(my!==seq) return; taskRows=((j&&j.ok&&j.results)||[]).slice(0,8); render();
+      if(my!==seq) return; taskRows=((j&&j.ok&&j.results)||[]).slice(0,10); render();
     }).catch(function(){ if(my!==seq) return; taskRows=[]; render(); });
-    getJSON('/search-bugs?q='+encodeURIComponent(q), 15000).then(function(j){
-      if(my!==seq) return; bugRows=(j&&j.ok&&j.results)||[]; render();
-    }).catch(function(){ if(my!==seq) return; bugRows=[]; render(); });
   }
   function openPal(){
     isOpen=true; ov.classList.add('open');
@@ -1785,9 +1775,11 @@ window.__smSetCustom=function(t, key, val, onChanged){
   var COMMENTS={}, DETAIL={}, CUR={};       // key -> comments / detail / task obj
   var custMap={}; (window.QA_CUSTOM_STATUSES||[]).forEach(function(p){ custMap[p[0]]=p[1]; });
   function badgeCls(v){ v=(v||'').toUpperCase();
-    if(v==='DONE') return 'b-done'; if(v==='CANCELLED') return 'b-critical';
-    if(v==='IN PROGRESS') return 'b-checking'; if(v==='PENDING') return 'b-blocked';
-    if(v==='TO DO') return 'b-todo'; return 'b-todo'; }
+    if(v==='DONE'||v==='[RND] GO LIVE') return 'b-done';
+    if(v==='CANCELLED'||v==='CANCELED'||v==='CLOSED'||v==='DUPLICATE') return 'b-critical';
+    if(v==='IN PROGRESS'||v.indexOf('RESEARCH')>=0) return 'b-checking';
+    if(v==='READY TO TEST'||v==='IN TESTING'||v==='TESTING'||v==='IN REVIEW'||v==='READY TO DEPLOY'||v==='PENDING'||v.indexOf('READY')>=0||v.indexOf('REVIEW')>=0) return 'b-blocked';
+    return 'b-todo'; }
   function synth(key, d){
     return { key:key, summary:d.summary||key, jira:d.status||'',
       customs:d.customs||[], canCustom:(d.status==='TO DO'||d.status==='In Progress'),
