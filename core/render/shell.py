@@ -6,7 +6,7 @@ the full document. Assets inline per-render via render.base. See issue #104 / #8
 """
 import json
 
-from config import (JIRA_URL, USERS, LOCAL_AUTOLOGIN, OWNER_EMAIL, display_name,
+from config import (LINEAR_BASE_URL, USERS, LOCAL_AUTOLOGIN, OWNER_EMAIL, display_name,
                     username_from_email)
 from custom_status import CUSTOM_STATUSES
 from issues import esc
@@ -38,7 +38,7 @@ def _avatar(username, name):
     return init, cls
 
 
-def _conn_error_card(msg='Không thể kết nối tới Jira. Vui lòng thử lại.'):
+def _conn_error_card(msg='Không thể kết nối tới Linear. Vui lòng thử lại.'):
     """Card lỗi kết nối Jira — dùng inline thay cho vùng nội dung cần Jira (giữ
     skeleton + các block KHÔNG cần Jira xung quanh). Xem render_shell_error (cả
     trang) và render_admin_v2(jira_error=True) (chỉ vùng task, giữ bug-metric)."""
@@ -66,7 +66,8 @@ def render_sidebar_v2(active, user):
 
     # Dashboard dùng riêng 1 người (Decision #97): chỉ còn lens cá nhân + bug/tài liệu.
     nav = lnk('/today', 'today', 'today', 'Hôm nay')   # trang chính (Decision #102)
-    nav += lnk('/my-work', 'mywork', 'person', 'Việc của tôi')
+    from linear_api import get_active_cycle_label
+    nav += lnk('/my-work', 'mywork', 'person', get_active_cycle_label())
     nav += lnk('/bug-log', 'buglog', 'bug_report', 'Bugs')
     nav += lnk('/analytics', 'analytics', 'monitoring', 'Analytics')
     nav += lnk('/docs', 'docs', 'description', 'Tài liệu')
@@ -133,12 +134,12 @@ def _settings_modal_v2(user=None):
         '<div class="modal-head"><span class="material-symbols-rounded ph-light ph-gear-six"></span>'
         '<h3>Setting</h3>'
         '<button type="button" class="x material-symbols-rounded ph-light ph-x" id="setClose"></button></div>'
-        '<div class="modal-body"><p class="modal-note">Thêm API token Jira Cloud để thao tác Jira '
+        '<div class="modal-body"><p class="modal-note">Thêm Linear API key để thao tác Linear '
         '(đổi status, comment) nhân danh chính bạn. Tạo tại '
-        '<a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank" rel="noopener">'
-        'id.atlassian.com → Security → API tokens</a>. Token được mã hoá khi lưu, không hiển thị lại.</p>'
-        '<div class="field"><label>API token Jira</label>'
-        '<div class="inp-wrap"><input type="password" id="patInp" placeholder="Dán API token của bạn vào đây..." autocomplete="off" spellcheck="false">'
+        '<a href="https://linear.app/settings/api" target="_blank" rel="noopener">'
+        'linear.app → Settings → API</a>. Token được mã hoá khi lưu, không hiển thị lại.</p>'
+        '<div class="field"><label>Linear API key</label>'
+        '<div class="inp-wrap"><input type="password" id="patInp" placeholder="Dán lin_api_... vào đây..." autocomplete="off" spellcheck="false">'
         '<button type="button" class="eye material-symbols-rounded ph-light ph-eye mi-sm" id="patShowBtn"></button></div></div>'
         + drive +
         # Thông báo desktop (Decision #103) — quyền do browser giữ theo origin, state ở localStorage.
@@ -219,15 +220,15 @@ def _palette_modal_v2():
 def _auth_banner(note, is_admin=False):
     """Banner khi API token chung hết hạn/thu hồi (Jira coi request là vô danh) — đang hiện bản
     RAM cũ. Admin được chỉ dẫn cách sửa; QA chỉ báo + nhờ admin."""
-    fix = ('Cập nhật <b>JIRA_API_TOKEN</b> trong <code>.env</code> bằng token mới '
-           '(id.atlassian.com → Security → API tokens → Create API token) rồi restart server.'
-           if is_admin else 'Báo admin cấp lại token để khôi phục.')
+    fix = ('Cập nhật <b>LINEAR_API_KEY</b> trong <code>.env</code> bằng key mới '
+           '(linear.app → Settings → API) rồi restart server.'
+           if is_admin else 'Báo admin cấp lại key để khôi phục.')
     return (
         '<div style="background:#fdecea;border:1px solid #e57373;color:#7a1c12;'
         'border-radius:10px;padding:10px 14px;margin:0 0 16px;font-size:13px;'
         'display:flex;gap:8px;align-items:center">'
         '<span style="font-size:16px">🔑</span><span>'
-        f'<b>API token Jira hết hạn</b> — {esc(note)}. {fix} '
+        f'<b>Linear API key hết hạn</b> — {esc(note)}. {fix} '
         'Đang hiển thị dữ liệu lưu tạm.'
         '</span></div>')
 
@@ -259,7 +260,8 @@ def _document_v2(content_inner, active, user, activities, title='QA Suite',
 <div class="drawer-ov" id="drawerOv"></div><aside class="drawer" id="drawer"></aside>
 <div class="smenu" id="smenu"></div>
 {_json_script('qaNotif', activities)}
-<script>window.__jiraBase={json.dumps(JIRA_URL)};window.__isAdmin={json.dumps(bool(user[1]) if isinstance(user, (tuple, list)) and len(user) > 1 else True)};window.QA_CUSTOM_STATUSES={json.dumps(CUSTOM_STATUSES, ensure_ascii=False)};window.__mentionUsers={json.dumps([{'name': u, 'display': display_name(u)} for u in USERS], ensure_ascii=False)};</script>
+<script>window.__linearBase={json.dumps(LINEAR_BASE_URL)};window.__jiraBase=window.__linearBase;window.__isAdmin={json.dumps(bool(user[1]) if isinstance(user, (tuple, list)) and len(user) > 1 else True)};window.QA_CUSTOM_STATUSES={json.dumps(CUSTOM_STATUSES, ensure_ascii=False)};window.__mentionUsers={json.dumps([{'name': u, 'display': display_name(u)} for u in USERS], ensure_ascii=False)};</script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script>{load_js_v2()}</script>
 </body></html>"""
 

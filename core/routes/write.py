@@ -18,14 +18,14 @@ import re
 import json
 from urllib.parse import urlparse, parse_qs
 
-from config import JIRA_URL
+from config import LINEAR_BASE_URL
 from pat_store import load_user_pat
 from custom_status import set_custom_status, is_valid
 from task_notes import set_note
 from status_overlay import record as record_status
-from jira_write import (get_transitions, do_transition, get_issue_status, add_comment,
-                        can_edit_duedate, set_duedate, get_editmeta_fields, update_issue,
-                        list_projects, create_issuetypes, create_fields, create_issue)
+from linear_write import (get_transitions, do_transition, get_issue_status, add_comment,
+                          can_edit_duedate, set_duedate, get_editmeta_fields, update_issue,
+                          list_projects, create_issuetypes, create_fields, create_issue)
 
 _KEY_RE = re.compile(r'^[A-Za-z][A-Za-z0-9]*-\d+$')
 _PROJ_RE = re.compile(r'^[A-Za-z][A-Za-z0-9]*$')
@@ -38,7 +38,7 @@ class WriteMixin:
         pat = load_user_pat(self._user_email())
         if not pat:
             self._reply_json(False, {'ok': False, 'code': 'no_pat',
-                'msg': 'Bạn chưa cấu hình API token Jira. Vào ⚙ Cài đặt để thêm, rồi thử lại.'})
+                'msg': 'Bạn chưa cấu hình Linear API key. Vào ⚙ Cài đặt để thêm, rồi thử lại.'})
             return
         try:
             payload = self._read_json_body(20_000)
@@ -106,13 +106,7 @@ class WriteMixin:
                     fields['summary'] = s[:250]
                 assignee = payload.get('assignee')
                 if isinstance(assignee, str) and assignee.strip():
-                    # Jira Cloud (#197): user-picker ghi bằng accountId.
-                    from jira_cloud import user_ref
-                    ref = user_ref(assignee.strip())
-                    if not ref:
-                        self._reply_json(False, {'ok': False, 'msg': f'Không tìm thấy tài khoản Jira của "{assignee.strip()}".'})
-                        return
-                    fields['assignee'] = ref
+                    fields['assignee'] = assignee.strip()
                 due = payload.get('duedate')
                 if isinstance(due, str):
                     d = due.strip()
@@ -141,7 +135,7 @@ class WriteMixin:
         pat = load_user_pat(self._user_email())
         if not pat:
             self._reply_json(False, {'ok': False, 'code': 'no_pat',
-                'msg': 'Bạn chưa cấu hình API token Jira. Vào ⚙ Cài đặt để thêm, rồi thử lại.'})
+                'msg': 'Bạn chưa cấu hình Linear API key. Vào ⚙ Cài đặt để thêm, rồi thử lại.'})
             return None
         return pat
 
@@ -192,8 +186,8 @@ class WriteMixin:
                 return
             proj = (payload.get('project') or '').strip()
             type_id = str(payload.get('type') or '').strip()
-            if not _PROJ_RE.match(proj) or not type_id.isdigit():
-                self._reply_json(False, {'ok': False, 'msg': 'Thiếu dự án hoặc loại task hợp lệ.'})
+            if not _PROJ_RE.match(proj) or not type_id:
+                self._reply_json(False, {'ok': False, 'msg': 'Thiếu team hoặc loại issue hợp lệ.'})
                 return
             parent = (payload.get('parent') or '').strip()
             if parent and not _KEY_RE.match(parent):
@@ -205,7 +199,7 @@ class WriteMixin:
             ok, res = create_issue(proj, type_id, raw, parent or None, pat)
             if ok:
                 self._reply_json(True, {'ok': True, 'key': res,
-                    'url': f'{JIRA_URL}/browse/{res}', 'msg': f'Đã tạo {res} ✓'})
+                    'url': f'{LINEAR_BASE_URL}/issue/{res}', 'msg': f'Đã tạo {res} ✓'})
             else:
                 self._reply_json(False, {'ok': False, 'msg': res})
         except (ValueError, json.JSONDecodeError, OSError):

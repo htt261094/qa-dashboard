@@ -212,7 +212,7 @@ html[data-theme="dark"] .nrsn.mention{background:#2a2342;color:#b3a6f0}
    header thẳng hàng, cả cột rỗng thành vùng thả rộng. */
 .board{display:flex;gap:16px;align-items:stretch;overflow-x:auto;padding-bottom:8px}
 .bcol{flex:0 0 300px;min-width:300px;background:var(--surface-low);border:1px solid var(--outline-variant);
-      border-radius:var(--r-lg);display:flex;flex-direction:column;height:calc(100vh - 150px);min-height:220px}
+      border-radius:var(--r-lg);display:flex;flex-direction:column;height:clamp(460px,72vh,820px);min-height:460px}
 .bcol-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:11px 14px;
            border-bottom:1px solid var(--outline-variant);background:var(--surface-low);
            border-radius:var(--r-lg) var(--r-lg) 0 0;flex:0 0 auto;
@@ -1262,10 +1262,11 @@ html[data-theme="dark"] .bl-sev.minor{color:#47cd89}
 .sev-med{background:var(--surface-container);color:var(--on-surface-variant)}
 .sev-low{background:var(--warning-bg);color:var(--warning-on)}
 /* badges trạng thái lifecycle */
-.st-badge{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:14px;font-size:13px;font-weight:600}
-.st-badge::before{content:'';width:7px;height:7px;border-radius:50%;background:currentColor}
+.st-badge{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:14px;font-size:13px;font-weight:600;white-space:nowrap}
+.st-badge::before{content:'';width:7px;height:7px;border-radius:50%;background:currentColor;flex-shrink:0}
 .st-open{background:var(--error-bg);color:var(--error)}
 .st-fixing{background:var(--primary-tint);color:var(--primary)}
+.st-ready{background:var(--warning-bg);color:var(--warning-on)}
 .st-fixed{background:var(--success-bg);color:var(--success-on)}
 .st-reopen{background:var(--warning-bg);color:var(--warning-on)}
 .st-rejected{background:var(--surface-container);color:var(--on-surface-variant)}
@@ -1731,6 +1732,7 @@ tr.row-flash{animation:rowFlash 2.2s var(--ease-out) 1}
 /* ===== Hôm nay (/today — Decision #102) ===== */
 .td-kpis .kpi{text-decoration:none;color:inherit;display:block}
 .td-grid{display:flex;flex-direction:column;gap:18px}
+.td-list{max-height:340px;overflow-y:auto}
 .td-sec{padding:0}
 .td-head{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--divider)}
 .td-head h3{font-size:14px;font-weight:700;margin:0;flex:1}
@@ -2121,5 +2123,46 @@ html[data-theme="dark"] .ant-up{color:#57d9a3}
 /* #106/B fix — nhịp dọc giữa các block top-level Analytics (trước dính liền) */
 .an-head{margin-bottom:20px}
 .ank-row{margin-top:0}
-#anSprintSec,#anAgeSec,.an-grid2{margin-top:20px}
+#anSprintSec,#anAgeSec,.an-grid2,#anTrendSec{margin-top:20px}
 .an-foot-bar{margin-top:24px}
+
+/* Jira Kanban-style assignee filter bar */
+.kb-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:16px}
+.kb-ctl{height:36px;padding:0 12px;border-radius:10px;border:1px solid var(--outline-variant);background:var(--surface-low);color:var(--on-surface);font-size:13px;font-weight:500;font-family:inherit;box-sizing:border-box;outline:none;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.kb-ctl:hover{border-color:var(--primary)}
+.kb-ctl:focus{border-color:var(--primary);box-shadow:0 0 0 2px var(--primary-tint,rgba(37,99,235,.15))}
+select.kb-ctl{max-width:260px}
+.kb-btn{background:var(--surface-low);white-space:nowrap;transition:all .15s ease}
+.kb-btn.active{border-color:var(--primary);background:var(--primary-container,rgba(37,99,235,.14));color:var(--primary);font-weight:600;box-shadow:0 0 0 1px var(--primary)}
+.bc-feat{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:6px;background:var(--surface-container);color:var(--on-surface-variant);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:4px}
+.bc-parent{font-size:11px;color:var(--on-surface-variant);margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kb-feat-sec{margin-bottom:22px}
+.kb-feat-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;margin-bottom:10px;border-radius:10px;background:var(--surface-container);border:1px solid var(--outline-variant)}
+.kb-feat-title{display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:700;color:var(--on-surface)}
+.kb-feat-meta{font-size:12px;color:var(--on-surface-variant);font-weight:600}
+
+/* Cycle Burndown Card */
+.bd-card{padding:10px 16px;margin-bottom:14px}
+.bd-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px}
+.bd-left{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.bd-title{font-size:14px;font-weight:700;color:var(--on-surface);display:inline-flex;align-items:center;gap:6px}
+.bd-range{font-size:12px;color:var(--on-surface-variant);font-family:'JetBrains Mono',monospace}
+.bd-days{font-size:11.5px;font-weight:700;padding:2px 9px;border-radius:999px;background:var(--primary-tint);color:var(--primary)}
+.bd-days.warn{background:var(--warning-bg);color:var(--warning-on)}
+.bd-days.end{background:var(--error-bg);color:var(--error)}
+.bd-kpis{display:flex;flex-wrap:wrap;align-items:center;gap:12px;font-size:12.5px;color:var(--on-surface-variant)}
+.bd-kpis b{color:var(--on-surface)}
+.bd-toggle{background:transparent;border:1px solid var(--outline-variant);color:var(--on-surface-variant);border-radius:8px;padding:3px 9px;font-size:11.5px;cursor:pointer;display:inline-flex;align-items:center;gap:4px}
+.bd-toggle:hover{border-color:var(--primary);color:var(--on-surface)}
+.bd-svg-wrap{width:100%;height:150px;position:relative;overflow:hidden}
+.bd-svg{width:100%;height:100%;display:block}
+.bd-legend{display:flex;align-items:center;gap:16px;font-size:11.5px;color:var(--on-surface-variant);margin-top:6px}
+.bd-leg-i{display:inline-flex;align-items:center;gap:6px}
+.bd-swatch-ideal{width:16px;height:0;border-top:2px dashed var(--on-surface-variant);opacity:.7}
+.bd-swatch-act{width:16px;height:2.5px;background:var(--primary);border-radius:2px}
+.kb-pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px 4px 5px;border-radius:999px;border:1px solid var(--outline-variant);background:var(--surface-low);color:var(--on-surface);font-size:12px;font-weight:500;cursor:pointer;transition:all .15s ease}
+.kb-pill:hover{border-color:var(--primary);background:var(--surface-high)}
+.kb-pill.active{border-color:var(--primary);background:var(--primary-container,rgba(37,99,235,.14));color:var(--primary);font-weight:600;box-shadow:0 0 0 1px var(--primary)}
+.kb-pill.kb-all{padding:5px 12px}
+.kb-pill .av{width:22px;height:22px;font-size:11px;line-height:22px}
+.kb-cnt{font-size:11px;opacity:.75;font-weight:600}

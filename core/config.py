@@ -83,14 +83,7 @@ def jql_cf(field_id):
     Cloud có bản trùng/'(migrated)' nên tham chiếu theo tên dễ trúng nhầm field rỗng)."""
     return f"cf[{field_id.rsplit('_', 1)[-1]}]"
 
-DEFAULT_DISPLAY_NAMES = {
-    'quangbm': 'Quang',
-    'nhungnh': 'Nhung',
-    'phuongct': 'Phương',
-    'tholt': 'Thơ',
-    'thanhht1': 'Thành',
-    'hiennt19': 'Hiền',
-}
+DEFAULT_DISPLAY_NAMES = {}
 
 
 def _load_env():
@@ -101,7 +94,9 @@ def _load_env():
             if line and not line.startswith('#') and '=' in line:
                 k, v = line.split('=', 1)
                 cfg[k.strip()] = v.strip().strip('"').strip("'")
-    for k in ('JIRA_URL', 'JIRA_EMAIL', 'JIRA_API_TOKEN', 'JIRA_ACCOUNT_IDS', 'JIRA_PORT',
+    for k in ('LINEAR_API_KEY', 'LINEAR_BASE_URL', 'LINEAR_MAX_CONCURRENT', 'LINEAR_TEAM_KEYS',
+              'LINEAR_EXCLUDED_TEAMS', 'LINEAR_SELF_USER', 'BUG_LOG_LINEAR_ENABLED',
+              'JIRA_ENABLED', 'JIRA_URL', 'JIRA_EMAIL', 'JIRA_API_TOKEN', 'JIRA_ACCOUNT_IDS', 'JIRA_PORT',
               'JIRA_ADMIN_EMAIL', 'JIRA_ALLOWED_DOMAIN',
               'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'SESSION_SECRET',
               'PUBLIC_BASE_URL', 'LOCAL_ONLY', 'LOCAL_AUTOLOGIN', 'BUG_LOG_POLL_SECONDS', 'BUG_LOG_JIRA_ENABLED',
@@ -123,36 +118,40 @@ try:
 except OSError:
     pass  # tạo lúc upload đầu tiên nếu ở đây fail (vd đường dẫn override chưa mount)
 
-# Jira Cloud (#197): auth = Basic base64(email:api_token) — KHÔNG còn PAT Bearer của Jira DC.
-if not (CFG.get('JIRA_URL') and CFG.get('JIRA_EMAIL') and CFG.get('JIRA_API_TOKEN')):
-    hint = (" (JIRA_PAT là của Jira DC cũ, Cloud dùng JIRA_EMAIL + JIRA_API_TOKEN)"
-            if CFG.get('JIRA_PAT') else '')
-    print("ERROR: Thiếu JIRA_URL / JIRA_EMAIL / JIRA_API_TOKEN" + hint +
-          ". Tạo file .env theo .env.example.", file=sys.stderr)
+# Linear GraphQL API (nguồn chính thay Jira).
+LINEAR_API_KEY = CFG.get('LINEAR_API_KEY', '').strip()
+LINEAR_BASE_URL = (CFG.get('LINEAR_BASE_URL') or 'https://linear.app/thehumaninc').strip().rstrip('/')
+LINEAR_TEAM_KEYS = [t.strip().upper() for t in CFG.get('LINEAR_TEAM_KEYS', '').split(',') if t.strip()]
+LINEAR_EXCLUDED_TEAMS = [t.strip().upper() for t in CFG.get('LINEAR_EXCLUDED_TEAMS', 'VC').split(',') if t.strip()]
+try:
+    LINEAR_MAX_CONCURRENT = min(64, max(1, int(CFG.get('LINEAR_MAX_CONCURRENT', '12'))))
+except ValueError:
+    LINEAR_MAX_CONCURRENT = 12
+
+# Jira Cloud tạm ngắt (mặc định tắt). Chỉ bật khi JIRA_ENABLED=1 và đủ credentials.
+JIRA_ENABLED = (CFG.get('JIRA_ENABLED') or '0').strip().lower() in ('1', 'true', 'yes')
+JIRA_URL = CFG.get('JIRA_URL', '').strip().rstrip('/')
+JIRA_EMAIL = CFG.get('JIRA_EMAIL', '').strip()
+JIRA_API_TOKEN = CFG.get('JIRA_API_TOKEN', '').strip()
+
+if not LINEAR_API_KEY and not (JIRA_ENABLED and JIRA_URL and JIRA_EMAIL and JIRA_API_TOKEN):
+    print("ERROR: Thiếu LINEAR_API_KEY trong .env (hoặc bật JIRA_ENABLED=1 với đủ JIRA_URL/JIRA_EMAIL/JIRA_API_TOKEN).",
+          file=sys.stderr)
     sys.exit(1)
 
-JIRA_URL = CFG['JIRA_URL'].rstrip('/')
-JIRA_EMAIL = CFG['JIRA_EMAIL'].strip()
-JIRA_API_TOKEN = CFG['JIRA_API_TOKEN'].strip()
 # Giữ tên `PAT` = token chung: nhiều module import nó để REDACT khỏi thông báo lỗi.
-PAT = JIRA_API_TOKEN
-# Override map username -> accountId (JSON {"quangbm": "712020:..."}). Chỉ cần khi privacy
-# setting Atlassian ẩn email -> không tự resolve được (xem jira_cloud).
+PAT = LINEAR_API_KEY or JIRA_API_TOKEN
+# Override map username -> accountId (JSON {"quangbm": "712020:..."}). Chỉ cần khi Jira bật.
 JIRA_ACCOUNT_IDS = CFG.get('JIRA_ACCOUNT_IDS', '').strip()
 PORT = int(CFG.get('JIRA_PORT', '8080'))
-# ----- Bug Log: nhịp poll Drive (giây) của daemon scan (Decision #54). -----
-# Default 600s (10 phút). Nhờ Tầng-1 metadata-first, mỗi poll khi không file nào đổi chỉ
-# tốn N call metadata rẻ -> hạ xuống 2-3 phút (120-180) vẫn an toàn nếu muốn data tươi hơn.
-# Chặn sàn 30s để khỏi spam Drive API do gõ nhầm.
+# ----- Bug Log: nhịp poll (giây) của daemon scan. Default 600s (10 phút). -----
 try:
     BUG_LOG_POLL_SECONDS = max(30, int(CFG.get('BUG_LOG_POLL_SECONDS', '600')))
 except ValueError:
     BUG_LOG_POLL_SECONDS = 600
-# ----- Bug Log: nguồn Jira (Decision #104 — cut-over Drive -> Jira "Bug Testing") -----
-# Team log bug trực tiếp trên Jira (issue type Bug Testing) thay Google Sheet. Toggle này bật lớp
-# nguồn `provider='jira'` trong bug_log_store._scan_one -> bug_source_jira. MẶC ĐỊNH BẬT từ #104
-# (đã bỏ hẳn Drive). Đặt BUG_LOG_JIRA_ENABLED=0 trong .env để tắt (stub trả rỗng, không gọi Jira).
-BUG_LOG_JIRA_ENABLED = (CFG.get('BUG_LOG_JIRA_ENABLED') or '1').strip().lower() not in ('0', 'false', 'no')
+# ----- Bug Log: nguồn Linear (mặc định BẬT) & Jira (tạm ngắt, mặc định TẮT) -----
+BUG_LOG_LINEAR_ENABLED = (CFG.get('BUG_LOG_LINEAR_ENABLED') or '1').strip().lower() not in ('0', 'false', 'no')
+BUG_LOG_JIRA_ENABLED = JIRA_ENABLED and (CFG.get('BUG_LOG_JIRA_ENABLED') or '0').strip().lower() in ('1', 'true', 'yes')
 
 # ----- Bug Log nguồn Jira (#104): issue type "Bug Testing" + field Severity + JQL mặc định -----
 # Instance-specific (dò lại bằng /rest/api/2/issuetype + /rest/api/2/field nếu migrate/đổi cấu hình).
@@ -180,13 +179,42 @@ except ValueError:
 # ADMIN_EMAIL giữ lại = phần tử đầu (tương thích ngược cho code cũ tham chiếu 1 email).
 ADMIN_EMAILS = {e.strip() for e in CFG.get('JIRA_ADMIN_EMAIL', '').lower().split(',')} - {''}
 ADMIN_EMAIL = list(ADMIN_EMAILS)[0] if ADMIN_EMAILS else ''
-# Username Jira của chính admin (cho tab "My work" — task của riêng mình). Local dev (chưa
-# login) fallback về đây. Default = thanhht1 (acting manager). Override qua .env nếu cần.
-SELF_USER = CFG.get('JIRA_SELF_USER', 'thanhht1').strip()
-# Roster Jira được tracking = CHỈ chính chủ (Decision #97): dashboard dùng riêng 1 người, mọi
-# JQL "assignee/reporter in (USERS)" chỉ còn task của mình. Bỏ qua JIRA_USERS trong .env (nếu
-# còn sót) để không vô tình kéo lại task người khác. Role dev (JIRA_DEV_EMAIL) đã gỡ cùng lúc.
-USERS = [SELF_USER] if SELF_USER else []
+# Danh sách account cần track kèm role.
+TRACKED_ROLES = {
+    'thaohtt@wealify.com': 'PO',
+    'nhanpt@wealify.com': 'QA',
+    'huypk@wealify.com': 'DEV',
+    'datnh@wealify.com': 'DEV',
+    'thuyetvt@wealify.com': 'QA',
+    'cuongtln@wealify.com': 'Designer',
+    'ducnh@wealify.com': 'DEV',
+    'tuan.pv@wealify.com': 'DEV',
+    'giangtt@wealify.com': 'DEV',
+    'thanhht@wealify.com': 'QA Lead',
+    'phuongnl@wealify.com': 'BA',
+}
+SELF_USER = CFG.get('LINEAR_SELF_USER', '').strip()
+USERS = list(TRACKED_ROLES.keys())
+
+
+def role_of(email):
+    return TRACKED_ROLES.get((email or '').strip().lower(), '')
+
+
+TRACKED_DEV_EMAILS = {e for e, r in TRACKED_ROLES.items() if r == 'DEV'}
+TRACKED_DEVS = {e.split('@', 1)[0].lower() for e in TRACKED_DEV_EMAILS}
+_DEV_ALIAS_MAP = {d.replace('.', ''): d for d in TRACKED_DEVS}
+
+
+def normalize_tracked_dev(raw, email=''):
+    """Return canonical dev local-part if in TRACKED_DEVS, else ''."""
+    em = (email or '').strip().lower()
+    if em in TRACKED_DEV_EMAILS:
+        return em.split('@', 1)[0]
+    key = (raw or '').strip().lower()
+    if key in TRACKED_DEVS:
+        return key
+    return _DEV_ALIAS_MAP.get(key.replace('.', ''), '')
 # Domain được phép vào (vd 'baokim.vn'). Rỗng = không chặn domain ở app (để Cloudflare lo).
 ALLOWED_DOMAIN = CFG.get('JIRA_ALLOWED_DOMAIN', '').strip().lstrip('@').lower()
 
@@ -302,14 +330,7 @@ def canon_key(key):
 # thể typo của cột "Tester" (qa_pic) trong file bug Drive về 1 tên chuẩn:
 # NhungNH/NhungNH -> Nhung, ThoLT/TholT/ThoLt -> Thơ, Phuong -> Phương, ...
 # 'thanh' và 'tho' prefix khác nhau nên không xung đột; chỉ cần liệt kê đủ team.
-_TESTER_ALIASES = (
-    ('thanh', 'Thành'),
-    ('phuong', 'Phương'),
-    ('nhung', 'Nhung'),
-    ('quang', 'Quang'),
-    ('hien', 'Hiền'),
-    ('tho', 'Thơ'),
-)
+_TESTER_ALIASES = ()
 
 
 def _ascii_key(s):

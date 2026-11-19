@@ -83,11 +83,11 @@ def render_bug_log_v2(data, user=None, activities=None, sources=None, pending=No
         total_bugs = len(bugs)
         src_line = f'<b>{src_names}</b> — {total_bugs} bản ghi'
     else:
-        src_line = '<b>Chưa lấy được bug nào từ Jira.</b> Bấm “Đồng bộ ngay” để kéo lại.'
+        src_line = '<b>Chưa lấy được bug nào từ Linear.</b> Bấm “Đồng bộ ngay” để kéo lại.'
 
-    # "Đồng bộ ngay": F5 chỉ render cache, không kéo Jira -> nút này POST /sync-bug-log chạy
+    # "Đồng bộ ngay": F5 chỉ render cache, không kéo Linear -> nút này POST /sync-bug-log chạy
     # scan() ngay rồi reload. Admin-only (endpoint gate).
-    sync_btn = ('<button class="btn btn-ghost" id="blSyncBtn" title="Kéo lại Bug Testing từ Jira ngay">'
+    sync_btn = ('<button class="btn btn-ghost" id="blSyncBtn" title="Kéo lại Bug Issues từ Linear ngay">'
                 '<span class="material-symbols-rounded ph-light ph-arrows-clockwise mi-sm"></span> '
                 'Đồng bộ ngay</button>') if is_admin else ''
     # Filter lọc-xem (tester/dev/severity/link) — hiện cho MỌI người, chỉ lọc bảng.
@@ -102,6 +102,9 @@ def render_bug_log_v2(data, user=None, activities=None, sources=None, pending=No
         '</div>'
         # Lọc theo Severity — ĐÚNG 5 mức field Jira (#104) + "chưa phân loại" (field trống/lạ),
         # option cố định (thang là hằng số field Jira, không build từ data).
+        '<div class="bl-filter" id="blFeatWrap">'
+        '<span class="material-symbols-rounded ph-light ph-folders mi-sm"></span>'
+        '<select class="bl-sel" id="blFeatFilter"><option value="">Tất cả Feature</option></select></div>'
         '<div class="bl-filter" id="blSevWrap">'
         '<span class="material-symbols-rounded ph-light ph-gauge mi-sm"></span>'
         '<select id="blSevFilter">'
@@ -128,13 +131,13 @@ def render_bug_log_v2(data, user=None, activities=None, sources=None, pending=No
         f'<div class="bl-sub"><span class="bl-dot"></span> Đã đồng bộ: {esc(synced_disp)}</div>'
         f'<div class="bl-next" id="blNextSync" data-synced="{esc(synced)}" data-interval="{BUG_LOG_POLL_SECONDS}">'
         f'<span class="material-symbols-rounded ph-light ph-arrows-clockwise mi-sm"></span> '
-        f'Tự đồng bộ từ Jira mỗi {poll_min} phút</div>'
+        f'Tự đồng bộ từ Linear mỗi {poll_min} phút</div>'
         '</div><div style="display:flex;gap:10px;align-items:center">'
         f'{export_btn}{sync_btn}</div></div>'
         # source card
         '<div class="card bl-source">'
         '<span class="ic material-symbols-rounded ph-light ph-bug-beetle"></span>'
-        '<div class="bl-src-info"><div class="lbl">NGUỒN: JIRA — Bug Testing (issuetype 10382)</div>'
+        '<div class="bl-src-info"><div class="lbl">NGUỒN: Linear — Bug Issues (label: Bug)</div>'
         f'<div class="fname" id="blSrcLine">{src_line}</div></div></div>'
         # tab squad (SIT1-4) + backlog — Decision #108 (controller dựng client-side)
         '<div class="bl-tabs" id="blTabs"></div>'
@@ -150,9 +153,9 @@ def render_bug_log_v2(data, user=None, activities=None, sources=None, pending=No
         # Severity = ĐÚNG field Jira (Blocker/Critical/High/Medium/Low — #104), cùng thang pie /analytics
         '<th style="width:104px" title="Mức độ nghiêm trọng (field Severity trên Jira). '
         'Field trống hiện —">Severity</th>'
-        '<th style="width:140px">Trạng thái</th>'
+        '<th style="width:165px;white-space:nowrap">Trạng thái</th>'
         '<th style="width:120px">Tester</th><th style="width:130px">Dev in charge</th>'
-        '<th style="width:160px" title="Issue liên quan trên Jira (parent + Relates)">Liên kết (Jira)</th>'
+        '<th style="width:160px" title="Issue liên quan trên Linear (parent)">Liên kết (Linear)</th>'
         '</tr></thead><tbody id="blRows"></tbody></table></div>'
         '<div class="pager" id="blPager"></div></div>'
         # Các metric (chart bug theo dev/dự án + Tỷ lệ Reopen + Valid Bug Rate) đã

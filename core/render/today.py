@@ -7,7 +7,7 @@ cờ phụ hiện thành badge. Click mở drawer dùng chung (shared drawer —
 """
 from datetime import datetime, timedelta
 
-from config import STUCK_DAYS, canon_key, JIRA_URL
+from config import STUCK_DAYS, canon_key, LINEAR_BASE_URL
 from issues import esc, parse_date
 from custom_status import CUSTOM_STATUSES
 from task_notes import index_by_canon
@@ -177,8 +177,8 @@ def _bug_aging_section(ag, limit=8):
         key = b.get('key', '') or ''
         age = b.get('_age', 0)
         rows += (
-            f'<div class="td-row">'
-            f'<a class="key" href="{esc(JIRA_URL)}/browse/{esc(key)}" target="_blank" rel="noopener">{esc(key)}</a>'
+            f'<div class="td-row" data-today-open="{esc(key)}">'
+            f'<a class="key" href="{esc(LINEAR_BASE_URL)}/issue/{esc(key)}" target="_blank" rel="noopener">{esc(key)}</a>'
             f'<div class="td-main"><div class="td-sum">{esc(b.get("summary", ""))}</div></div>'
             f'<span class="tba-squad">{esc(b.get("project") or "—")}</span>'
             f'<span class="tba-age {_age_cls(age)}">{age} ngày</span>'
@@ -326,6 +326,6 @@ def render_today_v2(data, activities, cmap, user, notes=None, stale=False, jira_
                 '</div></div>') + secs
     # Bug tồn đọng (#109) — cross-squad, nằm trên lưới task cá nhân vì là việc review của leader.
     bug_sec = _bug_aging_section(build_bug_aging(_flatten_open_bugs(bug_data), now))
-    content = head + kpis + bug_sec + f'<div class="td-grid" id="todayPage">{secs}</div>'
+    content = head + kpis + f'<div class="td-grid" id="todayPage">{bug_sec}{secs}</div>'
     return _document_v2(content, 'today', user, activities, title='Hôm nay — QA Workspace',
                         stale=stale, stale_note=_snap_note(data) if stale else '')

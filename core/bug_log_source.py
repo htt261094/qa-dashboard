@@ -25,7 +25,7 @@ def valid_sources(data):
     for it in data:
         if not isinstance(it, dict):
             return False
-        if (it.get('provider') or 'jira') != 'jira':
+        if (it.get('provider') or 'linear') not in ('linear', 'jira'):
             return False
         if not isinstance(it.get('label', ''), str) or not isinstance(it.get('service', ''), str):
             return False
@@ -52,19 +52,21 @@ def _write_cache(data):
     return atomic_write(BUG_LOG_SOURCE_FILE, json.dumps(data, ensure_ascii=False, indent=2))
 
 
-def _default_jira_source():
-    """Nguồn Bug Log mặc định sau cut-over Drive->Jira (#104): toàn bộ issue type Bug Testing.
-    Chia theo squad (= project.key) ở tầng hiển thị, chưa lọc project ở JQL."""
-    from config import BUG_TESTING_JQL
-    return [{'provider': 'jira', 'id': 'bug-testing', 'label': 'Bug Testing',
-             'service': '', 'query': BUG_TESTING_JQL}]
+def _default_linear_source():
+    """Nguồn Bug Log mặc định từ Linear: toàn bộ issue có label Bug."""
+    return [{'provider': 'linear', 'id': 'linear-bugs', 'label': 'Linear — Bug Issues',
+             'service': '', 'query': 'label:Bug'}]
 
 
 def load_sources():
-    """Kho chung = Cloudflare KV (sync chéo máy, không cần VPN); local file = fallback offline.
-    Chưa cấu hình gì -> mặc định 1 nguồn Jira Bug Testing (#104), KHÔNG còn rỗng/Drive."""
+    """Kho chung = Cloudflare KV; local file = fallback offline.
+    Chưa cấu hình gì -> mặc định 1 nguồn Linear Bug Issues."""
     srcs = synced_load(BUG_LOG_SOURCE_PROP, _read_cache, _write_cache, valid_sources, [])
-    return srcs or _default_jira_source()
+    # Nếu cache cũ chỉ còn nguồn 'jira' (tạm ngắt), chuyển sang mặc định Linear.
+    from config import JIRA_ENABLED
+    if srcs and not JIRA_ENABLED and all((s.get('provider') or 'jira') == 'jira' for s in srcs):
+        return _default_linear_source()
+    return srcs or _default_linear_source()
 
 
 def save_sources(data):
