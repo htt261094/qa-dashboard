@@ -184,7 +184,8 @@ def normalize_issue(node):
         {
             'key': c.get('identifier', ''),
             'summary': c.get('title', ''),
-            'status': canon_state(c.get('state')),
+            'status': ((c.get('state') or {}).get('name') or canon_state(c.get('state'))).strip(),
+            'cat': canon_state(c.get('state')),
         }
         for c in ((node.get('children') or {}).get('nodes') or [])
     ]
@@ -624,7 +625,7 @@ def fetch_issue_detail(key):
         subtasks.append({
             'key': ch.get('identifier', ''),
             'summary': ch.get('title', ''),
-            'status': canon_state(ch.get('state')),
+            'status': ((ch.get('state') or {}).get('name') or canon_state(ch.get('state'))).strip(),
             'assignee': _actor_label(a) if a else 'Unassigned',
         })
     p = n.get('parent')
@@ -732,7 +733,7 @@ def global_search(query_str, limit=20):
         out.append({
             'key': ident,
             'summary': n.get('title', ''),
-            'status': canon_state(n.get('state')),
+            'status': ((n.get('state') or {}).get('name') or canon_state(n.get('state'))).strip(),
             'assignee': _actor_label(n.get('assignee')) if n.get('assignee') else 'Unassigned',
             'type': _infer_issuetype(n),
             'project': tkey,

@@ -384,8 +384,9 @@ function skelComments(){
   if(box && getComputedStyle(box).position==='static') box.style.position='relative';
   var dd=document.createElement('div'); dd.className='gsearch-dd'; dd.style.display='none';
   box.appendChild(dd);
-  var ST={ 'TO DO':'st-open','In Progress':'st-fixing','PENDING':'st-default',
-           'DONE':'st-fixed','CANCELLED':'st-closed' };
+  var ST={ 'TO DO':'st-default','Todo':'st-default','Backlog':'st-default','Triage':'st-default',
+           'In Progress':'st-fixing','Ready to test':'st-ready','In testing':'st-ready','Testing':'st-ready','In Review':'st-ready','Ready to deploy':'st-ready','Ready to Deploy':'st-ready','PENDING':'st-ready',
+           'Done':'st-closed','DONE':'st-closed','Canceled':'st-rejected','Cancelled':'st-rejected','CANCELLED':'st-rejected','Closed':'st-rejected','Duplicate':'st-rejected' };
   var seq=0, lastQ='', curRows=[], active=-1;
 
   function hide(){ dd.style.display='none'; active=-1; }
@@ -446,8 +447,9 @@ function skelComments(){
   var inp=$('cpInput'), listEl=$('cpList');
   var isAdmin=!!window.__isAdmin;
   function norm(s){ return (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/đ/g,'d'); }
-  var ST={ 'TO DO':'st-open','In Progress':'st-fixing','PENDING':'st-default',
-           'DONE':'st-fixed','CANCELLED':'st-closed' };
+  var ST={ 'TO DO':'st-default','Todo':'st-default','Backlog':'st-default','Triage':'st-default',
+           'In Progress':'st-fixing','Ready to test':'st-ready','In testing':'st-ready','Testing':'st-ready','In Review':'st-ready','Ready to deploy':'st-ready','Ready to Deploy':'st-ready','PENDING':'st-ready',
+           'Done':'st-closed','DONE':'st-closed','Canceled':'st-rejected','Cancelled':'st-rejected','CANCELLED':'st-rejected','Closed':'st-rejected','Duplicate':'st-rejected' };
   var BUG_CLS={ 'New':'st-open','Fixing':'st-fixing','Fixed':'st-fixed','Reopen':'st-reopen',
                 'Rejected':'st-rejected','Closed':'st-closed' };
   var NAV=[
@@ -1273,7 +1275,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
       +chipHTML(t)
       +'<div class="bc-foot"><span class="assignee"><span class="av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span> '+esc(t.assignee.name)+'</span>'
       +'<span class="bc-foot-r">'+dueValHTML(t)
-      +((t.subtasks&&t.subtasks.length)?'<span class="bc-cmt" title="Sub-issues"><span class="material-symbols-rounded ph-light ph-git-branch mi-xs"></span>'+t.subtasks.filter(function(c){return c.status==='DONE';}).length+'/'+t.subtasks.length+'</span>':'')+(nc?'<span class="bc-cmt" title="'+nc+' bình luận"><span class="material-symbols-rounded ph-light ph-chat-circle mi-xs"></span>'+nc+'</span>':'')
+      +((t.subtasks&&t.subtasks.length)?'<span class="bc-cmt" title="Sub-issues"><span class="material-symbols-rounded ph-light ph-git-branch mi-xs"></span>'+t.subtasks.filter(function(c){return (c.cat||c.status)==='DONE'||(c.status||'').toUpperCase()==='DONE';}).length+'/'+t.subtasks.length+'</span>':'')+(nc?'<span class="bc-cmt" title="'+nc+' bình luận"><span class="material-symbols-rounded ph-light ph-chat-circle mi-xs"></span>'+nc+'</span>':'')
       +'</span></div>'
       +'</div>';
   }

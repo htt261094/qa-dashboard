@@ -73,7 +73,7 @@ def get_issue_status(key, pat):
         iss = data.get('issue')
         if not iss:
             return False, f'Không tìm thấy issue {key}'
-        return True, canon_state(iss.get('state'))
+        return True, ((iss.get('state') or {}).get('name') or canon_state(iss.get('state'))).strip()
     except Exception as e:
         return False, str(e)
 
