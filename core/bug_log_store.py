@@ -275,7 +275,7 @@ def search_bugs(query, limit=10):
                 'key': key, 'id': disp,
                 'summary': b.get('summary', ''),
                 'severity': b.get('severity', ''),
-                'status': b.get('status', ''),
+                'status': b.get('status_raw') or b.get('status', ''),
                 'project': b.get('project', ''),
                 'file': fname,
                 'created': b.get('created', ''),

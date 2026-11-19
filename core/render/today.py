@@ -25,10 +25,17 @@ _BUG_DONE = ('closed', 'rejected')
 
 
 def _jira_cls(v):
-    # Twin của jiraCls() trong app_v2.js (màu badge status Jira).
-    v = (v or '').upper()
-    return {'DONE': 'b-done', 'CANCELLED': 'b-critical', 'IN PROGRESS': 'b-checking',
-            'PENDING': 'b-blocked'}.get(v, 'b-todo')
+    # Đồng nhất màu badge status Linear toàn app (twin của jiraCls/badgeCls trong app_v2.js).
+    u = (v or '').strip().upper()
+    if u in ('DONE', '[RND] GO LIVE'):
+        return 'b-done'
+    if u in ('CANCELLED', 'CANCELED', 'CLOSED', 'DUPLICATE'):
+        return 'b-critical'
+    if u == 'IN PROGRESS' or 'RESEARCH' in u:
+        return 'b-checking'
+    if u in ('READY TO TEST', 'IN TESTING', 'TESTING', 'IN REVIEW', 'READY TO DEPLOY', 'PENDING') or 'READY' in u or 'REVIEW' in u:
+        return 'b-blocked'
+    return 'b-todo'
 
 
 def _due_label(due, today):
