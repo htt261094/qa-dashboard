@@ -29,7 +29,7 @@ if sys.stdout is None or sys.stderr is None:
 # imports (`from config import ...`) keep working unchanged.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'core'))
 
-from config import (JIRA_URL, USERS, PORT, ADMIN_EMAIL, ADMIN_EMAILS, ALLOWED_DOMAIN,
+from config import (LINEAR_BASE_URL, USERS, PORT, ADMIN_EMAIL, ADMIN_EMAILS, ALLOWED_DOMAIN,
                     AUTH_ENABLED, SELF_USER, PUBLIC_BASE_URL, LOCAL_ONLY,
                     LOCAL_AUTOLOGIN, OWNER_EMAIL, display_name, username_from_email, canon_key)
 from auth import (SESSION_COOKIE, SESSION_TTL, email_from_session,
@@ -39,9 +39,9 @@ from bug_log_store import (scan as bug_log_scan, start_scheduler as start_bug_lo
                            mark_changes_seen as bug_log_mark_seen, search_bugs)
 from bug_log_source import load_sources
 from bug_backlog import load_backlog
-from jira_api import (fetch_all_shared, scope_data, fetch_activity_feed, load_dismissed,
-                      dismiss_activities, run_parallel, fetch_issue_detail,
-                      search_parent_tasks, search_people, global_search)
+from linear_api import (fetch_all_shared, scope_data, fetch_activity_feed, load_dismissed,
+                        dismiss_activities, run_parallel, fetch_issue_detail,
+                        search_parent_tasks, search_people, global_search)
 from docs import load_docs, save_docs, valid_tree, ensure_process_folder
 from pat_store import save_user_pat, has_pat, delete_user_pat
 from custom_status import (load_bundle, load_overlay, values_of,
@@ -877,8 +877,8 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
 
 def main():
     print("QA Workspace")
-    print(f"  Jira:      {JIRA_URL}")
-    print(f"  Tracking:  {', '.join(display_name(u) for u in USERS)}")
+    print(f"  Linear:    {LINEAR_BASE_URL}")
+    print(f"  Tracking:  {len(USERS)} accounts")
     print(f"  Workspace: http://localhost:{PORT}/")
     if not AUTH_ENABLED:
         print("  ⚠  AUTH TẮT (chưa set GOOGLE_CLIENT_ID/SECRET) — chỉ phục vụ", file=sys.stderr)
@@ -894,14 +894,7 @@ def main():
                   file=sys.stderr)
     print("  Ctrl+C để stop\n")
 
-    start_bug_log_scheduler()   # daemon thread poll Drive 10p (no-op nếu chưa kết nối Drive)
-
-    # Jira Cloud (#197): resolve trước accountId cho roster (cache .jira_accounts.json) ở nền
-    # -> request đầu tiên không phải chờ N call /user/search. No-op khi đã có cache.
-    import threading
-    from jira_cloud import warm_accounts
-    threading.Thread(target=lambda: warm_accounts(list(USERS)),
-                     daemon=True).start()
+    start_bug_log_scheduler()   # daemon thread poll Bug Log 10p
 
     try:
         # ThreadingHTTPServer (issue #129): mỗi request 1 thread → 1 request chạm Jira

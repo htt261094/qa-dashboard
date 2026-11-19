@@ -15,9 +15,8 @@ Layer: config -> {jira_cloud, jira_api, crypto_util, remote_store} -> (this). Kh
 """
 import json
 
-from config import AUTH_ENABLED, PAT_CACHE_FILE, JIRA_EMAIL, SELF_USER, atomic_write
-from jira_api import verify_user_token
-from jira_cloud import split_cred, MAIL_DOMAIN
+from config import AUTH_ENABLED, PAT_CACHE_FILE, LINEAR_API_KEY, atomic_write
+from linear_api import verify_user_token
 from crypto_util import encrypt, decrypt
 from remote_store import synced_load, synced_save, synced_delete
 
@@ -48,47 +47,31 @@ def _load_map():
     return synced_load(PAT_PROP, _read_cache, _write_cache, _valid_map, {})
 
 
-def _jira_email_for(email):
-    """Email dùng cho Basic auth: email đăng nhập; local dev (chưa login) -> email của SELF_USER
-    (loopback = admin = chủ máy, Decision #31), fallback email token chung."""
-    e = (email or '').strip().lower()
-    if e:
-        return e
-    return f'{SELF_USER}@{MAIL_DOMAIN}' if SELF_USER else JIRA_EMAIL
-
-
 def save_user_pat(email, token):
-    """Verify đúng chủ rồi mã hoá + lưu. Trả (ok: bool, msg: str).
-
-    - Token + email đăng nhập không gọi được /myself -> 'không hợp lệ / hết hạn / không phải của bạn'.
-    - Local dev (không email) -> dùng email của SELF_USER.
-    """
+    """Verify Linear API key rồi mã hoá + lưu. Trả (ok: bool, msg: str)."""
     token = (token or '').strip()
     if not token:
-        return False, 'Chưa nhập API token.'
-    if split_cred(token)[0]:
-        token = split_cred(token)[1]          # lỡ dán cả 'email:token' -> chỉ lấy token
-    jira_email = _jira_email_for(email)
-    owner = verify_user_token(jira_email, token)
+        return False, 'Chưa nhập Linear API key.'
+    owner = verify_user_token(token)
     if not owner:
-        return False, (f'API token không hợp lệ, đã hết hạn, hoặc không thuộc tài khoản {jira_email}. '
-                       'Hãy tạo token bằng chính tài khoản Atlassian của bạn.')
-    if AUTH_ENABLED and email and owner != jira_email:
-        return False, f'API token này thuộc tài khoản "{owner}", không khớp với bạn.'
+        return False, 'Linear API key không hợp lệ hoặc đã hết hạn.'
+    if AUTH_ENABLED and email and '@' in owner and owner != email.strip().lower():
+        return False, f'Linear API key này thuộc tài khoản "{owner}", không khớp với bạn.'
     store_key = (email or '').strip().lower() or 'local'
     m = _load_map()
-    m[store_key] = encrypt(f'{jira_email}:{token}')
-    synced_save(PAT_PROP, m, _write_cache, _valid_map)  # local-first: luôn an toàn ở local, đẩy KV best-effort
-    return True, f'Đã lưu API token cho {owner}. Từ giờ thao tác của bạn sẽ ghi đúng tên trên Jira.'
+    m[store_key] = encrypt(token)
+    synced_save(PAT_PROP, m, _write_cache, _valid_map)
+    return True, f'Đã lưu Linear API key cho {owner}.'
 
 
 def load_user_pat(email):
-    """Credential 'email:token' (giải mã) của người đăng nhập; None nếu chưa có / giải mã hỏng /
-    là PAT Jira DC cũ (không dùng được trên Cloud)."""
+    """Linear API key (giải mã) của người đăng nhập; fallback LINEAR_API_KEY chung nếu có."""
     key = (email or '').strip().lower() or 'local'
     enc = _load_map().get(key)
     cred = decrypt(enc) if enc else None
-    return cred if split_cred(cred)[0] else None
+    if cred and cred.startswith('lin_api_'):
+        return cred
+    return LINEAR_API_KEY or None
 
 
 def has_pat(email):

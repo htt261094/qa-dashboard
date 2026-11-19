@@ -56,8 +56,10 @@ var SEV_LABEL = { blocker:'Blocker', critical:'Critical', high:'High', medium:'M
                   low:'Low', none:'Chưa phân loại' };
 var SEV_COLOR = { blocker:'#7a0916', critical:'#de350b', high:'#ff5630', medium:'#ffab00',
                   low:'#36b37e', none:'#97a0af' };
+var SEV_ALIAS = { major:'high', minor:'medium', cosmetic:'low' };
 function sevOf(b){
   var s = (''+(b.severity||'')).trim().toLowerCase();
+  s = SEV_ALIAS[s] || s;
   return SEV_PIE.indexOf(s) >= 0 ? s : 'none';
 }
 // Pager numbered DÙNG CHUNG toàn app (đồng bộ: range info + số trang + ellipsis + mũi tên).
@@ -126,7 +128,7 @@ function noteSectionHtml(key, d){
   var at=NOTE_AT[key] ? 'Đã lưu '+esc(NOTE_AT[key].slice(0,16).replace('T',' ')) : 'Chỉ mình bạn thấy · tự lưu';
   return '<div class="dt-sec-title">Ghi chú riêng</div>'
     +'<div class="dt-note"><textarea class="dt-note-ta" data-note-key="'+esc(key)+'" rows="3" maxlength="5000" '
-    +'placeholder="Checklist, lý do đang chờ, link Chat… (không đẩy lên Jira)">'+esc(NOTE_TXT[key])+'</textarea>'
+    +'placeholder="Checklist, lý do đang chờ, link Chat… (không đẩy lên Linear)">'+esc(NOTE_TXT[key])+'</textarea>'
     +'<div class="dt-note-st" id="noteSt-'+esc(key)+'">'+at+'</div></div>';
 }
 (function(){
@@ -219,7 +221,7 @@ function toast(msg, ok){
   }
   function pick(u){
     if(!cur || at<0 || !u) return;
-    var ta=cur, pos=ta.selectionStart||0, val=ta.value, ins='[~'+u.name+'] ';
+    var ta=cur, pos=ta.selectionStart||0, val=ta.value, handle=(u.email?u.email.split('@')[0]:u.name), ins='@'+handle+' ';
     ta.value=val.slice(0,at)+ins+val.slice(pos);
     var np=at+ins.length; ta.selectionStart=ta.selectionEnd=np; ta.focus();
     close();
@@ -229,7 +231,7 @@ function toast(msg, ok){
     var q=info.q, fq=fold(q), my=++seq;
     var loc=LOCAL.filter(function(u){ return !fq || fold(u.name).indexOf(fq)>=0 || fold(u.display).indexOf(fq)>=0; });
     // Roster QA hiện ngay; gõ >=1 ký tự -> tìm TOÀN BỘ user Jira (/search-people) rồi merge vào.
-    items=loc.slice(0,10); sel=0; render(q.length>=1 && '<div class="mention-empty">Đang tìm user trên Jira…</div>'); place(ta);
+    items=loc.slice(0,10); sel=0; render(q.length>=1 && '<div class="mention-empty">Đang tìm user trên Linear…</div>'); place(ta);
     clearTimeout(deb);
     if(q.length>=1){
       deb=setTimeout(function(){
@@ -403,7 +405,7 @@ function skelComments(){
   }
   function pick(key){ hide(); inp.blur();
     if(window.__openDetail){ window.__openDetail(key); }
-    else { window.open((window.__jiraBase||'')+'/browse/'+encodeURIComponent(key), '_blank'); }
+    else { window.open((window.__jiraBase||'')+'/issue/'+encodeURIComponent(key), '_blank'); }
   }
   function run(q){
     var my=++seq; lastQ=q;
@@ -450,7 +452,7 @@ function skelComments(){
                 'Rejected':'st-rejected','Closed':'st-closed' };
   var NAV=[
     {label:'Hôm nay', href:'/today', icon:'sun-horizon'},
-    {label:'Việc của tôi', href:'/my-work', icon:'person'},
+    {label:'Cycle hiện tại', href:'/my-work', icon:'person'},
     {label:'Bug Log', href:'/bug-log', icon:'bug_report'},
     {label:'Analytics', href:'/analytics', icon:'monitoring'},
     {label:'Tài liệu', href:'/docs', icon:'description'}
@@ -491,14 +493,14 @@ function skelComments(){
       run:(function(href){ return function(){ location.href=href; }; })(n.href) }; }));
     sec('Hành động', acts.map(function(a){ return { icon:a.icon, html:esc(a.label), run:a.run }; }));
     if(q.length>=2){
-      sec('Task Jira', taskRows===null
+      sec('Linear Issues', taskRows===null
         ? [{ icon:'hourglass_empty', html:'<span class="skel skel-line w80" style="margin:0"></span>', run:function(){} }]
         : taskRows.map(function(r){ return { icon:'assignment',
             html:'<b class="cp-key">'+esc(r.key)+'</b> '+esc(r.summary||''),
             right:(r.status?'<span class="st-badge '+(ST[r.status]||'st-default')+'">'+esc(r.status)+'</span>':''),
             run:(function(key){ return function(){
               if(window.__openDetail) window.__openDetail(key);
-              else window.open((window.__jiraBase||'')+'/browse/'+encodeURIComponent(key), '_blank'); }; })(r.key) }; }));
+              else window.open((window.__jiraBase||'')+'/issue/'+encodeURIComponent(key), '_blank'); }; })(r.key) }; }));
       sec('Bug (bug log)', bugRows===null
         ? [{ icon:'hourglass_empty', html:'<span class="skel skel-line w60" style="margin:0"></span>', run:function(){} }]
         : bugRows.map(function(b){ return { icon:'bug_report',
@@ -605,14 +607,14 @@ function skelComments(){
     }).catch(function(){ save.disabled=false; toast('Lỗi mạng khi lưu token', false); }); });
   var del=$('patDelBtn');
   if(del) del.addEventListener('click', function(){
-    confirmModal({title:'Xoá API token', message:'Xoá API token đã lưu? Thao tác Jira sẽ không còn ghi tên bạn.', confirmText:'Xoá token'}).then(function(ok){ if(!ok) return;
+    confirmModal({title:'Xoá API token', message:'Xoá API token đã lưu? Thao tác Linear sẽ không còn ghi tên bạn.', confirmText:'Xoá token'}).then(function(ok){ if(!ok) return;
     fetch('/delete-pat', { method:'POST' }).then(function(r){ return r.json(); })
       .then(function(j){ toast(j.ok?'Đã xoá token':'Lỗi xoá', j.ok); if(j.ok) close(); })
       .catch(function(){ toast('Lỗi mạng', false); }); }); });
 })();
 // popup nhắc PAT khi server trả no_pat
 function patToast(j){ if(j && j.code==='no_pat'){ var ov=$('setOverlay'); if(ov) ov.classList.add('open');
-  toast(j.msg || 'Cần API token Jira để thao tác', false); return true; } return false; }
+  toast(j.msg || 'Cần Linear API key để thao tác', false); return true; } return false; }
 
 // ---------- Đổi Due date theo QUYỀN Jira (ghi bằng PAT cá nhân) — bảng + drawer, dùng chung ----------
 // DUE_PERM[key]: true = được sửa · false = không được · 'no_pat' = chưa có PAT · 'loading'/undefined.
@@ -698,8 +700,8 @@ document.addEventListener('click', function(e){
     var key=a.getAttribute('data-key'), cur=a.getAttribute('data-due')||'';
     cell.innerHTML='<span class="due-loading">…</span>';
     ensureDuePerm(key, function(perm){
-      if(perm==='no_pat'){ patToast({code:'no_pat', msg:'Cần API token Jira để đổi hạn — vào ⚙ Cài đặt'}); dueAfterChange(key, !!cell.closest('#drawer')); return; }
-      if(perm!==true){ toast('Bạn không có quyền đổi hạn task này trên Jira', false); dueAfterChange(key, !!cell.closest('#drawer')); return; }
+      if(perm==='no_pat'){ patToast({code:'no_pat', msg:'Cần Linear API key để đổi hạn — vào ⚙ Cài đặt'}); dueAfterChange(key, !!cell.closest('#drawer')); return; }
+      if(perm!==true){ toast('Bạn không có quyền đổi hạn issue này trên Linear', false); dueAfterChange(key, !!cell.closest('#drawer')); return; }
       if(document.body.contains(cell)) dueEditor(cell, key, cur);
     });
   }
@@ -776,7 +778,7 @@ document.addEventListener('click', function(e){
         a.disabled=false; if(patToast(j)) return;
         if(!j.ok){ toast(j.msg||'Không lấy được quyền sửa', false); return; }
         var p=j.fields||{};
-        if(!p.summary && !p.assignee && !p.duedate){ toast('Bạn không có quyền sửa task này trên Jira', false); return; }
+        if(!p.summary && !p.assignee && !p.duedate){ toast('Bạn không có quyền sửa issue này trên Linear', false); return; }
         renderForm(p);
       }).catch(function(){ a.disabled=false; toast('Lỗi mạng', false); });
     } else if(act==='edit-cancel'){ closeForm(); }
@@ -820,9 +822,9 @@ function smClose(){ var m=smEl(); if(m){ m.classList.remove('open'); m.innerHTML
 function smRender(t, jiraState){
   __sm.jira=jiraState;
   var cur={}; (t.customs||[]).forEach(function(v){ cur[v]=1; });
-  var h='<div class="smenu-grp">Status Jira</div>';
+  var h='<div class="smenu-grp">Status Linear</div>';
   if(jiraState===null) h+='<div style="padding:6px 14px"><div class="skel skel-line w80"></div><div class="skel skel-line w60"></div></div>';
-  else if(jiraState.code==='no_pat') h+='<div class="smenu-note" data-sm="nopat"><span class="material-symbols-rounded ph-light ph-lock mi-sm"></span>Cần API token Jira để đổi status — bấm để thêm</div>';
+  else if(jiraState.code==='no_pat') h+='<div class="smenu-note" data-sm="nopat"><span class="material-symbols-rounded ph-light ph-lock mi-sm"></span>Cần Linear API key để đổi status — bấm để thêm</div>';
   else if(!jiraState.ok) h+='<div class="smenu-note muted"><span class="material-symbols-rounded ph-light ph-warning-circle mi-sm"></span>'+esc(jiraState.msg||'Lỗi tải status')+'</div>';
   else if(!jiraState.transitions.length) h+='<div class="smenu-note muted"><span class="material-symbols-rounded ph-light ph-info mi-sm"></span>Không có bước chuyển khả dụng</div>';
   else jiraState.transitions.forEach(function(tr){
@@ -935,7 +937,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
   if(showBtn) showBtn.addEventListener('click', function(){
     input.type = input.type==='password' ? 'text' : 'password'; });
   if(delBtn) delBtn.addEventListener('click', function(){
-    confirmModal({title:'Xoá API token', message:'Xoá API token đã lưu? Sau đó thao tác Jira sẽ không còn ghi tên bạn.', confirmText:'Xoá token'}).then(function(ok){ if(!ok) return;
+    confirmModal({title:'Xoá API token', message:'Xoá API token đã lưu? Sau đó thao tác Linear sẽ không còn ghi tên bạn.', confirmText:'Xoá token'}).then(function(ok){ if(!ok) return;
     fetch('/delete-pat', { method:'POST' }).then(function(r){ return r.json(); })
       .then(function(j){ toast(j.ok?'Đã xoá token':'Lỗi xoá', j.ok);
         if(j.ok) setTimeout(function(){ location.reload(); }, 1200); })
@@ -1028,7 +1030,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     }
     notif.classList.remove('open');
     if(window.__openDetail) window.__openDetail(key);   // dashboard -> drawer
-    else if(window.__jiraBase) window.open(window.__jiraBase+'/browse/'+key, '_blank');
+    else if(window.__jiraBase) window.open(window.__jiraBase+'/issue/'+key, '_blank');
     else toast('Đã đọc thông báo '+key, true); });
 
   // --------- poll real-time (Decision #24): cập nhật chuông + toast, KHÔNG reload trang ---------
@@ -1138,7 +1140,8 @@ window.__smSetCustom=function(t, key, val, onChanged){
   var DATA = readJSON('qaData') || { tasks:[], meta:{} };
   var TASKS = DATA.tasks || [];
   var META = DATA.meta || {};
-  window.__jiraBase = (TASKS[0] && TASKS[0].jiraUrl ? TASKS[0].jiraUrl.replace(/\/browse\/.*$/, '') : (window.__jiraBase||''));
+  var CYCLE = DATA.cycle || {};
+  window.__jiraBase = (TASKS[0] && TASKS[0].jiraUrl ? TASKS[0].jiraUrl.replace(/\/(browse|issue)\/.*$/, '') : (window.__linearBase||window.__jiraBase||''));
 
   var custMap={}; (window.QA_CUSTOM_STATUSES||[]).forEach(function(p){ custMap[p[0]]=p[1]; });
   var COMMENTS={};        // key -> [{author,when,body}] (lazy, dùng cho drawer)
@@ -1146,9 +1149,11 @@ window.__smSetCustom=function(t, key, val, onChanged){
   var dndKey=null, dndInflight={};   // kéo-thả đổi status (giống Jira board)
 
   function jiraCls(v){ v=(v||'').toUpperCase();
-    if(v==='DONE') return 'b-done'; if(v==='CANCELLED') return 'b-critical';
-    if(v==='IN PROGRESS') return 'b-checking'; if(v==='PENDING') return 'b-blocked';
-    if(v==='TO DO') return 'b-todo'; return 'b-todo'; }
+    if(v==='DONE'||v==='[RND] GO LIVE') return 'b-done';
+    if(v==='CANCELLED'||v==='CANCELED'||v==='CLOSED'||v==='DUPLICATE') return 'b-critical';
+    if(v==='IN PROGRESS'||v.indexOf('RESEARCH')>=0) return 'b-checking';
+    if(v==='READY TO TEST'||v==='IN TESTING'||v==='IN REVIEW'||v==='READY TO DEPLOY'||v==='PENDING'||v.indexOf('READY')>=0||v.indexOf('REVIEW')>=0) return 'b-blocked';
+    return 'b-todo'; }
   var EXTRA={};   // task ngoài bucket (vd CANCELLED) -> dựng từ /issue-comments
   function taskByKey(k){ return TASKS.filter(function(t){ return t.key===k; })[0] || EXTRA[k]; }
   function synthTask(key, d){
@@ -1158,13 +1163,91 @@ window.__smSetCustom=function(t, key, val, onChanged){
       due:d.duedate||'', dueDisp:d.duedate||'Chưa đặt hạn', dueCls:'',
       created:d.created||'', createdDisp:d.created||'—',
       overdue:false, stuck:false, isNew:false,
-      jiraUrl:(window.__jiraBase||'')+'/browse/'+key };
+      jiraUrl:(window.__jiraBase||'')+'/issue/'+key };
   }
   // KHÔNG còn lọc bucket (#114) — board luôn hiện HẾT; chỉ còn lọc theo ô tìm kiếm topbar.
+  var assigneeFilter = '';
+  var featureFilter = '';
+  var typeFilter = '';
+  var groupByFeature = false;
+  try{ groupByFeature = localStorage.getItem('qa-kb-group-feat') === '1'; }catch(e){}
+  function populateAssigneeFilter(){
+    var sel=$('kbAsgFilter'); if(!sel) return;
+    var map={}, list=[];
+    TASKS.forEach(function(t){
+      var a=t.assignee||{name:'Unassigned'};
+      var n=a.name||'Unassigned';
+      if(!map[n]){ map[n]={name:n, role:a.role||'', count:0}; list.push(map[n]); }
+      map[n].count++;
+    });
+    list.sort(function(a,b){
+      if(a.name==='Unassigned') return 1;
+      if(b.name==='Unassigned') return -1;
+      return b.count-a.count || a.name.localeCompare(b.name);
+    });
+    sel.innerHTML='<option value="">Tất cả người ('+TASKS.length+')</option>'
+      +list.map(function(u){
+        var lbl=u.name+(u.role?' · '+u.role:'')+' ('+u.count+')';
+        return '<option value="'+esc(u.name)+'"'+(assigneeFilter===u.name?' selected':'')+'>'+esc(lbl)+'</option>';
+      }).join('');
+  }
+  function populateFeatureFilter(){
+    var sel=$('kbFeatFilter'); if(!sel) return;
+    var map={}, bugMap={}, list=[], noneCnt=0, noneBug=0;
+    TASKS.forEach(function(t){
+      var f=(t.feature||'').trim();
+      var isB=(t.issuetype==='Bug');
+      if(f){
+        map[f]=(map[f]||0)+1;
+        if(isB) bugMap[f]=(bugMap[f]||0)+1;
+      } else {
+        noneCnt++;
+        if(isB) noneBug++;
+      }
+    });
+    list=Object.keys(map).sort(function(a,b){ return (bugMap[b]||0)-(bugMap[a]||0) || map[b]-map[a] || a.localeCompare(b); });
+    sel.innerHTML='<option value="">Tất cả Feature ('+TASKS.length+')</option>'
+      +list.map(function(f){
+        var bc=bugMap[f]||0;
+        var lbl=f+' ('+map[f]+(bc?' · 🐛 '+bc:'')+')';
+        return '<option value="'+esc(f)+'"'+(featureFilter===f?' selected':'')+'>'+esc(lbl)+'</option>';
+      }).join('')
+      +(noneCnt?'<option value="__none__"'+(featureFilter==='__none__'?' selected':'')+'>(Chưa gắn Feature) ('+noneCnt+(noneBug?' · 🐛 '+noneBug:'')+')</option>':'');
+  }
+  (function(){
+    var asg=$('kbAsgFilter');
+    if(asg) asg.addEventListener('change', function(){ assigneeFilter=asg.value||''; renderBoard(); });
+    var sel=$('kbFeatFilter');
+    if(sel) sel.addEventListener('change', function(){ featureFilter=sel.value||''; renderBoard(); });
+    var tf=$('kbTypeFilter');
+    if(tf) tf.addEventListener('change', function(){ typeFilter=tf.value||''; renderBoard(); });
+    var gb=$('kbGroupBtn');
+    if(gb){
+      gb.classList.toggle('active', groupByFeature);
+      gb.addEventListener('click', function(){
+        groupByFeature=!groupByFeature;
+        gb.classList.toggle('active', groupByFeature);
+        try{ localStorage.setItem('qa-kb-group-feat', groupByFeature?'1':'0'); }catch(e){}
+        renderBoard();
+      });
+    }
+    populateAssigneeFilter();
+    populateFeatureFilter();
+  })();
+
   function visibleTasks(){
     var q=(($('searchInp')||{}).value||'').toLowerCase();
-    if(!q) return TASKS.slice();
-    return TASKS.filter(function(t){ return (t.key+' '+t.summary).toLowerCase().indexOf(q)>=0; });
+    return TASKS.filter(function(t){
+      if(assigneeFilter && ((t.assignee&&t.assignee.name)||'Unassigned')!==assigneeFilter) return false;
+      if(typeFilter && (t.issuetype||'Task')!==typeFilter) return false;
+      if(featureFilter){
+        var f=(t.feature||'').trim();
+        if(featureFilter==='__none__'){ if(f) return false; }
+        else if(f!==featureFilter) return false;
+      }
+      if(q && (t.key+' '+t.summary+' '+(t.feature||'')+' '+(t.parentKey||'')+' '+(t.parentSummary||'')).toLowerCase().indexOf(q)<0) return false;
+      return true;
+    });
   }
 
   function chipHTML(t){
@@ -1185,40 +1268,267 @@ window.__smSetCustom=function(t, key, val, onChanged){
       +'<div class="bc-top"><a class="key" href="'+esc(t.jiraUrl)+'" target="_blank">'+esc(t.key)+'</a>'
       +'<span class="bc-top-r">'+fl
       +'<button class="caret material-symbols-rounded ph-light ph-caret-down mi-sm" data-act="smenu" data-key="'+esc(t.key)+'" title="Đổi trạng thái"></button></span></div>'
-      +'<div class="bc-title">'+esc(t.summary)
+      +(t.feature?'<div class="bc-feat" title="'+esc(t.feature)+'"><span class="material-symbols-rounded ph-light ph-folders" style="font-size:12px"></span>'+esc(t.feature)+'</div>':'')+(t.issuetype&&t.issuetype!=='Task'?'<span class="badge '+(t.issuetype==='Bug'?'b-critical':(t.issuetype==='Sub-task'?'b-todo':'b-checking'))+'" style="font-size:10px;padding:1px 6px;margin-bottom:4px;display:inline-block">'+esc(t.issuetype)+'</span> ':'')+(t.parentKey?'<div class="bc-parent" title="'+esc(t.parentKey+(t.parentSummary?' · '+t.parentSummary:''))+'">↳ <a class="key" href="'+esc((window.__linearBase||'')+'/issue/'+encodeURIComponent(t.parentKey))+'" target="_blank">'+esc(t.parentKey)+'</a>'+(t.parentSummary?' · '+esc(t.parentSummary):'')+'</div>':'')+'<div class="bc-title">'+esc(t.summary)
       +(t.hasNote?' <span class="note-ic material-symbols-rounded ph-light ph-note-pencil mi-xs" title="Có ghi chú riêng"></span>':'')+'</div>'
       +chipHTML(t)
       +'<div class="bc-foot"><span class="assignee"><span class="av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span> '+esc(t.assignee.name)+'</span>'
       +'<span class="bc-foot-r">'+dueValHTML(t)
-      +(nc?'<span class="bc-cmt" title="'+nc+' bình luận"><span class="material-symbols-rounded ph-light ph-chat-circle mi-xs"></span>'+nc+'</span>':'')
+      +((t.subtasks&&t.subtasks.length)?'<span class="bc-cmt" title="Sub-issues"><span class="material-symbols-rounded ph-light ph-git-branch mi-xs"></span>'+t.subtasks.filter(function(c){return c.status==='DONE';}).length+'/'+t.subtasks.length+'</span>':'')+(nc?'<span class="bc-cmt" title="'+nc+' bình luận"><span class="material-symbols-rounded ph-light ph-chat-circle mi-xs"></span>'+nc+'</span>':'')
       +'</span></div>'
       +'</div>';
   }
   // Thứ tự cột cố định như board Jira; CANCELLED/status lạ chỉ hiện khi có card.
-  var COLS=['TO DO','In Progress','PENDING','DONE','CANCELLED'];
-  var CORE={'TO DO':1,'In Progress':1,'PENDING':1,'DONE':1};
+  var COLS=['Triage','Backlog','Todo','TO DO','In Progress','In testing','Ready to test','In Review','Ready to deploy','PENDING','[RnD] Research','[RnD] Review','[RnD] Ready to Deploy','Done','DONE','[RnD] Go Live','Canceled','Closed','Duplicate','CANCELLED'];
+  var CORE={'Todo':1,'In Progress':1,'Ready to test':1,'Done':1};
+  function renderColsHTML(list){
+    var groups={};
+    list.forEach(function(t){ var s=(t.jira||'').trim()||'—'; (groups[s]=groups[s]||[]).push(t); });
+    var order=[];
+    COLS.forEach(function(s){ if((groups[s]&&groups[s].length) || (!Object.keys(groups).length && CORE[s])) order.push(s); });
+    Object.keys(groups).forEach(function(s){ if(order.indexOf(s)<0) order.push(s); });
+    return order.map(function(s){
+      var cl=groups[s]||[];
+      var body = cl.length ? cl.map(cardHTML).join('') : '<div class="bcol-empty">Kéo task vào đây</div>';
+      return '<div class="bcol" data-col="'+esc(s)+'">'
+        +'<div class="bcol-head"><span class="bcol-name"><span class="bcol-dot '+jiraCls(s)+'"></span>'+esc(s)+'</span>'
+        +'<span class="cc">'+cl.length+'</span></div>'
+        +'<div class="bcol-body">'+body+'</div></div>';
+    }).join('');
+  }
+  var bdCollapsed = false;
+  try{ bdCollapsed = localStorage.getItem('qa-bd-collapsed') === '1'; }catch(e){}
+  function fmtDM(iso){ if(!iso||iso.length<10) return iso||''; return iso.slice(8,10)+'/'+iso.slice(5,7); }
+  function dateRange(sStr, eStr){
+    var out=[], s=new Date(sStr+'T00:00:00'), e=new Date(eStr+'T00:00:00');
+    if(isNaN(s.getTime())||isNaN(e.getTime())||e<s) return out;
+    for(var d=new Date(s); d<=e && out.length<45; d.setDate(d.getDate()+1)){
+      var y=d.getFullYear(), m=('0'+(d.getMonth()+1)).slice(-2), dd=('0'+d.getDate()).slice(-2);
+      out.push(y+'-'+m+'-'+dd);
+    }
+    return out;
+  }
+  function renderBurndown(all){
+    var box=$('bdCard'); if(!box) return;
+    var sDate=CYCLE.startsAt||'', eDate=CYCLE.endsAt||'', today=CYCLE.today||new Date().toISOString().slice(0,10);
+    var days=dateRange(sDate, eDate);
+    if(!days.length){ box.style.display='none'; return; }
+    box.style.display='';
+    var n=days.length, total=all.length;
+    var isDoneFn=function(t){ return (t.cat||'')==='DONE'||(t.cat||'')==='CANCELLED'||/^(DONE|CANCEL|CLOSED|DUPLICATE)/i.test(t.jira||''); };
+    var doneNow=all.filter(isDoneFn).length;
+    var remNow=total-doneNow;
+    var pct=total?Math.round(doneNow*100/total):0;
+    var eMs=new Date(eDate+'T00:00:00').getTime(), tMs=new Date(today+'T00:00:00').getTime();
+    var daysLeft=Math.max(0, Math.ceil((eMs-tMs)/86400000));
+    var dCls=daysLeft===0?'end':(daysLeft<=2?'warn':'');
+    var dTxt=daysLeft===0?'Hôm nay hết cycle':('Còn '+daysLeft+' ngày');
+
+    var head='<div class="bd-head">'
+      +'<div class="bd-left">'
+      +'<span class="bd-title"><span class="material-symbols-rounded ph-light ph-chart-line-down mi-sm"></span>'+esc(CYCLE.label||'Cycle')+' Burndown</span>'
+      +'<span class="bd-range">'+esc(fmtDM(sDate))+' → '+esc(fmtDM(eDate))+'</span>'
+      +'<span class="bd-days '+dCls+'">'+esc(dTxt)+'</span>'
+      +'</div>'
+      +'<div class="bd-kpis">'
+      +'<span>Đã burndown: <b>'+doneNow+'/'+total+'</b> ('+pct+'%)</span>'
+      +'<span>Còn lại: <b>'+remNow+'</b> task</span>'
+      +'<button type="button" class="bd-toggle" id="bdToggleBtn">'+(bdCollapsed?'Hiện biểu đồ':'Thu gọn')+'</button>'
+      +'</div></div>';
+
+    if(bdCollapsed){ box.innerHTML=head; bindBdToggle(all); return; }
+
+    var labels = days.map(function(d){ return d===today ? (fmtDM(d)+' (Nay)') : fmtDM(d); });
+    var idealData = days.map(function(d,i){ return n>1 ? Math.round(total*(1 - i/(n-1))*10)/10 : 0; });
+    var actualData = days.map(function(d){
+      if(d>today) return null;
+      var rem=0;
+      all.forEach(function(t){
+        if(!isDoneFn(t)){ rem++; return; }
+        var dt=(t.doneAt||t.created||'').slice(0,10);
+        if(!dt || dt>d) rem++;
+      });
+      return rem;
+    });
+    var donePerDay = days.map(function(d){
+      if(d>today) return 0;
+      var c=0;
+      all.forEach(function(t){ if(isDoneFn(t) && (t.doneAt||'').slice(0,10)===d) c++; });
+      return c;
+    });
+
+    if(window.Chart){
+      if(window.__bdChart){ try{ window.__bdChart.destroy(); }catch(_){} window.__bdChart=null; }
+      box.innerHTML = head + '<div class="bd-svg-wrap"><canvas id="bdCanvas"></canvas></div>';
+      var ctx = $('bdCanvas').getContext('2d');
+      var cs = getComputedStyle(document.documentElement);
+      var cPri = (cs.getPropertyValue('--primary')||'').trim() || '#4c9aff';
+      var cMut = (cs.getPropertyValue('--on-surface-variant')||'').trim() || '#8b949e';
+      var cGrid = (cs.getPropertyValue('--outline-variant')||'').trim() || 'rgba(140,150,170,0.2)';
+      window.__bdChart = new window.Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'Thực tế còn lại (Actual)',
+              data: actualData,
+              borderColor: cPri,
+              backgroundColor: 'rgba(76,154,255,0.14)',
+              borderWidth: 2.5,
+              pointRadius: 3.5,
+              pointHoverRadius: 5.5,
+              pointBackgroundColor: cPri,
+              fill: true,
+              tension: 0.15,
+              spanGaps: false
+            },
+            {
+              label: 'Kế hoạch (Ideal)',
+              data: idealData,
+              borderColor: cMut,
+              borderWidth: 1.6,
+              borderDash: [5, 4],
+              pointRadius: 0,
+              pointHoverRadius: 4,
+              fill: false,
+              tension: 0
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: {
+              display: true,
+              position: 'bottom',
+              align: 'start',
+              labels: { color: cMut, boxWidth: 16, boxHeight: 2, font: { size: 11.5 } }
+            },
+            tooltip: {
+              callbacks: {
+                afterBody: function(items){
+                  var idx = items && items[0] ? items[0].dataIndex : -1;
+                  if(idx >= 0 && days[idx] <= today){
+                    return 'Xong trong ngày: +' + donePerDay[idx] + ' task';
+                  }
+                  return '';
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              grid: { color: 'transparent' },
+              ticks: { color: cMut, font: { size: 11 }, maxRotation: 0, autoSkip: false }
+            },
+            y: {
+              beginAtZero: true,
+              suggestedMax: total,
+              grid: { color: cGrid },
+              ticks: { color: cMut, font: { size: 11 }, precision: 0 }
+            }
+          }
+        }
+      });
+      bindBdToggle(all);
+      return;
+    }
+
+    // Fallback SVG nếu offline không tải được Chart.js
+    var W=Math.max(460, box.clientWidth ? (box.clientWidth - 36) : 900), H=150, padL=38, padR=22, padT=16, padB=24;
+    var pw=W-padL-padR, ph=H-padT-padB, maxY=Math.max(total, 1);
+    var xOf=function(i){ return padL + (n>1 ? (i*pw/(n-1)) : pw/2); };
+    var yOf=function(v){ return padT + ph - (v/maxY)*ph; };
+    var grid='';
+    [0, Math.round(maxY/2), maxY].forEach(function(v){
+      var y=yOf(v).toFixed(1);
+      grid+='<line x1="'+padL+'" y1="'+y+'" x2="'+(W-padR)+'" y2="'+y+'" stroke="var(--outline-variant)" stroke-opacity="0.5" stroke-dasharray="2 3"/>'
+        +'<text x="'+(padL-6)+'" y="'+(parseFloat(y)+3)+'" text-anchor="end" font-size="10" fill="var(--on-surface-variant)">'+v+'</text>';
+    });
+    days.forEach(function(d, idx){
+      var x=xOf(idx).toFixed(1), isT=(d===today);
+      grid+='<text x="'+x+'" y="'+(H-6)+'" text-anchor="middle" font-size="9.5" font-weight="'+(isT?'700':'400')+'" fill="'+(isT?'var(--primary)':'var(--on-surface-variant)')+'">'+esc(fmtDM(d))+'</text>';
+    });
+    var idealPts=idealData.map(function(v,i){ return xOf(i).toFixed(1)+','+yOf(v).toFixed(1); }).join(' ');
+    var actPts=[], lastPt=null;
+    actualData.forEach(function(rem,i){
+      if(rem===null) return;
+      var pt=[xOf(i).toFixed(1), yOf(rem).toFixed(1), rem];
+      actPts.push(pt[0]+','+pt[1]);
+      lastPt=pt;
+    });
+    var svg='<div class="bd-svg-wrap"><svg class="bd-svg" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet">'
+      +grid
+      +'<polyline fill="none" stroke="var(--on-surface-variant)" stroke-opacity="0.55" stroke-width="1.6" stroke-dasharray="5 4" points="'+idealPts+'"/>'
+      +(actPts.length?'<polyline fill="none" stroke="var(--primary)" stroke-width="2.4" stroke-linejoin="round" points="'+actPts.join(' ')+'"/>':'')
+      +'</svg></div>';
+    box.innerHTML=head+svg;
+    bindBdToggle(all);
+  }
+  var _bdLastAll = null, _bdResizeBound = false;
+  function bindBdToggle(all){
+    _bdLastAll = all;
+    if(!_bdResizeBound){
+      _bdResizeBound = true;
+      var rt=null;
+      window.addEventListener('resize', function(){
+        clearTimeout(rt);
+        rt=setTimeout(function(){ if(_bdLastAll && !bdCollapsed) renderBurndown(_bdLastAll); }, 150);
+      });
+    }
+    var b=$('bdToggleBtn'); if(!b) return;
+    b.addEventListener('click', function(){
+      bdCollapsed=!bdCollapsed;
+      try{ localStorage.setItem('qa-bd-collapsed', bdCollapsed?'1':'0'); }catch(e){}
+      renderBurndown(all);
+    });
+  }
+
   function renderBoard(){
     var all=visibleTasks();
-    if(!all.length){ board.innerHTML='<div class="empty-state board-empty">'
+    renderBurndown(all);
+    if(!all.length){
+      board.classList.remove('board-grouped');
+      board.innerHTML='<div class="empty-state board-empty">'
         +'<span class="es-ic"><span class="material-symbols-rounded ph-light ph-confetti"></span></span>'
         +'<div class="es-title">Không có task nào 🎉</div>'
         +'<div class="es-hint">Sạch việc rồi — nghỉ tay chút đi.</div>'
         +'</div>'; return; }
-    var groups={};
-    all.forEach(function(t){ var s=(t.jira||'').trim()||'—'; (groups[s]=groups[s]||[]).push(t); });
-    var order=[];
-    // Luôn hiện 4 cột lõi (kể cả rỗng) + CANCELLED/status lạ chỉ khi có card.
-    COLS.forEach(function(s){ if(CORE[s] || (groups[s]&&groups[s].length)) order.push(s); });
-    Object.keys(groups).forEach(function(s){ if(order.indexOf(s)<0) order.push(s); });
-    board.innerHTML = order.map(function(s){
-      var list=groups[s]||[];
-      var body = list.length ? list.map(cardHTML).join('')
-               : '<div class="bcol-empty">Kéo task vào đây</div>';
-      return '<div class="bcol" data-col="'+esc(s)+'">'
-        +'<div class="bcol-head"><span class="bcol-name"><span class="bcol-dot '+jiraCls(s)+'"></span>'+esc(s)+'</span>'
-        +'<span class="cc">'+list.length+'</span></div>'
-        +'<div class="bcol-body">'+body+'</div></div>';
-    }).join('');
+    if(!groupByFeature){
+      board.classList.remove('board-grouped');
+      board.style.display='';
+      board.innerHTML = renderColsHTML(all);
+    } else {
+      board.classList.add('board-grouped');
+      board.style.display='block';
+      var fMap={}, fList=[];
+      all.forEach(function(t){
+        var fn=(t.feature||'').trim()||'(Chưa gắn Feature)';
+        if(!fMap[fn]){ fMap[fn]=[]; fList.push(fn); }
+        fMap[fn].push(t);
+      });
+      fList.sort(function(a,b){
+        if(a==='(Chưa gắn Feature)') return 1;
+        if(b==='(Chưa gắn Feature)') return -1;
+        return fMap[b].length - fMap[a].length || a.localeCompare(b);
+      });
+      board.innerHTML = fList.map(function(fn){
+        var fl=fMap[fn];
+        var doneN=fl.filter(function(t){ return (t.cat||t.jira)==='DONE'||(t.jira||'').toUpperCase()==='DONE'; }).length;
+        var bugs=fl.filter(function(t){ return t.issuetype==='Bug'; });
+        var openBugs=bugs.filter(function(t){ return t.jira!=='DONE'&&t.jira!=='CANCELLED'; }).length;
+        var bugTxt=bugs.length ? (' · 🐛 '+bugs.length+' bug ('+openBugs+' mở)') : '';
+        return '<div class="kb-feat-sec">'
+          +'<div class="kb-feat-head">'
+          +'<span class="kb-feat-title"><span class="material-symbols-rounded ph-light ph-folders mi-sm"></span>'+esc(fn)+'</span>'
+          +'<span class="kb-feat-meta">'+fl.length+' tasks · '+doneN+' Done'+bugTxt+'</span>'
+          +'</div>'
+          +'<div class="board">'+renderColsHTML(fl)+'</div>'
+          +'</div>';
+      }).join('');
+    }
     if(window.__smRebind) window.__smRebind();
   }
 
@@ -1377,14 +1687,14 @@ window.__smSetCustom=function(t, key, val, onChanged){
       +'<button class="drawer-edit material-symbols-rounded ph-light ph-pencil-simple" data-act="edit-toggle" title="Sửa task (tiêu đề / người xử lý / hạn)"></button>'
       +'<button class="x material-symbols-rounded ph-light ph-x" data-act="drawer-close"></button></div>'
       +'<div class="drawer-body"><h2>'+esc(t.summary)+'</h2>'
-      +'<div class="dt-grid"><div class="lbl">Người xử lý</div><div class="val"><span class="assignee"><span class="av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span> '+esc(t.assignee.name)+'</span></div>'
+      +'<div class="dt-grid">'+'<div class="lbl">Loại</div><div class="val">'+esc((DETAIL[t.key]&&DETAIL[t.key].issuetype)||t.issuetype||'Task')+'</div>'+((t.feature||(DETAIL[t.key]&&DETAIL[t.key].project&&DETAIL[t.key].project.name))?'<div class="lbl">Feature</div><div class="val">'+esc((DETAIL[t.key]&&DETAIL[t.key].project&&DETAIL[t.key].project.name)||t.feature)+'</div>':'')+((t.parentKey||(DETAIL[t.key]&&DETAIL[t.key].parent&&DETAIL[t.key].parent.key))?(function(){var pk=(DETAIL[t.key]&&DETAIL[t.key].parent&&DETAIL[t.key].parent.key)||t.parentKey;var ps=(DETAIL[t.key]&&DETAIL[t.key].parent&&DETAIL[t.key].parent.summary)||t.parentSummary||'';return '<div class="lbl">Issue cha</div><div class="val"><a class="key" href="'+esc((window.__linearBase||'')+'/issue/'+encodeURIComponent(pk))+'" target="_blank">'+esc(pk)+'</a> '+(ps?esc(ps):'')+'</div>';})():'')+'<div class="lbl">Người xử lý</div><div class="val"><span class="assignee"><span class="av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span> '+esc(t.assignee.name)+'</span></div>'
       +'<div class="lbl">Ngày tạo</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].created)?esc(DETAIL[t.key].created):esc(t.createdDisp||'—'))+'</div>'
       +'<div class="lbl">Hạn chót</div><div class="val" id="dueVal-'+esc(t.key)+'">'+dueValHTML(t)+'</div>'
       +'<div class="lbl">Cập nhật</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].updated)?esc(DETAIL[t.key].updated):'—')+'</div>'
       +'<div class="lbl">Dev phụ trách</div><div class="val">'+((DETAIL[t.key]&&DETAIL[t.key].devs&&DETAIL[t.key].devs.length)?DETAIL[t.key].devs.map(esc).join(', '):'—')+'</div>'
       +'<div class="lbl">Nhãn nội bộ</div><div class="val">'+chips+'</div>'
       +'<div class="lbl">Cảnh báo</div><div class="val">'+flags+'</div></div>'
-      +'<div class="dt-sec-title">Mô tả</div><div class="dt-desc">'+desc+'</div>'
+      +'<div class="dt-sec-title">Mô tả</div><div class="dt-desc">'+desc+'</div>'+((function(){var subs=(DETAIL[t.key]&&DETAIL[t.key].subtasks)||t.subtasks||[];if(!subs.length)return '';return '<div class="dt-sec-title">Sub-issues ('+subs.length+')</div><div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">'+subs.map(function(c){return '<div style="display:flex;align-items:center;gap:8px;font-size:12px;padding:6px 8px;border:1px solid var(--outline-variant);border-radius:8px"><a class="key" href="'+esc((window.__linearBase||'')+'/issue/'+encodeURIComponent(c.key))+'" target="_blank">'+esc(c.key)+'</a><span class="badge '+jiraCls(c.status)+'">'+esc(c.status)+'</span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(c.summary)+'</span></div>';}).join('')+'</div>';})())
       +bugSectionHtml(DETAIL[t.key])
       +noteSectionHtml(t.key, DETAIL[t.key])
       +'<div class="dt-cmts"><div class="dt-sec-title">Bình luận ('+(list&&list.length||0)+')</div>'
@@ -1483,7 +1793,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
       due:d.duedate||'', dueDisp:d.duedate||'Chưa đặt hạn', dueCls:'',
       created:d.created||'', createdDisp:d.created||'—',
       overdue:false, stuck:false, isNew:false,
-      jiraUrl:(window.__jiraBase||'')+'/browse/'+key };
+      jiraUrl:(window.__jiraBase||'')+'/issue/'+key };
   }
   function renderDrawer(t){
     var chips=(t.customs&&t.customs.length)?t.customs.map(function(v){
@@ -3262,16 +3572,19 @@ window.__smSetCustom=function(t, key, val, onChanged){
   var testerFilter = '';   // lọc bảng theo tester (qa_pic); '' = tất cả
   var devFilter = '';      // lọc bảng theo dev in charge (dev_pic); '' = tất cả
   var sevFilter = '';      // lọc theo severity Jira: ''=tất cả, blocker/critical/high/medium/low/none
+  var featFilter = '';     // lọc bảng theo Feature / Project; '' = tất cả
   // ===== TAB = squad / backlog (Decision #108) =====
   // 4 tab squad CỐ ĐỊNH (user chốt): mỗi tab = bug ĐANG trong active sprint của squad đó (MỌI
   // status). Tab cuối "backlog" = bug NGOÀI active sprint (future + backlog #107) & còn mở,
   // chia tiếp theo 4 squad bằng section header trong bảng. Thay hẳn lăng kính tháng cũ (#75).
-  var SQUADS = ['SIT1','SIT2','SIT3','SIT4'];
-  function squadRank(sq){ var i=SQUADS.indexOf(sq); return i<0 ? 99 : i; }   // 'Khác' xuống cuối
-  function squadOf(b){ var p=(b.project||'').trim(); return SQUADS.indexOf(p)>=0 ? p : 'Khác'; }
-  var tab = SQUADS[0];
+  var QA_TABS = ['all','Thuyết','Nhàn'];
+  function qaGroupOf(b){ var q=(b.qa||'').trim(); if(q==='Thuyết'||q==='Nhàn') return q; return 'other'; }
+  var SQUADS = QA_TABS;
+  function squadRank(sq){ return 0; }
+  function squadOf(b){ return (b.project||'').trim() || 'Khác'; }
+  var tab = 'all';
   try{ var _t=localStorage.getItem('qa-buglog-tab');
-       if(_t && (_t==='backlog' || SQUADS.indexOf(_t)>=0)) tab=_t; }catch(e){}
+       if(_t && QA_TABS.indexOf(_t)>=0) tab=_t; }catch(e){}
   function saveTab(){ try{ localStorage.setItem('qa-buglog-tab', tab); }catch(e){} }
   var tabs=$('blTabs'), rows=$('blRows'), pager=$('blPager'), cnt=$('blCount');
 
@@ -3291,11 +3604,12 @@ window.__smSetCustom=function(t, key, val, onChanged){
   // Trạng thái = ĐÚNG status Jira (#104, không map lifecycle). Màu badge theo tên status
   // workflow Bug Testing; tên lạ -> badge mặc định.
   var JST = {
-    'TRIAGE':'st-open', 'Open':'st-open', 'To Do':'st-open', 'TO DO':'st-open',
-    'In Progress':'st-fixing', 'TESTING':'st-fixing', 'PENDING':'st-fixing',
+    'Todo':'st-default', 'To Do':'st-default', 'TO DO':'st-default', 'Backlog':'st-default', 'Triage':'st-default', 'TRIAGE':'st-default', 'Open':'st-default',
+    'In Progress':'st-fixing',
+    'Ready to test':'st-ready', 'In testing':'st-ready', 'In Review':'st-ready', 'Ready to deploy':'st-ready', 'TESTING':'st-ready', 'PENDING':'st-ready',
     'Reopened':'st-reopen',
-    'REJECTED':'st-rejected',
-    'Done':'st-closed', 'DONE':'st-closed', 'CANCELLED':'st-closed'
+    'Canceled':'st-rejected', 'Cancelled':'st-rejected', 'Duplicate':'st-rejected', 'Closed':'st-rejected', 'REJECTED':'st-rejected',
+    'Done':'st-closed', 'DONE':'st-closed', 'CANCELLED':'st-rejected'
   };
   function stCell(s){ s=s||''; return '<span class="st-badge '+(JST[s]||'st-default')+'">'+esc(s||'—')+'</span>'; }
   // nhãn trạng thái dạng text cho export Excel = chính status Jira.
@@ -3306,7 +3620,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var tasks = b.tasks || [];
     if(tasks.length){
       return '<span class="bl-jira-wrap">' + tasks.map(function(t){
-        return '<span class="bl-jira-chip"><a class="bl-jira" href="'+esc(base)+'/browse/'+esc(t)+'" target="_blank" rel="noopener">🔗 '+esc(t)+'</a></span>';
+        return '<span class="bl-jira-chip"><a class="bl-jira" href="'+esc(base)+'/issue/'+esc(t)+'" target="_blank" rel="noopener">🔗 '+esc(t)+'</a></span>';
       }).join('') + '</span>';
     }
     return '<span class="bl-nolink">⛓️‍💥 Chưa liên kết</span>';
@@ -3320,6 +3634,11 @@ window.__smSetCustom=function(t, key, val, onChanged){
       if(devFilter==='__none__'){ if((b.dev||'').trim()) return false; }
       else if((b.dev||'')!==devFilter) return false;
     }
+    if(featFilter){
+      var f=(b.feature||'').trim();
+      if(featFilter==='__none__'){ if(f) return false; }
+      else if(f!==featFilter) return false;
+    }
     if(sevFilter && sevOf(b)!==sevFilter) return false;   // 'none' = chưa phân loại (#104)
     return true;
   }
@@ -3328,10 +3647,10 @@ window.__smSetCustom=function(t, key, val, onChanged){
   //   tab squad  = bug active-sprint của squad đó, MỌI status (user chốt "tất cả bug trong sprint").
   //   tab backlog= bug NGOÀI active sprint (future + backlog #107), MỌI status gồm Closed/Rejected
   //                (user chốt: đừng ẩn reject/bug ngoài sprint), chia tiếp theo squad.
-  function activeBugs(sq){ return fileBugs().filter(function(b){
-    return isActive(b) && squadOf(b)===sq && passFilters(b); }); }
-  function backlogBugs(){ return fileBugs().filter(function(b){
-    return !isActive(b) && passFilters(b); }); }
+  function activeBugs(t){ return fileBugs().filter(function(b){
+    if(t!=='all' && qaGroupOf(b)!==t) return false;
+    return passFilters(b); }); }
+  function backlogBugs(){ return []; }
   // Mọi bug đều xuất hiện ở đâu đó trên trang (active squad ∪ backlog) -> nguồn dropdown = tất cả.
   function scopeBugs(){ return fileBugs(); }
 
@@ -3360,19 +3679,37 @@ window.__smSetCustom=function(t, key, val, onChanged){
     sel0.innerHTML='<option value="">Tất cả dev</option>'+noneOpt+list.map(function(d){
       return '<option value="'+esc(d)+'"'+(d===devFilter?' selected':'')+'>'+esc(d)+'</option>'; }).join('');
   }
+  function populateBugFeatures(){
+    var sel=$('blFeatFilter'); if(!sel) return;
+    var tot={}, open={}, hasNone=false, noneTot=0, noneOpen=0;
+    scopeBugs().forEach(function(b){
+      var f=(b.feature||'').trim();
+      var isO=(b.status!=='Closed' && b.status!=='Rejected');
+      if(f){
+        tot[f]=(tot[f]||0)+1;
+        if(isO) open[f]=(open[f]||0)+1;
+      } else { hasNone=true; noneTot++; if(isO) noneOpen++; }
+    });
+    var list=Object.keys(tot).sort(function(a,b){ return (open[b]||0)-(open[a]||0) || tot[b]-tot[a] || a.localeCompare(b); });
+    if(featFilter && featFilter!=='__none__' && !tot[featFilter]) featFilter='';
+    if(featFilter==='__none__' && !hasNone) featFilter='';
+    var noneOpt=hasNone?('<option value="__none__"'+(featFilter==='__none__'?' selected':'')+'>(Chưa gắn Feature) ('+noneOpen+' mở / '+noneTot+')</option>'):'';
+    sel.innerHTML='<option value="">Tất cả Feature</option>'+list.map(function(f){
+      return '<option value="'+esc(f)+'"'+(f===featFilter?' selected':'')+'>'+esc(f)+' ('+(open[f]||0)+' mở / '+tot[f]+')</option>';
+    }).join('')+noneOpt;
+  }
 
   // số bug mỗi tab (đã áp filter -> badge khớp bảng)
-  function tabCount(t){ return t==='backlog' ? backlogBugs().length : activeBugs(t).length; }
+  function tabCount(t){ return activeBugs(t).length; }
   function renderTabs(){
     populateTesters();
-    var h = SQUADS.map(function(sq){
-      return '<button class="bl-tab'+(tab===sq?' active':'')+'" data-tab="'+esc(sq)+'">'
-        +'<span class="material-symbols-rounded ph-light ph-users-three"></span> '
-        +esc(sq)+' <span class="bl-grptab-n">'+tabCount(sq)+'</span></button>';
+    populateBugFeatures();
+    var LABELS = { 'all':'Tất cả [Bug]', 'Thuyết':'QA Thuyết', 'Nhàn':'QA Nhàn', 'other':'QA Khác' };
+    var h = QA_TABS.filter(function(t){ return t!=='other' || tabCount('other')>0; }).map(function(t){
+      return '<button class="bl-tab'+(tab===t?' active':'')+'" data-tab="'+esc(t)+'">'
+        +'<span class="material-symbols-rounded ph-light '+(t==='all'?'ph-bug-beetle':'ph-user')+'"></span> '
+        +esc(LABELS[t]||t)+' <span class="bl-grptab-n">'+tabCount(t)+'</span></button>';
     }).join('');
-    h += '<button class="bl-tab'+(tab==='backlog'?' active':'')+'" data-tab="backlog">'
-      +'<span class="material-symbols-rounded ph-light ph-tray"></span> '
-      +'Backlog <span class="bl-grptab-n">'+tabCount('backlog')+'</span></button>';
     tabs.innerHTML = h;
   }
 
@@ -3386,8 +3723,8 @@ window.__smSetCustom=function(t, key, val, onChanged){
   }
   function rowHTML(b){
     return '<tr data-bug="'+esc(b.key)+'">'
-      +'<td><a class="bl-id key" href="'+esc(base)+'/browse/'+encodeURIComponent(b.key)+'" target="_blank" rel="noopener" title="Mở trên Jira">'+esc(b.id)+'</a></td>'
-      +'<td><b>'+esc(b.summary)+'</b></td>'
+      +'<td><a class="bl-id key" href="'+esc(base)+'/issue/'+encodeURIComponent(b.key)+'" target="_blank" rel="noopener" title="Mở trên Linear">'+esc(b.id)+'</a></td>'
+      +'<td>'+(b.feature?'<div class="bc-feat" style="margin-bottom:3px">'+esc(b.feature)+'</div>':'')+'<div><b>'+esc(b.summary)+'</b></div></td>'
       +'<td style="white-space:nowrap">'+esc(formatCreated(b.created))+'</td>'
       +'<td>'+sevCell(b)+'</td>'
       +'<td>'+stCell(b.statusRaw||b.status)+'</td>'
@@ -3441,7 +3778,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
       html = '<tr><td colspan="'+cols+'"><div class="empty-state">'
         +'<span class="es-ic"><span class="material-symbols-rounded ph-light ph-bug-beetle"></span></span>'
         +'<div class="es-title">'+(isBack ? 'Không có bug nào ngoài sprint'
-            : 'Squad '+esc(tab)+' chưa có bug trong sprint đang chạy')+'</div>'
+            : 'Chưa có issue [Bug] nào')+'</div>'
         +'<div class="es-hint">Đổi tab squad/backlog hoặc bỏ bộ lọc tester/dev/severity để xem bug khác.</div>'
         +'</div></td></tr>';
     }
@@ -3473,6 +3810,8 @@ window.__smSetCustom=function(t, key, val, onChanged){
   // ----- events: lọc theo severity -----
   (function(){ var sf=$('blSevFilter'); if(!sf) return;
     sf.addEventListener('change', function(){ sevFilter=sf.value||''; page=1; renderTabs(); render(); }); })();
+  (function(){ var ff=$('blFeatFilter'); if(!ff) return;
+    ff.addEventListener('change', function(){ featFilter=ff.value||''; page=1; renderTabs(); render(); }); })();
   // ----- export bảng ĐANG XEM ra .xlsx (tab squad/backlog + filter hiện tại) -----
   function exportExcel(){
     var list=visibleBugs();   // toàn bộ bug tab đang xem (squad/backlog) + tester/dev/sev filter
@@ -3512,7 +3851,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     if(!b || b.disabled) return Promise.resolve(false);
     b.disabled=true;
     b.innerHTML='<span class="material-symbols-rounded ph-light ph-circle-notch mi-sm" style="animation:spin 1s linear infinite"></span> Đang đồng bộ…';
-    toast('Đang kéo lại Bug Testing từ Jira…', true);
+    toast('Đang kéo lại [Bug] từ Linear…', true);
     return postJSON('/sync-bug-log', {}, 90000).then(function(j){
       if(j && j.ok){
         var changes=(j&&j.changes)||[];
@@ -3851,8 +4190,8 @@ window.__smSetCustom=function(t, key, val, onChanged){
   var scopeMode = 'active';   // 'active' | 'all'
   try{ var _s=localStorage.getItem('qa-analytics-scope'); if(_s==='all'||_s==='active') scopeMode=_s; }catch(e){}
   // filter squad TOÀN TRANG (amend 2026-10-19): 'all' | 'SIT1'..'SIT4' | 'Khác'. Áp cùng scope.
-  var AN_SQUADS = ['SIT1','SIT2','SIT3','SIT4'];
-  function squadOfB(b){ var p=(b.project||'').trim(); return AN_SQUADS.indexOf(p)>=0 ? p : 'Khác'; }
+  var AN_SQUADS = ['VA','CL','GRO','THE','QA'];
+  function squadOfB(b){ return (b.project||'').trim() || 'VA'; }
   var squadFilter = 'all';
   try{ var _sq=localStorage.getItem('qa-analytics-squad'); if(_sq) squadFilter=_sq; }catch(e){}
   function inActive(b){ return (b.sprintState||'backlog')==='active'; }
@@ -4006,10 +4345,13 @@ window.__smSetCustom=function(t, key, val, onChanged){
       var tabSquads=Object.keys(tabAgg).sort(function(a,b){
         var ra=AN_SQUADS.indexOf(a), rb=AN_SQUADS.indexOf(b); ra=ra<0?99:ra; rb=rb<0?99:rb;
         return ra-rb || (a<b?-1:a>b?1:0); });
-      var th='<button class="an-tab'+(squadFilter==='all'?' on':'')+'" data-sq="all">Tất cả <i>'+Object.keys(tabDevSet).length+' dev • '+scopeAll.length+'</i></button>';
-      tabSquads.forEach(function(bk){ var t=tabAgg[bk], dc=Object.keys(t.devs).length;
-        th+='<button class="an-tab'+(squadFilter===bk?' on':'')+'" data-sq="'+esc(bk)+'">'+esc(bk)+' <i>'+dc+' dev • '+t.total+'</i></button>'; });
-      tabs.innerHTML=th;
+      if(tabSquads.length<=1){ tabs.innerHTML=''; }
+      else {
+        var th='<button class="an-tab'+(squadFilter==='all'?' on':'')+'" data-sq="all">Tất cả <i>'+Object.keys(tabDevSet).length+' dev • '+scopeAll.length+'</i></button>';
+        tabSquads.forEach(function(bk){ var t=tabAgg[bk], dc=Object.keys(t.devs).length;
+          th+='<button class="an-tab'+(squadFilter===bk?' on':'')+'" data-sq="'+esc(bk)+'">'+esc(bk)+' <i>'+dc+' dev • '+t.total+'</i></button>'; });
+        tabs.innerHTML=th;
+      }
     }
     if(!squadList.length){ metricCharts.innerHTML='<div class="an-empty">Không có bug nào khớp bộ lọc</div>'; }
     else {
@@ -4113,7 +4455,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     if(drawerDev) drawerDev.textContent=dev+(e.squad?' • '+e.squad:'');
     var items=(e.detail||[]).slice().sort(function(a,b){ return b.reopen-a.reopen; });
     var rows=items.map(function(it){
-      var link=(it.key && JBASE) ? '<a href="'+JBASE+'/browse/'+encodeURIComponent(it.key)+'" target="_blank" rel="noopener">'+esc(it.id||it.key)+'</a>' : esc(it.id||it.key||'(bug)');
+      var link=(it.key && JBASE) ? '<a href="'+JBASE+'/issue/'+encodeURIComponent(it.key)+'" target="_blank" rel="noopener">'+esc(it.id||it.key)+'</a>' : esc(it.id||it.key||'(bug)');
       var sv=it.sev&&it.sev!=='none' ? '<span class="andr-sev" style="background:'+SEV_COLOR[it.sev]+';">'+esc(SEV_LABEL[it.sev])+'</span>' : '';
       return '<div class="andr-bug">'
         + '<div class="andr-bug-top"><span class="andr-key">'+link+'</span>'+sv
@@ -4177,7 +4519,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     }
     function rows(list){
       return list.map(function(b){
-        return '<a class="an-ck-row" href="'+JBASE+'/browse/'+encodeURIComponent(b.key)+'" target="_blank" rel="noopener">'
+        return '<a class="an-ck-row" href="'+JBASE+'/issue/'+encodeURIComponent(b.key)+'" target="_blank" rel="noopener">'
           + '<span class="an-ck-key">'+esc(b.key)+'</span>'
           + '<span class="an-ck-sum">'+esc(b.summary||'')+'</span>'
           + '<span class="an-ck-squad">'+esc(b.project||'—')+'</span></a>';
@@ -4368,9 +4710,11 @@ window.__smSetCustom=function(t, key, val, onChanged){
   // Các squad có mặt trong data, thứ tự SIT1-4 rồi 'Khác' (ổn định, không phụ thuộc scope).
   function squadButtons(){
     var present={}; BUGS.forEach(function(b){ present[squadOfB(b)]=1; });
-    var order=AN_SQUADS.filter(function(s){ return present[s]; });
-    if(present['Khác']) order.push('Khác');
-    return order;
+    var order=Object.keys(present).sort(function(a,b){
+      var ra=AN_SQUADS.indexOf(a), rb=AN_SQUADS.indexOf(b); ra=ra<0?99:ra; rb=rb<0?99:rb;
+      return ra-rb || a.localeCompare(b);
+    });
+    return order.length <= 1 ? [] : order;
   }
   // squadFilter lưu trong localStorage có thể trỏ squad không còn data -> về 'all'
   if(squadFilter!=='all' && squadButtons().indexOf(squadFilter)<0) squadFilter='all';

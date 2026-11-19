@@ -5,7 +5,7 @@ Pure functions over the raw issue dicts returned by the Jira API. No network, no
 import html as html_lib
 from datetime import datetime, timedelta
 
-from config import JIRA_URL, STUCK_DAYS, actor_name
+from config import LINEAR_BASE_URL, STUCK_DAYS, actor_name
 
 
 def parse_date(s):
@@ -53,6 +53,11 @@ def i_reporter_name(issue):
 def i_status(issue):
     s = f(issue, 'status') or {}
     return s.get('name', '')
+
+
+def i_status_cat(issue):
+    s = f(issue, 'status') or {}
+    return s.get('category') or s.get('name', '')
 
 
 def i_type(issue):
@@ -122,8 +127,8 @@ def days_since_update(issue):
 
 
 def is_stuck(issue):
-    """In-flight (không phải TO DO) mà không cập nhật >= STUCK_DAYS ngày."""
-    if i_status(issue).strip().upper() == 'TO DO':
+    """In-flight (không phải TO DO/DONE/CANCELLED) mà không cập nhật >= STUCK_DAYS ngày."""
+    if i_status_cat(issue).strip().upper() in ('TO DO', 'DONE', 'CANCELLED'):
         return False
     d = days_since_update(issue)
     return d is not None and d >= STUCK_DAYS
@@ -135,7 +140,8 @@ def esc(s):
 
 def issue_link(issue):
     key = issue['key']
-    return f'<a href="{JIRA_URL}/browse/{esc(key)}" target="_blank" class="key">{esc(key)}</a>'
+    url = issue.get('url') or f'{LINEAR_BASE_URL}/issue/{esc(key)}'
+    return f'<a href="{esc(url)}" target="_blank" class="key">{esc(key)}</a>'
 
 
 def status_class(name):

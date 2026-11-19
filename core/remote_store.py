@@ -118,29 +118,35 @@ def _kv_delete(key):
 
 # ===== Remote backend (KV nếu cấu hình, else Jira property — nạp lazy) =====
 def _remote_get(key):
-    """Đọc từ kho remote. None nếu chưa có. Raise RuntimeError nếu remote không với tới."""
+    """Đọc từ kho remote (KV). None nếu KV chưa bật (local-only)."""
     if KV_ENABLED:
         return _kv_get(key)
-    from jira_api import load_property  # lazy -> tránh vòng import
-    return load_property(key)
+    from config import JIRA_ENABLED
+    if JIRA_ENABLED:
+        from jira_api import load_property
+        return load_property(key)
+    return None
 
 
 def _remote_put(key, value):
     if KV_ENABLED:
         _kv_put(key, value)
         return
-    from jira_api import save_property
-    save_property(key, value)
+    from config import JIRA_ENABLED
+    if JIRA_ENABLED:
+        from jira_api import save_property
+        save_property(key, value)
 
 
 def _remote_delete(key):
-    """Xoá key trên kho remote. Jira: ghi None/rỗng (DC không có DELETE property tiện) ->
-    dùng save {} để 'trống'. KV: DELETE thật."""
+    """Xoá key trên kho remote."""
     if KV_ENABLED:
         _kv_delete(key)
         return
-    from jira_api import save_property
-    save_property(key, {})
+    from config import JIRA_ENABLED
+    if JIRA_ENABLED:
+        from jira_api import save_property
+        save_property(key, {})
 
 
 # Public wrappers — cho module GIỮ logic merge/format riêng (bug_log_store union-merge,
@@ -161,9 +167,8 @@ def remote_delete(key):
 
 
 def _jira_migrate(key, validate):
-    """Đọc Jira property 1 lần để migrate data cũ sang KV (chỉ khi KV bật + KV rỗng + local rỗng).
-    Cần VPN; không với tới -> None (bỏ qua, dùng default)."""
-    if not KV_ENABLED:
+    from config import JIRA_ENABLED
+    if not KV_ENABLED or not JIRA_ENABLED:
         return None
     try:
         from jira_api import load_property

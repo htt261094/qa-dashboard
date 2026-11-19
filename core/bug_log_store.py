@@ -27,7 +27,7 @@ import time
 from datetime import datetime, timedelta
 
 from config import BUG_LOG_FILE, BUG_LOG_POLL_SECONDS, atomic_write
-from jira_api import run_parallel
+from linear_api import run_parallel
 # Metrics (reopen/metrics/activity) dùng union-merge MONOTONIC chéo máy -> KHÔNG dùng local-first
 # LWW của synced_* (sẽ làm tụt count). Chỉ đổi backend Jira->KV qua remote_get/remote_put, GIỮ
 # nguyên merge-before-write. KV value tới 25MB (Jira ~32KB) nên light-split ít khi cần nhưng giữ.
@@ -320,15 +320,31 @@ def _change_item(e):
     }
 
 
+def _seen_local_path():
+    from config import SCRIPT_DIR
+    return SCRIPT_DIR / '.bug_log_seen.json'
+
+
 def _load_seen():
-    """{user_key: watermark_iso}. Property lỗi -> {} (coi như chưa xem gì)."""
+    """{user_key: watermark_iso}. Đọc local trước rồi merge remote KV (nếu bật) để không bị loop popup."""
+    out = {}
+    p = _seen_local_path()
+    if p.exists():
+        try:
+            d = json.loads(p.read_text(encoding='utf-8'))
+            if isinstance(d, dict):
+                out.update(d)
+        except (OSError, json.JSONDecodeError):
+            pass
     try:
         d = load_property(BUG_LOG_SEEN_PROP)
         if isinstance(d, dict):
-            return d
+            for k, v in d.items():
+                if v > out.get(k, ''):
+                    out[k] = v
     except RuntimeError:
         pass
-    return {}
+    return out
 
 
 def unseen_changes(user_key, days=_ACT_PRUNE_DAYS, activity=None):
@@ -370,6 +386,7 @@ def mark_changes_seen(user_key, watermark=''):
             if wm <= cur.get(user_key, ''):
                 return True
             cur[user_key] = wm
+            atomic_write(_seen_local_path(), json.dumps(cur, ensure_ascii=False))
             save_property(BUG_LOG_SEEN_PROP, cur)
             return True
         except RuntimeError:
@@ -551,14 +568,20 @@ def _prune_activity(activity):
 
 # ===== scan() — kéo bug từ nguồn Jira "Bug Testing" (#104) =====
 def _scan_one(src, prev, force=False):
-    """Xử lý 1 nguồn bug Jira — PHẦN THUẦN (không ghi state chung) để chạy song song an toàn.
-    Gọi bug_source_jira.scan_source; soft-fail per-source (lỗi -> {'error'}). `prev`/`force`
-    giữ chữ ký cũ nhưng không dùng (Jira fetch mỗi lượt — volume nhỏ, không cần Tầng-1 metadata)."""
+    """Xử lý 1 nguồn bug (Linear hoặc Jira nếu bật) — PHẦN THUẦN để chạy song song an toàn."""
     fid = src.get('id')
     if not fid:
         return None
-    import bug_source_jira   # lazy — giữ layer sạch
-    res = bug_source_jira.scan_source(src)
+    prov = (src.get('provider') or 'linear').lower()
+    if prov == 'jira':
+        from config import JIRA_ENABLED
+        if not JIRA_ENABLED:
+            return {'fid': fid, 'unchanged': True, 'count': len(prev.get('bugs', {}))}
+        import bug_source_jira
+        res = bug_source_jira.scan_source(src)
+    else:
+        import bug_source_linear
+        res = bug_source_linear.scan_source(src)
     if res.get('error'):
         return {'fid': fid, 'error': res['error']}
     bugs = res.get('bugs') or []

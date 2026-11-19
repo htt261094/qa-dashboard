@@ -3,7 +3,7 @@
 Tách từ render/__init__.py (issue #105 / #86). Card "Kết nối Drive" đã gỡ (#104) —
 Bug Log nguồn Jira, không còn Google Drive.
 """
-from config import JIRA_URL
+from config import LINEAR_BASE_URL
 from issues import esc
 from render.base import load_css
 from render.shell import _document_v2, _conn_error_card
@@ -23,26 +23,23 @@ def render_403():
 
 # ===== Settings page (/settings): nhập PAT cá nhân để thao tác Jira ghi đúng tên mình =====
 def render_settings_page(has_pat, user=None, activities=None):
-    # Jira Cloud (#197): API token Atlassian thay PAT Jira DC. PAT DC đã lưu tự bị coi là "chưa có".
-    status_line = ('<div class="set-state set-ok">✓ Bạn đã lưu API token Jira. Thao tác đổi status/comment sẽ ghi đúng tên bạn trên Jira.</div>'
+    status_line = ('<div class="set-state set-ok">✓ Đã cấu hình Linear API key. Thao tác đổi status/comment sẽ ghi lên Linear.</div>'
                    if has_pat else
-                   '<div class="set-state set-none">⚠ Bạn chưa lưu API token Jira Cloud (PAT của Jira cũ không còn dùng được). '
-                   'Thao tác ghi Jira sẽ bị từ chối tới khi có token.</div>')
+                   '<div class="set-state set-none">⚠ Chưa lưu Linear API key cá nhân (đang dùng key mặc định nếu có).</div>')
     inner = (
         '<div class="page-head"><div>'
-        '<h2 class="page-title">⚙ Setting — API token Jira Cloud</h2>'
-        '<div class="page-sub">API token giúp dashboard thao tác Jira <strong>nhân danh chính bạn</strong>. '
-        'Token được mã hoá (AES) trước khi lưu, không bao giờ lưu dạng thô.</div>'
+        '<h2 class="page-title">⚙ Setting — Linear API Key</h2>'
+        '<div class="page-sub">API key giúp dashboard thao tác Linear <strong>nhân danh chính bạn</strong>. '
+        'Key được mã hoá (AES) trước khi lưu, không bao giờ lưu dạng thô.</div>'
         '</div></div>'
         f'<div class="set-wrap">{status_line}'
         '<div class="set-card">'
-        '<h2>1. Tạo API token trên Atlassian</h2>'
+        '<h2>1. Tạo Personal API key trên Linear</h2>'
         '<ol class="set-steps">'
-        '<li>Mở <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank" rel="noopener">'
-        'Atlassian account → Security → API tokens</a> (đăng nhập bằng email công ty).</li>'
-        '<li>Bấm <b>Create API token</b> (loại thường, KHÔNG chọn "with scopes"), đặt tên (vd "QA Workspace"), chọn hạn dùng '
-        '(tối đa 1 năm — hết hạn thì quay lại đây dán token mới).</li>'
-        '<li>Copy chuỗi token (chỉ hiện 1 lần).</li>'
+        '<li>Mở <a href="https://linear.app/settings/api" target="_blank" rel="noopener">'
+        'Linear → Settings → API</a>.</li>'
+        '<li>Bấm <b>Create key</b>, đặt tên (vd "QA Workspace"), rồi copy chuỗi <code>lin_api_...</code>.</li>'
+        '<li>Dán vào ô bên dưới và bấm Lưu.</li>'
         '</ol>'
         '<h2>2. Dán vào đây</h2>'
         '<div class="set-form">'
@@ -60,7 +57,7 @@ def render_settings_page(has_pat, user=None, activities=None):
 
 
 def render_shell_error(active='mywork', user=None,
-                       msg='Không thể kết nối tới Jira. Vui lòng thử lại.',
+                       msg='Không thể kết nối tới Linear. Vui lòng thử lại.',
                        title='QA Workspace'):
     """Lỗi GIỮ NGUYÊN skeleton v2 (sidebar + topbar) — chỉ phần nội dung cần Jira
     đổi sang thông báo lỗi. Dùng khi Jira timeout/không với tới ở các route fetch
@@ -118,6 +115,6 @@ def render_error_page(msg):
 <script>(function(){{try{{var t=localStorage.getItem('qa-theme');if(t)document.documentElement.setAttribute('data-theme',t);}}catch(e){{}}}})();</script>
 <style>{load_css()}</style></head>
 <body><div class="container"><header><h1>QA Workspace</h1></header>
-<div class="error"><strong>Lỗi pull data từ Jira:</strong><br>{esc(msg)}</div>
-<p style="color:#6b778c;margin-top:16px">Check JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN trong file .env. F5 để retry.</p>
+<div class="error"><strong>Lỗi pull data từ Linear:</strong><br>{esc(msg)}</div>
+<p style="color:#6b778c;margin-top:16px">Check LINEAR_API_KEY trong file .env. F5 để retry.</p>
 </div></body></html>"""

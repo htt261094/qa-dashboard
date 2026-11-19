@@ -106,7 +106,7 @@ def render_analytics_v2(data, user=None, activities=None, backlog=None):
         '<div class="card an-sec" id="anAgeSec">'
         '<div class="an-sec-head">'
         '<div><h3 class="an-sec-title">Tuổi bug đang mở '
-        '<span class="an-chip-soft">Metric từ Jira</span></h3>'
+        '<span class="an-chip-soft">Metric từ Linear</span></h3>'
         '<div class="an-sec-sub">Tuổi các bug đang mở trong sprint đang chạy (từ lúc tạo tới nay)</div></div>'
         '<div class="an-age-pills" id="anAgePills"></div>'
         '</div>'
@@ -166,7 +166,7 @@ def render_analytics_v2(data, user=None, activities=None, backlog=None):
         '<div class="an-foot-bar">'
         '<div>Valid Bug Rate = Closed / (Tổng bug − Reject) &nbsp;•&nbsp; '
         'Rejected Bug Rate = Reject / Tổng bug</div>'
-        '<div>Jira Bug Intelligence • Đồng bộ thời gian thực</div></div>'
+        '<div>Linear Bug Intelligence • Đồng bộ thời gian thực</div></div>'
 
         # ===== drawer chi tiết bug reopen của 1 dev =====
         '<div class="an-drawer" id="anDrawer" aria-hidden="true">'
@@ -175,7 +175,7 @@ def render_analytics_v2(data, user=None, activities=None, backlog=None):
         '<div class="an-drawer-head">'
         '<div><h3 class="an-drawer-title">Chi tiết Bug bị Reopen '
         '<span class="an-chip-soft" id="anDrawerDev"></span></h3>'
-        '<div class="an-sec-sub">Danh sách bug QA trả lại — dữ liệu từ Jira</div></div>'
+        '<div class="an-sec-sub">Danh sách bug QA trả lại — dữ liệu từ Linear</div></div>'
         '<button class="an-drawer-x" id="anDrawerClose" title="Đóng (Esc)">'
         '<span class="material-symbols-rounded ph-light ph-x"></span></button>'
         '</div>'
