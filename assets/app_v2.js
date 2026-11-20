@@ -3771,7 +3771,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     if(!total){
       html = '<tr><td colspan="'+cols+'"><div class="empty-state">'
         +'<span class="es-ic"><span class="material-symbols-rounded ph-light ph-bug-beetle"></span></span>'
-        +'<div class="es-title">'+(isBack ? 'Không có bug nào ngoài sprint'
+        +'<div class="es-title">'+(isBack ? 'Không có bug nào ngoài cycle'
             : 'Chưa có issue [Bug] nào')+'</div>'
         +'<div class="es-hint">Đổi tab squad/backlog hoặc bỏ bộ lọc tester/dev/severity để xem bug khác.</div>'
         +'</div></td></tr>';
@@ -4250,7 +4250,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     // Valid
     var v=computeValid(SCOPE);
     if(!v.total){
-      fillKpi('anKpiValid','soft','Mục tiêu >90%','—','chưa có bug','<span class="ank-mut">Không có bug trong sprint</span>');
+      fillKpi('anKpiValid','soft','Mục tiêu >90%','—','chưa có bug','<span class="ank-mut">Không có bug trong cycle</span>');
       fillKpi('anKpiReject','soft','Tốt: <5%','—','chưa có bug','<span class="ank-mut">—</span>');
     } else {
       var vp=v.valid;
@@ -4267,7 +4267,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     // Reopen
     var ro=computeReopen(SCOPE), hp=reopenPct(ro.distinctTotal, ro.totalBugs);
     if(hp===null){
-      fillKpi('anKpiReopen','soft','—','—','chưa có bug','<span class="ank-mut">Không có bug trong sprint</span>');
+      fillKpi('anKpiReopen','soft','—','—','chưa có bug','<span class="ank-mut">Không có bug trong cycle</span>');
     } else {
       var hpn=+hp, rcls=hpn<=10?'ok':(hpn<=25?'warn':'bad'),
           rtxt=hpn<=10?'Chất lượng cao':(hpn<=25?'Cần theo dõi':'Cần cải thiện'),
@@ -4328,7 +4328,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
         nDev=Object.keys(devCount).length;
     if(badge) badge.textContent=squadList.length+' squad • '+nDev+' dev';
     if(stats) stats.innerHTML=
-        '<div class="an-stile"><b>'+grand+'</b><span>Bug'+(scopeMode==='all'?'':' trong sprint')+'</span></div>'
+        '<div class="an-stile"><b>'+grand+'</b><span>Bug'+(scopeMode==='all'?'':' trong cycle')+'</span></div>'
       + '<div class="an-stile"><b class="c-ok">'+fixed+'<i>/'+grand+'</i></b><span>Đã đóng</span></div>';
     // tabs lọc squad — dựng từ SCOPE (chưa lọc squad) để luôn chuyển được giữa các squad; đồng bộ
     // với filter squad toàn trang ở page-head (amend 2026-10-19). Bucket theo squadOfB (SIT1-4 + Khác).
@@ -4468,7 +4468,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
   if($('anDrawerBackdrop')) $('anDrawerBackdrop').addEventListener('click', closeDrawer);
   document.addEventListener('keydown', function(e){ if(e.key==='Escape' && drawer && drawer.classList.contains('open')) closeDrawer(); });
 
-  // ===== Tình trạng theo Sprint — bug đang mở phân active/future/backlog (#106/B) =====
+  // ===== Tình trạng theo Cycle — bug đang mở phân active/future/backlog (#106/B) =====
   function spTile(cls, title, sub, n, color){
     return '<div class="an-sp-tile '+cls+'"><div class="an-sp-n" style="color:'+color+'">'+n+'</div>'
       + '<div class="an-sp-t">'+title+'</div><div class="an-sp-s">'+sub+'</div></div>';
@@ -4482,14 +4482,18 @@ window.__smSetCustom=function(t, key, val, onChanged){
       buckets[st]++;
       if(st==='backlog'){ var p=(b.project||'Khác').trim(); backlogBySquad[p]=(backlogBySquad[p]||0)+1; }
     });
-    if(!openBugs.length){ el.innerHTML='<div class="an-empty">Không có bug nào đang mở 🎉</div>'; return; }
+    if(!openBugs.length){
+      var ck=sprintChecklist(openBugs);
+      el.innerHTML='<div class="an-empty">Không có bug nào đang mở 🎉</div>' + (ck.indexOf('an-ck-grp')>=0 ? ck : '');
+      return;
+    }
     var tiles='<div class="an-sp-tiles">'
-      + spTile('active','Trong sprint','Đang làm kỳ này', buckets.active, '#36b37e')
-      + spTile('future','Đã xếp kỳ sau','PO đã đưa vào sprint tới', buckets.future, '#4c9aff')
-      + spTile('backlog','Backlog chờ PO','Rớt sprint — cần leader quyết', buckets.backlog, '#ff5630')
+      + spTile('active','Trong cycle','Đang làm kỳ này', buckets.active, '#36b37e')
+      + spTile('future','Đã xếp kỳ sau','PO đã đưa vào cycle tới', buckets.future, '#4c9aff')
+      + spTile('backlog','Backlog chờ PO','Rớt cycle — cần leader quyết', buckets.backlog, '#ff5630')
       + '</div>';
     var bar=compBar([
-      {label:'Trong sprint', n:buckets.active, color:'#36b37e'},
+      {label:'Trong cycle', n:buckets.active, color:'#36b37e'},
       {label:'Kỳ sau', n:buckets.future, color:'#4c9aff'},
       {label:'Backlog chờ PO', n:buckets.backlog, color:'#ff5630'}], 26);
     var sq=Object.keys(backlogBySquad).sort();
@@ -4497,23 +4501,26 @@ window.__smSetCustom=function(t, key, val, onChanged){
       ? '<div class="an-sp-bl"><span class="an-sp-bl-lbl">Backlog chờ PO theo squad:</span>'
         + sq.map(function(p){ return '<span class="an-sevp mut">'+esc(p)+': <b>'+backlogBySquad[p]+'</b></span>'; }).join('')
         + '</div>'
-      : '<div class="an-sp-bl ok"><span class="material-symbols-rounded ph-light ph-check-circle mi-sm"></span> Không có bug nào kẹt ngoài sprint.</div>';
+      : '<div class="an-sp-bl ok"><span class="material-symbols-rounded ph-light ph-check-circle mi-sm"></span> Không có bug nào kẹt ngoài cycle.</div>';
     el.innerHTML = tiles + '<div class="an-sp-bar">'+bar+'</div>' + blList + sprintChecklist(openBugs);
   }
 
-  // Checklist review cuối sprint (#111): bug ĐANG MỞ trong active sprint thiếu metadata mà 2
-  // leader phải soát — chưa gán dev / chưa đặt severity. (Bug rớt sprint đã nêu ở khối backlog.)
+  // Checklist review cuối cycle (#111): bug trong active cycle thiếu metadata mà 2 leader phải soát —
+  // issue label "bug" thiếu label "caused-by:*" / chưa gán dev / chưa đặt severity.
   function sprintChecklist(openBugs){
     var act=openBugs.filter(inActive);
     var noDev=act.filter(function(b){ return !(b.dev||'').trim(); });
     var noSev=act.filter(function(b){ return sevOf(b)==='none'; });
-    if(!noDev.length && !noSev.length){
+    var actAll=BUGS.filter(function(b){ return inSquad(b) && inActive(b) && !isReject(b.status); });
+    var noCausedBy=actAll.filter(function(b){ return b.hasBugLabel && b.hasCausedBy===false; });
+    if(!noDev.length && !noSev.length && !noCausedBy.length){
       return '<div class="an-ck ok"><span class="material-symbols-rounded ph-light ph-check-circle mi-sm"></span>'
-        + ' Mọi bug trong sprint đã đủ dev + severity.</div>';
+        + ' Mọi bug trong cycle đã đủ dev, severity và label caused-by:*.</div>';
     }
     function rows(list){
       return list.map(function(b){
-        return '<a class="an-ck-row" href="'+JBASE+'/issue/'+encodeURIComponent(b.key)+'" target="_blank" rel="noopener">'
+        var href=b.url || (JBASE+'/issue/'+encodeURIComponent(b.key));
+        return '<a class="an-ck-row" href="'+esc(href)+'" target="_blank" rel="noopener">'
           + '<span class="an-ck-key">'+esc(b.key)+'</span>'
           + '<span class="an-ck-sum">'+esc(b.summary||'')+'</span>'
           + '<span class="an-ck-squad">'+esc(b.project||'—')+'</span></a>';
@@ -4525,8 +4532,10 @@ window.__smSetCustom=function(t, key, val, onChanged){
         + '<div class="an-ck-list">'+rows(list)+'</div></div>';
     }
     return '<div class="an-ck"><div class="an-ck-title">'
-      + '<span class="material-symbols-rounded ph-light ph-clipboard-text mi-sm"></span> Cần soát trước khi chốt sprint</div>'
-      + group('Chưa gán dev', noDev) + group('Chưa đặt severity', noSev) + '</div>';
+      + '<span class="material-symbols-rounded ph-light ph-clipboard-text mi-sm"></span> Cần soát trước khi chốt cycle</div>'
+      + group('Bug thiếu label caused-by:*', noCausedBy)
+      + group('Chưa gán dev', noDev)
+      + group('Chưa đặt severity', noSev) + '</div>';
   }
 
   // ---------- helper (giữ lại cho dedup/compBar) ----------
@@ -4610,7 +4619,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
       var titleEl = document.createElement('div');
       titleEl.style.cssText = 'font-size:24px; font-weight:bold; text-align:center; width:100%; margin-bottom:20px;';
       titleEl.style.color = getComputedStyle(document.body).getPropertyValue('--on-surface') || '#000';
-      titleEl.textContent = 'Bug theo squad & dev — sprint đang chạy';
+      titleEl.textContent = 'Bug theo squad & dev — cycle đang chạy';
       metricCharts.insertBefore(titleEl, metricCharts.firstChild);
       var innerScroll = metricCharts.querySelector('div[style*="overflow-x:auto"]') || metricCharts.querySelector('div[style*="overflow-x: auto"]');
       var origInnerOverflow = '';
@@ -4630,7 +4639,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
         if(imgHeight > pdfHeight - margin*2){ imgHeight = pdfHeight - margin*2; imgWidth = (imgProps.width*imgHeight)/imgProps.height; }
         var xPos = margin + (pdfWidth - margin*2 - imgWidth)/2, yPos = margin + (pdfHeight - margin*2 - imgHeight)/2;
         pdf.addImage(imgData, 'PNG', xPos, yPos, imgWidth, imgHeight);
-        pdf.save('Bug_Metric_sprint.pdf');
+        pdf.save('Bug_Metric_cycle.pdf');
         btnExport.innerHTML = origText; btnExport.disabled = false;
         toast('Export PDF thành công ✓', true);
       }).catch(function(err){
@@ -4648,25 +4657,41 @@ window.__smSetCustom=function(t, key, val, onChanged){
     } else doExport();
   });
 
-  // ===== Xu hướng Reopen qua các Sprint (#112) — suy thẳng từ data sẵn có, 0 store/0 call =====
-  // Gom TẤT CẢ bug theo tên sprint (mọi bug mang field sprint + reopen từ changelog), tính tỷ lệ
-  // reopen per-dev mỗi sprint = matrix dev x sprint. Bug không gắn sprint -> bỏ qua.
-  function sprintNum(s){ var m=(s||'').match(/(\d+)\s*$/); return m ? +m[1] : 1e9; }
-  function sprintSort(a,b){ var na=sprintNum(a), nb=sprintNum(b); return na!==nb ? na-nb : (a<b?-1:a>b?1:0); }
+  // ===== Xu hướng Reopen qua các Cycle (#112) — suy thẳng từ data sẵn có, 0 store/0 call =====
+  // Gom TẤT CẢ bug theo tên cycle, đẩy cycle hiện tại lên đầu và sắp xếp từ mới tới cũ.
+  function sprintNum(s){ var m=(s||'').match(/(\d+)\s*$/); return m ? +m[1] : -1; }
   function roCls(p){ return p===null ? '' : (+p<=10 ? 'ok' : (+p<=25 ? 'warn' : 'bad')); }
   function renderReopenTrend(){
     var el=$('anTrendBody'); if(!el) return;
-    var bySprint={};
-    BUGS.forEach(function(b){ if(!inSquad(b)) return; var s=(b.sprint||'').trim(); if(!s) return; (bySprint[s]||(bySprint[s]=[])).push(b); });
-    var sprints=Object.keys(bySprint).sort(sprintSort);
-    if(!sprints.length){ el.innerHTML='<div class="an-empty">Chưa có bug nào gắn sprint để dựng xu hướng.</div>'; return; }
+    var bySprint={}, activeMap={}, startMap={};
+    BUGS.forEach(function(b){
+      if(!inSquad(b)) return;
+      var s=(b.sprint||'').trim(); if(!s) return;
+      (bySprint[s]||(bySprint[s]=[])).push(b);
+      if(inActive(b)) activeMap[s]=true;
+      var st=(b.cycleStartsAt||'').trim();
+      if(st && (!startMap[s] || st>startMap[s])) startMap[s]=st;
+    });
+    var sprints=Object.keys(bySprint).sort(function(a,b){
+      var aa=activeMap[a]?1:0, ba=activeMap[b]?1:0;
+      if(aa!==ba) return ba-aa;
+      var sa=startMap[a]||'', sb=startMap[b]||'';
+      if(sa && sb && sa!==sb) return sa<sb ? 1 : -1;
+      var na=sprintNum(a), nb=sprintNum(b);
+      if(na!==nb) return nb-na;
+      return a<b ? 1 : (a>b ? -1 : 0);
+    });
+    if(!sprints.length){ el.innerHTML='<div class="an-empty">Chưa có bug nào gắn cycle để dựng xu hướng.</div>'; return; }
     var roBy={}, devSet={};
     sprints.forEach(function(s){ var ro=computeReopen(bySprint[s]); roBy[s]=ro;
       Object.keys(ro.perDev).forEach(function(d){ if(d) devSet[d]=1; }); });
     var devs=Object.keys(devSet).sort();
-    // hàng tổng mỗi sprint (gộp mọi dev) — số bug + % reopen chung
+    // hàng tổng mỗi cycle (gộp mọi dev) — số bug + % reopen chung
     var head='<tr><th class="ant-dev">Developer</th>'
-      + sprints.map(function(s){ return '<th class="ant-sp">'+esc(s)+'</th>'; }).join('')
+      + sprints.map(function(s){
+          return '<th class="ant-sp'+(activeMap[s]?' ant-sp-cur':'')+'">'+esc(s)
+            +(activeMap[s]?' <span class="an-chip-soft">Hiện tại</span>':'')+'</th>';
+        }).join('')
       + '<th class="ant-sp ant-trend">Xu hướng</th></tr>';
     function cell(p, n){
       if(p===null) return '<td class="ant-cell"><span class="ant-na">—</span></td>';
@@ -4690,13 +4715,13 @@ window.__smSetCustom=function(t, key, val, onChanged){
     el.innerHTML='<div class="an-trend-wrap"><table class="ant-table">'
       + '<thead>'+head+'</thead><tbody>'+rows+allRow+'</tbody></table></div>';
   }
-  // Mũi tên xu hướng: so 2 giá trị không-null gần nhất. Reopen GIẢM = tốt lên (xanh ▼).
+  // Mũi tên xu hướng: series đã xếp mới -> cũ, so pts[0] (mới nhất) với pts[1] (kỳ trước). Reopen GIẢM = tốt lên (xanh ▼).
   function trendArrow(series){
     var pts=series.filter(function(v){ return v!=null; });
     if(pts.length<2) return '<span class="ant-flat">·</span>';
-    var last=pts[pts.length-1], prev=pts[pts.length-2];
-    if(last<prev) return '<span class="ant-up" title="Giảm reopen — tốt lên">▼ '+(prev-last).toFixed(0)+'%</span>';
-    if(last>prev) return '<span class="ant-down" title="Tăng reopen — tệ đi">▲ '+(last-prev).toFixed(0)+'%</span>';
+    var latest=pts[0], prev=pts[1];
+    if(latest<prev) return '<span class="ant-up" title="Giảm reopen — tốt lên">▼ '+(prev-latest).toFixed(0)+'%</span>';
+    if(latest>prev) return '<span class="ant-down" title="Tăng reopen — tệ đi">▲ '+(latest-prev).toFixed(0)+'%</span>';
     return '<span class="ant-flat" title="Không đổi">→</span>';
   }
 
@@ -4726,10 +4751,10 @@ window.__smSetCustom=function(t, key, val, onChanged){
     renderSquadSeg();
     var chip=$('anScopeChip'), note=$('anScopeNote');
     var allMode=scopeMode==='all', sqTxt=squadFilter==='all'?'':(' · squad '+squadFilter);
-    if(chip) chip.textContent=(allMode?'Toàn bộ bug':'Sprint đang chạy')+(squadFilter==='all'?'':' • '+squadFilter);
+    if(chip) chip.textContent=(allMode?'Toàn bộ bug':'Cycle đang chạy')+(squadFilter==='all'?'':' • '+squadFilter);
     if(note) note.textContent=(allMode
-      ? 'phạm vi: toàn bộ bug (gồm reject, closed, ngoài sprint, backlog)'
-      : 'phạm vi: bug trong sprint đang chạy')+sqTxt;
+      ? 'phạm vi: toàn bộ bug (gồm reject, closed, ngoài cycle, backlog)'
+      : 'phạm vi: bug trong cycle đang chạy')+sqTxt;
   }
   function setSquad(sq){
     sq=sq||'all'; if(sq===squadFilter) return;
