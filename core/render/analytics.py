@@ -35,6 +35,10 @@ def _flatten_bugs(data):
                 'created': (b.get('created', '') or '')[:10],
                 'sprintState': b.get('sprint_state', 'backlog') or 'backlog',  # #106/B
                 'sprint': b.get('sprint', '') or '',
+                'cycleStartsAt': (b.get('cycle_starts_at', '') or '')[:10],
+                'url': b.get('url', '') or '',
+                'hasBugLabel': bool(b.get('has_bug_label', False)),
+                'hasCausedBy': b.get('has_caused_by', None),
             })
     return bugs, sorted((m for m in months if m), reverse=True)
 
@@ -67,14 +71,14 @@ def render_analytics_v2(data, user=None, activities=None, backlog=None):
         # ===== page-head: tiêu đề + sync (trái) · control tháng + Export PDF (phải) =====
         '<div class="page-head an-head">'
         '<div>'
-        '<h2 class="page-title">Analytics <span class="an-scope-chip" id="anScopeChip">Sprint đang chạy</span></h2>'
+        '<h2 class="page-title">Analytics <span class="an-scope-chip" id="anScopeChip">Cycle đang chạy</span></h2>'
         f'<div class="bl-sub"><span class="bl-dot"></span> Dữ liệu bug đồng bộ: {esc(synced_disp)} '
-        '· <span id="anScopeNote">phạm vi: bug trong sprint đang chạy của mỗi squad</span></div>'
+        '· <span id="anScopeNote">phạm vi: bug trong cycle đang chạy của mỗi squad</span></div>'
         '</div>'
         '<div class="an-ctl">'
-        # toggle phạm vi (#107 amend 2026-10-19): mặc định active sprint, bấm "Toàn bộ" để tính trên MỌI bug
+        # toggle phạm vi (#107 amend 2026-10-19): mặc định active cycle, bấm "Toàn bộ" để tính trên MỌI bug
         '<div class="an-scope-seg" id="anScopeSeg" role="tablist" aria-label="Phạm vi tính metric">'
-        '<button class="an-scope-btn active" data-scope="active">Sprint đang chạy</button>'
+        '<button class="an-scope-btn active" data-scope="active">Cycle đang chạy</button>'
         '<button class="an-scope-btn" data-scope="all">Toàn bộ</button>'
         '</div>'
         # filter squad toàn trang (JS đổ nút theo squad có trong data — amend 2026-10-19)
@@ -92,12 +96,12 @@ def render_analytics_v2(data, user=None, activities=None, backlog=None):
         + _kpi_card('anKpiOpen', 'Bug Đang Mở (Open)')
         + '</div>'
 
-        # ===== section: Tình trạng theo Sprint (active / future / backlog chờ PO) =====
+        # ===== section: Tình trạng theo Cycle (active / future / backlog chờ PO) =====
         '<div class="card an-sec" id="anSprintSec">'
         '<div class="an-sec-head">'
-        '<div><h3 class="an-sec-title">Tình trạng theo Sprint</h3>'
-        '<div class="an-sec-sub">Bug đang mở phân theo trạng thái sprint — '
-        '<b>Backlog chờ PO</b> là bug đã rớt khỏi sprint, cần 2 leader quyết đưa lại kỳ sau hay không</div></div>'
+        '<div><h3 class="an-sec-title">Tình trạng theo Cycle</h3>'
+        '<div class="an-sec-sub">Bug đang mở phân theo trạng thái cycle — '
+        '<b>Backlog chờ PO</b> là bug đã rớt khỏi cycle, cần 2 leader quyết đưa lại kỳ sau hay không</div></div>'
         '</div>'
         '<div id="anSprintBody" class="an-sprint-body"></div>'
         '</div>'
@@ -107,7 +111,7 @@ def render_analytics_v2(data, user=None, activities=None, backlog=None):
         '<div class="an-sec-head">'
         '<div><h3 class="an-sec-title">Tuổi bug đang mở '
         '<span class="an-chip-soft">Metric từ Linear</span></h3>'
-        '<div class="an-sec-sub">Tuổi các bug đang mở trong sprint đang chạy (từ lúc tạo tới nay)</div></div>'
+        '<div class="an-sec-sub">Tuổi các bug đang mở trong cycle đang chạy (từ lúc tạo tới nay)</div></div>'
         '<div class="an-age-pills" id="anAgePills"></div>'
         '</div>'
         '<div class="an-age-body" id="anAgeDist"></div>'
@@ -121,7 +125,7 @@ def render_analytics_v2(data, user=None, activities=None, backlog=None):
         '<div class="an-sec-head an-sec-head-wrap">'
         '<div><h3 class="an-sec-title">Phân bổ Bug theo Squad &amp; Dev '
         '<span class="an-chip-soft" id="anChartSquadBadge"></span></h3>'
-        '<div class="an-sec-sub">Bug trong sprint đang chạy, nhóm theo squad và lập trình viên</div></div>'
+        '<div class="an-sec-sub">Bug trong cycle đang chạy, nhóm theo squad và lập trình viên</div></div>'
         '<div class="an-chart-stats" id="anChartStats"></div>'
         '</div>'
         '<div class="an-chart-bar">'
@@ -146,18 +150,18 @@ def render_analytics_v2(data, user=None, activities=None, backlog=None):
         '<div class="an-reopen-tip" id="anReopenTip"></div>'
         '<div class="an-reopen-formula">'
         '<strong>Công thức:</strong> Số lần fix = số reopen + 1 (nếu bug đang ở trạng thái đã giao fix '
-        'Fixed/Closed). Tỷ lệ reopen = số bug bị reopen / tổng bug dev phụ trách trong sprint đang chạy. '
+        'Fixed/Closed). Tỷ lệ reopen = số bug bị reopen / tổng bug dev phụ trách trong cycle đang chạy. '
         'Chỉ tính bug còn trong dữ liệu; reopen dội trước khi theo dõi có thể bị sót.</div>'
         '</div>'
 
         '</div>'  # end an-grid2
 
-        # ===== section: Xu hướng Reopen theo Sprint (#112) =====
+        # ===== section: Xu hướng Reopen theo Cycle (#112) =====
         '<div class="card an-sec" id="anTrendSec">'
         '<div class="an-sec-head">'
-        '<div><h3 class="an-sec-title">Xu hướng Reopen qua các Sprint</h3>'
-        '<div class="an-sec-sub">Tỷ lệ reopen của mỗi dev qua từng sprint — xem dev đang tốt lên hay tệ đi. '
-        'Gom theo tên sprint (board các squad có thể trùng tên sprint).</div></div>'
+        '<div><h3 class="an-sec-title">Xu hướng Reopen qua các Cycle</h3>'
+        '<div class="an-sec-sub">Tỷ lệ reopen của mỗi dev qua từng cycle — xem dev đang tốt lên hay tệ đi. '
+        'Cycle hiện tại đẩy lên đầu, xếp từ mới tới cũ.</div></div>'
         '</div>'
         '<div id="anTrendBody" class="an-trend-body"></div>'
         '</div>'

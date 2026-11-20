@@ -73,12 +73,17 @@ def _issue_to_bug(n):
 
     severity = ''
     caused_by = ''
+    has_bug_label = False
+    has_caused_by = False
     reopen_count = 0
     for lb in labels:
         low = lb.lower()
+        if low == 'bug':
+            has_bug_label = True
         if low in _SEV_MAP:
             severity = _SEV_MAP[low]
         elif low.startswith('caused-by:'):
+            has_caused_by = True
             caused_by = lb.split(':', 1)[1].strip()
         elif low == 'reopen' or low.startswith('reopen:'):
             reopen_count += 1
@@ -119,8 +124,13 @@ def _issue_to_bug(n):
         'handle_time': '',
         'reopen_count': reopen_count,
         'tasks': tasks,
+        'labels': labels,
+        'has_bug_label': has_bug_label,
+        'has_caused_by': has_caused_by,
+        'caused_by': caused_by,
         'sprint_state': _sprint_state(cycle),
         'sprint': cycle.get('name') or (f"Cycle {cycle.get('number')}" if cycle.get('number') else ''),
+        'cycle_starts_at': (cycle.get('startsAt') or '')[:10],
     }
 
 
