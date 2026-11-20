@@ -40,7 +40,7 @@ from bug_log_store import (scan as bug_log_scan, start_scheduler as start_bug_lo
 from bug_log_source import load_sources
 from bug_backlog import load_backlog
 from linear_api import (fetch_all_shared, scope_data, fetch_activity_feed, load_dismissed,
-                        dismiss_activities, run_parallel, fetch_issue_detail,
+                        dismiss_activities, READ_ALL_KEY, parse_activity_ts, run_parallel, fetch_issue_detail,
                         search_parent_tasks, search_people, global_search)
 from docs import load_docs, save_docs, valid_tree, ensure_process_folder
 from pat_store import save_user_pat, has_pat, delete_user_pat
@@ -309,8 +309,15 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
                 overlay.pop(k, None)
         merged = sorted(feed + cust_act, key=lambda a: a.get('when') or '', reverse=True)
         merged = _drop_own_activities(merged, email)
+        read_all_ts = parse_activity_ts(dismissed.get(READ_ALL_KEY))
         for a in merged:
-            a['is_unread'] = a['id'] not in dismissed
+            if a['id'] in dismissed:
+                a['is_unread'] = False
+            elif read_all_ts is not None:
+                ts = parse_activity_ts(a.get('when'))
+                a['is_unread'] = (ts is None) or (ts > read_all_ts)
+            else:
+                a['is_unread'] = True
         if not with_patch:
             return merged
         # patch cho từng task có khả năng vừa đổi: status (từ feed) hoặc nhãn custom (overlay/cust_act).
@@ -731,8 +738,11 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             if 0 < length <= 100_000:
                 payload = json.loads(self.rfile.read(length).decode('utf-8'))
                 ids = payload.get('ids') if isinstance(payload, dict) else None
+                mark_all = bool(payload.get('all')) if isinstance(payload, dict) else False
                 if isinstance(ids, list) and all(isinstance(x, str) for x in ids):
-                    ok = dismiss_activities(self._user_email(), ids[:500])
+                    ok = dismiss_activities(self._user_email(), ids[:500], mark_all=mark_all)
+                elif mark_all and ids is None:
+                    ok = dismiss_activities(self._user_email(), [], mark_all=True)
         except (ValueError, json.JSONDecodeError, RuntimeError, OSError):
             ok = False
         self._json(200 if ok else 400, b'{"ok":true}' if ok else b'{"ok":false}')
