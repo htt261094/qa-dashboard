@@ -831,7 +831,24 @@ def get_active_cycle_label():
 
 
 _READ_PROP = 'qa-dashboard-read'
+READ_ALL_KEY = '__read_all_before__'
 _DISMISS_LOCK = threading.Lock()
+
+
+def parse_activity_ts(iso_str):
+    """Parse ISO timestamp (UTC 'Z', offset, hoặc naive local như custom_status) -> epoch seconds."""
+    if not iso_str or not isinstance(iso_str, str):
+        return None
+    try:
+        s = iso_str.strip()
+        if s.endswith('Z'):
+            s = s[:-1] + '+00:00'
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.astimezone()
+        return dt.timestamp()
+    except (ValueError, TypeError, OSError):
+        return None
 
 
 def _dismiss_local_path():
@@ -876,8 +893,8 @@ def load_dismissed(user=None):
         return dict(_load_read_map().get(key, {}))
 
 
-def dismiss_activities(user, ids, prune_days=14):
-    if not ids:
+def dismiss_activities(user, ids, prune_days=14, mark_all=False):
+    if not ids and not mark_all:
         return True
     key = (user or '').strip().lower() or 'local'
     with _DISMISS_LOCK:
@@ -885,9 +902,14 @@ def dismiss_activities(user, ids, prune_days=14):
         bucket = dict(read_map.get(key) or {})
         now = datetime.now()
         stamp = now.isoformat()
-        for i in ids:
+        for i in (ids or []):
             bucket[i] = stamp
+        if mark_all:
+            now_utc = datetime.now(timezone.utc)
+            prev_ts = parse_activity_ts(bucket.get(READ_ALL_KEY))
+            if prev_ts is None or now_utc.timestamp() > prev_ts:
+                bucket[READ_ALL_KEY] = now_utc.isoformat()
         cutoff = (now - timedelta(days=prune_days)).isoformat()
-        read_map[key] = {k: v for k, v in bucket.items() if v >= cutoff}
+        read_map[key] = {k: v for k, v in bucket.items() if k == READ_ALL_KEY or v >= cutoff}
         _save_read_map(read_map)
     return True

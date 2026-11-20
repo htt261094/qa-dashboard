@@ -1010,7 +1010,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var unreads = NOTIFS.filter(function(n){ return n.is_unread; });
     if(!unreads.length) return;
     var ids=unreads.map(function(n){ return n.id; });
-    postJSON('/dismiss', { ids: ids }, 20000).catch(function(){});
+    postJSON('/dismiss', { ids: ids, all: true }, 20000).catch(function(){});
     markRead(ids); toast('Đã đánh dấu tất cả đã đọc', true); });
   list.addEventListener('click', function(e){
     var it=e.target.closest('.notif-item'); if(!it) return;
