@@ -203,18 +203,22 @@ def _valid_counts(bugs):
 # 5 mức, KHÔNG convert về 3 mức như thời Google Sheet (#85, gõ tay lẫn lộn). Field trống / giá
 # trị lạ -> 'none' (Chưa phân loại): KHÔNG vẽ trong pie nhưng vẫn trả về làm ghi chú mẫu số.
 # PHẢI khớp SEV_ORDER/SEV_PIE/SEV_LABEL/sevOf phía JS (app_v2.js) — twin Python↔JS.
-_SEV_ORDER = ('blocker', 'critical', 'high', 'medium', 'low', 'none')
-_SEV_PIE = ('blocker', 'critical', 'high', 'medium', 'low')   # mức được vẽ trong pie
+_SEV_ORDER = ('blocker', 'critical', 'major', 'minor', 'cosmetic', 'none')
+_SEV_PIE = ('blocker', 'critical', 'major', 'minor', 'cosmetic')   # mức được vẽ trong pie
 _SEV_LABEL = {
-    'blocker': 'Blocker', 'critical': 'Critical', 'high': 'High', 'medium': 'Medium',
-    'low': 'Low', 'none': 'Chưa phân loại',
+    'blocker': 'sev:blocker', 'critical': 'sev:critical', 'major': 'sev:major',
+    'minor': 'sev:minor', 'cosmetic': 'sev:cosmetic', 'none': 'Chưa phân loại',
 }
+_SEV_ALIAS = {'high': 'major', 'medium': 'minor', 'low': 'cosmetic'}
 
 
 def _sev_bucket(raw):
-    """Giá trị field Severity Jira -> lowercase khớp 5 mức (#104, KHÔNG convert về 3 mức #85).
-    Trống / giá trị lạ -> 'none'. Twin sevOf phía JS (app_v2.js)."""
+    """Nhãn Severity Linear (sev:blocker/critical/major/minor/cosmetic) -> lowercase key.
+    Hỗ trợ alias cũ (high/medium/low). Trống / giá trị lạ -> 'none'. Twin sevOf phía JS (app_v2.js)."""
     v = (raw or '').strip().lower()
+    if v.startswith('sev:'):
+        v = v[4:]
+    v = _SEV_ALIAS.get(v, v)
     return v if v in _SEV_PIE else 'none'
 
 

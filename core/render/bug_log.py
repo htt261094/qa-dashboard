@@ -90,30 +90,22 @@ def render_bug_log_v2(data, user=None, activities=None, sources=None, pending=No
     sync_btn = ('<button class="btn btn-ghost" id="blSyncBtn" title="Kéo lại Bug Issues từ Linear ngay">'
                 '<span class="material-symbols-rounded ph-light ph-arrows-clockwise mi-sm"></span> '
                 'Đồng bộ ngay</button>') if is_admin else ''
-    # Filter lọc-xem (tester/dev/severity/link) — hiện cho MỌI người, chỉ lọc bảng.
+    # Filter lọc-xem (tester/severity) — hiện cho MỌI người, chỉ lọc bảng.
     filters_html = (
         '<div class="bl-filter" id="blTesterWrap">'
         '<span class="material-symbols-rounded ph-light ph-user-focus mi-sm"></span>'
         '<select id="blTesterFilter"><option value="">Tất cả tester</option></select>'
         '</div>'
-        '<div class="bl-filter" id="blDevWrap">'
-        '<span class="material-symbols-rounded ph-light ph-wrench mi-sm"></span>'
-        '<select id="blDevFilter"><option value="">Tất cả dev</option></select>'
-        '</div>'
-        # Lọc theo Severity — ĐÚNG 5 mức field Jira (#104) + "chưa phân loại" (field trống/lạ),
-        # option cố định (thang là hằng số field Jira, không build từ data).
-        '<div class="bl-filter" id="blFeatWrap">'
-        '<span class="material-symbols-rounded ph-light ph-folders mi-sm"></span>'
-        '<select class="bl-sel" id="blFeatFilter"><option value="">Tất cả Feature</option></select></div>'
+        # Lọc theo Severity — ĐÚNG 5 nhãn Linear (sev:blocker/critical/major/minor/cosmetic) + "chưa phân loại".
         '<div class="bl-filter" id="blSevWrap">'
         '<span class="material-symbols-rounded ph-light ph-gauge mi-sm"></span>'
         '<select id="blSevFilter">'
         '<option value="">Tất cả severity</option>'
-        '<option value="blocker">Blocker</option>'
-        '<option value="critical">Critical</option>'
-        '<option value="high">High</option>'
-        '<option value="medium">Medium</option>'
-        '<option value="low">Low</option>'
+        '<option value="blocker">sev:blocker</option>'
+        '<option value="critical">sev:critical</option>'
+        '<option value="major">sev:major</option>'
+        '<option value="minor">sev:minor</option>'
+        '<option value="cosmetic">sev:cosmetic</option>'
         '<option value="none">Chưa phân loại</option>'
         '</select>'
         '</div>'
@@ -150,9 +142,9 @@ def render_bug_log_v2(data, user=None, activities=None, sources=None, pending=No
         '<div style="overflow-x:auto"><table class="bl-table"><thead><tr>'
         '<th style="width:110px">ID</th>'
         '<th>Mô tả bug</th><th style="width:110px;white-space:nowrap">Ngày</th>'
-        # Severity = ĐÚNG field Jira (Blocker/Critical/High/Medium/Low — #104), cùng thang pie /analytics
-        '<th style="width:104px" title="Mức độ nghiêm trọng (field Severity trên Jira). '
-        'Field trống hiện —">Severity</th>'
+        # Severity = ĐÚNG nhãn Linear (sev:blocker/critical/major/minor/cosmetic), cùng thang pie /analytics
+        '<th style="width:120px" title="Mức độ nghiêm trọng (nhãn sev:* trên Linear). '
+        'Chưa gắn nhãn hiện —">Severity</th>'
         '<th style="width:165px;white-space:nowrap">Trạng thái</th>'
         '<th style="width:120px">Tester</th><th style="width:130px">Dev in charge</th>'
         '<th style="width:160px" title="Issue liên quan trên Linear (parent)">Liên kết (Linear)</th>'
