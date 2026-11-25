@@ -516,67 +516,6 @@ tr.cmt-row:hover td{background:var(--surface-low)}
 .mfield .hint{font-size:11px;color:var(--on-surface-variant)}
 .mfield label .mhint{font-weight:400;color:var(--on-surface-variant);letter-spacing:0}
 .mcount{font-size:11px;color:var(--primary);min-height:14px}
-/* ===== Modal tạo Sub-task: danh sách dòng, mỗi dòng 1 assignee ===== */
-#subOverlay .modal{width:540px}
-.st-head,.st-row{display:grid;grid-template-columns:22px 1fr 148px 30px;gap:8px;align-items:center}
-.st-head{padding:0 0 2px}
-.st-head span{font-size:11px;font-weight:600;color:var(--on-surface-variant);letter-spacing:.02em;text-transform:uppercase}
-.st-head .h-idx{text-align:center}
-.st-list{display:flex;flex-direction:column;gap:8px}
-.st-idx{font-size:12px;font-weight:700;color:var(--outline);text-align:center;font-variant-numeric:tabular-nums}
-.st-row .st-title,.st-row .st-assignee{width:100%;padding:8px 10px;border:1px solid var(--outline-variant);
-  border-radius:var(--r-lg);background:var(--surface-low);color:var(--on-surface);font-size:13px;font-family:inherit}
-.st-row .st-assignee{padding:8px 8px;cursor:pointer}
-.st-row .st-assignee.unset{color:var(--outline)}
-.st-row .st-title:focus,.st-row .st-assignee:focus{outline:none;border-color:var(--primary);background:var(--card)}
-.st-del{cursor:pointer;background:none;border:none;color:var(--outline);font-size:18px;height:30px;
-  border-radius:8px;display:inline-flex;align-items:center;justify-content:center}
-.st-del:hover{color:var(--error);background:var(--surface-low)}
-.st-add{align-self:flex-start;cursor:pointer;background:none;border:1px dashed var(--outline-variant);
-  color:var(--primary);border-radius:var(--r-lg);padding:7px 12px;font-size:12.5px;font-weight:600;
-  font-family:inherit;display:inline-flex;align-items:center;gap:6px;margin-top:2px}
-.st-add:hover{border-color:var(--primary);background:var(--primary-tint)}
-.st-summary{margin-top:2px}
-/* ===== Nhiều task cha: mỗi cha 1 nhóm sub-task ===== */
-.st-groups{display:flex;flex-direction:column;gap:12px}
-.st-groups-empty{font-size:12.5px;color:var(--on-surface-variant);padding:12px;text-align:center;
-  border:1px dashed var(--outline-variant);border-radius:var(--r-lg)}
-.st-group{border:1px solid var(--outline-variant);border-radius:var(--r-lg);padding:10px 12px;
-  background:var(--surface-low);display:flex;flex-direction:column;gap:8px}
-.st-group.st-group-flash{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-tint)}
-.st-group-head{display:flex;align-items:center;gap:8px}
-.st-gchip{flex:1;min-width:0;display:flex;align-items:baseline;gap:8px;cursor:default;
-  padding:4px 8px;border-radius:8px;background:var(--primary-tint)}
-.st-gkey{font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;color:var(--primary);white-space:nowrap}
-.st-gsum{font-size:12.5px;color:var(--on-surface);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.st-gdel{cursor:pointer;background:none;border:none;color:var(--outline);font-size:18px;height:28px;width:28px;
-  border-radius:8px;display:inline-flex;align-items:center;justify-content:center;flex:none}
-.st-gdel:hover{color:var(--error);background:var(--card)}
-.st-group .st-head{padding:0}
-/* Popup "sub-task đang có" của task cha (hover chip -> zoom-in) */
-.st-parent-hint{display:none;margin-top:7px;font-size:11.5px;color:var(--on-surface-variant);
-  align-items:center;gap:5px}
-.st-parent-hint .mi-sm{font-size:15px;color:var(--primary)}
-.st-pop{position:fixed;z-index:1300;background:var(--card);border:1px solid var(--outline-variant);
-  border-radius:var(--r-lg);box-shadow:var(--e3);padding:6px;max-height:320px;overflow-y:auto;
-  opacity:0;transform:scale(.8);transform-origin:top left;pointer-events:none;
-  transition:opacity var(--dur-2) var(--ease-emphasized),transform var(--dur-2) var(--ease-emphasized)}
-.st-pop.open{opacity:1;transform:scale(1);pointer-events:auto}
-.stp-head{font-size:11px;color:var(--on-surface-variant);padding:5px 8px 7px;font-weight:700;
-  letter-spacing:.02em;text-transform:uppercase}
-.stp-head small{font-weight:400;text-transform:none;letter-spacing:0}
-.stp-loading,.stp-empty{padding:14px 12px;font-size:12.5px;color:var(--on-surface-variant);text-align:center}
-.stp-item{display:grid;grid-template-columns:auto 1fr auto auto;gap:9px;align-items:center;
-  padding:7px 8px;border-radius:8px;cursor:pointer;font-size:12.5px}
-.stp-item:hover{background:var(--primary-tint)}
-.stp-key{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--primary);white-space:nowrap;font-weight:600}
-.stp-sum{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--on-surface)}
-.stp-st{font-size:10.5px;color:var(--on-surface-variant);white-space:nowrap}
-.stp-add{color:var(--primary);opacity:.55}
-.stp-item:hover .stp-add{opacity:1}
-.stp-item.added{opacity:.45}
-.stp-item.done .stp-sum{color:var(--on-surface-variant)}
-@media (prefers-reduced-motion:reduce){.st-pop{transition:opacity var(--dur-1) linear;transform:none}.st-pop.open{transform:none}}
 .modal-foot{display:flex;gap:10px;justify-content:flex-end;padding:14px 20px;border-top:1px solid var(--divider)}
 .btn{padding:9px 16px;border-radius:var(--r-md);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;border:1px solid transparent}
 .btn-ghost{background:none;color:var(--on-surface-variant);border-color:var(--outline-variant)}
@@ -629,62 +568,6 @@ select.set-input{cursor:pointer;background-image:url("data:image/svg+xml,%3Csvg 
 .set-drive-state.warn{color:var(--error)}
 .set-drive-acts{display:flex;gap:10px;align-items:center;margin-top:2px}
 .set-drive-acts .btn{text-decoration:none}
-
-/* ===== Tạo Sub-task: nút topbar + type-ahead ===== */
-.topcreate{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border:none;cursor:pointer;
-           background:var(--primary);color:var(--on-primary);border-radius:var(--r-md);
-           font-family:inherit;font-size:13px;font-weight:600}
-.topcreate:hover{background:var(--primary-strong)}
-.typeahead{position:relative}
-/* position:fixed (toạ độ set bằng JS) -> KHÔNG bị .modal-body{overflow:auto} cắt/đẩy scroll */
-.ta-results{position:fixed;z-index:120;background:var(--card);
-            border:1px solid var(--outline-variant);border-radius:var(--r-md);box-shadow:var(--shadow);
-            max-height:232px;overflow-y:auto;display:none}
-.ta-results.open{display:block}
-.ta-opt{padding:8px 11px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--divider)}
-.ta-opt:last-child{border-bottom:none}
-.ta-opt:hover,.ta-opt.act{background:var(--surface-low)}
-.ta-opt b{color:var(--primary-strong);font-weight:700;margin-right:6px}
-.ta-opt small{display:block;color:var(--on-surface-variant);font-size:11px;margin-top:2px}
-.ta-empty{padding:9px 11px;font-size:12px;color:var(--on-surface-variant)}
-.ta-chip{display:flex;align-items:center;gap:8px;margin-top:7px;padding:6px 10px;background:var(--primary-tint);
-         border:1px solid var(--outline-variant);border-radius:var(--r-md);font-size:13px}
-.ta-chip b{color:var(--primary-strong)}
-.ta-chip .ta-x{margin-left:auto;cursor:pointer;background:none;border:none;color:var(--outline);
-               display:flex;align-items:center;padding:2px}
-.ta-chip .ta-x:hover{color:var(--error)}
-
-/* ===== Tạo task — createmeta-động (Decision #113) ===== */
-.modal.modal-wide{width:640px}
-.topcreate-ghost{background:var(--surface-low);color:var(--on-surface);border:1px solid var(--outline-variant)}
-.topcreate-ghost:hover{background:var(--surface)}
-#ciOverlay .modal-body{gap:14px}
-#ciOverlay .mfield.row2{align-items:flex-start}
-#ciProjChip{margin-top:0}   /* chip thay input -> KHÔNG thụt xuống (lệch với select Loại task) */
-.ci-hint{font-size:12px;color:var(--on-surface-variant);line-height:18px;padding:4px 0}
-#ciFields{display:flex;flex-direction:column;gap:14px}
-.ci-field{display:flex;flex-direction:column;gap:6px}
-.ci-field label{font-size:12px;font-weight:600;color:var(--on-surface-variant);letter-spacing:.02em}
-.ci-req{color:var(--error);font-weight:700}
-.ci-inp{width:100%;padding:9px 11px;border:1px solid var(--outline-variant);border-radius:var(--r-md);
-        background:var(--surface-low);font-size:14px;color:var(--on-surface);font-family:inherit}
-.ci-inp:focus{outline:none;border-color:var(--primary);background:var(--card)}
-textarea.ci-inp{resize:vertical;min-height:62px;line-height:20px}
-select.ci-inp[multiple]{padding:4px;height:auto}
-.ci-field.ci-unsup{opacity:.75}
-.ci-note{font-size:11px;color:var(--on-surface-variant);background:var(--surface-low);
-         border:1px dashed var(--outline-variant);border-radius:var(--r-md);padding:7px 10px;line-height:16px}
-/* field user: chips + ô gõ tìm người */
-.ci-user{display:flex;flex-direction:column;gap:6px}
-.ci-uchips{display:flex;flex-wrap:wrap;gap:6px}
-.ci-uchips:empty{display:none}
-.ci-uchip{display:inline-flex;align-items:center;gap:5px;padding:4px 6px 4px 10px;background:var(--primary-tint);
-          border:1px solid var(--outline-variant);border-radius:999px;font-size:12px}
-.ci-uchip-x{cursor:pointer;background:none;border:none;color:var(--outline);display:flex;align-items:center;padding:0}
-.ci-uchip-x:hover{color:var(--error)}
-.ci-uinp{width:100%;padding:9px 11px;border:1px solid var(--outline-variant);border-radius:var(--r-md);
-         background:var(--surface-low);font-size:14px;color:var(--on-surface);font-family:inherit}
-.ci-uinp:focus{outline:none;border-color:var(--primary);background:var(--card)}
 
 /* ===== Toast (stack queue, JS tự tạo #toastWrap) ===== */
 .toast-wrap{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);display:flex;
@@ -1507,8 +1390,6 @@ tr.row-flash{animation:rowFlash 2.2s var(--ease-out) 1}
   .topbar{padding:8px 12px;gap:8px}
   .search{max-width:none}
   .search input{padding:8px 10px 8px 34px;font-size:13px}
-  .topcreate span:not(.material-symbols-rounded){display:none}  /* nút "Tạo Sub-task" còn icon */
-  .topcreate{padding:9px 11px}
 
   /* Nội dung sát mép hơn */
   .content{padding:14px 14px 22px}
@@ -1724,9 +1605,7 @@ tr.row-flash{animation:rowFlash 2.2s var(--ease-out) 1}
 /* select .set-input (settings): form field -> full width; filter rời -> auto */
 .xsel-of-set-input>.xsel-btn{padding:9px 11px;font-size:14px;min-width:150px}
 .ef .xsel,.field .xsel{display:flex;width:100%}
-/* dòng tạo sub-task (#shell.py .st-assignee) + chọn file/sheet ở card bug-metrics */
-.st-row .xsel{display:flex;width:100%}
-.st-row .xsel-btn{width:100%;padding:8px 10px;font-size:13.5px}
+/* chọn file/sheet ở card bug-metrics */
 .xsel-of-bm-sel>.xsel-btn{font-size:13px;padding:6px 9px 6px 11px;max-width:260px}
 
 /* ===== Hôm nay (/today — Decision #102) ===== */

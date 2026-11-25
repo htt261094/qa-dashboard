@@ -41,7 +41,7 @@ from bug_log_source import load_sources
 from bug_backlog import load_backlog
 from linear_api import (fetch_all_shared, scope_data, fetch_activity_feed, load_dismissed,
                         dismiss_activities, READ_ALL_KEY, parse_activity_ts, run_parallel, fetch_issue_detail,
-                        search_parent_tasks, search_people, global_search)
+                        search_people, global_search)
 from docs import load_docs, save_docs, valid_tree, ensure_process_folder
 from pat_store import save_user_pat, has_pat, delete_user_pat
 from custom_status import (load_bundle, load_overlay, values_of,
@@ -413,9 +413,6 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         if path == '/has-pat':
             self._get_has_pat()
             return
-        if path == '/search-parents':
-            self._get_search_parents()
-            return
         if path == '/global-search':
             self._get_global_search()
             return
@@ -424,15 +421,6 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
             return
         if path == '/search-people':
             self._get_search_people()
-            return
-        if path == '/create-projects':
-            self._get_create_projects()
-            return
-        if path == '/create-issuetypes':
-            self._get_create_issuetypes()
-            return
-        if path == '/create-fields':
-            self._get_create_fields()
             return
         if path in ('/settings', '/settings.html'):
             self._get_settings()
@@ -600,16 +588,6 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         except RuntimeError:
             self._json(200, b'{"ok":false}')
 
-    def _get_search_parents(self):
-        # type-ahead task cha (bất kỳ task, không giới hạn Task-PTSP) cho form tạo sub-task.
-        # Read-only PAT chung.
-        q = (parse_qs(urlparse(self.path).query).get('q') or [''])[0]
-        try:
-            self._json(200, json.dumps(
-                {'ok': True, 'results': search_parent_tasks(q)}).encode('utf-8'))
-        except RuntimeError:
-            self._json(400, b'{"ok":false}')
-
     def _get_global_search(self):
         # Quick-search toàn Jira cho thanh search topbar (key / số / text summary).
         # Read-only PAT chung. Mở task ra drawer qua /issue-comments khi click.
@@ -717,9 +695,6 @@ class Handler(OAuthMixin, WriteMixin, UploadsMixin, http.server.BaseHTTPRequestH
         if path in ('/jira-transitions', '/do-transition', '/add-comment',
                          '/duedate-perm', '/set-duedate', '/edit-perms', '/update-issue'):
             self._handle_jira_write()
-            return
-        if path == '/create-issue':
-            self._handle_create_issue()
             return
         if path == '/upload-file':
             self._post_upload_file()

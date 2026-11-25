@@ -66,17 +66,6 @@ def atomic_write(path, text, encoding='utf-8'):
 # ----- Domain constants -----
 STUCK_DAYS = 5   # task In Progress/PENDING không đổi >= 5 ngày = "kẹt"
 
-# ----- Tạo Sub-task (id lấy từ createmeta Jira CLOUD baokim.atlassian.net — #197) -----
-# Instance-specific, KHÔNG đổi tuỳ tiện. Dò lại bằng /rest/api/2/field + createmeta nếu migrate lần nữa.
-SUBTASK_TYPE_ID = '10008'              # issuetype "Sub-task" (loại mọi sub-task QA ở PSIT/DA* đang dùng)
-TASK_PTSP_TYPE_ID = '10348'            # issuetype "Task-PTSP" (parent của sub-task QA)
-START_DATE_FIELD = 'customfield_10305'  # "Start date (migrated)" (REQUIRED khi tạo — field 'Start date' 10015 mới của Cloud thì trống)
-LEADER_FIELD = 'customfield_10318'      # "Leader" (user-picker, optional)
-DEPARTMENT_FIELD = 'customfield_10315'  # "Department" (multi-checkbox) — auto-tick IT khi tạo sub-task
-BK_TEAM_FIELD = 'customfield_10306'     # "BK Team" (multi-checkbox) — auto-tick IT-QA khi tạo sub-task
-SUBTASK_DEPARTMENT_ID = '10314'         # option "IT" tick sẵn (Department)
-SUBTASK_BK_TEAM_ID = '10332'            # option "IT-QA" tick sẵn (BK Team)
-
 
 def jql_cf(field_id):
     """'customfield_10305' -> 'cf[10305]' — tham chiếu field trong JQL bằng ID (tên field trên

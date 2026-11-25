@@ -11,9 +11,8 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
-from config import (JIRA_URL, PAT, USERS, TASK_PTSP_TYPE_ID, actor_name,
-                    LEADER_FIELD,
-                    START_DATE_FIELD, jql_cf, JIRA_MAX_CONCURRENT)
+from config import (JIRA_URL, PAT, USERS, actor_name,
+                    jql_cf, JIRA_MAX_CONCURRENT)
 from jira_cloud import (auth_headers as _cloud_headers, normalize, jql_user, jql_users,
                         username_of)
 from issues import parse_date, i_assignee, i_reporter
@@ -521,84 +520,6 @@ def _compute_activity_feed(days, cap, max_issues, scope_user):
                          'mention': mention, 'body': _comment_snippet(raw)})
     acts.sort(key=lambda a: a.get('when') or '', reverse=True)
     return (acts[:cap], statuses)          # tuple: (activities, {key:status})
-
-
-def _ptsp_index():
-    """Toàn bộ Task-PTSP (key+summary+project), cache TTL 2 phút. 1 call/2p; mọi keystroke
-    của type-ahead filter in-memory. JQL không wildcard được trên key -> phải fetch rồi lọc
-    substring trong Python (gõ '2717' khớp PSIT1H26-2717)."""
-    cached, hit = _cache_get('ptsp_index')
-    if hit:
-        return cached
-    issues = _jira_request(f'issuetype = {TASK_PTSP_TYPE_ID} ORDER BY updated DESC',
-                           1000, fields='summary,project').get('issues', [])
-    idx = [{'key': i['key'], 'summary': (i.get('fields', {}).get('summary') or ''),
-            'project': (i.get('fields', {}).get('project') or {}).get('key') or ''}
-           for i in issues]
-    _cache_set('ptsp_index', idx)
-    return idx
-
-
-def search_parent_ptsp(query, limit=20):
-    """Tìm Task-PTSP làm parent cho sub-task (form tạo sub-task). Read-only, PAT chung.
-    Khớp substring trên key HOẶC summary (case-insensitive) — gõ '2717' ra mọi key chứa
-    2717, không cần gõ đủ 'PSIT1H26-2717'. Trả [{key, summary, project}]."""
-    q = (query or '').strip().lower()
-    if len(q) < 2:
-        return []
-    out = []
-    for it in _ptsp_index():
-        if q in it['key'].lower() or q in it['summary'].lower():
-            out.append(it)
-            if len(out) >= limit:
-                break
-    return out
-
-
-def search_parent_tasks(query, limit=20):
-    """Tìm BẤT KỲ task làm parent cho sub-task QA (form tạo sub-task) — KHÔNG giới hạn
-    Task-PTSP nữa. Dùng Jira issue picker (search toàn instance như thanh search Jira),
-    loại sub-task (sub-task không làm parent được). Read-only PAT chung.
-    Trả [{key, summary, project, type}] theo thứ tự match tốt nhất trước."""
-    q = (query or '').strip()
-    if len(q) < 2:
-        return []
-    keys = []
-    try:
-        r = _SESSION.get(f"{JIRA_URL}/rest/api/2/issue/picker", headers=_auth_headers(),
-                         params={'query': q, 'currentJQL': '', 'showSubTasks': 'false',
-                                 'showSubTaskParent': 'false'}, timeout=15)
-        r.raise_for_status()
-        import re
-        q_lower = q.lower()
-        for sec in (r.json().get('sections') or []):
-            for it in (sec.get('issues') or []):
-                k = it.get('key')
-                if not k or k in keys:
-                    continue
-                summary = it.get('summary') or it.get('summaryText') or ''
-                summary_clean = re.sub(r'<[^>]+>', '', summary).lower()
-                if q_lower in k.lower() or q_lower in summary_clean:
-                    keys.append(k)
-    except requests.RequestException as e:
-        raise RuntimeError(f"Network error: {str(e).replace(PAT, '<REDACTED>')}")
-    if not keys:
-        return []
-    keys = keys[:limit]
-    order = {k: n for n, k in enumerate(keys)}
-    issues = _jira_request(f"key in ({','.join(keys)})", limit,
-                           fields='summary,project,issuetype').get('issues', [])
-    out = []
-    for i in issues:
-        f = i.get('fields', {}) or {}
-        # loại sub-task phòng picker vẫn lọt (parent phải là task thường)
-        if (f.get('issuetype') or {}).get('subtask'):
-            continue
-        out.append({'key': i['key'], 'summary': f.get('summary') or '',
-                    'project': (f.get('project') or {}).get('key') or '',
-                    'type': (f.get('issuetype') or {}).get('name') or ''})
-    out.sort(key=lambda row: order.get(row['key'], 999))
-    return out
 
 
 def _qa_task_index():
