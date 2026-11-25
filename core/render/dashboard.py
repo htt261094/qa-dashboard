@@ -69,6 +69,8 @@ def build_my_work_payload(data, cmap, notes=None):
             'featureUrl': pr_obj.get('url', ''),
             'parentKey': p_obj.get('key', ''),
             'parentSummary': (p_obj.get('fields') or {}).get('summary', ''),
+            'parentStatus': ((p_obj.get('fields') or {}).get('status') or {}).get('name', ''),
+            'parentCat': ((p_obj.get('fields') or {}).get('status') or {}).get('category', ''),
             'subtasks': iss.get('subtasks') or [],
             'customs': customs, 'canCustom': st_cat in ('TO DO', 'In Progress'),
             'assignee': {'name': aname, 'email': asg_email, 'role': role_of(asg_email), 'init': init, 'cls': cls},
@@ -90,12 +92,14 @@ def build_my_work_payload(data, cmap, notes=None):
         p_obj = iss.get('fields', {}).get('parent') or {}
         pr_obj = iss.get('fields', {}).get('project') or {}
         tasks.append({
-            'key': iss['key'], 'summary': i_summary(iss), 'jira': st,
+            'key': iss['key'], 'summary': i_summary(iss), 'jira': st, 'cat': st_cat,
             'issuetype': i_type(iss) or 'Task',
             'feature': pr_obj.get('name', ''),
             'featureUrl': pr_obj.get('url', ''),
             'parentKey': p_obj.get('key', ''),
             'parentSummary': (p_obj.get('fields') or {}).get('summary', ''),
+            'parentStatus': ((p_obj.get('fields') or {}).get('status') or {}).get('name', ''),
+            'parentCat': ((p_obj.get('fields') or {}).get('status') or {}).get('category', ''),
             'subtasks': iss.get('subtasks') or [],
             'customs': [], 'canCustom': False,
             'assignee': {'name': aname, 'email': asg_email, 'role': role_of(asg_email), 'init': init, 'cls': cls},
@@ -147,9 +151,13 @@ def render_qa_v2(data, activities, cmap, user, nav_active='mywork',
         '<select id="kbTypeFilter" class="kb-ctl" title="Lọc theo loại issue">'
         '<option value="">Tất cả loại</option>'
         '<option value="Bug">Chỉ Bug</option>'
-        '<option value="Task">Task</option>'
-        '<option value="Sub-task">Sub-task</option>'
-        '<option value="Improvement">Improvement</option></select>'
+        '<option value="QA">Chỉ task của QA</option></select>'
+        '<button type="button" class="kb-ctl kb-btn kb-btn-ready" id="kbReadyBtn" title="Task QA chưa Done đã có 100% Dev cùng Story làm xong (và Bug ở Ready to Test)">'
+        '<span class="material-symbols-rounded ph-light ph-check-circle mi-xs"></span>'
+        '<span>Sẵn sàng test</span><span class="kb-cnt" id="kbReadyCnt"></span></button>'
+        '<button type="button" class="kb-ctl kb-btn" id="kbGroupStoryBtn" title="Gom nhóm theo Parent Story — đẩy Story Dev đã làm xong lên đầu">'
+        '<span class="material-symbols-rounded ph-light ph-git-branch mi-xs"></span>'
+        '<span>Gom theo Story</span></button>'
         '<button type="button" class="kb-ctl kb-btn" id="kbGroupBtn" title="Gom nhóm theo Feature">'
         '<span class="material-symbols-rounded ph-light ph-folders mi-xs"></span>'
         '<span>Gom theo Feature</span></button>'

@@ -1161,8 +1161,63 @@ window.__smSetCustom=function(t, key, val, onChanged){
   var assigneeFilter = '';
   var featureFilter = '';
   var typeFilter = '';
+  var readyOnly = false;
   var groupByFeature = false;
+  var groupByStory = false;
   try{ groupByFeature = localStorage.getItem('qa-kb-group-feat') === '1'; }catch(e){}
+  try{ groupByStory = localStorage.getItem('qa-kb-group-story') === '1'; }catch(e){}
+  if(groupByStory && groupByFeature) groupByFeature = false;
+
+  function isTaskDone(t){
+    return (t.cat||'')==='DONE'||(t.cat||'')==='CANCELLED'||/^(DONE|CANCEL|CLOSED|DUPLICATE)/i.test(t.jira||'');
+  }
+  function isDevDone(t){
+    return isTaskDone(t) || /ready\s*to\s*test|ready\s*to\s*deploy/i.test(t.jira||'');
+  }
+  function isQaRole(t){ return /^qa\b/i.test((t.assignee&&t.assignee.role)||''); }
+  function isDevRole(t){ return ((t.assignee&&t.assignee.role)||'').toUpperCase()==='DEV'; }
+
+  var STORY_MAP = {};
+  function buildStoryMap(){
+    var m={};
+    TASKS.forEach(function(t){
+      var pk=(t.parentKey||'').trim();
+      if(!pk) return;
+      if(!m[pk]){
+        m[pk]={ key:pk, summary:t.parentSummary||'', status:t.parentStatus||'', cat:t.parentCat||'',
+          devTasks:[], devDone:0, devPending:[], qaTasks:[], qaDone:0, qaPending:[], bugs:0, openBugs:0, devReady:false };
+      }
+      var s=m[pk];
+      if(!s.summary && t.parentSummary) s.summary=t.parentSummary;
+      if(!s.status && t.parentStatus){ s.status=t.parentStatus; s.cat=t.parentCat||''; }
+      var isB=(t.issuetype||'Task')==='Bug';
+      if(isB){
+        s.bugs++;
+        if(!isTaskDone(t)) s.openBugs++;
+      } else if(isDevRole(t)){
+        s.devTasks.push(t);
+        if(isDevDone(t)) s.devDone++;
+        else s.devPending.push(t);
+      } else if(isQaRole(t)){
+        s.qaTasks.push(t);
+        if(isTaskDone(t)) s.qaDone++;
+        else s.qaPending.push(t);
+      }
+    });
+    Object.keys(m).forEach(function(pk){
+      var s=m[pk];
+      s.devReady = s.devTasks.length>0 && s.devDone===s.devTasks.length;
+    });
+    STORY_MAP = m;
+    return m;
+  }
+  function isReadyForQaTask(t){
+    if(isTaskDone(t)) return false;
+    if((t.issuetype||'Task')==='Bug') return /ready\s*to\s*test/i.test(t.jira||'');
+    if(!isQaRole(t)) return false;
+    var pk=(t.parentKey||'').trim();
+    return !!(pk && STORY_MAP[pk] && STORY_MAP[pk].devReady);
+  }
   function populateAssigneeFilter(){
     var sel=$('kbAsgFilter'); if(!sel) return;
     var map={}, list=[];
@@ -1213,13 +1268,38 @@ window.__smSetCustom=function(t, key, val, onChanged){
     if(sel) sel.addEventListener('change', function(){ featureFilter=sel.value||''; renderBoard(); });
     var tf=$('kbTypeFilter');
     if(tf) tf.addEventListener('change', function(){ typeFilter=tf.value||''; renderBoard(); });
+    var rb=$('kbReadyBtn');
+    if(rb){
+      rb.addEventListener('click', function(){
+        readyOnly=!readyOnly;
+        rb.classList.toggle('active', readyOnly);
+        renderBoard();
+      });
+    }
+    var gsb=$('kbGroupStoryBtn');
     var gb=$('kbGroupBtn');
+    function syncGroupBtns(){
+      if(gb) gb.classList.toggle('active', groupByFeature);
+      if(gsb) gsb.classList.toggle('active', groupByStory);
+      try{
+        localStorage.setItem('qa-kb-group-feat', groupByFeature?'1':'0');
+        localStorage.setItem('qa-kb-group-story', groupByStory?'1':'0');
+      }catch(e){}
+    }
+    syncGroupBtns();
     if(gb){
-      gb.classList.toggle('active', groupByFeature);
       gb.addEventListener('click', function(){
         groupByFeature=!groupByFeature;
-        gb.classList.toggle('active', groupByFeature);
-        try{ localStorage.setItem('qa-kb-group-feat', groupByFeature?'1':'0'); }catch(e){}
+        if(groupByFeature) groupByStory=false;
+        syncGroupBtns();
+        renderBoard();
+      });
+    }
+    if(gsb){
+      gsb.addEventListener('click', function(){
+        groupByStory=!groupByStory;
+        if(groupByStory) groupByFeature=false;
+        syncGroupBtns();
         renderBoard();
       });
     }
@@ -1231,7 +1311,9 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var q=(($('searchInp')||{}).value||'').toLowerCase();
     return TASKS.filter(function(t){
       if(assigneeFilter && ((t.assignee&&t.assignee.name)||'Unassigned')!==assigneeFilter) return false;
-      if(typeFilter && (t.issuetype||'Task')!==typeFilter) return false;
+      if(typeFilter==='Bug' && (t.issuetype||'Task')!=='Bug') return false;
+      if(typeFilter==='QA' && ((t.issuetype||'Task')==='Bug' || !isQaRole(t))) return false;
+      if(readyOnly && !isReadyForQaTask(t)) return false;
       if(featureFilter){
         var f=(t.feature||'').trim();
         if(featureFilter==='__none__'){ if(f) return false; }
@@ -1249,6 +1331,18 @@ window.__smSetCustom=function(t, key, val, onChanged){
         +esc(custMap[v]||v)+'<span class="rm material-symbols-rounded ph-light ph-x" data-key="'+esc(t.key)
         +'" data-val="'+esc(v)+'"></span></span>'; }).join('')+'</div>';
   }
+  function devReadyBadgeHTML(t){
+    if((t.issuetype||'Task')==='Bug' || !isQaRole(t) || isTaskDone(t)) return '';
+    var pk=(t.parentKey||'').trim();
+    var st=pk ? STORY_MAP[pk] : null;
+    if(!st || !st.devTasks.length) return '';
+    if(st.devReady){
+      var doneTip='Dev đã xong: '+st.devTasks.map(function(d){ return d.key+' ['+d.jira+']'+(d.assignee&&d.assignee.name?' · '+d.assignee.name:''); }).join('; ');
+      return '<div class="bc-dev-ready ready" title="'+esc(doneTip)+'">✓ Dev xong ('+st.devDone+'/'+st.devTasks.length+') · Sẵn sàng test</div>';
+    }
+    var waitTip='Dev còn mở: '+st.devPending.map(function(d){ return d.key+' ['+d.jira+']'+(d.assignee&&d.assignee.name?' · '+d.assignee.name:''); }).join('; ');
+    return '<div class="bc-dev-ready wait" title="'+esc(waitTip)+'">⏳ Chờ Dev ('+st.devDone+'/'+st.devTasks.length+')</div>';
+  }
   function cardHTML(t){
     // COMMENTS[key] là mảng khi đã fetch (số live); chưa fetch -> số server nhúng sẵn (t.nComments).
     var nc=COMMENTS[t.key] ? COMMENTS[t.key].length : (t.nComments||0);
@@ -1260,7 +1354,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
       +'<div class="bc-top"><a class="key" href="'+esc(t.jiraUrl)+'" target="_blank">'+esc(t.key)+'</a>'
       +'<span class="bc-top-r">'+fl
       +'<button class="caret material-symbols-rounded ph-light ph-caret-down mi-sm" data-act="smenu" data-key="'+esc(t.key)+'" title="Đổi trạng thái"></button></span></div>'
-      +(t.feature?'<div class="bc-feat" title="'+esc(t.feature)+'"><span class="material-symbols-rounded ph-light ph-folders" style="font-size:12px"></span>'+esc(t.feature)+'</div>':'')+(t.issuetype&&t.issuetype!=='Task'?'<span class="badge '+(t.issuetype==='Bug'?'b-critical':(t.issuetype==='Sub-task'?'b-todo':'b-checking'))+'" style="font-size:10px;padding:1px 6px;margin-bottom:4px;display:inline-block">'+esc(t.issuetype)+'</span> ':'')+(t.parentKey?'<div class="bc-parent" title="'+esc(t.parentKey+(t.parentSummary?' · '+t.parentSummary:''))+'">↳ <a class="key" href="'+esc((window.__linearBase||'')+'/issue/'+encodeURIComponent(t.parentKey))+'" target="_blank">'+esc(t.parentKey)+'</a>'+(t.parentSummary?' · '+esc(t.parentSummary):'')+'</div>':'')+'<div class="bc-title">'+esc(t.summary)
+      +(t.feature?'<div class="bc-feat" title="'+esc(t.feature)+'"><span class="material-symbols-rounded ph-light ph-folders" style="font-size:12px"></span>'+esc(t.feature)+'</div>':'')+(t.issuetype&&t.issuetype!=='Task'?'<span class="badge '+(t.issuetype==='Bug'?'b-critical':(t.issuetype==='Sub-task'?'b-todo':'b-checking'))+'" style="font-size:10px;padding:1px 6px;margin-bottom:4px;display:inline-block">'+esc(t.issuetype)+'</span> ':'')+(t.parentKey?'<div class="bc-parent" title="'+esc(t.parentKey+(t.parentSummary?' · '+t.parentSummary:''))+'">↳ <a class="key" href="'+esc((window.__linearBase||'')+'/issue/'+encodeURIComponent(t.parentKey))+'" target="_blank">'+esc(t.parentKey)+'</a>'+(t.parentSummary?' · '+esc(t.parentSummary):'')+'</div>':'')+devReadyBadgeHTML(t)+'<div class="bc-title">'+esc(t.summary)
       +(t.hasNote?' <span class="note-ic material-symbols-rounded ph-light ph-note-pencil mi-xs" title="Có ghi chú riêng"></span>':'')+'</div>'
       +chipHTML(t)
       +'<div class="bc-foot"><span class="assignee"><span class="av '+esc(t.assignee.cls)+'">'+esc(t.assignee.init)+'</span> '+esc(t.assignee.name)+'</span>'
@@ -1294,6 +1388,8 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var out=[], s=new Date(sStr+'T00:00:00'), e=new Date(eStr+'T00:00:00');
     if(isNaN(s.getTime())||isNaN(e.getTime())||e<s) return out;
     for(var d=new Date(s); d<=e && out.length<45; d.setDate(d.getDate()+1)){
+      var dow=d.getDay();
+      if(dow===0||dow===6) continue;
       var y=d.getFullYear(), m=('0'+(d.getMonth()+1)).slice(-2), dd=('0'+d.getDate()).slice(-2);
       out.push(y+'-'+m+'-'+dd);
     }
@@ -1305,16 +1401,24 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var days=dateRange(sDate, eDate);
     if(!days.length){ box.style.display='none'; return; }
     box.style.display='';
-    var n=days.length, total=all.length;
     var isDoneFn=function(t){ return (t.cat||'')==='DONE'||(t.cat||'')==='CANCELLED'||/^(DONE|CANCEL|CLOSED|DUPLICATE)/i.test(t.jira||''); };
-    var doneNow=all.filter(isDoneFn).length;
+    var isBugQaStartedFn=function(t){
+      if(String(t.issuetype||'').toLowerCase()!=='bug') return true;
+      if(isDoneFn(t)) return true;
+      var st=(t.jira||'').trim().toLowerCase();
+      return /ready\s*to\s*test|\btesting\b/.test(st);
+    };
+    var items=all.filter(isBugQaStartedFn);
+    var excludedBugs=all.length-items.length;
+    var n=days.length, total=items.length;
+    var doneNow=items.filter(isDoneFn).length;
     var remNow=total-doneNow;
     var pct=total?Math.round(doneNow*100/total):0;
-    var eMs=new Date(eDate+'T00:00:00').getTime(), tMs=new Date(today+'T00:00:00').getTime();
-    var daysLeft=Math.max(0, Math.ceil((eMs-tMs)/86400000));
+    var daysLeft=days.filter(function(d){ return d>today; }).length;
     var dCls=daysLeft===0?'end':(daysLeft<=2?'warn':'');
-    var dTxt=daysLeft===0?'Hôm nay hết cycle':('Còn '+daysLeft+' ngày');
+    var dTxt=daysLeft===0?'Hôm nay hết cycle':('Còn '+daysLeft+' ngày làm việc');
 
+    var bdHint=excludedBugs?(' title="Bug chỉ tính từ Ready to Test trở đi (đã loại '+excludedBugs+' bug ở Triage/Todo/In Progress)"'):'';
     var head='<div class="bd-head">'
       +'<div class="bd-left">'
       +'<span class="bd-title"><span class="material-symbols-rounded ph-light ph-chart-line-down mi-sm"></span>'+esc(CYCLE.label||'Cycle')+' Burndown</span>'
@@ -1322,7 +1426,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
       +'<span class="bd-days '+dCls+'">'+esc(dTxt)+'</span>'
       +'</div>'
       +'<div class="bd-kpis">'
-      +'<span>Đã burndown: <b>'+doneNow+'/'+total+'</b> ('+pct+'%)</span>'
+      +'<span'+bdHint+'>Đã burndown: <b>'+doneNow+'/'+total+'</b> ('+pct+'%)</span>'
       +'<span>Còn lại: <b>'+remNow+'</b> task</span>'
       +'<button type="button" class="bd-toggle" id="bdToggleBtn">'+(bdCollapsed?'Hiện biểu đồ':'Thu gọn')+'</button>'
       +'</div></div>';
@@ -1334,17 +1438,23 @@ window.__smSetCustom=function(t, key, val, onChanged){
     var actualData = days.map(function(d){
       if(d>today) return null;
       var rem=0;
-      all.forEach(function(t){
+      items.forEach(function(t){
         if(!isDoneFn(t)){ rem++; return; }
         var dt=(t.doneAt||t.created||'').slice(0,10);
         if(!dt || dt>d) rem++;
       });
       return rem;
     });
-    var donePerDay = days.map(function(d){
+    var donePerDay = days.map(function(d, idx){
       if(d>today) return 0;
+      var prev = idx>0 ? days[idx-1] : '';
       var c=0;
-      all.forEach(function(t){ if(isDoneFn(t) && (t.doneAt||'').slice(0,10)===d) c++; });
+      items.forEach(function(t){
+        if(!isDoneFn(t)) return;
+        var dt=(t.doneAt||'').slice(0,10);
+        if(!dt) return;
+        if(idx===0 ? (dt>=sDate && dt<=d) : (dt>prev && dt<=d)) c++;
+      });
       return c;
     });
 
@@ -1479,6 +1589,22 @@ window.__smSetCustom=function(t, key, val, onChanged){
   }
 
   function renderBoard(){
+    buildStoryMap();
+    var rCntEl=$('kbReadyCnt');
+    if(rCntEl){
+      var readyN=TASKS.filter(function(t){
+        if(assigneeFilter && ((t.assignee&&t.assignee.name)||'Unassigned')!==assigneeFilter) return false;
+        if(typeFilter==='Bug' && (t.issuetype||'Task')!=='Bug') return false;
+        if(typeFilter==='QA' && ((t.issuetype||'Task')==='Bug' || !isQaRole(t))) return false;
+        if(featureFilter){
+          var f=(t.feature||'').trim();
+          if(featureFilter==='__none__'){ if(f) return false; }
+          else if(f!==featureFilter) return false;
+        }
+        return isReadyForQaTask(t);
+      }).length;
+      rCntEl.textContent=readyN?('('+readyN+')'):'';
+    }
     var all=visibleTasks();
     renderBurndown(all);
     if(!all.length){
@@ -1488,7 +1614,56 @@ window.__smSetCustom=function(t, key, val, onChanged){
         +'<div class="es-title">Không có task nào 🎉</div>'
         +'<div class="es-hint">Sạch việc rồi — nghỉ tay chút đi.</div>'
         +'</div>'; return; }
-    if(!groupByFeature){
+    if(groupByStory){
+      board.classList.add('board-grouped');
+      board.style.display='block';
+      var sMap={}, sList=[];
+      all.forEach(function(t){
+        var pk=(t.parentKey||'').trim()||'__no_parent__';
+        if(!sMap[pk]){ sMap[pk]=[]; sList.push(pk); }
+        sMap[pk].push(t);
+      });
+      sList.sort(function(a,b){
+        if(a==='__no_parent__') return 1;
+        if(b==='__no_parent__') return -1;
+        var sa=STORY_MAP[a]||{}, sb=STORY_MAP[b]||{};
+        var ra=(sa.devReady && (sa.qaPending||[]).length>0) ? 1 : 0;
+        var rb=(sb.devReady && (sb.qaPending||[]).length>0) ? 1 : 0;
+        if(rb!==ra) return rb-ra;
+        return sMap[b].length - sMap[a].length || a.localeCompare(b);
+      });
+      board.innerHTML = sList.map(function(pk){
+        var sl=sMap[pk];
+        if(pk==='__no_parent__'){
+          var doneN=sl.filter(isTaskDone).length;
+          return '<div class="kb-feat-sec">'
+            +'<div class="kb-feat-head">'
+            +'<span class="kb-feat-title"><span class="material-symbols-rounded ph-light ph-git-branch mi-sm"></span>(Không có Story / Parent)</span>'
+            +'<span class="kb-feat-meta">'+sl.length+' tasks · '+doneN+' Done</span>'
+            +'</div>'
+            +'<div class="board">'+renderColsHTML(sl)+'</div>'
+            +'</div>';
+        }
+        var st=STORY_MAP[pk]||{key:pk,summary:'',status:'',devTasks:[],devDone:0,qaTasks:[],qaDone:0,qaPending:[],bugs:0,openBugs:0,devReady:false};
+        var isReadyStory = st.devReady && st.qaPending.length>0;
+        var titleHtml='<a class="key" href="'+esc((window.__linearBase||'')+'/issue/'+encodeURIComponent(pk))+'" target="_blank">'+esc(pk)+'</a>'
+          +(st.summary?(' · '+esc(st.summary)):'')
+          +(st.status?(' <span class="badge '+jiraCls(st.status)+'" style="font-size:10.5px;padding:1px 7px">'+esc(st.status)+'</span>'):'')
+          +(isReadyStory?' <span class="kb-ready-pill">✓ Sẵn sàng test</span>':'');
+        var metaParts=[];
+        if(st.devTasks.length) metaParts.push('Dev: '+st.devDone+'/'+st.devTasks.length+' xong');
+        if(st.qaTasks.length)  metaParts.push('QA: '+st.qaDone+'/'+st.qaTasks.length+' xong');
+        if(st.bugs)            metaParts.push('🐛 '+st.bugs+' bug ('+st.openBugs+' mở)');
+        if(!metaParts.length)  metaParts.push(sl.length+' tasks');
+        return '<div class="kb-feat-sec">'
+          +'<div class="kb-feat-head'+(isReadyStory?' kb-story-ready':'')+'">'
+          +'<span class="kb-feat-title"><span class="material-symbols-rounded ph-light ph-git-branch mi-sm"></span>'+titleHtml+'</span>'
+          +'<span class="kb-feat-meta">'+metaParts.join(' · ')+'</span>'
+          +'</div>'
+          +'<div class="board">'+renderColsHTML(sl)+'</div>'
+          +'</div>';
+      }).join('');
+    } else if(!groupByFeature){
       board.classList.remove('board-grouped');
       board.style.display='';
       board.innerHTML = renderColsHTML(all);
@@ -3571,8 +3746,8 @@ window.__smSetCustom=function(t, key, val, onChanged){
   // 4 tab squad CỐ ĐỊNH (user chốt): mỗi tab = bug ĐANG trong active sprint của squad đó (MỌI
   // status). Tab cuối "backlog" = bug NGOÀI active sprint (future + backlog #107) & còn mở,
   // chia tiếp theo 4 squad bằng section header trong bảng. Thay hẳn lăng kính tháng cũ (#75).
-  var QA_TABS = ['all','Thuyết','Nhàn'];
-  function qaGroupOf(b){ var q=(b.qa||'').trim(); if(q==='Thuyết'||q==='Nhàn') return q; return 'other'; }
+  var QA_TABS = ['all','Thuyết','Nhàn','Thành'];
+  function qaGroupOf(b){ var q=(b.qa||'').trim(); if(q==='Thuyết'||q==='Nhàn'||q==='Thành') return q; return 'other'; }
   var SQUADS = QA_TABS;
   function squadRank(sq){ return 0; }
   function squadOf(b){ return (b.project||'').trim() || 'Khác'; }
@@ -3698,7 +3873,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
   function renderTabs(){
     populateTesters();
     populateBugFeatures();
-    var LABELS = { 'all':'Tất cả [Bug]', 'Thuyết':'QA Thuyết', 'Nhàn':'QA Nhàn', 'other':'QA Khác' };
+    var LABELS = { 'all':'Tất cả [Bug]', 'Thuyết':'QA Thuyết', 'Nhàn':'QA Nhàn', 'Thành':'QA Thành', 'other':'QA Khác' };
     var h = QA_TABS.filter(function(t){ return t!=='other' || tabCount('other')>0; }).map(function(t){
       return '<button class="bl-tab'+(tab===t?' active':'')+'" data-tab="'+esc(t)+'">'
         +'<span class="material-symbols-rounded ph-light '+(t==='all'?'ph-bug-beetle':'ph-user')+'"></span> '

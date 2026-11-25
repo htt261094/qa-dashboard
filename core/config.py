@@ -330,7 +330,11 @@ def canon_key(key):
 # thể typo của cột "Tester" (qa_pic) trong file bug Drive về 1 tên chuẩn:
 # NhungNH/NhungNH -> Nhung, ThoLT/TholT/ThoLt -> Thơ, Phuong -> Phương, ...
 # 'thanh' và 'tho' prefix khác nhau nên không xung đột; chỉ cần liệt kê đủ team.
-_TESTER_ALIASES = ()
+_TESTER_ALIASES = (
+    ('thuyet', 'Thuyết'),
+    ('nhan', 'Nhàn'),
+    ('thanh', 'Thành'),
+)
 
 
 def _ascii_key(s):
