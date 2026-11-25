@@ -177,17 +177,7 @@ def normalize_issue(node):
     if c_total is None:
         c_total = len(c_nodes)
     p = node.get('parent')
-    p_state = p.get('state') if p else None
-    parent_obj = {
-        'key': p.get('identifier', ''),
-        'fields': {
-            'summary': p.get('title', ''),
-            'status': {
-                'name': (p_state.get('name') or canon_state(p_state)).strip(),
-                'category': canon_state(p_state),
-            } if p_state else None,
-        },
-    } if p else None
+    parent_obj = {'key': p.get('identifier', ''), 'fields': {'summary': p.get('title', '')}} if p else None
     pr = node.get('project')
     project_obj = {'id': pr.get('id', ''), 'name': pr.get('name', ''), 'url': pr.get('url', '')} if pr else None
     subtasks = [
@@ -242,7 +232,7 @@ _ISSUE_FIELDS_GQL = """
   creator { id name displayName email }
   team { id key name }
   project { id name url }
-  parent { id identifier title state { name type } }
+  parent { id identifier title }
   children(first: 20) { nodes { id identifier title state { name type } } }
   labels { nodes { id name } }
   comments(first: 1) { nodes { id } }
@@ -592,7 +582,7 @@ def fetch_issue_detail(key):
         state { id name type }
         assignee { id name displayName email }
         project { id name url }
-        parent { id identifier title state { name type } }
+        parent { id identifier title }
         labels(first: 20) { nodes { name } }
         children(first: 20) {
           nodes {
