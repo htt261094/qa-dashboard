@@ -2132,14 +2132,8 @@ html[data-theme="dark"] .ant-up{color:#57d9a3}
 .kb-ctl:hover{border-color:var(--primary)}
 .kb-ctl:focus{border-color:var(--primary);box-shadow:0 0 0 2px var(--primary-tint,rgba(37,99,235,.15))}
 select.kb-ctl{max-width:260px}
-.kb-btn{background:var(--surface-low);white-space:nowrap;transition:all .15s ease}
-.kb-btn.active{border-color:var(--primary);background:var(--primary-container,rgba(37,99,235,.14));color:var(--primary);font-weight:600;box-shadow:0 0 0 1px var(--primary)}
 .bc-feat{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:6px;background:var(--surface-container);color:var(--on-surface-variant);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:4px}
 .bc-parent{font-size:11px;color:var(--on-surface-variant);margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.kb-feat-sec{margin-bottom:22px}
-.kb-feat-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;margin-bottom:10px;border-radius:10px;background:var(--surface-container);border:1px solid var(--outline-variant)}
-.kb-feat-title{display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:700;color:var(--on-surface)}
-.kb-feat-meta{font-size:12px;color:var(--on-surface-variant);font-weight:600}
 
 /* Cycle Burndown Card */
 .bd-card{padding:10px 16px;margin-bottom:14px}
@@ -2166,9 +2160,3 @@ select.kb-ctl{max-width:260px}
 .kb-pill.kb-all{padding:5px 12px}
 .kb-pill .av{width:22px;height:22px;font-size:11px;line-height:22px}
 .kb-cnt{font-size:11px;opacity:.75;font-weight:600}
-.kb-btn-ready.active{border-color:#22c55e;background:rgba(34,197,94,.14);color:#4ade80;box-shadow:0 0 0 1px #22c55e}
-.bc-dev-ready{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:6px;margin-bottom:5px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bc-dev-ready.ready{background:rgba(34,197,94,.15);color:#4ade80;border:1px solid rgba(34,197,94,.35)}
-.bc-dev-ready.wait{background:rgba(245,158,11,.12);color:#fbbf24;border:1px solid rgba(245,158,11,.28)}
-.kb-feat-head.kb-story-ready{border-color:rgba(34,197,94,.45);background:rgba(34,197,94,.07)}
-.kb-ready-pill{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:rgba(34,197,94,.18);color:#4ade80;border:1px solid rgba(34,197,94,.38);white-space:nowrap}
