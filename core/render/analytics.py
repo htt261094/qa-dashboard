@@ -199,8 +199,14 @@ def render_analytics_v2(data, user=None, activities=None, backlog=None):
 
 
 def _sev_legend_html():
-    """Chú thích màu severity cho header chart. Màu khớp SEV_COLOR (JS) — xem Decision #104."""
-    items = [('High', '#ff5630'), ('Medium', '#ffab00'), ('Low', '#36b37e')]
+    """Chú thích màu severity cho header chart. Màu khớp SEV_COLOR (JS)."""
+    items = [
+        ('sev:blocker', '#e5484d'),
+        ('sev:critical', '#f08232'),
+        ('sev:major', '#d9a404'),
+        ('sev:minor', '#2eb872'),
+        ('sev:cosmetic', '#8b949e'),
+    ]
     out = ''
     for lbl, col in items:
         out += (f'<span class="an-sev-li"><span class="an-sev-sw" style="background:{col}"></span>{lbl}</span>')

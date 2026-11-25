@@ -7,11 +7,11 @@ from linear_api import gql
 
 
 _SEV_MAP = {
-    'sev:blocker': 'Blocker',
-    'sev:critical': 'Critical',
-    'sev:major': 'High',
-    'sev:minor': 'Medium',
-    'sev:cosmetic': 'Low',
+    'sev:blocker': 'sev:blocker',
+    'sev:critical': 'sev:critical',
+    'sev:major': 'sev:major',
+    'sev:minor': 'sev:minor',
+    'sev:cosmetic': 'sev:cosmetic',
 }
 
 
