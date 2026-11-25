@@ -1,4 +1,4 @@
-"""Nguồn Bug Log từ Linear (prefix [Bug], bỏ team VC, chia theo QA Thuyết & Nhàn)."""
+"""Nguồn Bug Log từ Linear (prefix [Bug], bỏ team VC, chia theo QA Thuyết, Nhàn & Thành)."""
 from config import (
     BUG_LOG_LINEAR_ENABLED, LINEAR_TEAM_KEYS, LINEAR_EXCLUDED_TEAMS,
     normalize_tracked_dev,
@@ -41,16 +41,21 @@ def _sprint_state(cycle):
     return 'future'
 
 
+_TRACKED_QA = ('Thuyết', 'Nhàn', 'Thành')
+
+
 def _qa_person(labels, creator):
-    """Map QA owner to 'Thuyết' or 'Nhàn' (from qa:* label or creator), else creator displayName."""
+    """Map QA owner to 'Thuyết', 'Nhàn' or 'Thành' (from qa:* label or creator), else creator displayName."""
     for lb in labels:
         low = lb.lower()
         if low.startswith('qa:'):
             who = low.split(':', 1)[1].strip()
-            if 'thuyet' in who:
+            if 'thuyet' in who or 'thuyết' in who:
                 return 'Thuyết'
-            if 'nhan' in who:
+            if 'nhan' in who or 'nhàn' in who:
                 return 'Nhàn'
+            if 'thanh' in who or 'thành' in who:
+                return 'Thành'
             return lb.split(':', 1)[1].strip()
     cr = creator or {}
     raw = ' '.join([
@@ -58,10 +63,12 @@ def _qa_person(labels, creator):
         (cr.get('name') or ''),
         (cr.get('email') or ''),
     ]).lower()
-    if 'thuyet' in raw:
+    if 'thuyet' in raw or 'thuyết' in raw:
         return 'Thuyết'
-    if 'nhan' in raw:
+    if 'nhan' in raw or 'nhàn' in raw:
         return 'Nhàn'
+    if 'thanh' in raw or 'thành' in raw:
+        return 'Thành'
     return (cr.get('displayName') or cr.get('name') or '').strip()
 
 
@@ -188,7 +195,7 @@ def scan_source(src):
                 if not (title.startswith('[bug]') or 'bug' in lbls):
                     continue
                 b = _issue_to_bug(n)
-                if b['qa_pic'] not in ('Thuyết', 'Nhàn') or not b['dev_pic']:
+                if b['qa_pic'] not in _TRACKED_QA or not b['dev_pic']:
                     continue
                 bugs.append(b)
             pi = conn.get('pageInfo') or {}

@@ -3746,8 +3746,8 @@ window.__smSetCustom=function(t, key, val, onChanged){
   // 4 tab squad CỐ ĐỊNH (user chốt): mỗi tab = bug ĐANG trong active sprint của squad đó (MỌI
   // status). Tab cuối "backlog" = bug NGOÀI active sprint (future + backlog #107) & còn mở,
   // chia tiếp theo 4 squad bằng section header trong bảng. Thay hẳn lăng kính tháng cũ (#75).
-  var QA_TABS = ['all','Thuyết','Nhàn'];
-  function qaGroupOf(b){ var q=(b.qa||'').trim(); if(q==='Thuyết'||q==='Nhàn') return q; return 'other'; }
+  var QA_TABS = ['all','Thuyết','Nhàn','Thành'];
+  function qaGroupOf(b){ var q=(b.qa||'').trim(); if(q==='Thuyết'||q==='Nhàn'||q==='Thành') return q; return 'other'; }
   var SQUADS = QA_TABS;
   function squadRank(sq){ return 0; }
   function squadOf(b){ return (b.project||'').trim() || 'Khác'; }
@@ -3873,7 +3873,7 @@ window.__smSetCustom=function(t, key, val, onChanged){
   function renderTabs(){
     populateTesters();
     populateBugFeatures();
-    var LABELS = { 'all':'Tất cả [Bug]', 'Thuyết':'QA Thuyết', 'Nhàn':'QA Nhàn', 'other':'QA Khác' };
+    var LABELS = { 'all':'Tất cả [Bug]', 'Thuyết':'QA Thuyết', 'Nhàn':'QA Nhàn', 'Thành':'QA Thành', 'other':'QA Khác' };
     var h = QA_TABS.filter(function(t){ return t!=='other' || tabCount('other')>0; }).map(function(t){
       return '<button class="bl-tab'+(tab===t?' active':'')+'" data-tab="'+esc(t)+'">'
         +'<span class="material-symbols-rounded ph-light '+(t==='all'?'ph-bug-beetle':'ph-user')+'"></span> '
