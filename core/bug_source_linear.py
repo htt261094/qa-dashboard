@@ -15,6 +15,47 @@ _SEV_MAP = {
 }
 
 
+_QA_OR_DONE_STATES = frozenset({
+    'ready to test', 'testing', 'in testing',
+    'ready to deploy', 'in review', 'done',
+    '[rnd] review', '[rnd] ready to deploy', '[rnd] go live',
+})
+_DEV_RETURN_STATES = frozenset({
+    'todo', 'to do', 'in progress', 'backlog', 'triage',
+})
+
+
+def _is_qa_or_done(state):
+    if not state:
+        return False
+    stype = (state.get('type') or '').lower()
+    sname = (state.get('name') or '').strip().lower()
+    return stype == 'completed' or sname in _QA_OR_DONE_STATES
+
+
+def _is_dev_return(state):
+    if not state:
+        return False
+    sname = (state.get('name') or '').strip().lower()
+    return 'reopen' in sname or sname in _DEV_RETURN_STATES
+
+
+def _reopen_count(issue):
+    """Đếm số lần reopen từ Linear issue history: chuyển từ nhóm QA/Done ngược về nhóm Dev (hoặc state 'Reopen')."""
+    nodes = ((issue.get('history') or {}).get('nodes') or [])
+    n = 0
+    for h in nodes:
+        fs = h.get('fromState')
+        ts = h.get('toState')
+        if not fs or not ts:
+            continue
+        if (fs.get('name') or '').strip().lower() == (ts.get('name') or '').strip().lower():
+            continue
+        if _is_qa_or_done(fs) and _is_dev_return(ts):
+            n += 1
+    return n
+
+
 def _bug_lifecycle(state):
     if not state:
         return 'New'
@@ -82,7 +123,6 @@ def _issue_to_bug(n):
     caused_by = ''
     has_bug_label = False
     has_caused_by = False
-    reopen_count = 0
     for lb in labels:
         low = lb.lower()
         if low == 'bug':
@@ -92,8 +132,7 @@ def _issue_to_bug(n):
         elif low.startswith('caused-by:'):
             has_caused_by = True
             caused_by = lb.split(':', 1)[1].strip()
-        elif low == 'reopen' or low.startswith('reopen:'):
-            reopen_count += 1
+    reopen_count = _reopen_count(n)
 
     qa_pic = _qa_person(labels, n.get('creator'))
     asg = n.get('assignee') or {}
@@ -175,6 +214,7 @@ def scan_source(src):
           parent { identifier }
           cycle { number name startsAt endsAt completedAt }
           labels(first: 20) { nodes { name } }
+          history(first: 50) { nodes { fromState { name type } toState { name type } } }
         }
       }
     }
