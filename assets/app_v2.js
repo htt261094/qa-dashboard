@@ -3507,7 +3507,6 @@ window.__smSetCustom=function(t, key, val, onChanged){
   var testerFilter = '';   // lọc bảng theo tester (qa_pic); '' = tất cả
   var devFilter = '';      // lọc bảng theo dev in charge (dev_pic); '' = tất cả
   var sevFilter = '';      // lọc theo severity Jira: ''=tất cả, blocker/critical/high/medium/low/none
-  var featFilter = '';     // lọc bảng theo Feature / Project; '' = tất cả
   // ===== TAB = squad / backlog (Decision #108) =====
   // 4 tab squad CỐ ĐỊNH (user chốt): mỗi tab = bug ĐANG trong active sprint của squad đó (MỌI
   // status). Tab cuối "backlog" = bug NGOÀI active sprint (future + backlog #107) & còn mở,
@@ -3569,11 +3568,6 @@ window.__smSetCustom=function(t, key, val, onChanged){
       if(devFilter==='__none__'){ if((b.dev||'').trim()) return false; }
       else if((b.dev||'')!==devFilter) return false;
     }
-    if(featFilter){
-      var f=(b.feature||'').trim();
-      if(featFilter==='__none__'){ if(f) return false; }
-      else if(f!==featFilter) return false;
-    }
     if(sevFilter && sevOf(b)!==sevFilter) return false;   // 'none' = chưa phân loại (#104)
     return true;
   }
@@ -3614,31 +3608,11 @@ window.__smSetCustom=function(t, key, val, onChanged){
     sel0.innerHTML='<option value="">Tất cả dev</option>'+noneOpt+list.map(function(d){
       return '<option value="'+esc(d)+'"'+(d===devFilter?' selected':'')+'>'+esc(d)+'</option>'; }).join('');
   }
-  function populateBugFeatures(){
-    var sel=$('blFeatFilter'); if(!sel) return;
-    var tot={}, open={}, hasNone=false, noneTot=0, noneOpen=0;
-    scopeBugs().forEach(function(b){
-      var f=(b.feature||'').trim();
-      var isO=(b.status!=='Closed' && b.status!=='Rejected');
-      if(f){
-        tot[f]=(tot[f]||0)+1;
-        if(isO) open[f]=(open[f]||0)+1;
-      } else { hasNone=true; noneTot++; if(isO) noneOpen++; }
-    });
-    var list=Object.keys(tot).sort(function(a,b){ return (open[b]||0)-(open[a]||0) || tot[b]-tot[a] || a.localeCompare(b); });
-    if(featFilter && featFilter!=='__none__' && !tot[featFilter]) featFilter='';
-    if(featFilter==='__none__' && !hasNone) featFilter='';
-    var noneOpt=hasNone?('<option value="__none__"'+(featFilter==='__none__'?' selected':'')+'>(Chưa gắn Feature) ('+noneOpen+' mở / '+noneTot+')</option>'):'';
-    sel.innerHTML='<option value="">Tất cả Feature</option>'+list.map(function(f){
-      return '<option value="'+esc(f)+'"'+(f===featFilter?' selected':'')+'>'+esc(f)+' ('+(open[f]||0)+' mở / '+tot[f]+')</option>';
-    }).join('')+noneOpt;
-  }
 
   // số bug mỗi tab (đã áp filter -> badge khớp bảng)
   function tabCount(t){ return activeBugs(t).length; }
   function renderTabs(){
     populateTesters();
-    populateBugFeatures();
     var LABELS = { 'all':'Tất cả [Bug]', 'Thuyết':'QA Thuyết', 'Nhàn':'QA Nhàn', 'Thành':'QA Thành', 'other':'QA Khác' };
     var h = QA_TABS.filter(function(t){ return t!=='other' || tabCount('other')>0; }).map(function(t){
       return '<button class="bl-tab'+(tab===t?' active':'')+'" data-tab="'+esc(t)+'">'
@@ -3745,8 +3719,6 @@ window.__smSetCustom=function(t, key, val, onChanged){
   // ----- events: lọc theo severity -----
   (function(){ var sf=$('blSevFilter'); if(!sf) return;
     sf.addEventListener('change', function(){ sevFilter=sf.value||''; page=1; renderTabs(); render(); }); })();
-  (function(){ var ff=$('blFeatFilter'); if(!ff) return;
-    ff.addEventListener('change', function(){ featFilter=ff.value||''; page=1; renderTabs(); render(); }); })();
   // ----- export bảng ĐANG XEM ra .xlsx (tab squad/backlog + filter hiện tại) -----
   function exportExcel(){
     var list=visibleBugs();   // toàn bộ bug tab đang xem (squad/backlog) + tester/dev/sev filter

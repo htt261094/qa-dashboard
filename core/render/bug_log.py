@@ -102,9 +102,6 @@ def render_bug_log_v2(data, user=None, activities=None, sources=None, pending=No
         '</div>'
         # Lọc theo Severity — ĐÚNG 5 mức field Jira (#104) + "chưa phân loại" (field trống/lạ),
         # option cố định (thang là hằng số field Jira, không build từ data).
-        '<div class="bl-filter" id="blFeatWrap">'
-        '<span class="material-symbols-rounded ph-light ph-folders mi-sm"></span>'
-        '<select class="bl-sel" id="blFeatFilter"><option value="">Tất cả Feature</option></select></div>'
         '<div class="bl-filter" id="blSevWrap">'
         '<span class="material-symbols-rounded ph-light ph-gauge mi-sm"></span>'
         '<select id="blSevFilter">'
