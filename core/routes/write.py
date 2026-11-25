@@ -3,9 +3,8 @@
 Tách từ qa_dashboard.py (issue #86 / B2). Zero behavior change: chỉ di chuyển định
 nghĩa method, không đổi logic/route/output.
 
-Gom các route ghi (Decision #20/#21/#113):
+Gom các route ghi (Decision #20/#21):
 - `_handle_jira_write` — /jira-transitions · /do-transition · /add-comment (PAT cá nhân)
-- `_handle_create_issue` — /create-issue (tạo task createmeta-động, Decision #113)
 - `_post_set_custom_status` — /set-custom-status (nhãn nội bộ, không cần PAT)
 - `_post_set_note` — /set-note (ghi chú riêng theo task, Decision #101)
 
@@ -16,19 +15,13 @@ Layer rule: KHÔNG import qa_dashboard (tránh vòng import).
 """
 import re
 import json
-from urllib.parse import urlparse, parse_qs
 
-from config import LINEAR_BASE_URL
 from pat_store import load_user_pat
 from custom_status import set_custom_status, is_valid
 from task_notes import set_note
 from status_overlay import record as record_status
 from linear_write import (get_transitions, do_transition, get_issue_status, add_comment,
-                          can_edit_duedate, set_duedate, get_editmeta_fields, update_issue,
-                          list_projects, create_issuetypes, create_fields, create_issue)
-
-_KEY_RE = re.compile(r'^[A-Za-z][A-Za-z0-9]*-\d+$')
-_PROJ_RE = re.compile(r'^[A-Za-z][A-Za-z0-9]*$')
+                          can_edit_duedate, set_duedate, get_editmeta_fields, update_issue)
 
 
 class WriteMixin:
@@ -126,82 +119,6 @@ class WriteMixin:
                     return
                 ok, msg = add_comment(key, body[:5000], pat)
                 self._reply_json(ok, {'ok': ok, 'msg': msg})
-        except (ValueError, json.JSONDecodeError, OSError):
-            self._reply_json(False, {'ok': False, 'msg': 'Lỗi xử lý yêu cầu.'})
-
-    # ===== Tạo task độc lập — createmeta-động (Decision #113) =====
-    def _create_pat_or_fail(self):
-        """Load PAT cá nhân, trả pat hoặc None (đã tự reply lỗi no_pat)."""
-        pat = load_user_pat(self._user_email())
-        if not pat:
-            self._reply_json(False, {'ok': False, 'code': 'no_pat',
-                'msg': 'Bạn chưa cấu hình Linear API key. Vào ⚙ Cài đặt để thêm, rồi thử lại.'})
-            return None
-        return pat
-
-    def _get_create_projects(self):
-        # Dropdown chọn dự án khi tạo task (PAT cá nhân -> đúng project user tạo được).
-        pat = self._create_pat_or_fail()
-        if not pat:
-            return
-        q = (parse_qs(urlparse(self.path).query).get('q') or [''])[0]
-        ok, res = list_projects(q, pat)
-        self._reply_json(ok, {'ok': True, 'results': res} if ok else {'ok': False, 'msg': res})
-
-    def _get_create_issuetypes(self):
-        # Issue type user được tạo trong 1 project (createmeta).
-        pat = self._create_pat_or_fail()
-        if not pat:
-            return
-        proj = (parse_qs(urlparse(self.path).query).get('project') or [''])[0].strip()
-        if not _PROJ_RE.match(proj):
-            self._reply_json(False, {'ok': False, 'msg': 'Project không hợp lệ.'})
-            return
-        ok, res = create_issuetypes(proj, pat)
-        self._reply_json(ok, {'ok': True, 'results': res} if ok else {'ok': False, 'msg': res})
-
-    def _get_create_fields(self):
-        # Field động của (project, issuetype) — FE render widget theo required + schema.
-        pat = self._create_pat_or_fail()
-        if not pat:
-            return
-        qs = parse_qs(urlparse(self.path).query)
-        proj = (qs.get('project') or [''])[0].strip()
-        type_id = (qs.get('type') or [''])[0].strip()
-        if not _PROJ_RE.match(proj) or not type_id.isdigit():
-            self._reply_json(False, {'ok': False, 'msg': 'Tham số không hợp lệ.'})
-            return
-        ok, res = create_fields(proj, type_id, pat)
-        self._reply_json(ok, {'ok': True, 'fields': res} if ok else {'ok': False, 'msg': res})
-
-    def _handle_create_issue(self):
-        """Tạo 1 issue bất kỳ (project + issuetype + field động), NHÂN DANH chủ PAT."""
-        pat = self._create_pat_or_fail()
-        if not pat:
-            return
-        try:
-            payload = self._read_json_body(80_000)
-            if not isinstance(payload, dict):
-                self._reply_json(False, {'ok': False, 'msg': 'Dữ liệu không hợp lệ.'})
-                return
-            proj = (payload.get('project') or '').strip()
-            type_id = str(payload.get('type') or '').strip()
-            if not _PROJ_RE.match(proj) or not type_id:
-                self._reply_json(False, {'ok': False, 'msg': 'Thiếu team hoặc loại issue hợp lệ.'})
-                return
-            parent = (payload.get('parent') or '').strip()
-            if parent and not _KEY_RE.match(parent):
-                self._reply_json(False, {'ok': False, 'msg': 'Task cha không hợp lệ.'})
-                return
-            raw = payload.get('fields')
-            if not isinstance(raw, dict):
-                raw = {}
-            ok, res = create_issue(proj, type_id, raw, parent or None, pat)
-            if ok:
-                self._reply_json(True, {'ok': True, 'key': res,
-                    'url': f'{LINEAR_BASE_URL}/issue/{res}', 'msg': f'Đã tạo {res} ✓'})
-            else:
-                self._reply_json(False, {'ok': False, 'msg': res})
         except (ValueError, json.JSONDecodeError, OSError):
             self._reply_json(False, {'ok': False, 'msg': 'Lỗi xử lý yêu cầu.'})
 

@@ -106,8 +106,6 @@ def render_topbar_v2():
         '<div class="search"><span class="si material-symbols-rounded ph-light ph-magnifying-glass mi-sm"></span>'
         '<input type="text" id="searchInp" placeholder="Tìm task, kế hoạch...  (Ctrl+K mở bảng lệnh)"></div>'
         '<div class="top-right">'
-        '<button class="topcreate" id="createIssueBtn" title="Tạo task mới trên Jira (chọn dự án + loại task)">'
-        '<span class="material-symbols-rounded ph-light ph-plus mi-sm"></span> Tạo task</button>'
         '<button class="iconbtn" id="bellBtn" title="Thông báo">'
         '<span class="material-symbols-rounded ph-light ph-bell mi-lg"></span>'
         '<span class="badge-dot" id="bellDot" style="display:none">0</span></button>'
@@ -157,47 +155,6 @@ def _settings_modal_v2(user=None):
         '<button type="button" class="btn btn-ghost" id="setCancel">Huỷ</button>'
         '<button type="button" class="btn btn-primary" id="patSaveBtn">Lưu</button>'
         '</div></div></div>'
-    )
-
-
-def _create_issue_modal_v2():
-    """Modal 'Tạo task' createmeta-động (Decision #113) — giống dialog Create của Jira.
-    Chọn Dự án -> Loại task -> form field RENDER THEO createmeta của (project, issuetype):
-    field bắt buộc + schema do Jira trả, JS dựng widget tương ứng (app_v2.js). Task cha
-    optional (bắt buộc khi loại là sub-task). Tạo bằng API token cá nhân (reporter = chính chủ)."""
-    return (
-        '<div class="overlay" id="ciOverlay"><div class="modal modal-wide">'
-        '<div class="modal-head"><span class="material-symbols-rounded ph-light ph-plus-circle"></span>'
-        '<h3>Tạo task</h3>'
-        '<button type="button" class="x material-symbols-rounded ph-light ph-x" id="ciClose"></button></div>'
-        '<div class="modal-body">'
-        '<div class="mfield row2">'
-        '<div><label>Dự án *</label>'
-        '<div class="typeahead" id="ciProjTA">'
-        '<input type="text" id="ciProjInp" placeholder="Gõ tên hoặc mã dự án…" autocomplete="off" spellcheck="false">'
-        '<div class="ta-results" id="ciProjRes"></div></div>'
-        '<div class="ta-chip" id="ciProjChip" style="display:none"></div></div>'
-        '<div><label>Loại task *</label>'
-        '<select id="ciType" disabled><option value="">— Chọn dự án trước —</option></select></div>'
-        '</div>'
-        '<div class="mfield" id="ciParentWrap" style="display:none">'
-        '<label id="ciParentLbl">Task cha <small class="mhint">(sub-task)</small></label>'
-        '<div class="typeahead" id="ciParentTA">'
-        '<input type="text" id="ciParentInp" placeholder="Gõ key hoặc tên task cha…" autocomplete="off" spellcheck="false">'
-        '<div class="ta-results" id="ciParentRes"></div></div>'
-        '<div class="ta-chip" id="ciParentChip" style="display:none"></div></div>'
-        '<div id="ciFields"></div>'
-        '<div class="ci-hint" id="ciHint">Chọn dự án và loại task để hiện các trường cần nhập.</div>'
-        '</div>'
-        '<div class="modal-foot">'
-        '<button type="button" class="btn btn-ghost" id="ciCancel">Huỷ</button>'
-        '<button type="button" class="btn btn-primary" id="ciCreate" disabled>Tạo task</button>'
-        '</div></div></div>'
-        # Template 1 user-chip cho field user (JS clone)
-        '<template id="ciUserChipTpl">'
-        '<span class="ci-uchip"><span class="ci-uchip-t"></span>'
-        '<button type="button" class="ci-uchip-x material-symbols-rounded ph-light ph-x mi-sm"></button></span>'
-        '</template>'
     )
 
 
@@ -255,7 +212,6 @@ def _document_v2(content_inner, active, user, activities, title='QA Suite',
 <div class="main">{render_topbar_v2()}
 <div class="content">{banner}{content_inner}</div></div></div>
 {_settings_modal_v2(user)}
-{_create_issue_modal_v2()}
 {_palette_modal_v2()}
 <div class="drawer-ov" id="drawerOv"></div><aside class="drawer" id="drawer"></aside>
 <div class="smenu" id="smenu"></div>

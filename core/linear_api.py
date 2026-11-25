@@ -670,45 +670,6 @@ def fetch_issue_detail(key):
     }
 
 
-def search_parent_tasks(query_str, limit=20):
-    q = (query_str or '').strip()
-    if not q:
-        flt = _base_filter({'state': {'type': {'in': ['triage', 'backlog', 'unstarted', 'started']}}})
-        query = """
-        query RecentParents($first: Int!, $filter: IssueFilter) {
-          issues(first: $first, orderBy: updatedAt, filter: $filter) {
-            nodes { identifier title team { key name } }
-          }
-        }
-        """
-        data = gql(query, {'first': limit, 'filter': flt})
-        nodes = ((data.get('issues') or {}).get('nodes') or [])
-    else:
-        query = """
-        query SearchParents($term: String!, $first: Int!) {
-          searchIssues(term: $term, first: $first) {
-            nodes { identifier title team { key name } }
-          }
-        }
-        """
-        data = gql(query, {'term': q, 'first': limit})
-        nodes = ((data.get('searchIssues') or {}).get('nodes') or [])
-    return [
-        {
-            'key': n.get('identifier', ''),
-            'summary': n.get('title', ''),
-            'project': (n.get('team') or {}).get('key', ''),
-            'type': 'Task',
-        }
-        for n in nodes
-        if (n.get('team') or {}).get('key', '').upper() not in LINEAR_EXCLUDED_TEAMS
-    ]
-
-
-def search_parent_ptsp(query_str, limit=20):
-    return search_parent_tasks(query_str, limit=limit)
-
-
 def search_qa_tasks(query_str, limit=20):
     return global_search(query_str, limit=limit)
 
